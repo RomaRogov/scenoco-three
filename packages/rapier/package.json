@@ -1,0 +1,35 @@
+{
+  "name": "@scenoco-three/rapier",
+  "version": "0.1.0",
+  "description": "Rapier physics for SceNoCo: <Physics> setting + RigidBody/Collider components on the EngineSystem seam",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": ["three", "threejs", "physics", "rapier", "scene", "components", "gamedev"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "//sideEffects": "Importing the package registers its @component/@setting tags (decorator side effects), so it must not be tree-shaken away when imported for registration.",
+  "sideEffects": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^0.1.0",
+    "@dimforge/rapier3d-compat": "^0.19.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  }
+}

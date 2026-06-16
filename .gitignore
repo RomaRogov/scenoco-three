@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+package_lock.json
+
+# Build output / artifacts
+dist/
+demo/
+schema/
+*.log
+
+# OS / editor
+.DS_Store
+
+# Tooling caches & local config (not published)
+.claude/
+.scenoco/
+.playwright-mcp/
+
+# Design & planning docs (kept locally, not published)
+ARCHITECTURE.md
+CHANGELOG.md
+docs/
+agentic/

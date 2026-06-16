@@ -1,0 +1,42 @@
+{
+  "name": "@scenoco-three/core",
+  "version": "0.1.0",
+  "description": "SceNoCo runtime: a component-based scene framework for Three.js (Engine, Component, registry, bundle loader)",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["three", "threejs", "scene", "components", "ecs", "gamedev", "engine"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
+    },
+    "./nodes": {
+      "types": "./dist/nodes/index.d.ts",
+      "import": "./dist/nodes/index.js"
+    },
+    "./nodes/*": "./dist/nodes/*"
+  },
+  "files": [
+    "dist"
+  ],
+  "//sideEffects": "Only the built-in node modules self-register on import; everything else is pure, so bundlers can tree-shake unused node tags (and their three classes) when scenes import only the ones they use.",
+  "sideEffects": [
+    "./dist/nodes/**"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  }
+}

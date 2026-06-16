@@ -1,0 +1,7 @@
+{
+  "name": "@scenoco-three/games",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "SceNoCo game demos — Breakout and beyond"
+}

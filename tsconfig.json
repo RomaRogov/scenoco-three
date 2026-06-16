@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@scenoco-three/core": ["./packages/core/src/index.ts"],
+      "@scenoco-three/core/internal": ["./packages/core/src/internal.ts"],
+      "@scenoco-three/core/nodes": ["./packages/core/src/nodes/index.ts"],
+      "@scenoco-three/core/nodes/*": ["./packages/core/src/nodes/*"],
+      "@scenoco-three/compiler": ["./packages/compiler/src/index.ts"],
+      "@scenoco-three/vite": ["./packages/vite/src/index.ts"],
+      "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"]
+    }
+  },
+  "include": [
+    "tests",
+    "playground",
+    "packages",
+    "games",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
+}

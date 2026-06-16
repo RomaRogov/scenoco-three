@@ -1,0 +1,35 @@
+{
+  "name": "@scenoco-three/box2d",
+  "version": "0.1.0",
+  "description": "Box2D (planck) 2D physics for SceNoCo: <Physics2D> setting + RigidBody2D/Collider2D components on the System seam",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": ["three", "threejs", "physics", "2d", "box2d", "planck", "scene", "components", "gamedev"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "//sideEffects": "Importing the package registers its @component/@attachment tags (decorator side effects), so it must not be tree-shaken away when imported for registration.",
+  "sideEffects": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^0.1.0",
+    "planck": "^1.5.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  }
+}

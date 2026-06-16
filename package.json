@@ -1,0 +1,44 @@
+{
+  "name": "scenoco-workspace",
+  "private": true,
+  "version": "0.0.1",
+  "description": "SceNoCo workspace (core + compiler + vite packages)",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "games"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "games:dev": "vite --config games/vite.config.ts",
+    "games:build": "vite build --config games/vite.config.ts",
+    "build": "npm run build:core && npm run build:compiler && npm run build:vite && npm run build:rapier && npm run build:box2d",
+    "build:core": "npm --prefix packages/core run build",
+    "build:compiler": "npm --prefix packages/compiler run build",
+    "build:vite": "npm --prefix packages/vite run build",
+    "build:rapier": "npm --prefix packages/rapier run build",
+    "build:box2d": "npm --prefix packages/box2d run build",
+    "build:demo": "npm run build && vite build",
+    "export": "npm run build:compiler && node packages/compiler/dist/cli/index.js export --out schema --components playground/components",
+    "typecheck": "npm run typecheck:core && npm run typecheck:compiler && npm run typecheck:vite && npm run typecheck:rapier && npm run typecheck:box2d && tsc --noEmit -p tsconfig.json",
+    "typecheck:core": "npm --prefix packages/core run typecheck",
+    "typecheck:compiler": "npm --prefix packages/compiler run typecheck",
+    "typecheck:vite": "npm --prefix packages/vite run typecheck",
+    "typecheck:rapier": "npm --prefix packages/rapier run typecheck",
+    "typecheck:box2d": "npm --prefix packages/box2d run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@types/three": "^0.184.1",
+    "three": "^0.184.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-arm64-gnu": "^1.1.1"
+  }
+}

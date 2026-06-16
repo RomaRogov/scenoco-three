@@ -1,0 +1,14 @@
+<Prefab>
+  <!--
+    A single Breakout brick. Composer-authored, validated, declarative — its
+    geometry, material, and data all live here, not in TypeScript. A GridLayout
+    stamps this prefab into the brick wall at build/spawn time.
+  -->
+  <Mesh>
+    <BoxGeometry width="1.2" height="0.4" depth="0.5" />
+    <MeshStandardMaterial color="#e9c46a" emissive="#3a2f10" roughness="0.5" metalness="0.1" />
+    <Components>
+      <Brick points="10" halfWidth="0.6" halfHeight="0.2" />
+    </Components>
+  </Mesh>
+</Prefab>
