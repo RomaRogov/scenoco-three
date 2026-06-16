@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package_lock.json
+package-lock.json
 
 # Build output / artifacts
 dist/

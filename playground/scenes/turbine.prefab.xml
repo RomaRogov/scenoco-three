@@ -1,0 +1,14 @@
+<Prefab>
+  <!-- A Group root holds the animated body, so an instance can be positioned
+       freely (the Oscillator animates the body within the group). -->
+  <Group id="root">
+    <Mesh id="body">
+      <CylinderGeometry radiusTop="0.4" radiusBottom="0.4" height="2" radialSegments="24" />
+      <MeshStandardMaterial src="steel.material.xml" />
+      <Components>
+        <Rotator speed="2" />
+        <Oscillator id="osc" axis="0 1 0" amplitude="0.5" frequency="0.5" />
+      </Components>
+    </Mesh>
+  </Group>
+</Prefab>
