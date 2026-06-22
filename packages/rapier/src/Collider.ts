@@ -1,5 +1,14 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property } from '@scenoco-three/core';
+
+/** Collision shape — `auto` reads the host mesh geometry. */
+export const ColliderShape = enumOf('ColliderShape', {
+  auto: 'auto',
+  box: 'box',
+  sphere: 'sphere',
+  capsule: 'capsule',
+  cylinder: 'cylinder',
+});
 
 /**
  * A collision shape on the node. The `PhysicsSystem` attaches it to the node's
@@ -9,7 +18,7 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'Collider', description: 'A Rapier collision shape; the PhysicsSystem attaches it to the node’s RigidBody' })
 export class Collider extends Component {
-  @property({ type: 'string', default: 'auto', description: 'auto | box | sphere | capsule | cylinder' })
+  @property({ type: ColliderShape, default: 'auto', description: 'Collision shape (auto reads the mesh geometry)' })
   shape = 'auto';
   @property({ type: 'vec3', default: [0.5, 0.5, 0.5], description: 'Box half-extents (shape="box")' })
   halfExtents = [0.5, 0.5, 0.5];

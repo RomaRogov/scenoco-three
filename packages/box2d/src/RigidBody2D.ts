@@ -1,5 +1,8 @@
 import type { Body } from 'planck';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property } from '@scenoco-three/core';
+
+/** How a 2D body moves — the value is the planck body-type string. */
+export const RigidBody2DKind = enumOf('RigidBody2DKind', { dynamic: 'dynamic', static: 'static', kinematic: 'kinematic' });
 
 /**
  * Marks the host node as a Box2D (planck) 2D rigid body — plain data the
@@ -14,7 +17,7 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'RigidBody2D', description: 'A 2D physics body (planck/Box2D); pair with <Collider2D>. Needs a <Physics2D> scene.' })
 export class RigidBody2D extends Component {
-  @property({ type: 'string', default: 'dynamic', description: 'dynamic | static | kinematic' })
+  @property({ type: RigidBody2DKind, default: 'dynamic', description: 'How the body moves' })
   kind = 'dynamic';
 
   @property({ type: 'float', default: 0 }) linearDamping = 0;
@@ -46,5 +49,12 @@ export class RigidBody2D extends Component {
   getVelocity(): [number, number] {
     const v = this.body?.getLinearVelocity();
     return v ? [v.x, v.y] : [0, 0];
+  }
+
+  /** Teleport the body to a world position (XY), waking it — e.g. to respawn/reset it. */
+  setPosition(x: number, y: number): void {
+    if (!this.body) return;
+    this.body.setPosition({ x, y });
+    this.body.setAwake(true);
   }
 }

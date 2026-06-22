@@ -1,5 +1,8 @@
 import {
   isScalarType,
+  isEnumType,
+  isArrayType,
+  elementType,
   BUNDLE_VERSION,
   ComponentFlag,
   NodeFlag,
@@ -20,6 +23,8 @@ import {
   type CompiledRef,
   type CompiledScene,
   type CompiledTransform,
+  type NodeAttr,
+  type PropertyType,
 } from '@scenoco-three/core/internal';
 import type { CompiledScalar } from './types.js';
 
@@ -58,10 +63,17 @@ function buildStringPool(compiled: CompiledScene): { strings: string[]; index: M
     if (s !== undefined) counts.set(s, (counts.get(s) ?? 0) + 1);
   };
 
-  const addStringAttrs = (entries: [string, { type: string }][], attrs: Record<string, CompiledScalar>) => {
-    for (const [name, meta] of entries) {
-      if (meta.type === 'string') add(attrs[name] as string | undefined);
+  // Count every string that will be interned, including elements of string arrays.
+  const isStringEncoded = (t: unknown) => t === 'string' || (isEnumType(t) && t.valueKind === 'string');
+  const addStrings = (type: PropertyType, value: unknown) => {
+    if (isArrayType(type)) {
+      if (isStringEncoded(elementType(type)) && Array.isArray(value)) for (const el of value) add(el as string);
+    } else if (isStringEncoded(type)) {
+      add(value as string | undefined);
     }
+  };
+  const addStringAttrs = (entries: [string, NodeAttr][], attrs: Record<string, CompiledScalar | CompiledScalar[]>) => {
+    for (const [name, meta] of entries) addStrings(meta.type, attrs[name]);
   };
 
   for (const n of compiled.nodes) {
@@ -77,7 +89,7 @@ function buildStringPool(compiled: CompiledScene): { strings: string[]; index: M
     add(c.type);
     add(c.id);
     for (const [name, meta] of componentPropEntries(c.type)) {
-      if (meta.type === 'string' && name in c.props) add(c.props[name] as string);
+      if (name in c.props) addStrings(meta.type, c.props[name]);
     }
   }
 
@@ -150,8 +162,8 @@ function encodeComponent(c: CompiledComponent, intern: (s: string) => number): B
 // ---- value helpers --------------------------------------------------------
 
 function encodeAttrs(
-  entries: [string, { type: string; default?: CompiledScalar }][],
-  attrs: Record<string, CompiledScalar>,
+  entries: [string, NodeAttr][],
+  attrs: Record<string, CompiledScalar | CompiledScalar[]>,
   intern: (s: string) => number,
 ): { mask: number; values: BundleValue[] } {
   let mask = 0;
@@ -161,23 +173,41 @@ function encodeAttrs(
     const value = attrs[name];
     if (value !== undefined && !valueEquals(value, meta.default)) {
       mask |= 1 << bit;
-      values.push(meta.type === 'string' ? intern(value as string) : value);
+      values.push(encodeAttrValue(value, meta.type, intern));
     }
     bit++;
   }
   return { mask, values };
 }
 
-/** Reference props use bitwise-NOT: component → `i`, node → `~i`. */
-function encodePropValue(
-  value: CompiledScalar | CompiledRef,
-  type: string | object,
+/** Encode a node/attachment attr value (string→pool index), mapping element-wise for arrays. */
+function encodeAttrValue(
+  value: CompiledScalar | CompiledScalar[],
+  type: NodeAttr['type'],
   intern: (s: string) => number,
 ): BundleValue {
-  // A prefab prop stores a plain prefabs[] index (the registered type, not the
-  // sign, tells the decoder it is a prefab — no collision with node/component).
+  if (isArrayType(type)) {
+    return (value as CompiledScalar[]).map((el) => encodeAttrValue(el, type[0], intern));
+  }
+  if (isEnumType(type)) return type.valueKind === 'string' ? intern(value as string) : (value as CompiledScalar);
+  return type === 'string' ? intern(value as string) : (value as CompiledScalar);
+}
+
+/**
+ * Encode a component prop value. Reference props use bitwise-NOT (component → `i`,
+ * node → `~i`); prefab → pool index; string → pool index; array → element-wise.
+ */
+function encodePropValue(
+  value: CompiledScalar | CompiledRef | (CompiledScalar | CompiledRef)[],
+  type: PropertyType,
+  intern: (s: string) => number,
+): BundleValue {
+  if (isArrayType(type)) {
+    return (value as (CompiledScalar | CompiledRef)[]).map((el) => encodePropValue(el, type[0], intern));
+  }
   if (type === 'prefab') return (value as { prefab: number }).prefab;
-  if (!isScalarType(type as never)) {
+  if (isEnumType(type)) return type.valueKind === 'string' ? intern(value as string) : (value as CompiledScalar);
+  if (!isScalarType(type)) {
     const ref = value as CompiledRef;
     return 'component' in ref ? ref.component : ~(ref as { node: number }).node;
   }

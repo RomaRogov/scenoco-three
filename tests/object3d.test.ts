@@ -86,14 +86,14 @@ describe('typed node access (goal 2)', () => {
 describe('active scene camera (goal 2)', () => {
   it('loadScene renders through a camera defined in the scene', () => {
     const engine = new Engine();
-    expect(engine.renderCamera).toBe(engine.camera); // built-in fallback
+    expect(engine.mainCamera).toBeUndefined(); // the engine owns no camera
     const bundle = bundleScene(compile(`<Scene><PerspectiveCamera id="Main" fov="42" /></Scene>`));
     engine.loadScene(bundle);
-    expect(engine.renderCamera).toBe(engine.findObject('Main'));
-    expect((engine.renderCamera as PerspectiveCamera).fov).toBe(42);
-    // Reverts to the built-in camera when the scene unloads.
+    expect(engine.mainCamera).toBe(engine.findObject('Main'));
+    expect((engine.mainCamera as PerspectiveCamera).fov).toBe(42);
+    // No camera once the scene unloads — there is no built-in fallback.
     engine.disposeScene();
-    expect(engine.renderCamera).toBe(engine.camera);
+    expect(engine.mainCamera).toBeUndefined();
     engine.dispose();
   });
 });

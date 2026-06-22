@@ -1,7 +1,7 @@
 import { Mesh, SphereGeometry, type Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Component, component, Engine } from '@scenoco-three/core';
-import { bundleScene, compileSceneXml, loadComponents } from '@scenoco-three/compiler';
+import { bundleScene, compileSceneXml, generateXsd, loadComponents } from '@scenoco-three/compiler';
 import { Collider2D, Physics2DSystem, RigidBody2D } from '@scenoco-three/box2d';
 
 // Records the 2D contact hooks the Physics2DSystem dispatches.
@@ -13,6 +13,34 @@ class Contact2DRecorder extends Component {
   onCollisionEnter2D(other: Object3D): void { this.collisions++; this.last = other; }
   onTriggerEnter2D(other: Object3D): void { this.triggers++; this.last = other; }
 }
+
+describe('box2d — enum properties (kind / shape)', () => {
+  const compileBody = (kind: string) =>
+    compileSceneXml(`<Scene><Group><Components><RigidBody2D kind="${kind}" /></Components></Group></Scene>`);
+
+  it('accepts the documented body kinds (existing scenes unaffected)', () => {
+    for (const kind of ['dynamic', 'static', 'kinematic']) expect(compileBody(kind).ok).toBe(true);
+  });
+
+  it('rejects an unknown kind, listing the allowed names', () => {
+    const r = compileBody('floaty');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const bad = r.diagnostics.find((d) => d.code === 'bad-value');
+    expect(bad?.message).toContain('"dynamic"');
+    expect(bad?.message).toContain('"kinematic"');
+    expect(bad?.message).toContain('enum RigidBody2DKind');
+  });
+
+  it('exposes the physics enums to XSD as named simpleTypes', () => {
+    const xsd = generateXsd();
+    expect(xsd).toContain('<xs:simpleType name="RigidBody2DKind">');
+    expect(xsd).toContain('<xs:enumeration value="kinematic"/>');
+    expect(xsd).toMatch(/<xs:attribute name="kind" type="RigidBody2DKind"\/>/);
+    expect(xsd).toContain('<xs:simpleType name="Collider2DShape">');
+    expect(xsd).toMatch(/<xs:attribute name="shape" type="Collider2DShape"\/>/);
+  });
+});
 
 describe('box2d — imperative (engine.addComponent)', () => {
   it('a dynamic body falls under gravity and lands on a static floor', () => {

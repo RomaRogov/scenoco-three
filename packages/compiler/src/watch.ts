@@ -13,7 +13,6 @@ export type WatchEvent =
 
 export interface WatchOptions {
   outDir?: string;
-  mode?: 'bundle' | 'compiled';
   resolve?: ResourceResolver;
   onEvent?: (event: WatchEvent) => void;
 }
@@ -29,7 +28,6 @@ export interface WatchHandle {
 export async function watchSceneFiles(entries: string[], options: WatchOptions = {}): Promise<WatchHandle> {
   const roots = entries.map((f) => resolve(f));
   const outDir = options.outDir ? resolve(options.outDir) : undefined;
-  const mode = options.mode ?? 'bundle';
   const onEvent = options.onEvent ?? (() => {});
 
   const depToRoots = new Map<string, Set<string>>();
@@ -75,16 +73,11 @@ export async function watchSceneFiles(entries: string[], options: WatchOptions =
       return;
     }
 
-    const outputPath = outputFileFor(file, mode, outDir);
-    const payload =
-      mode === 'bundle'
-        ? isPrefab
-          ? bundlePrefab(result.scene)
-          : bundleScene(result.scene)
-        : result.scene;
+    const outputPath = outputFileFor(file, outDir);
+    const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
     try {
       mkdirSync(dirname(outputPath), { recursive: true });
-      writeFileSync(outputPath, JSON.stringify(payload));
+      writeFileSync(outputPath, JSON.stringify(bundle));
     } catch (e: unknown) {
       onEvent({ type: 'error', file, message: e instanceof Error ? e.message : String(e) });
       return;
@@ -116,8 +109,8 @@ export async function watchSceneFiles(entries: string[], options: WatchOptions =
   };
 }
 
-function outputFileFor(file: string, mode: 'bundle' | 'compiled', outDir?: string): string {
-  const baseName = `${file}${mode === 'bundle' ? '.bundle.json' : '.json'}`;
+function outputFileFor(file: string, outDir?: string): string {
+  const baseName = `${file}.bundle.json`;
   if (!outDir) return baseName;
   const leaf = baseName.split('/').pop() ?? baseName;
   return resolve(outDir, leaf);

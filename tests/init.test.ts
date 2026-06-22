@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Component, component, property } from '@scenoco-three/core';
-import { compileSceneXml, generateDocs, scaffoldFiles } from '@scenoco-three/compiler';
+import { compileSceneXml, generateApi, scaffoldFiles } from '@scenoco-three/compiler';
 
 // The scaffolded `Spin` component, mirrored here so the scene template can be
 // validated hermetically — same shape `scenoco init` writes to src/components.
@@ -24,10 +24,13 @@ describe('scenoco init scaffold', () => {
         'src/main.ts',
         'src/components/Spin.ts',
         'src/scenes/hello.scene.xml',
-        'AGENTS.md',
         '.gitignore',
       ]),
     );
+  });
+
+  it('emits no markdown files', () => {
+    expect(Object.keys(files).some((f) => f.endsWith('.md'))).toBe(false);
   });
 
   it('package.json is valid JSON and wires --components into the scripts', () => {
@@ -53,12 +56,9 @@ describe('scenoco init scaffold', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('the starter component is documented by the exporter with no wiring', () => {
-    expect(generateDocs()).toContain('### `<Spin>`');
-  });
-
-  it('AGENTS.md explains the validate loop', () => {
-    expect(files['AGENTS.md']).toContain('npm run validate');
-    expect(files['AGENTS.md']).toContain('component-api.md');
+  it('the starter component is described by the exporter with no wiring', () => {
+    const spin = generateApi().components.find((c) => c.name === 'Spin');
+    expect(spin).toBeDefined();
+    expect(spin!.properties.map((p) => p.name)).toContain('speed');
   });
 });

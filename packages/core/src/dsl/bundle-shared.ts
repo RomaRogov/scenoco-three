@@ -1,6 +1,5 @@
 import { Registry, type PropertyMeta } from '../core/Registry.js';
 import { getAttachmentDef, getNodeDef, type NodeAttr } from './nodes.js';
-import type { CompiledScalar } from './types.js';
 
 /**
  * Schema helpers shared by the bundle encoder and decoder, so both agree on the
@@ -30,10 +29,10 @@ export function popcount(n: number): number {
   return count;
 }
 
-/** Structural equality for compiled scalar values (numbers, bools, vec arrays). */
-export function valueEquals(a: CompiledScalar | undefined, b: CompiledScalar | undefined): boolean {
+/** Structural equality for compiled values (numbers, bools, vec arrays, and nested arrays). */
+export function valueEquals(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((x, i) => x === b[i]);
+    return a.length === b.length && a.every((x, i) => valueEquals(x, b[i]));
   }
   return a === b;
 }

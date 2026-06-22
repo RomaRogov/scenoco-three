@@ -9,7 +9,7 @@ import {
   compilePrefabXml,
   compileSceneXml,
   formatDiagnostic,
-  generateDocs,
+  generateApiJson,
   generateXsd,
   loadComponents,
   serializeScene,
@@ -42,17 +42,13 @@ const USAGE = `scenoco — Scene · Node · Component CLI
 Usage:
   scenoco init [dir]                        Scaffold a new SceNoCo project (default: current dir)
   scenoco new component <Name>              Generate src/components/<Name>.ts boilerplate
-  scenoco new scene <name> [--type <t>]     Generate src/scenes/<name>.scene.xml skeleton
-                                            Types: basic (default), breakout, rpg, platformer
-  scenoco check                             Pre-flight: @system co-location, camera, physics
+  scenoco new scene <name>                  Generate src/scenes/<name>.scene.xml skeleton
+  scenoco check                             Pre-flight: @system co-location, physics
   scenoco validate <file...>                Validate scene XML; prints file:line:col diagnostics
-  scenoco bundle <file> [-o out]            Build an optimized runtime bundle (default: <file>.bundle.json)
-  scenoco compile <file> [-o out]           Compile to the raw CompiledScene JSON, for debugging
-  scenoco decompile <json> [-o out]         Turn a bundle/CompiledScene JSON back into canonical scene XML
-  scenoco watch <file...> [--out dir] [--mode bundle|compiled]
-                                            Watch scenes and rebuild on XML/resource updates
-  scenoco export [--out <dir>] [--compact]  Write scene.xsd + component-api.md (default: ./schema)
-                                            --compact: minimal API reference for agent system prompts
+  scenoco bundle <file> [-o out]            Build the runtime bundle (default: <file>.bundle.json)
+  scenoco decompile <bundle.json> [-o out]  Inverse of bundle: a bundle back to canonical scene XML
+  scenoco watch <file...> [--out dir]       Rebuild bundles on XML/resource changes
+  scenoco export [--out <dir>]              Write scene.xsd + scene-api.json (default: ./schema)
 
 Options:
   --components <dirs>   Comma-separated directories scanned for @component classes
@@ -88,8 +84,6 @@ async function main(argv: string[]): Promise<number> {
       return cmdValidate(rest);
     case 'bundle':
       return cmdBundle(rest);
-    case 'compile':
-      return cmdCompile(rest);
     case 'decompile':
       return cmdDecompile(rest);
     case 'watch':
@@ -133,7 +127,7 @@ function cmdInit(args: string[]): number {
   console.log(`  ${dir === process.cwd() ? '' : `cd ${positionals[0] ?? '.'} && `}npm install`);
   console.log('  npm run dev        # http://localhost:5173');
   console.log('  npm run validate   # check scenes');
-  console.log('  npm run export     # generate schema/ (XSD + component-api.md)');
+  console.log('  npm run export     # generate schema/ (XSD + scene-api.json)');
   return 0;
 }
 
@@ -160,61 +154,51 @@ function cmdValidate(args: string[]): number {
   return 1;
 }
 
+/** Compile a scene/prefab XML and write its optimized runtime bundle. */
 function cmdBundle(args: string[]): number {
-  return buildCommand(args, 'bundle', '.bundle.json', (file, scene) => JSON.stringify(bundleFor(file, scene)));
-}
-
-function cmdCompile(args: string[]): number {
-  return buildCommand(args, 'compile', '.json', (_file, scene) => JSON.stringify(scene));
-}
-
-/** Inverse of compile/bundle: JSON → canonical scene XML. */
-function cmdDecompile(args: string[]): number {
   const { positionals, options } = parseArgs(args, { '-o': 'out', '--out': 'out' });
   const file = positionals[0];
   if (!file) {
-    console.error('decompile: expected a .bundle.json or compiled .json file');
-    return 1;
-  }
-  const data: unknown = JSON.parse(readFileSync(resolve(file), 'utf8'));
-  // A Bundle is a fixed-index array; a CompiledScene is an object.
-  const scene = Array.isArray(data) ? deserializeBundle(data as Bundle) : (data as import('../index.js').CompiledScene);
-  const out = resolve(options.out ?? file.replace(/(\.bundle)?\.json$/, '') + '.scene.xml');
-  writeFileSync(out, serializeScene(scene));
-  console.log(`✓ decompiled ${file} → ${out}`);
-  return 0;
-}
-
-/** Shared compile-then-write flow for the `bundle` and `compile` commands. */
-function buildCommand(
-  args: string[],
-  name: string,
-  suffix: string,
-  serialize: (file: string, scene: import('../index.js').CompiledScene) => string,
-): number {
-  const { positionals, options } = parseArgs(args, { '-o': 'out', '--out': 'out' });
-  const file = positionals[0];
-  if (!file) {
-    console.error(`${name}: expected a file`);
+    console.error('bundle: expected a file');
     return 1;
   }
   const path = resolve(file);
   const result = compileFile(file, readFileSync(path, 'utf8'), { path, resolve: fsResolver });
   if (!result.ok) {
     for (const d of result.diagnostics) console.error(formatDiagnostic(d, file));
-    console.error(`\n✗ cannot ${name} ${file}: ${result.diagnostics.length} problem(s)`);
+    console.error(`\n✗ cannot bundle ${file}: ${result.diagnostics.length} problem(s)`);
     return 1;
   }
-  const out = resolve(options.out ?? `${file}${suffix}`);
-  writeFileSync(out, serialize(file, result.scene));
-  console.log(`✓ ${name === 'bundle' ? 'bundled' : 'compiled'} ${file} → ${out}`);
+  const out = resolve(options.out ?? `${file}.bundle.json`);
+  writeFileSync(out, JSON.stringify(bundleFor(file, result.scene)));
+  console.log(`✓ bundled ${file} → ${out}`);
+  return 0;
+}
+
+/** Inverse of bundle: a runtime bundle back to canonical scene XML. */
+function cmdDecompile(args: string[]): number {
+  const { positionals, options } = parseArgs(args, { '-o': 'out', '--out': 'out' });
+  const file = positionals[0];
+  if (!file) {
+    console.error('decompile: expected a .bundle.json file');
+    return 1;
+  }
+  const data: unknown = JSON.parse(readFileSync(resolve(file), 'utf8'));
+  if (!Array.isArray(data)) {
+    console.error('decompile: expected a runtime bundle (a JSON array). Produce one with `scenoco bundle`.');
+    return 1;
+  }
+  const scene = deserializeBundle(data as Bundle);
+  const out = resolve(options.out ?? file.replace(/(\.bundle)?\.json$/, '') + '.scene.xml');
+  writeFileSync(out, serializeScene(scene));
+  console.log(`✓ decompiled ${file} → ${out}`);
   return 0;
 }
 
 function cmdNew(args: string[]): number {
   const [subCommand, name] = args;
   if (!subCommand || !name) {
-    console.error('new: usage: scenoco new component <Name> | scenoco new scene <name> [--type basic|breakout|rpg|platformer]');
+    console.error('new: usage: scenoco new component <Name> | scenoco new scene <name>');
     return 1;
   }
 
@@ -232,28 +216,15 @@ function cmdNew(args: string[]): number {
   }
 
   if (subCommand === 'scene') {
-    const { options } = parseArgs(args.slice(2), { '--type': 'type', '-t': 'type' });
-    const type = (options.type ?? 'basic') as 'basic' | 'breakout' | 'rpg' | 'platformer';
-    const validTypes = ['basic', 'breakout', 'rpg', 'platformer'];
-    if (!validTypes.includes(type)) {
-      console.error(`new: unknown scene type "${type}". Valid: ${validTypes.join(', ')}`);
-      return 1;
-    }
     const path = resolve(`src/scenes/${name}.scene.xml`);
     if (existsSync(path)) {
       console.error(`new: ${path} already exists`);
       return 1;
     }
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, sceneFile(name, type));
-    console.log(`✓ created ${path} (type: ${type})`);
+    writeFileSync(path, sceneFile(name));
+    console.log(`✓ created ${path}`);
     console.log(`  → import scene from './${name}.scene.xml?bundle'; in main.ts`);
-    if (type === 'breakout') {
-      console.log(`  → call engine.setActiveCamera(engine.findObject('cam')!) after loadScene`);
-    }
-    if (type === 'rpg' || type === 'platformer') {
-      console.log(`  → call await initRapier() before engine.loadScene() in main.ts`);
-    }
     return 0;
   }
 
@@ -276,7 +247,6 @@ async function cmdCheck(
   const SYSTEM_RE = /@system\s*\(/;
   const COMPONENT_RE = /@component\s*\(/;
   const NODE_TAG_RE = /@(?:node|attachment)\s*\(/;
-  const ORTHO_RE = /<OrthographicCamera/;
   const PHYSICS_RE = /<Physics[\s/]/;
   const SOURCE_EXT = /\.(?:[cm]?[jt]sx?)$/;
   const SKIP = new Set(['.git', 'node_modules', 'dist', 'build', '.scenoco']);
@@ -330,11 +300,6 @@ async function cmdCheck(
       const src = rf(f, 'utf8');
       const rel = f.replace(process.cwd() + '/', '');
       sceneCount++;
-      if (ORTHO_RE.test(src)) {
-        console.warn(`  ⚠  ${rel}: uses <OrthographicCamera>`);
-        console.warn(`      → call engine.setActiveCamera(engine.findObject('cam')!) in main.ts`);
-        warnings++;
-      }
       if (PHYSICS_RE.test(src)) {
         console.log(`  ℹ  ${rel}: uses <Physics> — ensure await initRapier() is in main.ts`);
       }
@@ -349,11 +314,7 @@ async function cmdCheck(
 }
 
 function cmdWatch(args: string[]): number {
-  const { positionals, options } = parseArgs(args, {
-    '--out': 'out',
-    '-o': 'out',
-    '--mode': 'mode',
-  });
+  const { positionals, options } = parseArgs(args, { '--out': 'out', '-o': 'out' });
 
   if (positionals.length === 0) {
     console.error('watch: expected at least one file');
@@ -361,11 +322,9 @@ function cmdWatch(args: string[]): number {
   }
 
   const entries = positionals.map((f) => resolve(f));
-  const mode = options.mode === 'compiled' ? 'compiled' : 'bundle';
 
   void watchSceneFiles(entries, {
     outDir: options.out ? resolve(options.out) : undefined,
-    mode,
     resolve: fsResolver,
     onEvent(event) {
       if (event.type === 'diagnostics') {
@@ -385,18 +344,16 @@ function cmdWatch(args: string[]): number {
     process.exitCode = 1;
   });
 
-  console.log(`watching ${entries.length} file(s) (${mode})`);
+  console.log(`watching ${entries.length} file(s)`);
   return 0;
 }
 
 function cmdExport(args: string[]): number {
-  const { options, positionals } = parseArgs(args, { '--out': 'out', '-o': 'out' });
-  const compact = positionals.includes('--compact');
+  const { options } = parseArgs(args, { '--out': 'out', '-o': 'out' });
   const dir = resolve(options.out ?? 'schema');
   write(`${dir}/scene.xsd`, generateXsd());
-  write(`${dir}/component-api.md`, generateDocs({ compact }));
-  const note = compact ? ' (compact mode — suitable for agent system prompts)' : '';
-  console.log(`✓ wrote scene.xsd and component-api.md to ${dir}${note}`);
+  write(`${dir}/scene-api.json`, generateApiJson());
+  console.log(`✓ wrote scene.xsd and scene-api.json to ${dir}`);
   return 0;
 }
 

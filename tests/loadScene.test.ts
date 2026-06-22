@@ -1,9 +1,8 @@
 import { Mesh, Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Engine, type Bundle } from '@scenoco-three/core';
-import { Oscillator } from '../playground/components/Oscillator.js';
+import { Oscillator } from './fixtures/components/Oscillator.js';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
-
 // A self-contained scene (no resource files) so these runtime-behaviour tests
 // stay hermetic. Prefab expansion is covered separately in prefab.test.ts.
 const SCENE = `<Scene>
@@ -90,18 +89,20 @@ describe('Engine.loadScene from a bundle (headless)', () => {
     expect(engine.scene.getObjectByName('M')).toBeDefined();
   });
 
-  it('disposeScene leaves manually attached components alone', () => {
+  it('full swap: loadScene disposes the previous scene and its components', () => {
     const engine = new Engine();
-    const outside = new Object3D();
-    engine.scene.add(outside);
-    const manual = engine.addComponent(outside, Oscillator);
+    const inScene = new Object3D();
+    engine.scene.add(inScene);
+    const manual = engine.addComponent(inScene, Oscillator);
 
-    engine.loadScene(turbineBundle);
-    engine.disposeScene();
+    engine.loadScene(turbineBundle); // swaps in a fresh Scene; the old one is gone
 
-    expect(engine.getComponents(outside)).toEqual([manual]);
+    // The previous scene's contents — including manually attached components — are torn down.
+    expect(engine.getComponents(inScene)).toEqual([]);
+    expect(engine.scene.getObjectByName('Turbine_01')).toBeDefined();
+    // The detached component no longer ticks.
     engine.tick(0.25);
-    expect(manual.offset).not.toBe(0);
+    expect(manual.offset).toBe(0);
   });
 
   it('also accepts a CompiledScene directly (advanced)', () => {
@@ -110,5 +111,56 @@ describe('Engine.loadScene from a bundle (headless)', () => {
     if (!result.ok) throw new Error('compile failed');
     engine.loadScene(result.scene);
     expect(engine.scene.getObjectByName('C')).toBeDefined();
+  });
+});
+
+describe('Engine.loadScene — array property instantiation', () => {
+  it('delivers float array to component as-is', () => {
+    const engine = new Engine();
+    engine.loadScene(toBundle(`<Scene>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe points="[1,2,3]" /></Components>
+      </Mesh>
+    </Scene>`));
+    const node = engine.scene.getObjectByName('M')!;
+    const comps = engine.getComponents(node);
+    const probe = comps.find((c) => c.constructor.name === 'ArrayProbe') as unknown as { points: number[] };
+    expect(probe.points).toEqual([1, 2, 3]);
+  });
+
+  it('delivers node-ref array as Object3D[]', () => {
+    const engine = new Engine();
+    engine.loadScene(toBundle(`<Scene>
+      <Mesh id="a"><BoxGeometry /></Mesh>
+      <Mesh id="b"><BoxGeometry /></Mesh>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe targets="[#a,#b]" /></Components>
+      </Mesh>
+    </Scene>`));
+    const node = engine.scene.getObjectByName('M')!;
+    const comps = engine.getComponents(node);
+    const probe = comps.find((c) => c.constructor.name === 'ArrayProbe') as unknown as { targets: Object3D[] };
+    expect(probe.targets).toHaveLength(2);
+    expect(probe.targets[0]).toBe(engine.scene.getObjectByName('a'));
+    expect(probe.targets[1]).toBe(engine.scene.getObjectByName('b'));
+  });
+
+  it('delivers typed component-ref array as component instances[]', () => {
+    const engine = new Engine();
+    engine.loadScene(toBundle(`<Scene>
+      <Mesh id="a"><BoxGeometry /><Components><Oscillator id="o1" /></Components></Mesh>
+      <Mesh id="b"><BoxGeometry /><Components><Oscillator id="o2" /></Components></Mesh>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe oscillators="[#o1,#o2]" /></Components>
+      </Mesh>
+    </Scene>`));
+    const node = engine.scene.getObjectByName('M')!;
+    const comps = engine.getComponents(node);
+    const probe = comps.find((c) => c.constructor.name === 'ArrayProbe') as unknown as {
+      oscillators: InstanceType<typeof Oscillator>[];
+    };
+    expect(probe.oscillators).toHaveLength(2);
+    expect(probe.oscillators[0]).toBeInstanceOf(Oscillator);
+    expect(probe.oscillators[1]).toBeInstanceOf(Oscillator);
   });
 });

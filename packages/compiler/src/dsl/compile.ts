@@ -1,11 +1,16 @@
 import {
   isScalarType,
+  isEnumType,
+  isArrayType,
+  elementType,
   isSpatial,
   Registry,
   getNodeDef,
   getAttachmentDef,
   TRANSFORM_ATTRS,
   type ComponentCtor,
+  type EnumDef,
+  type PropType,
   type PropertyMeta,
   type NodeAttr,
   type CompiledAsset,
@@ -18,7 +23,7 @@ import {
 import { parseScene, type SceElement } from './SceneParser.js';
 import { validatePrefab, validateScene } from './Validator.js';
 import { expandPrefabs } from './prefab.js';
-import { codecs, type CompiledScalar, type ScalarType } from './types.js';
+import { parseArrayLiteral, parseScalarArray, scalarCodec, type CompiledScalar, type ScalarType } from './types.js';
 import type { SceDiagnostic } from './diagnostics.js';
 
 // Re-exported so existing `from './compile.js'` imports keep working.
@@ -112,6 +117,8 @@ interface PendingRef {
   attr: string;
   value: string;
   declared: ComponentCtor | 'node';
+  /** Set for an element of an array-of-references prop — the slot to fill. */
+  index?: number;
 }
 
 /** Compile an already-validated tree, resolving referenced resource files. */
@@ -234,7 +241,10 @@ function compileTree(
   // Second pass: resolve references now that every node and component is indexed.
   for (const ref of pending) {
     const resolved = resolveRef(ref, nodeIdToIndex, componentIdToIndex, componentsOnNode);
-    if (resolved) scene.components[ref.componentIndex]!.props[ref.attr] = resolved;
+    if (!resolved) continue;
+    const props = scene.components[ref.componentIndex]!.props;
+    if (ref.index !== undefined) (props[ref.attr] as CompiledRef[])[ref.index] = resolved;
+    else props[ref.attr] = resolved;
   }
 
   return { scene, diagnostics };
@@ -250,7 +260,7 @@ function resolveAttachmentAttrs(
   attrs: Record<string, NodeAttr>,
   options: CompileOptions,
   diagnostics: SceDiagnostic[],
-): Record<string, CompiledScalar> {
+): Record<string, CompiledScalar | CompiledScalar[]> {
   const src = el.attributes.get('src');
   if (src === undefined) return compileAttrs(el, attrs);
 
@@ -285,13 +295,16 @@ function resolveAttachmentAttrs(
     const meta = attrs[k];
     if (!meta) {
       diagnostics.push({ line: fileRoot.line, column: fileRoot.column, file: file.path, code: 'unknown-attr', message: `<${fileRoot.tag}> has no attribute "${k}"` });
-    } else if (!codecs[meta.type].parse(v).ok) {
-      diagnostics.push({ line: fileRoot.line, column: fileRoot.column, file: file.path, code: 'bad-value', message: `<${fileRoot.tag}> attribute "${k}": ${(codecs[meta.type].parse(v) as { message: string }).message}` });
+      continue;
+    }
+    const check = isArrayType(meta.type) ? parseScalarArray(v, meta.type[0]) : scalarCodec(meta.type).parse(v);
+    if (!check.ok) {
+      diagnostics.push({ line: fileRoot.line, column: fileRoot.column, file: file.path, code: 'bad-value', message: `<${fileRoot.tag}> attribute "${k}": ${check.message}` });
     }
   }
-  const out: Record<string, CompiledScalar> = {};
+  const out: Record<string, CompiledScalar | CompiledScalar[]> = {};
   for (const [key, meta] of Object.entries(attrs)) {
-    out[key] = scalarValue(meta.type, merged.get(key), meta.default);
+    out[key] = attrValue(meta, merged.get(key));
   }
   return out;
 }
@@ -299,7 +312,7 @@ function resolveAttachmentAttrs(
 function compileTransform(el: SceElement): CompiledTransform {
   const t = (key: string) => {
     const meta = TRANSFORM_ATTRS[key]!;
-    return scalarValue(meta.type, el.attributes.get(key), meta.default);
+    return scalarValue(meta.type as ScalarType, el.attributes.get(key), meta.default as CompiledScalar | undefined);
   };
   return {
     position: t('position') as number[],
@@ -309,10 +322,10 @@ function compileTransform(el: SceElement): CompiledTransform {
   };
 }
 
-function compileAttrs(el: SceElement, attrs: Record<string, NodeAttr>): Record<string, CompiledScalar> {
-  const out: Record<string, CompiledScalar> = {};
+function compileAttrs(el: SceElement, attrs: Record<string, NodeAttr>): Record<string, CompiledScalar | CompiledScalar[]> {
+  const out: Record<string, CompiledScalar | CompiledScalar[]> = {};
   for (const [key, meta] of Object.entries(attrs)) {
-    out[key] = scalarValue(meta.type, el.attributes.get(key), meta.default);
+    out[key] = attrValue(meta, el.attributes.get(key));
   }
   return out;
 }
@@ -329,7 +342,9 @@ function collectComponentProps(
     if (attr === 'id') continue;
     const meta = props.get(attr);
     if (!meta) continue; // validated
-    if (isScalarType(meta.type)) {
+    if (isArrayType(meta.type)) {
+      compileArrayProp(attr, raw, elementType(meta.type), componentIndex, compiled, pending, internPrefab, el);
+    } else if (isScalarType(meta.type) || isEnumType(meta.type)) {
       compiled.props[attr] = codecParse(meta.type, raw);
     } else if (meta.type === 'prefab') {
       // A prefab prop value is a file path (like src=), not a `#id`. Resolve and
@@ -344,6 +359,41 @@ function collectComponentProps(
       const value = raw.trim().replace(/^#/, '');
       if (value !== '') pending.push({ componentIndex, attr, value, declared: meta.type });
     }
+  }
+}
+
+/** Compile one array-typed prop: scalars inline, prefabs interned, refs as indexed pending entries. */
+function compileArrayProp(
+  attr: string,
+  raw: string,
+  elem: PropType | ComponentCtor | EnumDef,
+  componentIndex: number,
+  compiled: CompiledComponent,
+  pending: PendingRef[],
+  internPrefab: (src: string, el: SceElement) => number | undefined,
+  el: SceElement,
+): void {
+  const literal = parseArrayLiteral(raw);
+  if (!literal.ok) return; // validated upstream
+  if (isScalarType(elem) || isEnumType(elem)) {
+    const r = parseScalarArray(raw, elem);
+    compiled.props[attr] = r.ok ? r.value : [];
+  } else if (elem === 'prefab') {
+    const out: CompiledRef[] = [];
+    for (const piece of literal.value) {
+      const src = piece.trim();
+      if (src === '') continue;
+      const index = internPrefab(src, el);
+      if (index !== undefined) out.push({ prefab: index });
+    }
+    compiled.props[attr] = out;
+  } else {
+    // Reference array: pre-create the slot, fill each element in the resolution pass.
+    compiled.props[attr] = [] as CompiledRef[];
+    literal.value.forEach((piece, i) => {
+      const value = piece.trim().replace(/^#/, '');
+      if (value !== '') pending.push({ componentIndex, attr, value, declared: elem, index: i });
+    });
   }
 }
 
@@ -369,22 +419,41 @@ function resolveRef(
   return match ? { component: match.componentIndex } : undefined;
 }
 
-const codecParse = (type: ScalarType, raw: string): CompiledScalar => {
-  const r = codecs[type].parse(raw);
+const codecParse = (type: ScalarType | EnumDef, raw: string): CompiledScalar => {
+  const r = scalarCodec(type).parse(raw);
   return r.ok ? r.value : (zeroFor(type) as CompiledScalar);
 };
 
+/** Compile a node/attachment attr value — scalar or scalar-array — from its raw text. */
+function attrValue(meta: NodeAttr, raw: string | undefined): CompiledScalar | CompiledScalar[] {
+  if (isArrayType(meta.type)) {
+    return arrayValue(meta.type[0], raw, meta.default as CompiledScalar[] | undefined);
+  }
+  return scalarValue(meta.type, raw, meta.default as CompiledScalar | undefined);
+}
+
 function scalarValue(
-  type: ScalarType,
+  type: ScalarType | EnumDef,
   raw: string | undefined,
   fallback: CompiledScalar | undefined,
 ): CompiledScalar {
   if (raw === undefined) return fallback ?? zeroFor(type);
-  const r = codecs[type].parse(raw);
+  const r = scalarCodec(type).parse(raw);
   return r.ok ? r.value : (fallback ?? zeroFor(type));
 }
 
-function zeroFor(type: ScalarType): CompiledScalar {
+function arrayValue(
+  elem: ScalarType | EnumDef,
+  raw: string | undefined,
+  fallback: CompiledScalar[] | undefined,
+): CompiledScalar[] {
+  if (raw === undefined) return fallback ?? [];
+  const r = parseScalarArray(raw, elem);
+  return r.ok ? r.value : (fallback ?? []);
+}
+
+function zeroFor(type: ScalarType | EnumDef): CompiledScalar {
+  if (isEnumType(type)) return type.defaultValue;
   switch (type) {
     case 'bool':
       return false;

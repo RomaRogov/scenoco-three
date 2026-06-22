@@ -2,8 +2,12 @@ import {
   Registry,
   allNodeDefs,
   allAttachmentDefs,
+  allEnums,
   attachmentsForNode,
+  isArrayType,
+  isEnumType,
   TRANSFORM_ATTRS,
+  type EnumDef,
   type PropertyMeta,
   type NodeAttr,
   type NodeDef,
@@ -39,6 +43,8 @@ export function generateXsd(): string {
     out.push(simpleType(t, codecs[t].xsd.pattern!));
   }
   out.push(simpleType('ref', '#\\S+')); // a "#id" reference
+  // Registered enums → a named simpleType each, referenced by enum-typed attributes.
+  for (const e of allEnums()) out.push(enumSimpleType(e));
   out.push('');
 
   // --- Shared transform attributes (every spatial node) --------------------
@@ -169,7 +175,9 @@ function componentElement(name: string): string {
 
 function nodeAttr(name: string, meta: NodeAttr): string {
   const use = meta.required ? ` use="required"` : '';
-  return `<xs:attribute name="${name}" type="${xsdType(meta.type)}"${use}/>${comment(meta.description)}`;
+  // Array attrs are bracketed lists ("[a,b,c]") — typed loosely as strings.
+  const type = isArrayType(meta.type) ? 'xs:string' : xsdType(meta.type);
+  return `<xs:attribute name="${name}" type="${type}"${use}/>${comment(meta.description)}`;
 }
 
 function propertyAttr(name: string, meta: PropertyMeta): string {
@@ -179,14 +187,17 @@ function propertyAttr(name: string, meta: PropertyMeta): string {
 
 /** XSD attribute type for a component property. */
 function propertyXsdType(type: PropertyMeta['type']): string {
-  // A prefab prop is a file path; 'node' and Component-class refs are written "#id".
+  // Array props ("[…]") and prefab file paths are typed loosely as strings.
+  if (isArrayType(type)) return 'xs:string';
+  if (isEnumType(type)) return type.name;
   if (type === 'prefab') return 'xs:string';
   if (typeof type === 'string' && type !== 'node') return xsdType(type);
   return 'ref';
 }
 
-/** Map a scalar type to its XSD type name (named simpleType or xs: builtin). */
-function xsdType(type: ScalarType): string {
+/** Map a scalar/enum type to its XSD type name (named simpleType or xs: builtin). */
+function xsdType(type: ScalarType | EnumDef): string {
+  if (isEnumType(type)) return type.name;
   switch (type) {
     case 'vec2':
     case 'vec3':
@@ -196,6 +207,14 @@ function xsdType(type: ScalarType): string {
     default:
       return codecs[type].xsd.base;
   }
+}
+
+/** A named simpleType restricting an attribute to an enum's member names. */
+function enumSimpleType(def: EnumDef): string {
+  const lines = [`  <xs:simpleType name="${def.name}">`, `    <xs:restriction base="xs:string">`];
+  for (const member of def.names) lines.push(`      <xs:enumeration value="${escapeXml(member)}"/>`);
+  lines.push(`    </xs:restriction>`, `  </xs:simpleType>`);
+  return lines.join('\n');
 }
 
 function simpleType(name: string, pattern: string): string {

@@ -23,8 +23,12 @@
 
 import type { CompiledScalar } from './types.js';
 
-/** A JSON-native wire value used positionally inside bundle records. */
-export type BundleValue = CompiledScalar;
+/**
+ * A JSON-native wire value used positionally inside bundle records. Nested arrays
+ * carry array-valued properties: each element is encoded with the per-element rule
+ * (string→intern index, ref→signed int, scalar→passthrough).
+ */
+export type BundleValue = CompiledScalar | BundleValue[];
 
 /**
  * What a bundle is for: a `scene` is loaded as the whole scene

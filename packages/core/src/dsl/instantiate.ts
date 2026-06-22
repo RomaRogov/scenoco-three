@@ -1,7 +1,9 @@
-import { Color, Euler, type Object3D, Scene, Vector2, Vector3, type WebGLRenderer } from 'three';
+import { Color, Euler, type Object3D, Vector2, Vector3 } from 'three';
 import type { Component } from '../core/Component.js';
-import { Registry, type PropertyMeta } from '../core/Registry.js';
+import { Registry, isArrayType, elementType, type PropType, type PropertyMeta } from '../core/Registry.js';
+import type { EnumDef } from '../core/EnumRegistry.js';
 import type { CompiledComponent, CompiledNode, CompiledRef, CompiledScene, CompiledValue } from './compiled.js';
+import type { CompiledScalar } from './types.js';
 import { getAttachmentDef, getNodeDef, type AttachmentInstance } from './nodes.js';
 import { PrefabRef, type SpawnFn } from './PrefabRef.js';
 
@@ -14,16 +16,16 @@ import { PrefabRef, type SpawnFn } from './PrefabRef.js';
 export interface InstantiatedScene {
   /** Object for the root <Scene> node; its children are the scene contents. */
   root: Object3D;
+  /** Live objects, index-aligned with CompiledScene.nodes (tooling maps live → source). */
+  nodes: Object3D[];
   /** Index-aligned with CompiledScene.components. */
   components: { instance: Component; node: Object3D }[];
   /** One per pooled attachment (caching → shared geometry/material). */
   attachments: AttachmentInstance[];
 }
 
-/** Live scene/renderer context an attachment may configure (settings need it). */
+/** Context for instantiation — how a `prefab` prop spawns its subtree. */
 export interface InstantiateContext {
-  scene?: Scene;
-  renderer?: WebGLRenderer;
   /**
    * How a `prefab` prop spawns its subtree (the Engine passes `engine.instantiate`).
    * Absent when instantiating standalone (pure tests) — a PrefabRef.spawn() then
@@ -39,11 +41,6 @@ export interface InstantiateContext {
  * are valid before any component lifecycle runs.
  */
 export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContext = {}): InstantiatedScene {
-  // A scene is needed by scene-targeted attachments (fog/background); default to
-  // a throwaway when instantiating standalone (prefabs/tests use node attachments).
-  const scene = ctx.scene ?? new Scene();
-  const renderer = ctx.renderer;
-
   // One instance per pooled attachment entry, so caching shares the resource.
   const attachments = compiled.attachments.map((a) => getAttachmentDef(a.tag)!.make(a.attrs));
   const objects: Object3D[] = compiled.nodes.map((node) => buildObject(node));
@@ -53,9 +50,10 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
     for (const childIndex of node.children) objects[i]!.add(objects[childIndex]!);
   });
 
-  // Apply attachments (geometry/material on the node, fog/background on the scene).
+  // Apply attachments — each configures its host node directly (geometry/material
+  // on a mesh, fog/background on the Scene, which is itself a node here).
   compiled.nodes.forEach((node, i) => {
-    for (const ai of node.attachments) attachments[ai]!.attach({ node: objects[i]!, scene, ...(renderer ? { renderer } : {}) });
+    for (const ai of node.attachments) attachments[ai]!.attach({ node: objects[i]! });
   });
 
   // Create component instances and set their scalar props (refs come next).
@@ -72,21 +70,24 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
   const spawn: SpawnFn = ctx.spawn ?? unboundSpawn;
   compiled.components.forEach((c, i) => {
     const props = Registry.getComponent(c.type)!.meta.properties;
+    const ownerNode = instances[i]!.node;
+    const resolveRef = (ref: CompiledRef): unknown => {
+      if ('prefab' in ref) return new PrefabRef(compiled.prefabs![ref.prefab]!, spawn, ownerNode);
+      return 'node' in ref ? objects[ref.node] : instances[ref.component];
+    };
     for (const [attr, value] of Object.entries(c.props)) {
-      if (!isRef(value)) continue;
       const meta = props.get(attr);
-      if (!meta) continue;
+      if (!meta || !isReferenceType(elementType(meta.type))) continue;
       const target = instances[i] as unknown as Record<string, unknown>;
-      if ('prefab' in value) {
-        target[attr] = new PrefabRef(compiled.prefabs![value.prefab]!, spawn, instances[i]!.node);
-      } else {
-        target[attr] = 'node' in value ? objects[value.node] : instances[value.component];
-      }
+      target[attr] = isArrayType(meta.type)
+        ? (value as CompiledRef[]).map(resolveRef)
+        : resolveRef(value as CompiledRef);
     }
   });
 
   return {
     root: objects[compiled.root]!,
+    nodes: objects,
     components: instances.map((instance, i) => ({ instance, node: objects[compiled.components[i]!.node]! })),
     attachments,
   };
@@ -113,15 +114,22 @@ function setScalarProps(
 ): void {
   const target = instance as unknown as Record<string, unknown>;
   for (const [attr, value] of Object.entries(compiled.props)) {
-    if (isRef(value)) continue;
     const meta = props.get(attr);
     if (!meta) continue;
-    target[attr] = toRuntimeValue(meta.type, value);
+    const elem = elementType(meta.type);
+    if (isReferenceType(elem)) continue; // wired in the reference pass
+    target[attr] = isArrayType(meta.type)
+      ? (value as CompiledScalar[]).map((v) => toRuntimeValue(elem, v))
+      : toRuntimeValue(elem, value as CompiledScalar);
   }
 }
 
-/** Convert a compiled scalar into the Three.js-typed value a component field expects. */
-function toRuntimeValue(type: PropertyMeta['type'], value: CompiledValue): unknown {
+/**
+ * Convert a compiled scalar into the Three.js-typed value a component field
+ * expects. Enums (and float/int/bool/string) pass through — their compiled form
+ * is already the native runtime value.
+ */
+function toRuntimeValue(type: PropType | { new (): unknown } | EnumDef, value: CompiledScalar): unknown {
   switch (type) {
     case 'vec2':
       return new Vector2().fromArray(value as number[]);
@@ -138,8 +146,11 @@ function toRuntimeValue(type: PropertyMeta['type'], value: CompiledValue): unkno
   }
 }
 
-function isRef(value: CompiledValue): value is CompiledRef {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/** A reference element type — resolved against the scene, not parsed as a scalar/enum. */
+function isReferenceType(elem: PropType | { new (): unknown } | EnumDef): boolean {
+  // Component-class refs are constructors (functions); 'node'/'prefab' are strings.
+  // Scalars are strings and enums are plain objects — neither is a reference.
+  return typeof elem === 'function' || elem === 'node' || elem === 'prefab';
 }
 
 /** Fallback for a prefab prop instantiated without an engine (pure/standalone use). */

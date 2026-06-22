@@ -1,4 +1,5 @@
 import { Color } from 'three';
+import { isEnumType, type EnumDef } from '@scenoco-three/core/internal';
 
 /**
  * Canonical wire formats for SceNoCo attribute values — the single place that
@@ -177,4 +178,84 @@ export const codecs: Record<ScalarType, TypeCodec> = {
 // Trim floating-point dust when serializing degrees back from radians.
 function round(n: number): number {
   return Math.round(n * 1e6) / 1e6;
+}
+
+// ---- enums ----------------------------------------------------------------
+//
+// An enum's XML/XSD surface is its member names; its compiled & runtime value is
+// the native value (number or string). The codec maps name↔value, so an enum
+// flows through every value site exactly like a built-in scalar.
+
+/** A per-enum codec: parse a member name → native value, serialize value → name. */
+export function enumCodec(def: EnumDef): TypeCodec {
+  return {
+    label: `${def.name} (${def.names.join(' | ')})`,
+    example: def.names[0]!,
+    parse: (raw) => {
+      const token = raw.trim();
+      const value = def.byName.get(token);
+      if (value !== undefined) return ok(value);
+      const allowed = def.names.map((n) => `"${n}"`).join(', ');
+      return err(`expected one of ${allowed} (enum ${def.name}), got "${raw}"`);
+    },
+    serialize: (value) => def.byValue.get(value as string | number) ?? String(value),
+    // The XSD exporter emits a named simpleType per enum; reference it by name.
+    xsd: { base: def.name },
+  };
+}
+
+/** Resolve the codec for any value type — a built-in scalar or a registered enum. */
+export function scalarCodec(type: ScalarType | EnumDef): TypeCodec {
+  return isEnumType(type) ? enumCodec(type) : codecs[type];
+}
+
+// ---- arrays ---------------------------------------------------------------
+//
+// Array attributes are written as a bracketed, comma-separated list: `[a,b,c]`
+// (empty: `[]`). Comma is the separator, so an element value may not contain a
+// comma — only relevant to `string` elements, which therefore can't hold commas.
+// Every other type's canonical form is comma-free (floats use `.`, vecs use
+// spaces, colors `#`, refs `#id`), so all element types are supported.
+
+/** True if `raw` is wrapped in `[ … ]` (an array literal). */
+export function isArrayLiteral(raw: string): boolean {
+  const t = raw.trim();
+  return t.startsWith('[') && t.endsWith(']');
+}
+
+/**
+ * Split a `[a,b,c]` literal into trimmed element strings. `[]` → `[]`. Errors if
+ * `raw` is not bracketed (so a missing-bracket mistake gets a clear message).
+ */
+export function parseArrayLiteral(raw: string): ParseResult<string[]> {
+  const t = raw.trim();
+  if (!isArrayLiteral(t)) return err(`expected an array in brackets (e.g. "[a,b,c]"), got "${raw}"`);
+  const inner = t.slice(1, -1).trim();
+  if (inner === '') return ok([]);
+  return ok(inner.split(',').map((s) => s.trim()));
+}
+
+/** Parse a scalar/enum-array literal `[…]` into compiled element values. */
+export function parseScalarArray(raw: string, type: ScalarType | EnumDef): ParseResult<CompiledScalar[]> {
+  const literal = parseArrayLiteral(raw);
+  if (!literal.ok) return literal;
+  const codec = scalarCodec(type);
+  const out: CompiledScalar[] = [];
+  for (let i = 0; i < literal.value.length; i++) {
+    const r = codec.parse(literal.value[i]!);
+    if (!r.ok) return err(`element ${i} — ${r.message}`);
+    out.push(r.value);
+  }
+  return ok(out);
+}
+
+/** Serialize compiled element values back to a `[a,b,c]` literal. */
+export function serializeScalarArray(values: CompiledScalar[], type: ScalarType | EnumDef): string {
+  const codec = scalarCodec(type);
+  return `[${values.map((v) => codec.serialize(v)).join(',')}]`;
+}
+
+/** A worked array example for a scalar element type (docs/errors). */
+export function arrayExample(type: ScalarType): string {
+  return `[${codecs[type].example},${codecs[type].example}]`;
 }

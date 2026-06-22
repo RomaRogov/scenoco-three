@@ -1,6 +1,6 @@
 import { Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
-import { Component, Engine } from '@scenoco-three/core';
+import { Component, Engine, executeInEditor } from '@scenoco-three/core';
 
 class Probe extends Component {
   events: string[] = [];
@@ -24,6 +24,36 @@ class Probe extends Component {
     this.events.push('onDestroy');
   }
 }
+
+@executeInEditor
+class EditorProbe extends Probe {}
+
+describe('editor mode (Unity scene-view style)', () => {
+  it('leaves normal components inert — no hooks, no ticking', () => {
+    const engine = new Engine({ editor: true });
+    const probe = engine.addComponent(new Object3D(), Probe);
+    expect(probe.events).toEqual([]); // no onLoad/onEnable
+    engine.tick(0.016);
+    engine.tick(0.016);
+    expect(probe.events).toEqual([]); // no start/update either
+  });
+
+  it('runs @executeInEditor components in editor mode', () => {
+    const engine = new Engine({ editor: true });
+    const probe = engine.addComponent(new Object3D(), EditorProbe);
+    expect(probe.events).toEqual(['onLoad', 'onEnable']);
+    engine.tick(0.016);
+    expect(probe.events).toContain('start');
+    expect(probe.events).toContain('update:0.016');
+  });
+
+  it('runs everything normally when not in editor mode', () => {
+    const engine = new Engine();
+    const probe = engine.addComponent(new Object3D(), Probe);
+    engine.tick(0.016);
+    expect(probe.events).toEqual(['onLoad', 'onEnable', 'start', 'update:0.016']);
+  });
+});
 
 describe('component lifecycle (headless engine)', () => {
   it('runs onLoad and onEnable on attach, start on first tick', () => {
@@ -152,6 +182,31 @@ describe('component lifecycle (headless engine)', () => {
     probe.destroy();
     expect(probe.events).toEqual(['onLoad', 'onEnable', 'onDisable', 'onDestroy']);
     expect(engine.getComponents(node)).toEqual([]);
+  });
+
+  it('engine.destroy() recursively tears down an arbitrary subtree (Unity style)', () => {
+    const engine = new Engine();
+    const root = new Object3D();
+    const child = new Object3D();
+    const grandchild = new Object3D();
+    root.add(child);
+    child.add(grandchild);
+    engine.scene.add(root);
+
+    const onRoot = engine.addComponent(root, Probe);
+    const onChild = engine.addComponent(child, Probe);
+    const onGrandchild = engine.addComponent(grandchild, Probe);
+
+    engine.destroy(root);
+
+    for (const probe of [onRoot, onChild, onGrandchild]) {
+      expect(probe.events).toContain('onDestroy');
+    }
+    expect(engine.scene.children).not.toContain(root);
+    // Idempotent: destroying again is a harmless no-op.
+    expect(() => engine.destroy(root)).not.toThrow();
+    engine.tick(0.016);
+    expect(onChild.events.filter((e) => e.startsWith('update'))).toHaveLength(0);
   });
 
   it('destroys every component on dispose', () => {

@@ -85,3 +85,62 @@ describe('compile → CompiledScene', () => {
     expect(JSON.parse(JSON.stringify(scene)).nodes.length).toBe(scene.nodes.length);
   });
 });
+
+describe('compile → array properties', () => {
+  it('compiles a float array prop to CompiledScalar[]', () => {
+    const scene = compile(`<Scene>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe points="[1,2,3]" /></Components>
+      </Mesh>
+    </Scene>`);
+    const probe = scene.components.find((c) => c.type === 'ArrayProbe')!;
+    expect(probe.props.points).toEqual([1, 2, 3]);
+  });
+
+  it('compiles an empty array prop to []', () => {
+    const scene = compile(`<Scene>
+      <Mesh id="M"><BoxGeometry /><Components><ArrayProbe /></Components></Mesh>
+    </Scene>`);
+    const probe = scene.components.find((c) => c.type === 'ArrayProbe')!;
+    // Unset array props are not stored (only explicitly set props are).
+    expect(probe.props.points).toBeUndefined();
+  });
+
+  it('compiles a vec3 array prop to number[][]', () => {
+    const scene = compile(`<Scene>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe waypoints="[0 1 0,1 0 0]" /></Components>
+      </Mesh>
+    </Scene>`);
+    const probe = scene.components.find((c) => c.type === 'ArrayProbe')!;
+    expect(probe.props.waypoints).toEqual([[0, 1, 0], [1, 0, 0]]);
+  });
+
+  it('compiles a node-ref array to { node: index }[]', () => {
+    const scene = compile(`<Scene>
+      <Mesh id="a"><BoxGeometry /></Mesh>
+      <Mesh id="b"><BoxGeometry /></Mesh>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe targets="[#a,#b]" /></Components>
+      </Mesh>
+    </Scene>`);
+    const aIndex = scene.nodes.findIndex((n) => n.id === 'a');
+    const bIndex = scene.nodes.findIndex((n) => n.id === 'b');
+    const probe = scene.components.find((c) => c.type === 'ArrayProbe')!;
+    expect(probe.props.targets).toEqual([{ node: aIndex }, { node: bIndex }]);
+  });
+
+  it('compiles a typed component-ref array to { component: index }[]', () => {
+    const scene = compile(`<Scene>
+      <Mesh id="a"><BoxGeometry /><Components><Oscillator id="o1" /></Components></Mesh>
+      <Mesh id="b"><BoxGeometry /><Components><Oscillator id="o2" /></Components></Mesh>
+      <Mesh id="M"><BoxGeometry />
+        <Components><ArrayProbe oscillators="[#o1,#o2]" /></Components>
+      </Mesh>
+    </Scene>`);
+    const o1Index = scene.components.findIndex((c) => c.id === 'o1');
+    const o2Index = scene.components.findIndex((c) => c.id === 'o2');
+    const probe = scene.components.find((c) => c.type === 'ArrayProbe')!;
+    expect(probe.props.oscillators).toEqual([{ component: o1Index }, { component: o2Index }]);
+  });
+});

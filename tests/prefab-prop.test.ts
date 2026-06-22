@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Object3D } from 'three';
 import {
   Component,
   component,
@@ -6,7 +7,6 @@ import {
   Engine,
   deserializeBundle,
   PrefabRef,
-  type SceneInstance,
 } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml, type CompileResult, type ResourceResolver } from '@scenoco-three/compiler';
 
@@ -23,7 +23,7 @@ class PrefabSpawner extends Component {
   @property({ type: 'int', default: 3 })
   count = 3;
 
-  readonly spawned: SceneInstance[] = [];
+  readonly spawned: Object3D[] = [];
 
   override onLoad(): void {
     for (let i = 0; i < this.count; i++) {
@@ -32,7 +32,7 @@ class PrefabSpawner extends Component {
   }
 
   override onDestroy(): void {
-    for (const s of this.spawned) s.destroy();
+    for (const s of this.spawned) this.engine.destroy(s);
     this.spawned.length = 0;
   }
 }

@@ -1,5 +1,8 @@
 import {
   isScalarType,
+  isEnumType,
+  isArrayType,
+  elementType,
   Registry,
   getNodeDef,
   getAttachmentDef,
@@ -10,6 +13,8 @@ import {
   nodeTags,
   TRANSFORM_ATTRS,
   type ComponentCtor,
+  type EnumDef,
+  type PropType,
   type PropertyMeta,
   type NodeAttr,
   type NodeDef,
@@ -17,7 +22,7 @@ import {
 } from '@scenoco-three/core/internal';
 import { nearestName, type SceDiagnostic } from './diagnostics.js';
 import type { SceElement } from './SceneParser.js';
-import { codecs, type ScalarType } from './types.js';
+import { parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } from './types.js';
 
 /**
  * Validates a parsed scene tree against the node and component registries,
@@ -280,7 +285,9 @@ class ValidationContext {
         this.error(el, 'unknown-attr', `<${el.tag}> has no property "${attr}"${suggestion ? `. Did you mean "${suggestion}"?` : ''}`);
         continue;
       }
-      if (isScalarType(meta.type)) {
+      if (isArrayType(meta.type)) {
+        this.validateArrayAttr(el, attr, raw, elementType(meta.type));
+      } else if (isScalarType(meta.type) || isEnumType(meta.type)) {
         this.parseScalarAttr(el, attr, raw, meta.type);
       } else if (meta.type === 'prefab') {
         // A prefab prop is a `.prefab.xml` file path (no `#`); the file itself is
@@ -322,11 +329,33 @@ class ValidationContext {
     }
   }
 
-  private parseScalarAttr(el: SceElement, attr: string, raw: string, type: ScalarType): void {
-    const result = codecs[type].parse(raw);
+  private parseScalarAttr(
+    el: SceElement,
+    attr: string,
+    raw: string,
+    type: ScalarType | EnumDef | [ScalarType | EnumDef],
+  ): void {
+    const result = Array.isArray(type) ? parseScalarArray(raw, type[0]) : scalarCodec(type).parse(raw);
     if (!result.ok) {
       this.error(el, 'bad-value', `<${el.tag}> attribute "${attr}": ${result.message}`);
     }
+  }
+
+  /** Validate an array-typed component property `[…]`: scalars/enums via codec, refs/prefabs per element. */
+  private validateArrayAttr(el: SceElement, attr: string, raw: string, elem: PropType | ComponentCtor | EnumDef): void {
+    if (isScalarType(elem) || isEnumType(elem)) {
+      this.parseScalarAttr(el, attr, raw, [elem]);
+      return;
+    }
+    const literal = parseArrayLiteral(raw);
+    if (!literal.ok) {
+      this.error(el, 'bad-value', `<${el.tag}> attribute "${attr}": ${literal.message}`);
+      return;
+    }
+    literal.value.forEach((piece, i) => {
+      if (elem === 'prefab') this.validatePrefabAttr(el, `${attr}[${i}]`, piece);
+      else this.recordReference(el, `${attr}[${i}]`, piece, elem);
+    });
   }
 
   private rejectChildElements(el: SceElement): void {

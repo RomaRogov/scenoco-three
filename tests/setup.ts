@@ -4,10 +4,11 @@
 // Node tooling the compiler imports this barrel. Tests want them all available.
 import '@scenoco-three/core/nodes';
 
-// Register the playground's demo components, which the test fixtures (turbine
-// scene, reference tests) rely on. In an app the Vite plugin imports the
-// components each scene uses; the CLI loads them via --components.
-import '../playground/components/Rotator.js';
-import '../playground/components/Oscillator.js';
-import '../playground/components/Follow.js';
-import '../playground/components/LookAt.js';
+// Register the demo components the test fixtures (turbine scene, reference
+// tests) rely on. In an app the Vite plugin imports the components each scene
+// uses; the CLI loads them via --components.
+import './fixtures/components/Rotator.js';
+import './fixtures/components/Oscillator.js';
+import './fixtures/components/Follow.js';
+import './fixtures/components/LookAt.js';
+import './fixtures/components/ArrayProbe.js';

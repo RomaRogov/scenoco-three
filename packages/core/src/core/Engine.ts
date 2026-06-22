@@ -1,6 +1,8 @@
 import { type Camera, PerspectiveCamera, Scene, Vector2, WebGLRenderer } from 'three';
 import type { Object3D } from 'three';
 import type { Component } from './Component.js';
+import { InputManager } from './Input.js';
+import { runsInEditor } from './decorators.js';
 import { Registry } from './Registry.js';
 import type { ComponentCtor } from './Registry.js';
 import type { System } from './System.js';
@@ -13,6 +15,19 @@ import { instantiateScene, type InstantiateContext, type InstantiatedScene } fro
 /** A component constructor the engine can test instances against (for system queries). */
 type ComponentType = abstract new (...args: never[]) => Component;
 
+/**
+ * Tooling map of a loaded scene: the compiled source it came from, the live
+ * objects index-aligned with `compiled.nodes`, and reverse lookups from a live
+ * `Object3D`/`Component` to its compiled index. Lets an editor resolve a picked
+ * object back to the source node/component it must patch.
+ */
+export interface SceneGraph {
+  compiled: CompiledScene;
+  nodeByIndex: Object3D[];
+  nodeIndexOf: Map<Object3D, number>;
+  componentIndexOf: Map<Component, number>;
+}
+
 export interface EngineOptions {
   /** Render target. Omit for headless use (tests, CLI tooling, validation). */
   canvas?: HTMLCanvasElement;
@@ -20,34 +35,53 @@ export interface EngineOptions {
   autoStart?: boolean;
   /** Seconds per fixed step (physics + `fixedUpdate`). Default 1/60. */
   fixedTimeStep?: number;
+  /**
+   * Editor mode (Unity scene-view style): instantiate scenes but do **not** run
+   * component hooks or systems — only components marked `@executeInEditor` run.
+   * The scene shows its authored pose; no gameplay/physics. Default false.
+   */
+  editor?: boolean;
+  /**
+   * Keep the WebGL drawing buffer so `canvas.toDataURL()` can capture a frame
+   * (the editor uses this for previews). Slight cost; default false.
+   */
+  preserveDrawingBuffer?: boolean;
 }
 
 /**
- * A spawned prefab/subtree (from `engine.instantiate`). Hold onto it to remove
- * the subtree later — Unity/Cocos `Instantiate` → `Destroy`.
- */
-export interface SceneInstance {
-  /** Root Object3D of the spawned subtree. */
-  readonly root: Object3D;
-  /** Remove the subtree, destroy its components, and free its GPU resources. */
-  destroy(): void;
-}
-
-/**
- * Core runtime: owns the Three.js scene graph, the render loop, and the
- * lifecycles of all attached components.
+ * Core runtime: drives the component/system registry and the game loop. It does
+ * not invent scene graph or camera objects — `loadScene` swaps in the Three.js
+ * `Scene` the DSL compiled to (camera, fog, background and all), and the loop
+ * renders that scene through whichever camera it found there.
  *
  * Without a canvas the engine runs headless — `tick(dt)` advances the
  * simulation manually, which is how tests and CLI tooling drive it.
  */
 export class Engine {
-  readonly scene = new Scene();
-  /** The engine's built-in fallback camera, used until a scene supplies one. */
-  readonly camera: PerspectiveCamera;
+  /**
+   * The active Three.js scene. Defaults to an empty `Scene` so a bare engine can
+   * be driven by hand; `loadScene` replaces it wholesale with the compiled scene.
+   */
+  scene: Scene = new Scene();
   readonly renderer?: WebGLRenderer;
 
-  /** Camera the renderer currently draws through (defaults to `camera`). */
-  private activeCamera: Camera;
+  /**
+   * The scene's camera (Unity `Camera.main`). `loadScene` sets it from the first
+   * camera node it finds; the render loop draws through it, and components read it
+   * for raycasting/projection. `undefined` when the scene has none — the loop then
+   * skips rendering. Assign it directly to override (one camera, no priorities).
+   */
+  mainCamera?: Camera;
+
+  /**
+   * Unity-style input (keyboard/mouse/gamepad), sampled once per `tick`. Read it
+   * from any component via `this.engine.input.getKeyDown('Space')`. Inert when the
+   * engine runs headless (no DOM).
+   */
+  readonly input: InputManager;
+
+  /** Editor mode — component hooks/systems are inert unless `@executeInEditor`. */
+  readonly editorMode: boolean;
 
   private readonly components: Component[] = [];
   private readonly byNode = new Map<Object3D, Component[]>();
@@ -61,26 +95,26 @@ export class Engine {
   private fixedAccumulator = 0;
   private rafId?: number;
   private lastFrameTime?: number;
-  /** Root object of the currently loaded scene (from loadScene), if any. */
-  private sceneRoot?: Object3D;
-  /** Components owned by the loaded scene — the only ones disposeScene removes. */
-  private sceneComponents: Component[] = [];
   /** Systems auto-run for the loaded scene — removed on unload. */
   private sceneSystems: System[] = [];
   /** Live attachment instances of the loaded scene (retained for findAttachment). */
   private sceneAttachments: AttachmentInstance[] = [];
-  /** Live spawned subtrees (from instantiate), so dispose() can clean them up. */
-  private readonly instances = new Set<SceneInstance>();
+  /** Tooling map of the loaded scene: live objects ⇄ their compiled-source indices. */
+  private sceneGraph?: SceneGraph;
+  /** Live spawned roots (from instantiate), so dispose() can tear down subtrees that live outside the scene root. */
+  private readonly instances = new Set<Object3D>();
 
   constructor(options: EngineOptions = {}) {
     this.fixedTimeStep = options.fixedTimeStep ?? 1 / 60;
-    this.camera = new PerspectiveCamera(60, 1, 0.1, 1000);
-    this.camera.position.set(0, 2, 6);
-    this.camera.lookAt(0, 0, 0);
-    this.activeCamera = this.camera;
+    this.editorMode = options.editor ?? false;
+    this.input = new InputManager({ ...(options.canvas ? { canvas: options.canvas } : {}) });
 
     if (options.canvas) {
-      this.renderer = new WebGLRenderer({ canvas: options.canvas, antialias: true });
+      this.renderer = new WebGLRenderer({
+        canvas: options.canvas,
+        antialias: true,
+        preserveDrawingBuffer: options.preserveDrawingBuffer ?? false,
+      });
       this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
       if (options.autoStart !== false) this.start();
     }
@@ -134,8 +168,11 @@ export class Engine {
     }
   }
 
-  /** Run onLoad + onEnable for an already-registered instance. */
+  /** Run onLoad + onEnable for an already-registered instance (skipped in editor mode). */
   private initComponent(instance: Component): void {
+    // Editor mode: leave non-@executeInEditor components inert (never loaded), so
+    // the update/fixed/late loops — which gate on `_loaded` — also skip them.
+    if (this.editorMode && !runsInEditor(instance)) return;
     instance.onLoad?.();
     instance._loaded = true;
     if (instance.enabled) instance.onEnable?.();
@@ -163,7 +200,9 @@ export class Engine {
       if (qi !== -1) q.splice(qi, 1);
     }
     if (instance.enabled && instance._loaded) instance.onDisable?.();
-    instance.onDestroy?.();
+    // Only tear down what was set up — an inert (never-loaded) editor component
+    // never ran onLoad, so it gets no onDestroy.
+    if (instance._loaded) instance.onDestroy?.();
   }
 
   getComponents(node: Object3D): readonly Component[] {
@@ -223,6 +262,16 @@ export class Engine {
   }
 
   /**
+   * Tooling view of the loaded scene: the compiled (flat, indexed) source plus
+   * maps from each live `Object3D`/`Component` to its compiled index — the bridge
+   * editors need to write live edits back to the source. `undefined` until a
+   * scene is loaded via `loadScene` (a prefab spawned by `instantiate` has none).
+   */
+  getSceneGraph(): SceneGraph | undefined {
+    return this.sceneGraph;
+  }
+
+  /**
    * Find a component by id — mirroring the `#id` references used in XML. Resolves
    * a component's own id first; failing that, treats `id` as a node id and returns
    * the (first) component on that node, optionally narrowed to `type`.
@@ -248,21 +297,6 @@ export class Engine {
     return undefined;
   }
 
-  /** The camera the renderer draws through (a scene camera if one is active). */
-  get renderCamera(): Camera {
-    return this.activeCamera;
-  }
-
-  /**
-   * Render through a specific camera — e.g. one defined in the scene
-   * (`engine.setActiveCamera(engine.findObject('Main')!)`). `loadScene` already
-   * auto-selects the first camera it finds; this is for switching afterwards.
-   * Pass nothing to revert to the engine's built-in camera.
-   */
-  setActiveCamera(camera: Camera = this.camera): void {
-    this.activeCamera = camera;
-  }
-
   /**
    * Load a scene from a pre-built bundle (or a CompiledScene), replacing any
    * current one. Bundles are produced at build time by `scenoco/compiler`; the
@@ -270,8 +304,8 @@ export class Engine {
    * their references wired before any onLoad runs, so cross-component refs are
    * valid from the first lifecycle hook.
    *
-   * If the scene defines a camera, it becomes the active render camera; the
-   * engine's built-in camera is the fallback when it doesn't.
+   * If the scene defines a camera, it becomes `mainCamera`; with none, `mainCamera`
+   * stays undefined and the loop skips rendering until one is set.
    */
   loadScene(source: Bundle | CompiledScene): void {
     if (Array.isArray(source) && bundleKind(source) === 'prefab') {
@@ -279,19 +313,20 @@ export class Engine {
     }
     const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
 
+    // Full swap: tear the current scene down, then make the compiled Scene the
+    // active one. The <Scene> node builds a real Three.js Scene, with fog/background
+    // already applied and the camera living in it as a child node.
     this.disposeScene();
-    // Attachments (geometry/material on nodes, fog/background on the scene) are
-    // applied during instantiation against the live scene/renderer.
     const live = instantiateScene(compiled, this.instantiateContext());
-    this.sceneRoot = live.root;
+    this.scene = live.root as Scene;
     this.sceneAttachments = live.attachments;
-    this.scene.add(live.root);
-    this.sceneComponents = this.initLive(live);
-    // Auto-run registered systems whose component type the scene contains.
-    this.sceneSystems = this.runSceneSystems();
+    this.initLive(live);
+    this.sceneGraph = buildSceneGraph(compiled, live);
+    // Auto-run registered systems whose component type the scene contains — but
+    // not in editor mode (no physics/batch processing on a static scene).
+    this.sceneSystems = this.editorMode ? [] : this.runSceneSystems();
 
-    const sceneCamera = findCamera(live.root);
-    if (sceneCamera) this.setActiveCamera(sceneCamera);
+    this.mainCamera = findCamera(this.scene);
   }
 
   /** Instantiate + run each registered @system whose component type is present. */
@@ -309,38 +344,47 @@ export class Engine {
   /**
    * Spawn a prefab (or any bundle/CompiledScene) as a subtree under `parent`
    * (the scene root by default), at runtime — Unity/Cocos `Instantiate`.
-   * Returns a handle whose `destroy()` removes just this subtree; the loaded
-   * scene and other instances are untouched. References inside the prefab are
-   * already wired by index, so spawning the same prefab many times is safe.
+   * Returns the root Object3D of the spawned subtree; pass it to `destroy()`
+   * to remove just this subtree (the loaded scene and other instances are
+   * untouched). References inside the prefab are already wired by index, so
+   * spawning the same prefab many times is safe.
    */
-  instantiate(source: Bundle | CompiledScene, parent: Object3D = this.scene): SceneInstance {
+  instantiate(source: Bundle | CompiledScene, parent: Object3D = this.scene): Object3D {
     const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
     const live = instantiateScene(compiled, this.instantiateContext());
     parent.add(live.root);
-    const components = this.initLive(live);
-
-    const instance: SceneInstance = {
-      root: live.root,
-      destroy: () => {
-        if (!this.instances.delete(instance)) return;
-        for (const c of components) this.removeComponent(c);
-        live.root.removeFromParent();
-        disposeObject(live.root);
-      },
-    };
-    this.instances.add(instance);
-    return instance;
+    this.initLive(live);
+    this.instances.add(live.root);
+    return live.root;
   }
 
   /**
-   * Context for `instantiateScene`: the live scene/renderer (for attachments)
-   * and how a `prefab` prop spawns — `engine.instantiate`, so spawned subtrees
-   * are tracked and torn down by `dispose()`.
+   * Destroy an object and its whole subtree — Unity/Cocos `Destroy(gameObject)`.
+   * Recursively removes every component on the object and its descendants (running
+   * their onDisable/onDestroy), detaches it from the scene graph, and frees its GPU
+   * resources. Works on any Object3D — a `instantiate`/`PrefabRef.spawn` root, a
+   * single node, or a hand-built subtree. Calling it again is a harmless no-op.
+   */
+  destroy(object: Object3D): void {
+    // Collect first: removeComponent mutates byNode as we go. Also forget any
+    // spawned root inside this subtree so dispose() won't try to free it twice.
+    const components: Component[] = [];
+    object.traverse((node) => {
+      const onNode = this.byNode.get(node);
+      if (onNode) components.push(...onNode);
+      this.instances.delete(node);
+    });
+    for (const c of components) this.removeComponent(c);
+    object.removeFromParent();
+    disposeObject(object);
+  }
+
+  /**
+   * Context for `instantiateScene`: how a `prefab` prop spawns — `engine.instantiate`,
+   * so spawned subtrees are tracked and torn down by `dispose()`.
    */
   private instantiateContext(): InstantiateContext {
     return {
-      scene: this.scene,
-      ...(this.renderer ? { renderer: this.renderer } : {}),
       spawn: (compiled, parent) => this.instantiate(compiled, parent),
     };
   }
@@ -354,27 +398,29 @@ export class Engine {
   }
 
   /**
-   * Remove the loaded scene: destroy its components (only those owned by the
-   * scene — manually attached ones and spawned instances survive) and release
-   * its GPU resources.
+   * Unload the active scene: destroy every component on it and free its GPU
+   * resources, then leave a fresh empty `Scene` in place. Full swap — anything in
+   * the previous scene goes with it (objects you want to keep live on a node that
+   * isn't part of the scene, or in a spawned instance).
    */
   disposeScene(): void {
-    if (!this.sceneRoot) return;
     // Components first (a RigidBody.onDisable removes its body), then the
     // subsystems they used (PhysicsSystem.onDetach frees the world).
-    for (const c of this.sceneComponents) this.removeComponent(c);
-    this.sceneComponents = [];
+    const components: Component[] = [];
+    this.scene.traverse((node) => {
+      const onNode = this.byNode.get(node);
+      if (onNode) components.push(...onNode);
+      this.instances.delete(node);
+    });
+    for (const c of components) this.removeComponent(c);
     for (const s of this.sceneSystems) this.removeSystem(s);
     this.sceneSystems = [];
     this.sceneAttachments = [];
-    this.scene.remove(this.sceneRoot);
-    disposeObject(this.sceneRoot);
-    this.sceneRoot = undefined;
-    // Reset the built-in scene settings so they don't leak into the next scene.
-    this.scene.fog = null;
-    this.scene.background = null;
-    // The scene's camera is gone; fall back to the built-in one.
-    this.activeCamera = this.camera;
+    this.sceneGraph = undefined;
+    disposeObject(this.scene);
+    // Start fresh: an empty scene with no camera (rendering pauses until one loads).
+    this.scene = new Scene();
+    this.mainCamera = undefined;
   }
 
   /**
@@ -385,6 +431,9 @@ export class Engine {
    * tick, so existing components are unaffected.
    */
   tick(dt: number): void {
+    // Sample input first so getKey/getKeyDown are consistent across every phase.
+    this.input.beginFrame();
+
     // Fixed-timestep phase (deterministic; physics + fixedUpdate). The substep
     // cap prevents a "spiral of death" after a long pause.
     this.fixedAccumulator += dt;
@@ -411,11 +460,13 @@ export class Engine {
       const c = this.components[i]!;
       if (c.enabled && c._loaded) c.lateUpdate?.(dt);
     }
-    for (const s of this.systems) s.step?.(dt);
+    if (!this.editorMode) for (const s of this.systems) s.step?.(dt);
 
-    if (this.renderer) {
+    // Render only when there's both a target and a camera — the engine never
+    // supplies a fallback camera, so a scene without one simply doesn't draw.
+    if (this.renderer && this.mainCamera) {
       this.resizeToCanvas();
-      this.renderer.render(this.scene, this.activeCamera);
+      this.renderer.render(this.scene, this.mainCamera);
     }
   }
 
@@ -425,7 +476,7 @@ export class Engine {
       const c = this.components[i]!;
       if (c.enabled && c._loaded) c.fixedUpdate?.(fixedDt);
     }
-    for (const s of this.systems) s.fixedStep?.(fixedDt);
+    if (!this.editorMode) for (const s of this.systems) s.fixedStep?.(fixedDt);
   }
 
   /** Start the requestAnimationFrame loop (no-op when already running or headless). */
@@ -452,10 +503,11 @@ export class Engine {
   /** Stop the loop, destroy all components/instances/subsystems, free GPU resources. */
   dispose(): void {
     this.stop();
-    for (const instance of [...this.instances]) instance.destroy();
+    for (const root of [...this.instances]) this.destroy(root);
     this.disposeScene();
     for (const c of [...this.components]) this.removeComponent(c);
     for (const s of [...this.systems]) this.removeSystem(s);
+    this.input.dispose();
     this.renderer?.dispose();
   }
 
@@ -468,18 +520,23 @@ export class Engine {
     renderer.getSize(this.rendererSize);
     if (this.rendererSize.x !== width || this.rendererSize.y !== height) {
       renderer.setSize(width, height, false);
-      // Keep the built-in camera's aspect current; update the active scene
-      // camera too when it's a perspective camera.
-      const aspect = width / height;
-      this.camera.aspect = aspect;
-      this.camera.updateProjectionMatrix();
-      const active = this.activeCamera;
-      if (active !== this.camera && active instanceof PerspectiveCamera) {
-        active.aspect = aspect;
-        active.updateProjectionMatrix();
+      // Keep the main camera's aspect current when it's a perspective camera.
+      const camera = this.mainCamera;
+      if (camera instanceof PerspectiveCamera) {
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
       }
     }
   }
+}
+
+/** Build the tooling map linking live objects/components back to compiled indices. */
+function buildSceneGraph(compiled: CompiledScene, live: InstantiatedScene): SceneGraph {
+  const nodeIndexOf = new Map<Object3D, number>();
+  live.nodes.forEach((object, i) => nodeIndexOf.set(object, i));
+  const componentIndexOf = new Map<Component, number>();
+  live.components.forEach(({ instance }, i) => componentIndexOf.set(instance, i));
+  return { compiled, nodeByIndex: live.nodes, nodeIndexOf, componentIndexOf };
 }
 
 /** Max fixed substeps per frame — caps catch-up work after a long pause. */

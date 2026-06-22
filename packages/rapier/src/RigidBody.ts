@@ -1,5 +1,8 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property } from '@scenoco-three/core';
+
+/** How a body moves — the value matches the Rapier RigidBodyDesc factory. */
+export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed: 'fixed', kinematic: 'kinematic' });
 
 /**
  * Marks the host node as a Rapier rigid body — plain data the `PhysicsSystem`
@@ -9,7 +12,7 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'RigidBody', description: 'A physics body driven by the Rapier world (needs a <Physics> scene)' })
 export class RigidBody extends Component {
-  @property({ type: 'string', default: 'dynamic', description: 'dynamic | fixed | kinematic' })
+  @property({ type: RigidBodyKind, default: 'dynamic', description: 'How the body moves' })
   kind = 'dynamic';
   @property({ type: 'float', default: 0 }) linearDamping = 0;
   @property({ type: 'float', default: 0 }) angularDamping = 0;

@@ -1,8 +1,8 @@
 import { Object3D, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Component, component, Engine, property, Registry } from '@scenoco-three/core';
-import { Oscillator } from '../playground/components/Oscillator.js';
-import { Rotator } from '../playground/components/Rotator.js';
+import { Oscillator } from './fixtures/components/Oscillator.js';
+import { Rotator } from './fixtures/components/Rotator.js';
 
 describe('built-in components', () => {
   it('Rotator and Oscillator are registered with metadata', () => {

@@ -1,4 +1,5 @@
 import type { Component } from './Component.js';
+import type { EnumDef } from './EnumRegistry.js';
 
 export type ComponentCtor = new () => Component;
 
@@ -29,22 +30,46 @@ export type PropType =
   | 'node'
   | 'prefab';
 
+/**
+ * A property's element type, or a one-element tuple wrapping it to mark an
+ * **array** property (Cocos `@property([Type])` style): `['float']`, `['node']`,
+ * `[SomeComponent]`. The element type carries all the parse/ref semantics; the
+ * tuple only signals multiplicity.
+ */
+export type PropertyType =
+  | PropType
+  | ComponentCtor
+  | EnumDef
+  | [PropType | ComponentCtor | EnumDef];
+
 export interface PropertyMeta {
-  type: PropType | ComponentCtor;
+  type: PropertyType;
   /**
    * Default in compiled form (number/boolean/string, or number[] for vec/euler/
-   * color-as-array). Used for XSD/docs generation and bundle default-elision.
+   * color-as-array; an array of those for array props). Used for XSD/docs
+   * generation and bundle default-elision.
    */
-  default?: number | boolean | string | number[];
+  default?: number | boolean | string | number[] | (number | boolean | string | number[])[];
   required?: boolean;
   description?: string;
+}
+
+/** True for an array-marked property; `elementType` unwraps it. */
+export function isArrayType(t: PropertyType): t is [PropType | ComponentCtor | EnumDef] {
+  return Array.isArray(t);
+}
+
+/** The element type of a property — itself if scalar/reference/enum, or the unwrapped tuple. */
+export function elementType(t: PropertyType): PropType | ComponentCtor | EnumDef {
+  return Array.isArray(t) ? t[0] : t;
 }
 
 /**
  * Scalar property types parse from text. Reference kinds — `'node'`, `'prefab'`,
  * and Component classes — are resolved against the scene, not parsed as scalars.
+ * Operates on a (already-unwrapped) element type.
  */
-export function isScalarType(t: PropertyMeta['type']): t is Exclude<PropType, 'node' | 'prefab'> {
+export function isScalarType(t: PropertyType): t is Exclude<PropType, 'node' | 'prefab'> {
   return typeof t === 'string' && t !== 'node' && t !== 'prefab';
 }
 

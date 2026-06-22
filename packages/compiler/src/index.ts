@@ -20,6 +20,7 @@ export {
 } from './dsl/compile.js';
 export { bundleScene, bundlePrefab } from './dsl/bundle.js';
 export { serializeScene } from './dsl/serialize.js';
+export { patchSceneXml, type PatchEdit, type PatchTarget, type PatchResult } from './dsl/patch.js';
 export {
   watchSceneFiles,
   type WatchOptions,
@@ -33,10 +34,24 @@ export { scaffoldFiles } from './cli/templates.js';
 export { builtinNodeModules, builtinNodeModule } from '@scenoco-three/core/internal';
 
 export { generateXsd } from './exporters/xsd.js';
-export { generateDocs, type DocsOptions } from './exporters/docs.js';
+export {
+  generateApi,
+  generateApiJson,
+  type SceneApi,
+  type NodeApi,
+  type AttachmentApi,
+  type ComponentApi,
+  type SystemApi,
+  type PropertyApi,
+  type Attribute,
+  type ReferenceTarget,
+  type Relation,
+  type EntityRef,
+  type AttachmentGroupRef,
+} from './exporters/api.js';
 
 export { formatDiagnostic, type SceDiagnostic } from './dsl/diagnostics.js';
-export { codecs, type ScalarType, type TypeCodec } from './dsl/types.js';
+export { codecs, parseArrayLiteral, parseScalarArray, serializeScalarArray, type ScalarType, type TypeCodec } from './dsl/types.js';
 
 // Re-export the data types tooling produces, for convenience.
 export type {

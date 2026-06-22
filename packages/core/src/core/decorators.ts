@@ -1,6 +1,7 @@
 import type { Object3D } from 'three';
-import { Registry, type PropertyMeta } from './Registry.js';
+import { Registry, isArrayType, elementType, type PropertyMeta, type PropType, type PropertyType } from './Registry.js';
 import type { ComponentCtor } from './Registry.js';
+import { isEnumType, type EnumDef } from './EnumRegistry.js';
 import {
   registerAttachment,
   registerNode,
@@ -12,7 +13,7 @@ import {
   type ChildRules,
   type NodeAttr,
 } from './NodeRegistry.js';
-import type { CompiledScalar, ScalarType } from '../dsl/types.js';
+import type { CompiledScalar } from '../dsl/types.js';
 
 // SceNoCo uses legacy (experimentalDecorators) decorators, like Cocos Creator.
 // Rationale: as of 2026 the TC39 standard decorators are still not lowered by
@@ -39,12 +40,16 @@ export interface ComponentOptions {
 
 /**
  * Declares an XML-exposed property on a field (Cocos `@property` style). Used by
- * components, nodes, and attachments. Two forms:
+ * components, nodes, and attachments. Forms:
  *   @property({ type: 'float', default: 1 })  — primitive/math property
  *   @property(SomeComponent)                  — typed reference (components only)
+ *   @property({ type: ['float'] })            — array property, written "[1,2,3]"
+ *   @property([SomeComponent])                 — array of typed references
  */
-export function property(meta: PropertyMeta | ComponentCtor) {
-  const normalized: PropertyMeta = typeof meta === 'function' ? { type: meta } : meta;
+export function property(meta: PropertyMeta | ComponentCtor | EnumDef | [PropType | ComponentCtor | EnumDef]) {
+  const normalized: PropertyMeta =
+    typeof meta === 'function' || Array.isArray(meta) || isEnumType(meta) ? { type: meta as PropertyType } : meta;
+  normalizeEnumDefault(normalized);
   return function (proto: object, key: string | symbol): void {
     if (typeof proto === 'function') {
       throw new Error(`@property cannot decorate static field "${String(key)}"`);
@@ -60,6 +65,14 @@ export function property(meta: PropertyMeta | ComponentCtor) {
     }
     bag![key] = normalized;
   };
+}
+
+/** If an enum prop's default is authored as a member name, resolve it to the native value (in place). */
+function normalizeEnumDefault(meta: PropertyMeta): void {
+  const elem = elementType(meta.type);
+  if (isEnumType(elem) && typeof meta.default === 'string' && elem.byName.has(meta.default)) {
+    meta.default = elem.byName.get(meta.default) as PropertyMeta['default'];
+  }
 }
 
 /** Collect every @property (own + inherited) declared on a class, in order. */
@@ -81,6 +94,29 @@ export function component(options: ComponentOptions) {
   };
 }
 
+/** Flag set on component constructors decorated with `@executeInEditor`. */
+const EXECUTE_IN_EDITOR = Symbol.for('scenoco:executeInEditor');
+
+/**
+ * Class decorator (Unity `[ExecuteInEditMode]`): opt a component into running its
+ * lifecycle/update hooks while the engine is in **editor mode**. By default, an
+ * editor-mode engine instantiates the scene but never invokes component hooks (no
+ * gameplay/physics) — decorate a component with `@executeInEditor` when its effect
+ * must be visible in the editor (procedural geometry, layout/spawner tools, …).
+ *
+ *   @executeInEditor
+ *   @component({ name: 'GridLayout' })
+ *   class GridLayout extends Component { … }
+ */
+export function executeInEditor(target: ComponentCtor): void {
+  (target as unknown as Record<symbol, boolean>)[EXECUTE_IN_EDITOR] = true;
+}
+
+/** True if an instance's component class is marked `@executeInEditor`. */
+export function runsInEditor(instance: object): boolean {
+  return (instance.constructor as unknown as Record<symbol, boolean>)[EXECUTE_IN_EDITOR] === true;
+}
+
 // ---- node tags --------------------------------------------------------------
 
 export interface NodeOptions {
@@ -97,7 +133,7 @@ export interface NodeOptions {
 export function node(options: NodeOptions) {
   return function (target: new () => { build(): Object3D }): void {
     const { attrs, names } = readAttrs(target as CtorWithProps, options.name);
-    const build = (a: Record<string, CompiledScalar>): Object3D => {
+    const build = (a: Record<string, CompiledScalar | CompiledScalar[]>): Object3D => {
       const inst = new target();
       assign(inst, names, a);
       return inst.build();
@@ -176,14 +212,18 @@ function readAttrs(target: CtorWithProps, tag: string): { attrs: Record<string, 
   const props = collectProperties(target);
   const attrs: Record<string, NodeAttr> = {};
   for (const [name, meta] of props) {
-    if (typeof meta.type !== 'string' || meta.type === 'node') {
+    const elem = elementType(meta.type);
+    if (!isEnumType(elem) && (typeof elem !== 'string' || elem === 'node' || elem === 'prefab')) {
       throw new Error(
-        `<${tag}> @property "${name}" must use a scalar type (float/int/bool/string/vec2/vec3/euler/color); references are for components only`,
+        `<${tag}> @property "${name}" must use a scalar type (float/int/bool/string/vec2/vec3/euler/color), an enum, or an array of one ([float] …); references are for components only`,
       );
     }
+    normalizeEnumDefault(meta);
+    // Preserve array-ness: nodes/attachments may carry scalar/enum-array attrs.
+    const attrType = (isArrayType(meta.type) ? [elem] : elem) as NodeAttr['type'];
     attrs[name] = {
-      type: meta.type as ScalarType,
-      ...(meta.default !== undefined ? { default: meta.default as CompiledScalar } : {}),
+      type: attrType,
+      ...(meta.default !== undefined ? { default: meta.default as NodeAttr['default'] } : {}),
       ...(meta.required ? { required: true } : {}),
       ...(meta.description !== undefined ? { description: meta.description } : {}),
     };
@@ -192,7 +232,7 @@ function readAttrs(target: CtorWithProps, tag: string): { attrs: Record<string, 
 }
 
 /** Assign compiled attr values onto a fresh instance, skipping undefined (keeps initializers). */
-function assign(inst: object, names: string[], attrs: Record<string, CompiledScalar>): void {
+function assign(inst: object, names: string[], attrs: Record<string, CompiledScalar | CompiledScalar[]>): void {
   const target = inst as Record<string, unknown>;
   for (const name of names) {
     const v = attrs[name];

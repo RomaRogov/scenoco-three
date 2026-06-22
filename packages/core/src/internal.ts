@@ -1,7 +1,18 @@
 // Internal bridge exports for build-time tooling packages.
 // Not intended as the primary runtime API surface.
 
-export { Registry, isScalarType, type ComponentCtor, type PropertyMeta, type PropType } from './core/Registry.js';
+export {
+  Registry,
+  isScalarType,
+  isArrayType,
+  elementType,
+  type ComponentCtor,
+  type PropertyMeta,
+  type PropType,
+  type PropertyType,
+} from './core/Registry.js';
+
+export { enumOf, isEnumType, getEnum, allEnums, unregisterEnum, type EnumDef } from './core/EnumRegistry.js';
 
 export {
   getNodeDef,

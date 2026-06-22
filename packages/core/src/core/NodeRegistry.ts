@@ -1,5 +1,6 @@
-import type { Object3D, Scene, WebGLRenderer } from 'three';
+import type { Object3D } from 'three';
 import type { CompiledScalar, ScalarType } from '../dsl/types.js';
+import type { EnumDef } from './EnumRegistry.js';
 
 /**
  * The tag registry — the extensible counterpart to the component `Registry`.
@@ -18,9 +19,10 @@ import type { CompiledScalar, ScalarType } from '../dsl/types.js';
 export type NodeKind = 'scene' | 'object3d';
 
 export interface NodeAttr {
-  type: ScalarType;
-  /** Default in compiled form (number, boolean, number[], 0xRRGGBB). */
-  default?: CompiledScalar;
+  /** Scalar/enum type, or a one-element tuple `[ScalarType | EnumDef]` for an array attr. */
+  type: ScalarType | EnumDef | [ScalarType | EnumDef];
+  /** Default in compiled form (number, boolean, number[], 0xRRGGBB; or an array of those). */
+  default?: CompiledScalar | CompiledScalar[];
   required?: boolean;
   description?: string;
 }
@@ -41,7 +43,7 @@ export interface NodeDef {
   attrs: Record<string, NodeAttr>;
   children: ChildRules;
   /** Build the bare Three.js object (transforms are applied separately). */
-  build(attrs: Record<string, CompiledScalar>): Object3D;
+  build(attrs: Record<string, CompiledScalar | CompiledScalar[]>): Object3D;
   /** The Object3D subclass this node builds — used to match attachment targets. */
   produces?: AttachClass;
 }
@@ -52,11 +54,13 @@ export type AttachClass = abstract new (...args: never[]) => Object3D;
 /** Where an attachment may attach: an Object3D class (subclass-aware) or a node tag. */
 export type AttachTarget = AttachClass | AttachClass[] | string;
 
-/** What an attachment is given when the scene loads. `node` is the host. */
+/**
+ * What an attachment is given when the scene loads: just its host node. A
+ * Scene-targeted attachment (fog/background) receives the Scene as `node`, so it
+ * configures the live Three.js object directly — no separate scene/renderer handle.
+ */
 export interface AttachContext<TNode extends Object3D = Object3D> {
   node: TNode;
-  scene: Scene;
-  renderer?: WebGLRenderer;
 }
 
 /** A live attachment instance (created by the def, holds @property fields). */
@@ -77,7 +81,7 @@ export interface AttachmentDef {
   /** At most one attachment of this group per target (default true). */
   unique: boolean;
   /** Make a fresh instance and assign its attrs. */
-  make(attrs: Record<string, CompiledScalar>): AttachmentInstance;
+  make(attrs: Record<string, CompiledScalar | CompiledScalar[]>): AttachmentInstance;
 }
 
 export interface SystemDef {

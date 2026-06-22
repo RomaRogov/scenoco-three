@@ -167,3 +167,77 @@ describe('Validator', () => {
     ).toEqual([]);
   });
 });
+
+describe('Validator — array properties', () => {
+  const arrayScene = (attrs: string) => `<Scene>
+    <Mesh id="M"><BoxGeometry />
+      <Components><ArrayProbe ${attrs} /></Components>
+    </Mesh>
+  </Scene>`;
+
+  it('accepts valid float array', () => {
+    expect(check(arrayScene('points="[1,2,3]"'))).toEqual([]);
+  });
+
+  it('accepts empty array []', () => {
+    expect(check(arrayScene('points="[]"'))).toEqual([]);
+  });
+
+  it('accepts valid vec3 array (space-separated elements)', () => {
+    expect(check(arrayScene('waypoints="[0 1 0,1 0 0]"'))).toEqual([]);
+  });
+
+  it('rejects non-bracketed value for an array prop', () => {
+    expect(codes(arrayScene('points="1,2,3"'))).toContain('bad-value');
+  });
+
+  it('reports a per-element parse error in an array', () => {
+    const diags = check(arrayScene('points="[1,bad,3]"'));
+    expect(diags.some((d) => d.code === 'bad-value')).toBe(true);
+  });
+
+  it('accepts valid node-ref array', () => {
+    expect(
+      check(`<Scene>
+        <Mesh id="a"><BoxGeometry /></Mesh>
+        <Mesh id="b"><BoxGeometry /></Mesh>
+        <Mesh id="M"><BoxGeometry />
+          <Components><ArrayProbe targets="[#a,#b]" /></Components>
+        </Mesh>
+      </Scene>`),
+    ).toEqual([]);
+  });
+
+  it('reports an unresolved ref inside an array', () => {
+    expect(
+      codes(`<Scene>
+        <Mesh id="M"><BoxGeometry />
+          <Components><ArrayProbe targets="[#ghost]" /></Components>
+        </Mesh>
+      </Scene>`),
+    ).toContain('unresolved-ref');
+  });
+
+  it('reports a missing hash inside an array element', () => {
+    expect(
+      codes(`<Scene>
+        <Mesh id="a"><BoxGeometry /></Mesh>
+        <Mesh id="M"><BoxGeometry />
+          <Components><ArrayProbe targets="[a]" /></Components>
+        </Mesh>
+      </Scene>`),
+    ).toContain('ref-missing-hash');
+  });
+
+  it('accepts typed component-ref array', () => {
+    expect(
+      check(`<Scene>
+        <Mesh id="a"><BoxGeometry /><Components><Oscillator id="o1" /></Components></Mesh>
+        <Mesh id="b"><BoxGeometry /><Components><Oscillator id="o2" /></Components></Mesh>
+        <Mesh id="M"><BoxGeometry />
+          <Components><ArrayProbe oscillators="[#o1,#o2]" /></Components>
+        </Mesh>
+      </Scene>`),
+    ).toEqual([]);
+  });
+});

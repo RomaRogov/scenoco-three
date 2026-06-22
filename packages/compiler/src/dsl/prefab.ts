@@ -1,5 +1,7 @@
 import {
   isScalarType,
+  isArrayType,
+  elementType,
   isSpatial,
   getNodeDef,
   Registry,
@@ -8,7 +10,7 @@ import {
 import type { CompileOptions } from './compile.js';
 import type { SceDiagnostic } from './diagnostics.js';
 import { parseScene, type SceElement } from './SceneParser.js';
-import { codecs, type ScalarType } from './types.js';
+import { codecs, parseScalarArray, type ScalarType } from './types.js';
 import { validatePrefab } from './Validator.js';
 
 /**
@@ -119,8 +121,8 @@ function expandInstance(
     const value = instance.attributes.get(key);
     if (value === undefined) continue;
     const meta = TRANSFORM_ATTRS[key]!;
-    if (!codecs[meta.type].parse(value).ok) {
-      fail('bad-value', `<PrefabInstance> attribute "${key}": ${(codecs[meta.type].parse(value) as { message: string }).message}`);
+    if (!codecs[meta.type as ScalarType].parse(value).ok) {
+      fail('bad-value', `<PrefabInstance> attribute "${key}": ${(codecs[meta.type as ScalarType].parse(value) as { message: string }).message}`);
     }
     clone.attributes.set(key, value);
   }
@@ -200,9 +202,26 @@ function applyRenames(root: SceElement, rename: Map<string, string>): void {
       if (entry) {
         for (const [attr, value] of el.attributes) {
           const meta = entry.meta.properties.get(attr);
-          if (!meta || isScalarType(meta.type) || !value.startsWith('#')) continue;
-          const renamed = rename.get(value.slice(1).trim());
-          if (renamed !== undefined) el.attributes.set(attr, `#${renamed}`);
+          if (!meta) continue;
+          if (isArrayType(meta.type)) {
+            const elem = elementType(meta.type);
+            if (isScalarType(elem) || elem === 'prefab') continue;
+            // Array of refs: rewrite each #id within [#a,#b]
+            if (value.startsWith('[') && value.endsWith(']')) {
+              const pieces = value.slice(1, -1).split(',');
+              const rewritten = pieces.map((piece) => {
+                const trimmed = piece.trim();
+                if (!trimmed.startsWith('#')) return piece;
+                const renamed = rename.get(trimmed.slice(1).trim());
+                return renamed !== undefined ? `#${renamed}` : piece;
+              });
+              el.attributes.set(attr, `[${rewritten.join(',')}]`);
+            }
+          } else {
+            if (isScalarType(meta.type) || !value.startsWith('#')) continue;
+            const renamed = rename.get(value.slice(1).trim());
+            if (renamed !== undefined) el.attributes.set(attr, `#${renamed}`);
+          }
         }
       }
     }
@@ -249,9 +268,12 @@ function applyOverride(
       fail('unknown-attr', `<Override>: <${found.tag}> has no attribute "${attr}"`, override);
       continue;
     }
-    if (type !== null && !codecs[type].parse(value).ok) {
-      fail('bad-value', `<Override> "${attr}": ${(codecs[type].parse(value) as { message: string }).message}`, override);
-      continue;
+    if (type !== null) {
+      const check = Array.isArray(type) ? parseScalarArray(value, type[0]) : codecs[type].parse(value);
+      if (!check.ok) {
+        fail('bad-value', `<Override> "${attr}": ${check.message}`, override);
+        continue;
+      }
     }
     found.attributes.set(attr, value);
   }
@@ -266,21 +288,28 @@ function findById(root: SceElement, id: string): SceElement | undefined {
   return undefined;
 }
 
-/** attr → scalar type for value checking; `null` marks reference props (any #id). */
-function attrSchema(el: SceElement): Map<string, ScalarType | null> {
-  const out = new Map<string, ScalarType | null>();
+/** attr → scalar type (or array scalar type) for value checking; `null` marks reference props (any #id). */
+function attrSchema(el: SceElement): Map<string, ScalarType | [ScalarType] | null> {
+  const out = new Map<string, ScalarType | [ScalarType] | null>();
   if (el.parent?.tag === 'Components') {
     const entry = Registry.getComponent(el.tag);
     if (entry) {
       for (const [name, meta] of entry.meta.properties) {
-        out.set(name, isScalarType(meta.type) ? meta.type : null);
+        if (isArrayType(meta.type)) {
+          const elem = elementType(meta.type);
+          out.set(name, isScalarType(elem) ? ([elem] as [ScalarType]) : null);
+        } else {
+          out.set(name, isScalarType(meta.type) ? meta.type : null);
+        }
       }
     }
     return out;
   }
   const def = getNodeDef(el.tag);
   if (def) {
-    for (const [name, meta] of Object.entries({ ...TRANSFORM_ATTRS, ...def.attrs })) out.set(name, meta.type);
+    for (const [name, meta] of Object.entries({ ...TRANSFORM_ATTRS, ...def.attrs })) {
+      out.set(name, meta.type as ScalarType | [ScalarType]);
+    }
   }
   return out;
 }

@@ -28,9 +28,10 @@
   "files": [
     "dist"
   ],
-  "//sideEffects": "Only the built-in node modules self-register on import; everything else is pure, so bundlers can tree-shake unused node tags (and their three classes) when scenes import only the ones they use.",
+  "//sideEffects": "Only the built-in node modules self-register on import; everything else is pure, so bundlers can tree-shake unused node tags (and their three classes) when scenes import only the ones they use. Both dist (published) and src (monorepo source-aliased builds, e.g. examples) are listed so the registration imports survive tree-shaking either way.",
   "sideEffects": [
-    "./dist/nodes/**"
+    "./dist/nodes/**",
+    "./src/nodes/**"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

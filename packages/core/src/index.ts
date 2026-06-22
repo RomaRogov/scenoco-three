@@ -1,18 +1,28 @@
 // `@scenoco-three/core` — the runtime entry point. Contains no XML parser,
 // validator, or compiler: it loads pre-built bundles only.
 
-export { Engine, type EngineOptions } from './core/Engine.js';
+export { Engine, type EngineOptions, type SceneGraph } from './core/Engine.js';
 export { Component } from './core/Component.js';
 export { System } from './core/System.js';
 export {
+  InputManager,
+  type KeyCode,
+  type GamepadButton,
+  type GamepadState,
+} from './core/Input.js';
+export {
   Registry,
   isScalarType,
+  isArrayType,
+  elementType,
   type PropType,
+  type PropertyType,
   type PropertyMeta,
   type ComponentMeta,
   type ComponentCtor,
   type RegisteredComponent,
 } from './core/Registry.js';
+export { enumOf, isEnumType, getEnum, allEnums, type EnumDef } from './core/EnumRegistry.js';
 
 // One authoring idiom: @property fields + a class decorator per role.
 export {
@@ -21,6 +31,7 @@ export {
   node,
   attachment,
   system,
+  executeInEditor,
   type ComponentOptions,
   type NodeOptions,
   type AttachmentOptions,
@@ -60,7 +71,6 @@ export {
 } from './dsl/bundle-format.js';
 export { instantiateScene, type InstantiatedScene } from './dsl/instantiate.js';
 export { PrefabRef, type SpawnOptions, type SpawnFn } from './dsl/PrefabRef.js';
-export type { SceneInstance } from './core/Engine.js';
 export type {
   CompiledScene,
   CompiledNode,

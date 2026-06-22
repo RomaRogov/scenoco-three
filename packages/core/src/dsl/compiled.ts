@@ -27,7 +27,9 @@ export interface CompiledScene {
 
 /** A resolved reference: an index into nodes[], components[], or prefabs[]. */
 export type CompiledRef = { node: number } | { component: number } | { prefab: number };
-export type CompiledValue = CompiledScalar | CompiledRef;
+/** An array property's compiled value: per-element scalars or resolved references. */
+export type CompiledArray = (CompiledScalar | CompiledRef)[];
+export type CompiledValue = CompiledScalar | CompiledRef | CompiledArray;
 
 export interface CompiledTransform {
   position: number[];
@@ -43,8 +45,8 @@ export interface CompiledNode {
   parent: number; // -1 for root
   children: number[];
   transform: CompiledTransform;
-  /** Type-specific scalar attrs (e.g. light color/intensity, camera fov). */
-  attrs: Record<string, CompiledScalar>;
+  /** Type-specific scalar attrs (e.g. light color/intensity, camera fov); arrays for `[T]` attrs. */
+  attrs: Record<string, CompiledScalar | CompiledScalar[]>;
   /** Indices into the scene's attachments[] pool (geometry/material/settings/…). */
   attachments: number[];
   components: number[]; // indices into components[]
@@ -52,7 +54,7 @@ export interface CompiledNode {
 
 export interface CompiledAsset {
   tag: string;
-  attrs: Record<string, CompiledScalar>;
+  attrs: Record<string, CompiledScalar | CompiledScalar[]>;
 }
 
 export interface CompiledComponent {

@@ -1,9 +1,8 @@
 import type { Object3D } from 'three';
-import type { SceneInstance } from '../core/Engine.js';
 import type { CompiledScene } from './compiled.js';
 
 /** How a prefab is instantiated — the Engine supplies this when wiring props. */
-export type SpawnFn = (compiled: CompiledScene, parent?: Object3D) => SceneInstance;
+export type SpawnFn = (compiled: CompiledScene, parent?: Object3D) => Object3D;
 
 export interface SpawnOptions {
   /** Parent for the spawned subtree. Defaults to the owning component's node. */
@@ -19,12 +18,13 @@ export interface SpawnOptions {
  *
  *   @property({ type: 'prefab' }) brick: PrefabRef | null = null;
  *   // …
- *   const instance = this.brick!.spawn({ position: [x, y, 0] });
- *   // later: instance.destroy();
+ *   const root = this.brick!.spawn({ position: [x, y, 0] });
+ *   // later: this.engine.destroy(root);
  *
- * Spawned instances are owned by the engine; destroy them yourself (or let the
- * owning component destroy them in onDestroy) — they are *not* torn down by the
- * scene unload that removes the spawning component's subtree.
+ * Spawned subtrees are owned by the engine; destroy them yourself with
+ * `engine.destroy(root)` (or let the owning component destroy them in onDestroy)
+ * — they are *not* torn down by the scene unload that removes the spawning
+ * component's subtree.
  */
 export class PrefabRef {
   constructor(
@@ -34,10 +34,10 @@ export class PrefabRef {
     private readonly defaultParent?: Object3D,
   ) {}
 
-  /** Spawn one instance of the prefab. Returns its handle (call `.destroy()` to remove). */
-  spawn(options: SpawnOptions = {}): SceneInstance {
-    const instance = this.spawnFn(this.compiled, options.parent ?? this.defaultParent);
-    if (options.position) instance.root.position.fromArray(options.position);
-    return instance;
+  /** Spawn one instance of the prefab. Returns its root Object3D (pass it to `engine.destroy` to remove). */
+  spawn(options: SpawnOptions = {}): Object3D {
+    const root = this.spawnFn(this.compiled, options.parent ?? this.defaultParent);
+    if (options.position) root.position.fromArray(options.position);
+    return root;
   }
 }

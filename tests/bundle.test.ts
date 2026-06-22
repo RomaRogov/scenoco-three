@@ -16,7 +16,7 @@ function compile(xml: string, path?: string): CompiledScene {
   return result.scene;
 }
 
-const turbineScenePath = fileURLToPath(new URL('../playground/scenes/turbine.scene.xml', import.meta.url));
+const turbineScenePath = fileURLToPath(new URL('./fixtures/scenes/turbine.scene.xml', import.meta.url));
 const turbineXml = readFileSync(turbineScenePath, 'utf8');
 
 describe('bundle encode/decode', () => {
@@ -96,5 +96,29 @@ describe('bundle encode/decode', () => {
     expect(() => JSON.stringify(bundle)).not.toThrow();
     const roundTripped = JSON.parse(JSON.stringify(bundle)) as typeof bundle;
     expect(deserializeBundle(roundTripped)).toEqual(compile(turbineXml, turbineScenePath));
+  });
+
+  it('round-trips array-typed component props', () => {
+    const compiled = compile(`<Scene>
+      <Mesh id="a"><BoxGeometry /></Mesh>
+      <Mesh id="b"><BoxGeometry /><Components><Oscillator id="osc" /></Components></Mesh>
+      <Mesh id="M"><BoxGeometry />
+        <Components>
+          <ArrayProbe
+            points="[1,2.5,-3]"
+            waypoints="[0 1 0,1 0 0]"
+            targets="[#a,#b]"
+            oscillators="[#osc]"
+          />
+        </Components>
+      </Mesh>
+    </Scene>`);
+    const restored = deserializeBundle(bundleScene(compiled));
+    const probe = restored.components.find((c) => c.type === 'ArrayProbe')!;
+    const orig = compiled.components.find((c) => c.type === 'ArrayProbe')!;
+    expect(probe.props.points).toEqual(orig.props.points);
+    expect(probe.props.waypoints).toEqual(orig.props.waypoints);
+    expect(probe.props.targets).toEqual(orig.props.targets);
+    expect(probe.props.oscillators).toEqual(orig.props.oscillators);
   });
 });

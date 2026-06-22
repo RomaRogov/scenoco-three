@@ -1,8 +1,8 @@
 import { Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Engine, type Bundle } from '@scenoco-three/core';
-import { Oscillator } from '../playground/components/Oscillator.js';
-import { Rotator } from '../playground/components/Rotator.js';
+import { Oscillator } from './fixtures/components/Oscillator.js';
+import { Rotator } from './fixtures/components/Rotator.js';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
 
 function toBundle(xml: string): Bundle {

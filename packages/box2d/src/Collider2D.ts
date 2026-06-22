@@ -1,6 +1,9 @@
 import { BoxShape, CircleShape, type FixtureOpt, type Shape } from 'planck';
 import type { Object3D } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property } from '@scenoco-three/core';
+
+/** Collision shape — `auto` reads the host mesh geometry. */
+export const Collider2DShape = enumOf('Collider2DShape', { auto: 'auto', box: 'box', circle: 'circle' });
 
 /**
  * A 2D collision shape on the node. The `Physics2DSystem` attaches it to the
@@ -13,7 +16,7 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'Collider2D', description: 'A 2D collision shape (planck); the Physics2DSystem attaches it to the node’s RigidBody2D' })
 export class Collider2D extends Component {
-  @property({ type: 'string', default: 'auto', description: 'auto | box | circle' })
+  @property({ type: Collider2DShape, default: 'auto', description: 'Collision shape (auto reads the mesh geometry)' })
   shape = 'auto';
 
   @property({ type: 'vec2', default: [0.5, 0.5], description: 'Box half-extents (shape="box")' })

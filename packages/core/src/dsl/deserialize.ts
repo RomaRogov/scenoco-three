@@ -1,4 +1,5 @@
-import { isScalarType } from '../core/Registry.js';
+import { isScalarType, isArrayType, elementType, type PropertyType } from '../core/Registry.js';
+import { isEnumType } from '../core/EnumRegistry.js';
 import {
   ComponentFlag,
   NodeFlag,
@@ -6,7 +7,9 @@ import {
   type BundleComponent,
   type BundleNode,
   type BundleTag,
+  type BundleValue,
 } from './bundle-format.js';
+import type { NodeAttr } from './nodes.js';
 import { attachmentAttrEntries, componentPropEntries, nodeAttrEntries, popcount } from './bundle-shared.js';
 import type {
   CompiledAsset,
@@ -57,7 +60,7 @@ function decodeNode(data: BundleNode, strings: string[]): CompiledNode {
   const entries = nodeAttrEntries(tag);
   let i = 3;
   const attrCount = popcount(mask);
-  const attrs = decodeAttrs(entries, mask, data.slice(i, i + attrCount) as CompiledScalar[], strings);
+  const attrs = decodeAttrs(entries, mask, data.slice(i, i + attrCount), strings);
   i += attrCount;
 
   const node: CompiledNode = {
@@ -88,7 +91,7 @@ function decodeComponent(data: BundleComponent, strings: string[]): CompiledComp
   let bit = 0;
   for (const [name, meta] of componentPropEntries(type)) {
     if (mask & (1 << bit)) {
-      props[name] = decodePropValue(data[i++] as CompiledScalar, meta.type, strings);
+      props[name] = decodePropValue(data[i++] as BundleValue, meta.type, strings);
     }
     bit++;
   }
@@ -101,36 +104,48 @@ function decodeComponent(data: BundleComponent, strings: string[]): CompiledComp
 // ---- value helpers --------------------------------------------------------
 
 function decodeAttrs(
-  entries: [string, { type: string; default?: CompiledScalar }][],
+  entries: [string, NodeAttr][],
   mask: number,
-  values: CompiledScalar[],
+  values: BundleValue[],
   strings: string[],
-): Record<string, CompiledScalar> {
-  const out: Record<string, CompiledScalar> = {};
+): Record<string, CompiledScalar | CompiledScalar[]> {
+  const out: Record<string, CompiledScalar | CompiledScalar[]> = {};
   let vi = 0;
   let bit = 0;
   for (const [name, meta] of entries) {
     if (mask & (1 << bit)) {
-      const raw = values[vi++]!;
-      out[name] = meta.type === 'string' ? strings[raw as number]! : raw;
+      out[name] = decodeAttrValue(values[vi++]!, meta.type, strings);
     } else {
-      out[name] = cloneDefault(meta.default);
+      out[name] = meta.default !== undefined ? cloneDefault(meta.default) : isArrayType(meta.type) ? [] : 0;
     }
     bit++;
   }
   return out;
 }
 
-function decodePropValue(raw: CompiledScalar, type: string | object, strings: string[]): CompiledValue {
+/** Decode a node/attachment attr value (string→pool lookup), mapping element-wise for arrays. */
+function decodeAttrValue(raw: BundleValue, type: NodeAttr['type'], strings: string[]): CompiledScalar | CompiledScalar[] {
+  if (isArrayType(type)) {
+    return (raw as BundleValue[]).map((el) => decodeAttrValue(el, type[0], strings) as CompiledScalar);
+  }
+  if (isEnumType(type)) return type.valueKind === 'string' ? strings[raw as number]! : (raw as CompiledScalar);
+  return type === 'string' ? strings[raw as number]! : (raw as CompiledScalar);
+}
+
+function decodePropValue(raw: BundleValue, type: PropertyType, strings: string[]): CompiledValue {
+  if (isArrayType(type)) {
+    return (raw as BundleValue[]).map((el) => decodePropValue(el, type[0], strings)) as CompiledValue;
+  }
   // A prefab prop stores a plain index into the scene's prefabs[] pool; the
   // registered type disambiguates it from node/component refs.
   if (type === 'prefab') return { prefab: raw as number };
-  if (!isScalarType(type as never)) {
+  if (isEnumType(type)) return type.valueKind === 'string' ? strings[raw as number]! : (raw as CompiledScalar);
+  if (!isScalarType(type)) {
     const i = raw as number;
     return i < 0 ? { node: ~i } : { component: i };
   }
   if (type === 'string') return strings[raw as number]!;
-  return raw;
+  return raw as CompiledScalar;
 }
 
 function decodeTransform(arr: number[]): CompiledTransform {
@@ -146,7 +161,6 @@ function identityTransform(): CompiledTransform {
   return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true };
 }
 
-function cloneDefault(value: CompiledScalar | undefined): CompiledScalar {
-  if (value === undefined) return 0;
-  return Array.isArray(value) ? [...value] : value;
+function cloneDefault(value: CompiledScalar | CompiledScalar[]): CompiledScalar | CompiledScalar[] {
+  return Array.isArray(value) ? value.map((v) => (Array.isArray(v) ? [...v] : v)) : value;
 }

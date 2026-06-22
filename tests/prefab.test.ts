@@ -191,12 +191,12 @@ describe('prefab dynamic instantiation', () => {
     const engine = new Engine();
     const a = engine.instantiate(prefabBundle);
     const b = engine.instantiate(prefabBundle);
-    a.root.position.set(-3, 0, 0);
-    b.root.position.set(3, 0, 0);
-    expect(engine.scene.children).toContain(a.root);
-    expect(a.root).not.toBe(b.root);
+    a.position.set(-3, 0, 0);
+    b.position.set(3, 0, 0);
+    expect(engine.scene.children).toContain(a);
+    expect(a).not.toBe(b);
 
-    const bodyA = a.root.getObjectByName('body') as Mesh;
+    const bodyA = a.getObjectByName('body') as Mesh;
     engine.tick(0.5);
     expect(bodyA.rotation.y).toBeCloseTo(1); // Rotator speed 2 × 0.5s
   });
@@ -205,9 +205,9 @@ describe('prefab dynamic instantiation', () => {
     const engine = new Engine();
     const a = engine.instantiate(prefabBundle);
     const b = engine.instantiate(prefabBundle);
-    a.destroy();
-    expect(engine.scene.children).not.toContain(a.root);
-    expect(engine.scene.children).toContain(b.root);
+    engine.destroy(a);
+    expect(engine.scene.children).not.toContain(a);
+    expect(engine.scene.children).toContain(b);
     // Destroyed instance's components no longer tick.
     expect(() => engine.tick(0.1)).not.toThrow();
   });

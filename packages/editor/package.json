@@ -1,0 +1,44 @@
+{
+  "name": "@scenoco-three/editor",
+  "version": "0.1.0",
+  "description": "Local preview + headless frame render for SceNoCo scenes/prefabs (for multimodal LLMs)",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "scenoco-editor": "./dist/cli/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "app"
+  ],
+  "keywords": ["three", "threejs", "scenoco", "editor", "preview", "render", "gamedev"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && npm --prefix ../vite run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@scenoco-three/compiler": "^0.1.0",
+    "@scenoco-three/vite": "^0.1.0",
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "@scenoco-three/core": "^0.1.0",
+    "three": ">=0.160",
+    "vite": ">=5"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

@@ -2,6 +2,9 @@ import {
   getNodeDef,
   getAttachmentDef,
   isScalarType,
+  isEnumType,
+  isArrayType,
+  elementType,
   Registry,
   TRANSFORM_ATTRS,
   valueEquals,
@@ -14,7 +17,7 @@ import {
   type CompiledValue,
   type NodeAttr,
 } from '@scenoco-three/core/internal';
-import { codecs, type ScalarType } from './types.js';
+import { codecs, scalarCodec, serializeScalarArray, type ScalarType } from './types.js';
 
 /**
  * Serialize a CompiledScene back to canonical, re-compilable XML — the inverse
@@ -48,9 +51,10 @@ function assignIds(scene: CompiledScene): SceneIds {
   const refComponents = new Set<number>();
   for (const c of scene.components) {
     for (const v of Object.values(c.props)) {
-      if (!isRef(v)) continue;
-      if ('node' in v) refNodes.add(v.node);
-      else if ('component' in v) refComponents.add(v.component);
+      for (const ref of refsIn(v)) {
+        if ('node' in ref) refNodes.add(ref.node);
+        else if ('component' in ref) refComponents.add(ref.component);
+      }
     }
   }
 
@@ -140,14 +144,23 @@ function componentTag(component: CompiledComponent, index: number, ids: SceneIds
   for (const [name, value] of Object.entries(component.props)) {
     const propMeta = meta.properties.get(name);
     if (!propMeta) continue;
+    if (isArrayType(propMeta.type)) {
+      const elem = elementType(propMeta.type);
+      if (isScalarType(elem) || isEnumType(elem)) {
+        parts.push(attr(name, serializeScalarArray(value as CompiledScalar[], elem)));
+      } else if (elem !== 'prefab') {
+        // Array of node/component refs → "[#a,#b]" (prefab arrays lose their file paths).
+        parts.push(attr(name, `[${(value as CompiledRef[]).map((r) => refId(r, ids)).join(',')}]`));
+      }
+      continue;
+    }
     if (isRef(value)) {
       // A prefab prop embeds the compiled prefab; its original file path is not
       // retained, so it cannot be reconstructed as a `prefab="…"` attribute here.
       if ('prefab' in value) continue;
-      const target = 'node' in value ? ids.node(value.node) : ids.component(value.component);
-      parts.push(attr(name, `#${target}`));
-    } else if (isScalarType(propMeta.type)) {
-      parts.push(attr(name, codecs[propMeta.type].serialize(value)));
+      parts.push(attr(name, refId(value, ids)));
+    } else if (isScalarType(propMeta.type) || isEnumType(propMeta.type)) {
+      parts.push(attr(name, scalarCodec(propMeta.type).serialize(value as CompiledScalar)));
     }
   }
   return `<${component.type}${parts.length > 0 ? ' ' + parts.join(' ') : ''} />`;
@@ -157,12 +170,19 @@ function componentTag(component: CompiledComponent, index: number, ids: SceneIds
 function appendDefaultedAttrs(
   parts: string[],
   defs: Record<string, NodeAttr>,
-  values: Record<string, CompiledScalar>,
+  values: Record<string, CompiledScalar | CompiledScalar[]>,
 ): void {
   for (const [name, meta] of Object.entries(defs)) {
     const value = values[name];
     if (value === undefined || valueEquals(value, meta.default)) continue;
-    parts.push(attr(name, codecs[meta.type as ScalarType].serialize(value)));
+    parts.push(
+      attr(
+        name,
+        isArrayType(meta.type)
+          ? serializeScalarArray(value as CompiledScalar[], meta.type[0])
+          : scalarCodec(meta.type).serialize(value as CompiledScalar),
+      ),
+    );
   }
 }
 
@@ -170,6 +190,11 @@ function appendDefaultedAttrs(
 
 const attr = (name: string, value: string) => `${name}="${escapeXml(value)}"`;
 const isRef = (v: CompiledValue): v is CompiledRef => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** All references inside a prop value — the value itself, or each element of a ref array. */
+const refsIn = (v: CompiledValue): CompiledRef[] =>
+  isRef(v) ? [v] : Array.isArray(v) ? (v as (CompiledRef | CompiledScalar)[]).filter((x): x is CompiledRef => isRef(x)) : [];
+const refId = (r: CompiledRef, ids: SceneIds): string =>
+  'node' in r ? `#${ids.node(r.node)}` : 'component' in r ? `#${ids.component(r.component)}` : '';
 const isZero = (v: number[]) => v.every((x) => x === 0);
 const isOne = (v: number[]) => v.every((x) => x === 1);
 

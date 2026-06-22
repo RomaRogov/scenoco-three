@@ -9,15 +9,15 @@
       "@scenoco-three/core/nodes/*": ["./packages/core/src/nodes/*"],
       "@scenoco-three/compiler": ["./packages/compiler/src/index.ts"],
       "@scenoco-three/vite": ["./packages/vite/src/index.ts"],
-      "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"]
+      "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"],
+      "@scenoco-three/box2d": ["./packages/box2d/src/index.ts"],
+      "@scenoco-three/editor": ["./packages/editor/src/index.ts"]
     }
   },
   "include": [
     "tests",
-    "playground",
     "packages",
-    "games",
-    "vite.config.ts",
+    "examples",
     "vitest.config.ts"
   ]
 }
