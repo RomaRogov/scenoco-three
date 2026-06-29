@@ -46,6 +46,10 @@ import './material/MeshBasicMaterial.js';
 import './material/LineBasicMaterial.js';
 import './material/PointsMaterial.js';
 import './material/SpriteMaterial.js';
+import './material/ShaderMaterial.js';
+
+// ---- Assets -----------------------------------------------------------------
+import './asset/Model.js';
 
 // ---- Scene settings (config children of <Scene>) ----------------------------
 import './setting/Fog.js';

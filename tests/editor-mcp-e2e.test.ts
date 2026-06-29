@@ -164,18 +164,18 @@ describe('editor MCP — end to end (real server + bridge + session + engine)', 
     expect(session.editorCamera?.position.toArray()).toEqual([0, 3, 25]);
   });
 
-  it('3. run / pause / stop drive the play↔edit lifecycle', async () => {
-    const run = await call('run');
+  it('3. playback drives the play↔edit lifecycle', async () => {
+    const run = await call('playback', { state: 'play' });
     expect(run.first.text).toBe('playing');
     expect(session.mode).toBe('play');
     expect(session.playing).toBe(true);
 
-    const pause = await call('pause');
+    const pause = await call('playback', { state: 'pause' });
     expect(pause.first.text).toBe('paused');
     expect(session.mode).toBe('play');
     expect(session.playing).toBe(false);
 
-    const stop = await call('stop');
+    const stop = await call('playback', { state: 'stop' });
     expect(stop.first.text).toBe('edit mode');
     expect(session.mode).toBe('edit');
     expect(session.playing).toBe(false);
@@ -186,12 +186,34 @@ describe('editor MCP — end to end (real server + bridge + session + engine)', 
     expect(ball.id).toBe('ball');
     expect(ball.transform.position).toEqual([0, 1.1, 0]);
     // Real @property values off the live Ball + Box2D components.
-    expect(Object.keys(ball.components)).toEqual(expect.arrayContaining(['Ball', 'RigidBody2D', 'Collider2D']));
+    expect(Object.keys(ball.components)).toEqual(expect.arrayContaining(['Ball', 'RigidBody2D', 'CircleCollider2D']));
     expect(ball.components.Ball.launchSpeed).toBe(12);
     expect(ball.components.Ball.lives).toBe(3);
     expect(ball.components.Ball.bounceSpeeds).toEqual([8, 12, 16]);
 
     const missing = json((await call('get_telemetry', { id: 'does-not-exist' })).first.text);
     expect(missing.error).toContain('no object');
+  });
+
+  it('5. simulate scripts player input and captures telemetry + preview at that condition', async () => {
+    const { content } = await call('simulate', {
+      commands: [
+        { do: 'play' },
+        { do: 'tap', key: 'Space' }, // launch the ball
+        { do: 'step', frames: 30 }, // advance ~0.5s
+        { do: 'telemetry', id: 'ball' },
+        { do: 'preview' },
+      ],
+    });
+    // Captures return in step order: telemetry (text) then preview (image).
+    const telem = content.find((c) => c.type === 'text');
+    const image = content.find((c) => c.type === 'image');
+    const ball = json(telem?.text);
+    expect(ball.id).toBe('ball');
+    // SPACE launched the ball upward (gravity-free 2D) — it has moved well above its start y = 1.1.
+    expect(ball.transform.position[1]).toBeGreaterThan(3);
+    expect(image?.mimeType).toBe('image/png');
+    expect(image?.data && image.data.length).toBeGreaterThan(0);
+    expect(session.mode).toBe('play');
   });
 });

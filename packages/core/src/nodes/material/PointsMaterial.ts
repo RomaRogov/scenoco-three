@@ -4,13 +4,18 @@ import { attachment, property } from '../../core/decorators.js';
 import type { AttachContext } from '../../core/NodeRegistry.js';
 import { MATERIAL_TARGETS } from '../targets.js';
 
-@attachment({ name: 'PointsMaterial', target: MATERIAL_TARGETS, group: 'material' })
+@attachment({
+  name: 'PointsMaterial',
+  description: 'Material for point clouds (<Points>) — colored, sized dots.',
+  target: MATERIAL_TARGETS,
+  group: 'material',
+})
 export class PointsMaterialNode extends Attachment<Mesh> {
-  @property({ type: 'color', default: 0xffffff }) color = 0xffffff;
-  @property({ type: 'float', default: 1 }) size = 1;
-  @property({ type: 'bool', default: true }) sizeAttenuation = true;
-  @property({ type: 'float', default: 1 }) opacity = 1;
-  @property({ type: 'bool', default: false }) transparent = false;
+  @property({ type: 'color', default: 0xffffff, description: 'Point color' }) color = 0xffffff;
+  @property({ type: 'float', default: 1, description: 'Point size in world units (or pixels if no attenuation)' }) size = 1;
+  @property({ type: 'bool', default: true, description: 'Scale point size with distance (perspective)' }) sizeAttenuation = true;
+  @property({ type: 'float', default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: 'bool', default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
 
   private cached?: PointsMaterial;
   attach(ctx: AttachContext<Mesh>): void {

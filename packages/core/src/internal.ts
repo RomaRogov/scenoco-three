@@ -67,9 +67,11 @@ export type {
   CompiledNode,
   CompiledComponent,
   CompiledAsset,
+  CompiledUniform,
   CompiledRef,
   CompiledValue,
   CompiledTransform,
 } from './dsl/compiled.js';
+export { UNIFORM_TYPES, isUniformType, type UniformTypeName } from './dsl/uniforms.js';
 
 export type { CompiledScalar, ScalarType } from './dsl/types.js';

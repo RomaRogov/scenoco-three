@@ -17,10 +17,10 @@ import { bundleScene, compileSceneXml, type CompileResult, type ResourceResolver
  */
 @component({ name: 'PrefabSpawner', description: 'Spawns N copies of a prefab on load' })
 class PrefabSpawner extends Component {
-  @property({ type: 'prefab' })
+  @property({ type: 'prefab', description: 'prefab to spawn' })
   prefab: PrefabRef | null = null;
 
-  @property({ type: 'int', default: 3 })
+  @property({ type: 'int', default: 3, description: 'how many to spawn' })
   count = 3;
 
   readonly spawned: Object3D[] = [];

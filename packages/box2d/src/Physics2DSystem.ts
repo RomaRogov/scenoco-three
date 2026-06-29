@@ -25,6 +25,16 @@ interface QueuedContact {
   phase: 'enter' | 'exit';
 }
 
+/** Previous + current fixed-step XY pose of a dynamic body, for render interpolation. */
+interface Interp {
+  px: number;
+  py: number;
+  pa: number;
+  x: number;
+  y: number;
+  a: number;
+}
+
 /**
  * ECS-hybrid 2D physics on planck (Box2D). Registered for `RigidBody2D`, the
  * engine auto-runs it while the scene contains 2D bodies and keeps
@@ -44,6 +54,8 @@ interface QueuedContact {
 export class Physics2DSystem extends System<RigidBody2D> {
   world?: World;
   private readonly bodies = new Map<RigidBody2D, Body>();
+  /** Per dynamic body: the two most recent fixed poses, lerped at render time. */
+  private readonly interp = new Map<RigidBody2D, Interp>();
   private readonly contacts: QueuedContact[] = [];
 
   override onAttach(): void {
@@ -66,6 +78,7 @@ export class Physics2DSystem extends System<RigidBody2D> {
       if (!this.components.includes(rb)) {
         world.destroyBody(body);
         this.bodies.delete(rb);
+        this.interp.delete(rb);
         rb.body = undefined;
       }
     }
@@ -78,21 +91,53 @@ export class Physics2DSystem extends System<RigidBody2D> {
     const cfg = this.engine.findAttachment(Physics2D);
     world.step(dt, cfg?.velocityIterations ?? 8, cfg?.positionIterations ?? 3);
 
-    // Dynamic bodies write their pose back to the scene graph (XY plane).
+    // Dynamic bodies record prev/cur poses for the render interpolation in
+    // `step`; kinematic/static are driven elsewhere (kinematic from their node).
     for (const [rb, body] of this.bodies) {
       if (rb.kind !== 'dynamic') continue;
       const p = body.getPosition();
-      rb.node.position.x = p.x;
-      rb.node.position.y = p.y;
-      rb.node.rotation.z = body.getAngle();
+      const angle = body.getAngle();
+      const s = this.interp.get(rb)!;
+      // A move far beyond what this step's velocity allows is a teleport
+      // (respawn, manual setTransform) — snap prev to it so we don't blend
+      // across the jump; otherwise shift cur → prev for a normal interpolation.
+      const v = body.getLinearVelocity();
+      const moved = Math.hypot(p.x - s.x, p.y - s.y);
+      if (moved > Math.hypot(v.x, v.y) * dt * TELEPORT_FACTOR + TELEPORT_MARGIN) {
+        s.px = p.x;
+        s.py = p.y;
+        s.pa = angle;
+      } else {
+        s.px = s.x;
+        s.py = s.y;
+        s.pa = s.a;
+      }
+      s.x = p.x;
+      s.y = p.y;
+      s.a = angle;
     }
 
     this.flushContacts();
   }
 
+  /**
+   * Per-frame: blend each dynamic body's node between its last two fixed poses by
+   * `engine.interpolationAlpha`, so XY-plane motion stays smooth when the render
+   * rate differs from the fixed rate.
+   */
+  override step(): void {
+    const t = this.engine.interpolationAlpha;
+    for (const [rb, s] of this.interp) {
+      rb.node.position.x = s.px + (s.x - s.px) * t;
+      rb.node.position.y = s.py + (s.y - s.py) * t;
+      rb.node.rotation.z = lerpAngle(s.pa, s.a, t);
+    }
+  }
+
   override onDetach(): void {
     for (const rb of this.bodies.keys()) rb.body = undefined;
     this.bodies.clear();
+    this.interp.clear();
     this.contacts.length = 0;
     this.world = undefined;
   }
@@ -115,6 +160,12 @@ export class Physics2DSystem extends System<RigidBody2D> {
     }
     this.bodies.set(rb, body);
     rb.body = body;
+    // Seed interpolation (dynamic bodies only) with the spawn pose.
+    if (rb.kind === 'dynamic') {
+      const p = body.getPosition();
+      const a = body.getAngle();
+      this.interp.set(rb, { px: p.x, py: p.y, pa: a, x: p.x, y: p.y, a });
+    }
   }
 
   private queue(contact: { getFixtureA(): { getBody(): Body; isSensor(): boolean }; getFixtureB(): { getBody(): Body; isSensor(): boolean } }, phase: 'enter' | 'exit'): void {
@@ -148,4 +199,21 @@ export class Physics2DSystem extends System<RigidBody2D> {
       fn?.call(c, other);
     }
   }
+}
+
+/**
+ * Teleport detection for render interpolation: a per-step move larger than
+ * `velocity·dt·FACTOR + MARGIN` is treated as a discontinuity (respawn / manual
+ * setTransform) and snaps rather than blends. Scales with speed so genuinely
+ * fast bodies aren't misflagged.
+ */
+const TELEPORT_FACTOR = 4;
+const TELEPORT_MARGIN = 0.1;
+
+/** Interpolate between two angles along the shortest arc (radians). */
+function lerpAngle(a: number, b: number, t: number): number {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  else if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
 }

@@ -55,6 +55,17 @@ export interface CompiledNode {
 export interface CompiledAsset {
   tag: string;
   attrs: Record<string, CompiledScalar | CompiledScalar[]>;
+  /** Custom-shader uniforms (`<ShaderMaterial>`), in declaration order. */
+  uniforms?: CompiledUniform[];
+}
+
+/** One custom-shader uniform: its name, declared type, and compiled value. */
+export interface CompiledUniform {
+  name: string;
+  /** A `UNIFORM_TYPES` name: float|int|bool|vec2|vec3|vec4|color|mat3|mat4|sampler2D. */
+  type: string;
+  /** Number/number[] (vec/mat), hex int (color), boolean (bool), or a path string (sampler2D). */
+  value: CompiledScalar;
 }
 
 export interface CompiledComponent {

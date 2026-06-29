@@ -9,8 +9,8 @@ import { node, property } from '../../core/decorators.js';
   description: 'Many static geometries batched into one draw call; populated by a component',
 })
 export class BatchedMeshNode extends Object3DNode {
-  @property({ type: 'int', default: 256 }) maxInstanceCount = 256;
-  @property({ type: 'int', default: 8192 }) maxVertexCount = 8192;
+  @property({ type: 'int', default: 256, description: 'Max number of batched instances to pre-allocate' }) maxInstanceCount = 256;
+  @property({ type: 'int', default: 8192, description: 'Max total vertices to pre-allocate' }) maxVertexCount = 8192;
 
   build(): BatchedMesh {
     return new BatchedMesh(this.maxInstanceCount, this.maxVertexCount);

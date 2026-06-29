@@ -13,7 +13,7 @@
     <Components>
       <Brick points="10" />
       <RigidBody2D kind="static" />
-      <Collider2D shape="box" halfExtents="0.6 0.2" restitution="1" />
+      <BoxCollider2D halfExtents="0.6 0.2" restitution="1" />
     </Components>
   </Mesh>
 </Prefab>

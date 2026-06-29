@@ -17,6 +17,7 @@ import type {
   CompiledNode,
   CompiledScene,
   CompiledTransform,
+  CompiledUniform,
   CompiledValue,
 } from './compiled.js';
 import type { CompiledScalar } from './types.js';
@@ -49,7 +50,18 @@ export function deserializeBundle(bundle: Bundle): CompiledScene {
 function decodeTag(data: BundleTag, strings: string[]): CompiledAsset {
   const tag = strings[data[0]]!;
   const mask = data[1];
-  return { tag, attrs: decodeAttrs(attachmentAttrEntries(tag), mask, data.slice(2), strings) };
+  const attrCount = popcount(mask);
+  const attrs = decodeAttrs(attachmentAttrEntries(tag), mask, data.slice(2, 2 + attrCount), strings);
+  const asset: CompiledAsset = { tag, attrs };
+  // A trailing nested array (only on shader attachments) carries the uniforms.
+  const uniforms = data[2 + attrCount];
+  if (Array.isArray(uniforms)) asset.uniforms = uniforms.map((u) => decodeUniform(u as BundleValue[], strings));
+  return asset;
+}
+
+function decodeUniform(u: BundleValue[], strings: string[]): CompiledUniform {
+  const type = strings[u[1] as number]!;
+  return { name: strings[u[0] as number]!, type, value: type === 'sampler2D' ? strings[u[2] as number]! : (u[2] as CompiledScalar) };
 }
 
 function decodeNode(data: BundleNode, strings: string[]): CompiledNode {

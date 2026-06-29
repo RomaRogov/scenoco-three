@@ -7,14 +7,16 @@ import type { AttachContext } from '../core/NodeRegistry.js';
  * `@property` fields, a class decorator (`@node`/`@attachment`) declares its kind
  * and registers it, and the body reads the fields with full typing.
  *
- *   @node({ name: 'Mesh', children: { … } })
+ *   @node({ name: 'Mesh', description: 'A renderable object', children: { … } })
  *   class MeshNode extends Object3DNode { build() { return new Mesh(); } }
  *
- *   @attachment({ target: Mesh, group: 'geometry', required: true })
+ *   @attachment({ name: 'BoxGeometry', description: 'Box geometry', target: Mesh, group: 'geometry', required: true })
  *   class BoxGeometry extends Attachment<Mesh> {
- *     @property({ type: 'float', default: 1 }) width = 1;
+ *     @property({ type: 'float', default: 1, description: 'Size along X' }) width = 1;
  *     attach(ctx) { ctx.node.geometry = new BoxGeometry(this.width); }
  *   }
+ *
+ * A `description` is mandatory on every `@node`/`@attachment`/`@component`/`@property`.
  */
 
 /** A scene-graph node (Object3D family + the Scene root). Builds the bare object. */

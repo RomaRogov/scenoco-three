@@ -1,5 +1,5 @@
 import { Engine } from '@scenoco-three/core';
-// Registers the RigidBody2D / Collider2D / Physics2D tags (decorator side effects).
+// Registers the RigidBody2D / *Collider2D shapes / Physics2D tags (decorator side effects).
 // planck (Box2D) is pure JS — no async init, unlike Rapier.
 import '@scenoco-three/box2d';
 // Compiled to a compact bundle at build time (Vite plugin runs @scenoco-three/compiler

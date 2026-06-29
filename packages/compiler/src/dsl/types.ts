@@ -209,6 +209,35 @@ export function scalarCodec(type: ScalarType | EnumDef): TypeCodec {
   return isEnumType(type) ? enumCodec(type) : codecs[type];
 }
 
+/**
+ * Parse a `<ShaderMaterial>` `<Uniform>` value by its declared type. Reuses the
+ * scalar codecs where they overlap and adds the shader-only types — `vec4`/`mat3`/
+ * `mat4` (4/9/16 space-separated floats) and `sampler2D` (a texture path string).
+ */
+export function uniformValue(type: string, raw: string): ParseResult<CompiledScalar> {
+  switch (type) {
+    case 'float':
+    case 'int':
+    case 'bool':
+    case 'vec2':
+    case 'vec3':
+    case 'color':
+      return codecs[type].parse(raw);
+    case 'vec4':
+      return parseVec(raw, 4, 'a vec4');
+    case 'mat3':
+      return parseVec(raw, 9, 'a mat3 (9 numbers)');
+    case 'mat4':
+      return parseVec(raw, 16, 'a mat4 (16 numbers)');
+    case 'sampler2D': {
+      const t = raw.trim();
+      return t ? ok(t) : err('a sampler2D needs a texture path, e.g. "noise.png"');
+    }
+    default:
+      return err(`unknown uniform type "${type}"`);
+  }
+}
+
 // ---- arrays ---------------------------------------------------------------
 //
 // Array attributes are written as a bracketed, comma-separated list: `[a,b,c]`

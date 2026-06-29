@@ -1,5 +1,14 @@
 import type { Object3D } from 'three';
-import { Registry, isArrayType, elementType, type PropertyMeta, type PropType, type PropertyType } from './Registry.js';
+import {
+  Registry,
+  isArrayType,
+  elementType,
+  type CompiledDefault,
+  type PropertyInput,
+  type PropertyMeta,
+  type PropType,
+  type PropertyType,
+} from './Registry.js';
 import type { ComponentCtor } from './Registry.js';
 import { isEnumType, type EnumDef } from './EnumRegistry.js';
 import {
@@ -14,6 +23,7 @@ import {
   type NodeAttr,
 } from './NodeRegistry.js';
 import type { CompiledScalar } from '../dsl/types.js';
+import type { CompiledUniform } from '../dsl/compiled.js';
 
 // SceNoCo uses legacy (experimentalDecorators) decorators, like Cocos Creator.
 // Rationale: as of 2026 the TC39 standard decorators are still not lowered by
@@ -35,21 +45,32 @@ type CtorWithProps = (new () => unknown) & { [PROPS]?: PropsBag };
 export interface ComponentOptions {
   /** XML tag name inside <Components>. */
   name: string;
-  description?: string;
+  /** Mandatory one-line summary of the component (read by people, agents, and RAG). */
+  description: string;
+  /**
+   * Execution order (Unity's Script Execution Order): in every lifecycle phase
+   * (`onLoad`, `start`, `update`, `fixedUpdate`, `lateUpdate`), components run in
+   * ascending `order`; equal orders keep instantiation order. Default 0.
+   */
+  order?: number;
 }
 
 /**
  * Declares an XML-exposed property on a field (Cocos `@property` style). Used by
- * components, nodes, and attachments. Forms:
- *   @property({ type: 'float', default: 1 })  — primitive/math property
- *   @property(SomeComponent)                  — typed reference (components only)
- *   @property({ type: ['float'] })            — array property, written "[1,2,3]"
- *   @property([SomeComponent])                 — array of typed references
+ * components, nodes, and attachments. A `description` is **mandatory** (it is the
+ * primary signal for review/agents/RAG), so the object form is always required —
+ * the type goes in `type`:
+ *   @property({ type: 'float', default: 1, description: 'Radians per second' })
+ *   @property({ type: SomeComponent, description: 'The target to follow' })   — typed reference
+ *   @property({ type: ['float'], description: 'Per-lane weights' })            — array property
+ *   @property({ type: [SomeComponent], description: 'Bricks to track' })       — array of references
  */
-export function property(meta: PropertyMeta | ComponentCtor | EnumDef | [PropType | ComponentCtor | EnumDef]) {
-  const normalized: PropertyMeta =
-    typeof meta === 'function' || Array.isArray(meta) || isEnumType(meta) ? { type: meta as PropertyType } : meta;
-  normalizeEnumDefault(normalized);
+export function property(meta: PropertyInput) {
+  const input: PropertyInput = meta;
+  assertDescription('property', typeof input.type === 'string' ? input.type : 'reference', input.description);
+  normalizeDefault(input);
+  // `default` is now in compiled form (Vec3Like / color-string normalized away).
+  const normalized = input as PropertyMeta;
   return function (proto: object, key: string | symbol): void {
     if (typeof proto === 'function') {
       throw new Error(`@property cannot decorate static field "${String(key)}"`);
@@ -67,12 +88,47 @@ export function property(meta: PropertyMeta | ComponentCtor | EnumDef | [PropTyp
   };
 }
 
-/** If an enum prop's default is authored as a member name, resolve it to the native value (in place). */
-function normalizeEnumDefault(meta: PropertyMeta): void {
+/**
+ * Normalize a `@property` default into its compiled form (in place), so authors
+ * can write whichever shape is natural and it just works:
+ *   • vec2/vec3/euler — an array `[x,y,z]`, a `THREE.Vector3`/`Vector2`/`Euler`, or `{x,y,z}`
+ *   • color — a number `0xRRGGBB`, a `"#rrggbb"` string, or a `THREE.Color`
+ *   • enum — a member name string
+ * Idempotent; array-typed props (`['float']`) are left untouched.
+ */
+function normalizeDefault(meta: PropertyInput): void {
   const elem = elementType(meta.type);
-  if (isEnumType(elem) && typeof meta.default === 'string' && elem.byName.has(meta.default)) {
-    meta.default = elem.byName.get(meta.default) as PropertyMeta['default'];
+  const d = meta.default;
+  if (d === undefined) return;
+  if (isEnumType(elem)) {
+    if (typeof d === 'string' && elem.byName.has(d)) meta.default = elem.byName.get(d) as CompiledDefault;
+    return;
   }
+  if (isArrayType(meta.type)) return;
+  if (elem === 'vec2') meta.default = toVecArray(d, 2);
+  else if (elem === 'vec3' || elem === 'euler') meta.default = toVecArray(d, 3);
+  else if (elem === 'color') meta.default = toColorNumber(d);
+}
+
+/** A vec default in any accepted form → a number array of length `n`. */
+function toVecArray(d: PropertyInput['default'], n: number): CompiledDefault {
+  if (Array.isArray(d)) return d;
+  if (d !== null && typeof d === 'object') {
+    const v = d as { x?: number; y?: number; z?: number };
+    return n === 2 ? [v.x ?? 0, v.y ?? 0] : [v.x ?? 0, v.y ?? 0, v.z ?? 0];
+  }
+  return d as CompiledDefault; // unexpected scalar — leave as authored
+}
+
+/** A color default (number | "#rrggbb" | THREE.Color) → a `0xRRGGBB` number. */
+function toColorNumber(d: PropertyInput['default']): CompiledDefault {
+  if (typeof d === 'number') return d;
+  if (typeof d === 'string') {
+    const n = parseInt(d.replace(/^#/, ''), 16);
+    return Number.isNaN(n) ? d : n;
+  }
+  const c = d as { getHex?: () => number };
+  return typeof c.getHex === 'function' ? c.getHex() : (d as CompiledDefault);
 }
 
 /** Collect every @property (own + inherited) declared on a class, in order. */
@@ -87,6 +143,10 @@ function collectProperties(target: CtorWithProps): Map<string, PropertyMeta> {
 export function component(options: ComponentOptions) {
   return function <T extends ComponentCtor>(target: T): void {
     assertTagName(options.name);
+    assertDescription('component', options.name, options.description);
+    // Stamp the execution order as a static, read by the engine (O(1), not
+    // shadowed by instances). Inherited by subclasses through the ctor chain.
+    if (options.order !== undefined) (target as unknown as { executionOrder?: number }).executionOrder = options.order;
     Registry.registerComponent(
       { name: options.name, description: options.description, properties: collectProperties(target as CtorWithProps) },
       target,
@@ -122,7 +182,8 @@ export function runsInEditor(instance: object): boolean {
 export interface NodeOptions {
   /** XML element name (mirrors the Three.js class). */
   name: string;
-  description?: string;
+  /** Mandatory one-line summary of the node tag (read by people, agents, and RAG). */
+  description: string;
   /** Override the default child rules (object3d children + <Components>). */
   children?: Partial<ChildRules>;
   /** `'scene'` only for the root; everything else (the default) is `'object3d'`. */
@@ -132,6 +193,7 @@ export interface NodeOptions {
 /** Registers an Object3D-family node tag (lights, cameras, meshes, groups, …). */
 export function node(options: NodeOptions) {
   return function (target: new () => { build(): Object3D }): void {
+    assertDescription('node', options.name, options.description);
     const { attrs, names } = readAttrs(target as CtorWithProps, options.name);
     const build = (a: Record<string, CompiledScalar | CompiledScalar[]>): Object3D => {
       const inst = new target();
@@ -149,7 +211,7 @@ export function node(options: NodeOptions) {
     registerNode({
       tag: options.name,
       kind: options.kind ?? 'object3d',
-      ...(options.description !== undefined ? { description: options.description } : {}),
+      description: options.description,
       attrs,
       children: spatialChildren(options.children),
       build,
@@ -163,7 +225,8 @@ export function node(options: NodeOptions) {
 export interface AttachmentOptions {
   /** XML element name. */
   name: string;
-  description?: string;
+  /** Mandatory one-line summary of the attachment tag (read by people, agents, and RAG). */
+  description: string;
   /** Node(s) this attaches to: an Object3D class (subclass-aware) or a node tag. */
   target: AttachTarget;
   /** Cardinality bucket on the target (e.g. 'geometry', 'material', 'fog'). */
@@ -172,23 +235,29 @@ export interface AttachmentOptions {
   required?: boolean;
   /** At most one attachment of this group per target. Default true. */
   unique?: boolean;
+  /** Structured child tags this attachment accepts (e.g. `['Uniform']` for shaders). */
+  children?: string[];
 }
 
 /** Registers an attachment tag — a leaf that configures its target node. */
 export function attachment(options: AttachmentOptions) {
   return function (target: new () => { attach(ctx: AttachContext): void }): void {
+    assertDescription('attachment', options.name, options.description);
     const { attrs, names } = readAttrs(target as CtorWithProps, options.name);
     registerAttachment({
       tag: options.name,
-      ...(options.description !== undefined ? { description: options.description } : {}),
+      description: options.description,
       attrs,
       target: options.target,
       group: options.group,
       required: options.required ?? false,
       unique: options.unique ?? true,
-      make: (a) => {
+      ...(options.children ? { children: options.children } : {}),
+      make: (a, uniforms) => {
         const inst = new target();
         assign(inst, names, a);
+        // Hand structured child data (shader uniforms) to instances that want it.
+        (inst as { setUniforms?: (u?: CompiledUniform[]) => void }).setUniforms?.(uniforms);
         return inst;
       },
     });
@@ -218,14 +287,15 @@ function readAttrs(target: CtorWithProps, tag: string): { attrs: Record<string, 
         `<${tag}> @property "${name}" must use a scalar type (float/int/bool/string/vec2/vec3/euler/color), an enum, or an array of one ([float] …); references are for components only`,
       );
     }
-    normalizeEnumDefault(meta);
+    normalizeDefault(meta);
     // Preserve array-ness: nodes/attachments may carry scalar/enum-array attrs.
     const attrType = (isArrayType(meta.type) ? [elem] : elem) as NodeAttr['type'];
     attrs[name] = {
       type: attrType,
       ...(meta.default !== undefined ? { default: meta.default as NodeAttr['default'] } : {}),
       ...(meta.required ? { required: true } : {}),
-      ...(meta.description !== undefined ? { description: meta.description } : {}),
+      description: meta.description,
+      ...(meta.asset !== undefined ? { asset: meta.asset } : {}),
     };
   }
   return { attrs, names: [...props.keys()] };
@@ -243,5 +313,18 @@ function assign(inst: object, names: string[], attrs: Record<string, CompiledSca
 function assertTagName(name: string): void {
   if (name.includes('/')) {
     throw new Error(`Tag/component name "${name}" may not contain "/" (reserved for prefab scope paths)`);
+  }
+}
+
+/**
+ * A `description` is mandatory on every registered thing (component/node/attachment/
+ * property). The TS types already require it; this is the runtime backstop (loud,
+ * actionable failure at registration) that guarantees the registry invariant for
+ * non-TS consumers and `// @ts-ignore` paths, so review/agent/RAG tooling can rely
+ * on a description always being present.
+ */
+function assertDescription(kind: string, name: string, description: string | undefined): void {
+  if (typeof description !== 'string' || description.trim() === '') {
+    throw new Error(`${kind} "${name}" is missing a required, non-empty "description"`);
   }
 }

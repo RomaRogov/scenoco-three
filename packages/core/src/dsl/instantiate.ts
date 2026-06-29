@@ -1,4 +1,5 @@
 import { Color, Euler, type Object3D, Vector2, Vector3 } from 'three';
+import type { AssetCache } from '../core/AssetCache.js';
 import type { Component } from '../core/Component.js';
 import { Registry, isArrayType, elementType, type PropType, type PropertyMeta } from '../core/Registry.js';
 import type { EnumDef } from '../core/EnumRegistry.js';
@@ -32,6 +33,8 @@ export interface InstantiateContext {
    * throws a clear error rather than silently no-op.
    */
   spawn?: SpawnFn;
+  /** Loaded assets, passed to each attachment's `attach(ctx.assets)`. */
+  assets?: AssetCache;
 }
 
 /**
@@ -42,7 +45,7 @@ export interface InstantiateContext {
  */
 export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContext = {}): InstantiatedScene {
   // One instance per pooled attachment entry, so caching shares the resource.
-  const attachments = compiled.attachments.map((a) => getAttachmentDef(a.tag)!.make(a.attrs));
+  const attachments = compiled.attachments.map((a) => getAttachmentDef(a.tag)!.make(a.attrs, a.uniforms));
   const objects: Object3D[] = compiled.nodes.map((node) => buildObject(node));
 
   // Link the scene graph.
@@ -53,7 +56,7 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
   // Apply attachments — each configures its host node directly (geometry/material
   // on a mesh, fog/background on the Scene, which is itself a node here).
   compiled.nodes.forEach((node, i) => {
-    for (const ai of node.attachments) attachments[ai]!.attach({ node: objects[i]! });
+    for (const ai of node.attachments) attachments[ai]!.attach({ node: objects[i]!, assets: ctx.assets });
   });
 
   // Create component instances and set their scalar props (refs come next).
@@ -122,6 +125,44 @@ function setScalarProps(
       ? (value as CompiledScalar[]).map((v) => toRuntimeValue(elem, v))
       : toRuntimeValue(elem, value as CompiledScalar);
   }
+  // Coerce *unset* math props to the same Three type a set one becomes, so the
+  // runtime field type is consistent however the author wrote the initializer
+  // (e.g. `offset = [0,0,0]` or `{x,y,z}` → a Vector3, like a set value).
+  for (const [name, meta] of props) {
+    if (name in compiled.props || isArrayType(meta.type)) continue;
+    const elem = elementType(meta.type);
+    if (elem !== 'vec2' && elem !== 'vec3' && elem !== 'euler' && elem !== 'color') continue;
+    const current = target[name] !== undefined ? target[name] : meta.default;
+    if (current !== undefined) target[name] = coerceMathValue(elem, current);
+  }
+}
+
+/** Coerce an already-runtime value (Vector/Euler/Color, array, {x,y,z}, number) to the math type for `elem`. */
+function coerceMathValue(elem: PropType | { new (): unknown } | EnumDef, current: unknown): unknown {
+  switch (elem) {
+    case 'vec2':
+      return current instanceof Vector2 ? current : new Vector2().fromArray(toNumberArray(current, 2));
+    case 'vec3':
+      return current instanceof Vector3 ? current : new Vector3().fromArray(toNumberArray(current, 3));
+    case 'euler': {
+      if (current instanceof Euler) return current;
+      const a = toNumberArray(current, 3);
+      return new Euler(a[0]!, a[1]!, a[2]!);
+    }
+    case 'color':
+      return current instanceof Color ? current : new Color(current as number | string);
+    default:
+      return current;
+  }
+}
+
+function toNumberArray(v: unknown, n: number): number[] {
+  if (Array.isArray(v)) return v as number[];
+  if (v !== null && typeof v === 'object') {
+    const o = v as { x?: number; y?: number; z?: number };
+    return n === 2 ? [o.x ?? 0, o.y ?? 0] : [o.x ?? 0, o.y ?? 0, o.z ?? 0];
+  }
+  return n === 2 ? [0, 0] : [0, 0, 0];
 }
 
 /**

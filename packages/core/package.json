@@ -1,10 +1,18 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SceNoCo runtime: a component-based scene framework for Three.js (Engine, Component, registry, bundle loader)",
   "type": "module",
   "license": "MIT",
-  "keywords": ["three", "threejs", "scene", "components", "ecs", "gamedev", "engine"],
+  "keywords": [
+    "three",
+    "threejs",
+    "scene",
+    "components",
+    "ecs",
+    "gamedev",
+    "engine"
+  ],
   "publishConfig": {
     "access": "public"
   },

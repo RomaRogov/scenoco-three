@@ -1,4 +1,4 @@
-import { WS_PATH, type EditorCommand, type EditorResponse, type EditorResult } from '../src/protocol.js';
+import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../src/protocol.js';
 import type { EditorSession } from './session.js';
 
 /**
@@ -13,12 +13,18 @@ export function connectEditor(session: EditorSession): void {
   const open = (): void => {
     const ws = new WebSocket(url);
     ws.onmessage = async (ev) => {
-      let cmd: EditorCommand;
+      let msg: EditorCommand | EditorPush;
       try {
-        cmd = JSON.parse(ev.data as string) as EditorCommand;
+        msg = JSON.parse(ev.data as string) as EditorCommand | EditorPush;
       } catch {
         return;
       }
+      // Unsolicited server push (a watched file changed) — not an id-correlated command.
+      if ('push' in msg) {
+        session.onExternalChange?.(msg.file, msg.role);
+        return;
+      }
+      const cmd = msg;
       let response: EditorResponse;
       try {
         response = { id: cmd.id, ok: true, result: await runCommand(session, cmd) };
@@ -54,5 +60,7 @@ export async function runCommand(session: EditorSession, cmd: EditorCommand): Pr
       return { kind: 'ok', info: 'edit mode' };
     case 'telemetry':
       return { kind: 'json', data: session.telemetry(cmd.targetId) };
+    case 'simulate':
+      return { kind: 'multi', results: session.simulate(cmd.steps) };
   }
 }

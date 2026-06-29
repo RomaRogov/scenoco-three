@@ -16,7 +16,7 @@ export interface SpawnOptions {
  * spawns the build-time-embedded prefab at runtime — Unity/Cocos `Instantiate`,
  * without the component touching the bundle/instantiate machinery.
  *
- *   @property({ type: 'prefab' }) brick: PrefabRef | null = null;
+ *   @property({ type: 'prefab', description: 'Brick prefab to spawn' }) brick: PrefabRef | null = null;
  *   // …
  *   const root = this.brick!.spawn({ position: [x, y, 0] });
  *   // later: this.engine.destroy(root);

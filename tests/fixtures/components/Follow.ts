@@ -8,7 +8,7 @@ import { Oscillator } from './Oscillator.js';
  */
 @component({ name: 'Follow', description: "Offsets the host along an axis by another Oscillator's value" })
 export class Follow extends Component {
-  @property(Oscillator)
+  @property({ type: Oscillator, description: 'The Oscillator this follows' })
   source: Oscillator | null = null;
 
   @property({ type: 'vec3', default: '0 1 0', description: 'Direction the offset is applied along' })

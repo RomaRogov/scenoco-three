@@ -42,6 +42,11 @@ export class InputManager {
   /** Per-pad: button-pressed state from the previous and current polls. */
   private gamepadPrev = new Map<number, boolean[]>();
   private gamepadCur = new Map<number, boolean[]>();
+  /** Synthetic pads injected by tooling/tests; when set, used instead of the navigator. */
+  private syntheticPads?: Map<number, Gamepad>;
+
+  /** Pointer position injected by tooling/tests (canvas-relative px), bypassing the DOM. */
+  private injectedPos?: { x: number; y: number };
 
   private readonly canvas?: HTMLCanvasElement;
   private readonly target?: EventTarget;
@@ -120,10 +125,19 @@ export class InputManager {
 
   /** Live state of the connected gamepad at `index` (default 0), or null if none. */
   getGamepad(index = 0): GamepadState | null {
-    const pads = typeof navigator !== 'undefined' ? navigator.getGamepads?.() : undefined;
-    const pad = pads?.[index] ?? null;
+    const pad = this.padSnapshot()?.[index] ?? null;
     if (!pad) return null;
     return new GamepadStateImpl(pad, this.gamepadPrev.get(index) ?? [], this.gamepadCur.get(index) ?? []);
+  }
+
+  /** Connected gamepads — synthetic (injected) pads when present, else the navigator's. */
+  private padSnapshot(): (Gamepad | null)[] | undefined {
+    if (this.syntheticPads) {
+      const out: (Gamepad | null)[] = new Array(Math.max(0, ...this.syntheticPads.keys()) + 1).fill(null);
+      for (const [i, p] of this.syntheticPads) out[i] = p;
+      return out;
+    }
+    return typeof navigator !== 'undefined' ? navigator.getGamepads?.() : undefined;
   }
 
   // ── lifecycle (engine-driven) ─────────────────────────────────────────────────
@@ -159,6 +173,60 @@ export class InputManager {
   dispose(): void {
     for (const off of this.detach) off();
     this.detach = [];
+  }
+
+  // ── synthetic injection (drive input without DOM events: tooling, headless tests) ──
+  // Each method mutates the same pending state the DOM handlers do, so the next
+  // beginFrame() (i.e. the next Engine.tick) commits it identically.
+
+  /** Press (`down: true`) or release a key by its `KeyCode` name (e.g. 'Space', 'W'). */
+  injectKey(key: KeyCode, down: boolean): void {
+    if (down) {
+      if (!this.held.has(key)) {
+        this.held.add(key);
+        this.pendingDown.add(key);
+      }
+    } else {
+      this.held.delete(key);
+      this.pendingUp.add(key);
+    }
+  }
+
+  /** Move the pointer to canvas-relative pixels (top-left origin); `dx/dy` is the raw delta. */
+  injectMouseMove(x: number, y: number, dx = 0, dy = 0): void {
+    this.injectedPos = { x, y };
+    this.pendingMove.x += dx;
+    this.pendingMove.y += dy;
+    this.mouseSeen = true;
+  }
+
+  /** Press or release a mouse button (Unity index: 0 left, 1 right, 2 middle). */
+  injectMouseButton(button: 0 | 1 | 2, down: boolean): void {
+    if (down) {
+      if (!this.mouseHeld[button]) {
+        this.mouseHeld[button] = true;
+        this.pendingMouseDown[button] = true;
+      }
+    } else {
+      this.mouseHeld[button] = false;
+      this.pendingMouseUp[button] = true;
+    }
+  }
+
+  /** Accumulate a wheel delta for the next frame. */
+  injectScroll(dx: number, dy: number): void {
+    this.pendingScroll.x += dx;
+    this.pendingScroll.y += dy;
+  }
+
+  /** Set (or clear, with `null`) a synthetic gamepad's pressed buttons + axes at `index`. */
+  injectGamepad(index: number, state: { buttons?: boolean[]; axes?: number[] } | null): void {
+    if (state === null) {
+      this.syntheticPads?.delete(index);
+      if (this.syntheticPads && this.syntheticPads.size === 0) this.syntheticPads = undefined;
+      return;
+    }
+    (this.syntheticPads ??= new Map()).set(index, syntheticPad(index, state.buttons ?? [], state.axes ?? []));
   }
 
   // ── internals ─────────────────────────────────────────────────────────────────
@@ -215,6 +283,49 @@ export class InputManager {
         this.pendingScroll.x += e.deltaX;
         this.pendingScroll.y += e.deltaY;
       });
+
+      // Single touch → the primary pointer (mouse button 0 + position), so the
+      // pointer events (down/up/click/drag) work on mobile with no extra API.
+      // One touch is tracked; extra fingers are ignored. (Set CSS `touch-action:
+      // none` on the canvas to stop the page scrolling/zooming during play.)
+      let activeTouch: number | undefined;
+      let lastX = 0;
+      let lastY = 0;
+      const liveTouch = (e: TouchEvent, id: number): Touch | undefined => {
+        for (let i = 0; i < e.touches.length; i++) if (e.touches[i]!.identifier === id) return e.touches[i]!;
+        return undefined;
+      };
+      on<TouchEvent>(c, 'touchstart', (e) => {
+        if (activeTouch !== undefined) return; // already tracking a finger
+        const touch = e.changedTouches[0];
+        if (!touch) return;
+        activeTouch = touch.identifier;
+        this.clientX = lastX = touch.clientX;
+        this.clientY = lastY = touch.clientY;
+        this.mouseSeen = true;
+        if (!this.mouseHeld[0]) {
+          this.mouseHeld[0] = true;
+          this.pendingMouseDown[0] = true;
+        }
+      });
+      on<TouchEvent>(c, 'touchmove', (e) => {
+        if (activeTouch === undefined) return;
+        const touch = liveTouch(e, activeTouch);
+        if (!touch) return;
+        this.pendingMove.x += touch.clientX - lastX;
+        this.pendingMove.y += touch.clientY - lastY;
+        this.clientX = lastX = touch.clientX;
+        this.clientY = lastY = touch.clientY;
+        this.mouseSeen = true;
+      });
+      const endTouch = (e: TouchEvent): void => {
+        if (activeTouch === undefined || liveTouch(e, activeTouch)) return; // still down
+        activeTouch = undefined;
+        this.mouseHeld[0] = false;
+        this.pendingMouseUp[0] = true;
+      };
+      on<TouchEvent>(c, 'touchend', endTouch);
+      on<TouchEvent>(c, 'touchcancel', endTouch);
     }
   }
 
@@ -222,6 +333,15 @@ export class InputManager {
   private sampleMouse(): void {
     const c = this.canvas;
     if (!c || !this.mouseSeen) return;
+    if (this.injectedPos) {
+      // Injected positions are already canvas-relative (top-left) — no rect needed.
+      const w = c.clientWidth || c.width || 1;
+      const h = c.clientHeight || c.height || 1;
+      const { x: px, y: pyTop } = this.injectedPos;
+      this._mousePosition.set(px, h - pyTop);
+      this._mouseNdc.set((px / w) * 2 - 1, -(pyTop / h) * 2 + 1);
+      return;
+    }
     const rect = c.getBoundingClientRect();
     const w = rect.width || c.clientWidth || 1;
     const h = rect.height || c.clientHeight || 1;
@@ -232,7 +352,7 @@ export class InputManager {
   }
 
   private pollGamepads(): void {
-    const pads = typeof navigator !== 'undefined' ? navigator.getGamepads?.() : undefined;
+    const pads = this.padSnapshot();
     this.gamepadPrev = this.gamepadCur;
     this.gamepadCur = new Map();
     if (!pads) return;
@@ -337,6 +457,21 @@ export type GamepadButton =
 /** DOM MouseEvent.button (0 left, 1 middle, 2 right) → Unity index (0 left, 1 right, 2 middle). */
 function unityButton(domButton: number): 0 | 1 | 2 {
   return domButton === 1 ? 2 : domButton === 2 ? 1 : 0;
+}
+
+/** Build a navigator-Gamepad-shaped object from injected pressed buttons + axes. */
+function syntheticPad(index: number, pressed: boolean[], axes: number[]): Gamepad {
+  return {
+    id: 'synthetic',
+    index,
+    connected: true,
+    mapping: 'standard',
+    timestamp: 0,
+    axes: [...axes],
+    buttons: pressed.map((p) => ({ pressed: p, touched: p, value: p ? 1 : 0 })),
+    hapticActuators: [],
+    vibrationActuator: null,
+  } as unknown as Gamepad;
 }
 
 const GAMEPAD_DEADZONE = 0.12;

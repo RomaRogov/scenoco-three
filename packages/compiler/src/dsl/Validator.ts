@@ -3,6 +3,8 @@ import {
   isEnumType,
   isArrayType,
   elementType,
+  isUniformType,
+  UNIFORM_TYPES,
   Registry,
   getNodeDef,
   getAttachmentDef,
@@ -20,8 +22,8 @@ import {
   type NodeDef,
   type AttachmentDef,
 } from '@scenoco-three/core/internal';
-import { nearestName, type SceDiagnostic } from './diagnostics.js';
-import type { SceElement } from './SceneParser.js';
+import { nearestName, type SncDiagnostic } from './diagnostics.js';
+import type { SncElement } from './SceneParser.js';
 import { parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } from './types.js';
 
 /**
@@ -30,7 +32,7 @@ import { parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } fro
  * LLM-actionable message. This is the heart of the edit→check→fix loop: the
  * `scenoco validate` CLI is a thin wrapper over this.
  */
-export function validateScene(root: SceElement): SceDiagnostic[] {
+export function validateScene(root: SncElement): SncDiagnostic[] {
   const ctx = new ValidationContext();
 
   if (root.tag !== 'Scene') {
@@ -48,7 +50,7 @@ export function validateScene(root: SceElement): SceDiagnostic[] {
  * Prefabs must be **self-contained** — every `#ref` resolves within the file —
  * which is what makes them instantiable at runtime without a surrounding scene.
  */
-export function validatePrefab(root: SceElement): SceDiagnostic[] {
+export function validatePrefab(root: SncElement): SncDiagnostic[] {
   const ctx = new ValidationContext();
 
   if (root.tag !== 'Prefab') {
@@ -73,7 +75,7 @@ export function validatePrefab(root: SceElement): SceDiagnostic[] {
 }
 
 interface PendingRef {
-  element: SceElement;
+  element: SncElement;
   attr: string;
   value: string;
   /** Component class the reference must satisfy, or 'node' for an Object3D ref. */
@@ -81,26 +83,26 @@ interface PendingRef {
 }
 
 interface IdEntry {
-  el: SceElement;
+  el: SncElement;
   kind: 'node' | 'component';
 }
 
 class ValidationContext {
-  readonly diagnostics: SceDiagnostic[] = [];
+  readonly diagnostics: SncDiagnostic[] = [];
 
   // One scene-wide id namespace shared by nodes and components, so a `#id`
   // reference resolves unambiguously to exactly one element.
   private readonly ids = new Map<string, IdEntry>();
-  private readonly componentsByNode = new Map<SceElement, ComponentCtor[]>();
+  private readonly componentsByNode = new Map<SncElement, ComponentCtor[]>();
   private readonly pendingRefs: PendingRef[] = [];
 
-  error(el: SceElement, code: string, message: string): void {
+  error(el: SncElement, code: string, message: string): void {
     // Elements spliced in from another file (prefab expansion) carry their
     // origin so the fix-it loop points at the right file.
     this.diagnostics.push({ line: el.line, column: el.column, code, message, ...(el.file ? { file: el.file } : {}) });
   }
 
-  walk(el: SceElement): void {
+  walk(el: SncElement): void {
     const def = getNodeDef(el.tag);
     if (!def) {
       // Unknown at this position. Components are handled by their parent; if we
@@ -122,7 +124,7 @@ class ValidationContext {
     this.validateChildren(el, def);
   }
 
-  private validateChildren(el: SceElement, def: NodeDef): void {
+  private validateChildren(el: SncElement, def: NodeDef): void {
     let componentsCount = 0;
     // group → first attachment tag seen on this node (for uniqueness diagnostics).
     const groupFirst = new Map<string, string>();
@@ -176,9 +178,9 @@ class ValidationContext {
 
   /** One attachment rule: target-compatible? group cardinality ok? attrs valid? */
   private validateAttachment(
-    host: SceElement,
+    host: SncElement,
     hostDef: NodeDef,
-    child: SceElement,
+    child: SncElement,
     attDef: AttachmentDef,
     groupFirst: Map<string, string>,
   ): void {
@@ -193,10 +195,40 @@ class ValidationContext {
       }
     }
     this.validateAttachmentAttributes(child, attDef);
-    this.rejectChildElements(child);
+    this.validateAttachmentChildren(child, attDef);
   }
 
-  private validateComponentsBlock(host: SceElement, block: SceElement): void {
+  /** Attachments are leaves unless they declare allowed child tags (e.g. shader `<Uniform>`s). */
+  private validateAttachmentChildren(el: SncElement, attDef: AttachmentDef): void {
+    const allowed = new Set(attDef.children ?? []);
+    for (const child of el.children) {
+      if (!allowed.has(child.tag)) {
+        this.error(child, 'unexpected-child', `<${el.tag}> cannot contain <${child.tag}>`);
+        continue;
+      }
+      if (child.tag === 'Uniform') this.validateUniform(child);
+      this.rejectChildElements(child);
+    }
+  }
+
+  /** Structural check of a shader `<Uniform>` (name/type/value present; type valid). The
+   *  value-vs-type and name-vs-shader checks happen at compile, where the shader text is available. */
+  private validateUniform(el: SncElement): void {
+    for (const req of ['name', 'type', 'value'] as const) {
+      if (!el.attributes.has(req)) this.error(el, 'missing-attr', `<Uniform> requires a "${req}" attribute`);
+    }
+    for (const attr of el.attributes.keys()) {
+      if (attr !== 'name' && attr !== 'type' && attr !== 'value' && !isNamespaceAttr(attr)) {
+        this.error(el, 'unknown-attr', `<Uniform> has no attribute "${attr}" (allowed: name, type, value)`);
+      }
+    }
+    const type = el.attributes.get('type');
+    if (type !== undefined && !isUniformType(type)) {
+      this.error(el, 'bad-value', `<Uniform> type "${type}" must be one of: ${UNIFORM_TYPES.join(', ')}`);
+    }
+  }
+
+  private validateComponentsBlock(host: SncElement, block: SncElement): void {
     if (block.attributes.size > 0) {
       this.error(block, 'unexpected-attr', `<Components> takes no attributes`);
     }
@@ -225,7 +257,7 @@ class ValidationContext {
   }
 
   /** Validate a node element's transform + type-specific attributes. */
-  private validateNodeAttributes(el: SceElement, def: NodeDef): void {
+  private validateNodeAttributes(el: SncElement, def: NodeDef): void {
     const allowed: Record<string, NodeAttr> = { ...TRANSFORM_ATTRS, ...def.attrs };
 
     for (const [attr, raw] of el.attributes) {
@@ -250,7 +282,7 @@ class ValidationContext {
   }
 
   /** Validate an attachment element's attributes (no transform/id; `src` allowed). */
-  private validateAttachmentAttributes(el: SceElement, def: AttachmentDef): void {
+  private validateAttachmentAttributes(el: SncElement, def: AttachmentDef): void {
     for (const [attr, raw] of el.attributes) {
       if (isNamespaceAttr(attr)) continue;
       // An attachment may pull its defaults from a resource file (e.g. a shared
@@ -272,7 +304,7 @@ class ValidationContext {
   }
 
   /** Validate a component element. */
-  private validateComponentAttributes(el: SceElement, props: Map<string, PropertyMeta>): void {
+  private validateComponentAttributes(el: SncElement, props: Map<string, PropertyMeta>): void {
     for (const [attr, raw] of el.attributes) {
       if (isNamespaceAttr(attr)) continue;
       if (attr === 'id') {
@@ -306,7 +338,7 @@ class ValidationContext {
 
   /** Record a `#id` reference for resolution once the whole tree is known. */
   private recordReference(
-    el: SceElement,
+    el: SncElement,
     attr: string,
     raw: string,
     declared: ComponentCtor | 'node',
@@ -321,7 +353,7 @@ class ValidationContext {
   }
 
   /** A `prefab` prop must name a file; `#id` here is almost always a mistake. */
-  private validatePrefabAttr(el: SceElement, attr: string, raw: string): void {
+  private validatePrefabAttr(el: SncElement, attr: string, raw: string): void {
     const value = raw.trim();
     if (value === '') return; // optional, left unset
     if (value.startsWith('#')) {
@@ -330,7 +362,7 @@ class ValidationContext {
   }
 
   private parseScalarAttr(
-    el: SceElement,
+    el: SncElement,
     attr: string,
     raw: string,
     type: ScalarType | EnumDef | [ScalarType | EnumDef],
@@ -342,7 +374,7 @@ class ValidationContext {
   }
 
   /** Validate an array-typed component property `[…]`: scalars/enums via codec, refs/prefabs per element. */
-  private validateArrayAttr(el: SceElement, attr: string, raw: string, elem: PropType | ComponentCtor | EnumDef): void {
+  private validateArrayAttr(el: SncElement, attr: string, raw: string, elem: PropType | ComponentCtor | EnumDef): void {
     if (isScalarType(elem) || isEnumType(elem)) {
       this.parseScalarAttr(el, attr, raw, [elem]);
       return;
@@ -358,13 +390,13 @@ class ValidationContext {
     });
   }
 
-  private rejectChildElements(el: SceElement): void {
+  private rejectChildElements(el: SncElement): void {
     for (const child of el.children) {
       this.error(child, 'unexpected-child', `<${el.tag}> may not contain child elements (found <${child.tag}>)`);
     }
   }
 
-  private registerId(el: SceElement, raw: string, kind: 'node' | 'component'): void {
+  private registerId(el: SncElement, raw: string, kind: 'node' | 'component'): void {
     // `/` is allowed in ids — references are literal `#id` lookups, so a scoped
     // id like `t1/osc` (from prefab expansion, or authored) is unambiguous.
     const existing = this.ids.get(raw);

@@ -4,12 +4,18 @@ import { attachment, property } from '../../core/decorators.js';
 import type { AttachContext } from '../../core/NodeRegistry.js';
 import { GEOMETRY_TARGETS } from '../targets.js';
 
-@attachment({ name: 'CylinderGeometry', target: GEOMETRY_TARGETS, group: 'geometry', required: true })
+@attachment({
+  name: 'CylinderGeometry',
+  description: 'Cylinder (or cone/frustum) geometry for a mesh.',
+  target: GEOMETRY_TARGETS,
+  group: 'geometry',
+  required: true,
+})
 export class CylinderGeometryNode extends Attachment<Mesh> {
-  @property({ type: 'float', default: 1 }) radiusTop = 1;
-  @property({ type: 'float', default: 1 }) radiusBottom = 1;
-  @property({ type: 'float', default: 1 }) height = 1;
-  @property({ type: 'int', default: 32 }) radialSegments = 32;
+  @property({ type: 'float', default: 1, description: 'Radius of the top cap' }) radiusTop = 1;
+  @property({ type: 'float', default: 1, description: 'Radius of the bottom cap' }) radiusBottom = 1;
+  @property({ type: 'float', default: 1, description: 'Height along Y' }) height = 1;
+  @property({ type: 'int', default: 32, description: 'Segments around the circumference' }) radialSegments = 32;
 
   private cached?: CylinderGeometry;
   attach(ctx: AttachContext<Mesh>): void {

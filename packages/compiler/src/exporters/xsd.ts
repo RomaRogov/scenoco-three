@@ -52,7 +52,7 @@ export function generateXsd(): string {
   out.push(`  <xs:attributeGroup name="transform">`);
   out.push(`    <xs:attribute name="id" type="xs:string"/>`);
   for (const [name, meta] of Object.entries(TRANSFORM_ATTRS)) {
-    out.push(`    ${nodeAttr(name, meta)}`);
+    out.push(nodeAttr('    ', name, meta));
   }
   out.push(`  </xs:attributeGroup>`);
   out.push('');
@@ -123,7 +123,8 @@ function overrideElement(): string {
 
 function spatialElement(def: NodeDef): string {
   const lines: string[] = [];
-  lines.push(`  <xs:element name="${def.tag}">${comment(def.description)}`);
+  lines.push(`  <xs:element name="${def.tag}">`);
+  lines.push(...xsDoc('    ', def.description));
   lines.push(`    <xs:complexType>`);
 
   const childRefs: string[] = [];
@@ -139,18 +140,23 @@ function spatialElement(def: NodeDef): string {
   }
 
   lines.push(`      <xs:attributeGroup ref="transform"/>`);
-  for (const [name, meta] of Object.entries(def.attrs)) lines.push(`      ${nodeAttr(name, meta)}`);
+  for (const [name, meta] of Object.entries(def.attrs)) lines.push(nodeAttr('      ', name, meta));
   lines.push(`    </xs:complexType>`);
   lines.push(`  </xs:element>`);
   return lines.join('\n');
 }
 
 function attachmentElement(def: AttachmentDef): string {
-  const attrs = Object.entries(def.attrs).map(([name, meta]) => `    ${nodeAttr(name, meta)}`);
-  // Any attachment may pull defaults from a resource file via src= (e.g. .material.xml).
-  attrs.unshift(`    <xs:attribute name="src" type="xs:string"/> <!-- load defaults from a resource file -->`);
+  const attrs = Object.entries(def.attrs).map(([name, meta]) => nodeAttr('      ', name, meta));
+  // Any attachment may pull defaults from a resource file via src= (e.g. .material.xml) —
+  // unless it already declares its own `src` (e.g. <Model src>), which would otherwise
+  // produce a duplicate attribute use and an invalid schema.
+  if (!('src' in def.attrs)) {
+    attrs.unshift(attrXml('      ', 'src', 'xs:string', false, 'Load attribute defaults from a resource file'));
+  }
   return [
-    `  <xs:element name="${def.tag}">${comment(def.description)}`,
+    `  <xs:element name="${def.tag}">`,
+    ...xsDoc('    ', def.description),
     `    <xs:complexType>`,
     ...attrs,
     `    </xs:complexType>`,
@@ -160,10 +166,11 @@ function attachmentElement(def: AttachmentDef): string {
 
 function componentElement(name: string): string {
   const meta = Registry.getComponent(name)!.meta;
-  const attrs = [`    <xs:attribute name="id" type="xs:string"/>`];
-  for (const [attr, prop] of meta.properties) attrs.push(`    ${propertyAttr(attr, prop)}`);
+  const attrs = [`      <xs:attribute name="id" type="xs:string"/>`];
+  for (const [attr, prop] of meta.properties) attrs.push(propertyAttr('      ', attr, prop));
   return [
-    `  <xs:element name="${name}">${comment(meta.description)}`,
+    `  <xs:element name="${name}">`,
+    ...xsDoc('    ', meta.description),
     `    <xs:complexType>`,
     ...attrs,
     `    </xs:complexType>`,
@@ -173,16 +180,29 @@ function componentElement(name: string): string {
 
 // ---- attribute / type helpers ---------------------------------------------
 
-function nodeAttr(name: string, meta: NodeAttr): string {
-  const use = meta.required ? ` use="required"` : '';
+function nodeAttr(indent: string, name: string, meta: NodeAttr): string {
   // Array attrs are bracketed lists ("[a,b,c]") — typed loosely as strings.
   const type = isArrayType(meta.type) ? 'xs:string' : xsdType(meta.type);
-  return `<xs:attribute name="${name}" type="${type}"${use}/>${comment(meta.description)}`;
+  return attrXml(indent, name, type, !!meta.required, meta.description);
 }
 
-function propertyAttr(name: string, meta: PropertyMeta): string {
-  const use = meta.required ? ` use="required"` : '';
-  return `<xs:attribute name="${name}" type="${propertyXsdType(meta.type)}"${use}/>${comment(meta.description)}`;
+function propertyAttr(indent: string, name: string, meta: PropertyMeta): string {
+  return attrXml(indent, name, propertyXsdType(meta.type), !!meta.required, meta.description);
+}
+
+/**
+ * One `<xs:attribute>`. When a description is present it carries an
+ * `xs:annotation/xs:documentation` child (surfaced as IDE hover help by XML
+ * language servers); otherwise it stays a terse self-closing element.
+ */
+function attrXml(indent: string, name: string, type: string, required: boolean, description?: string): string {
+  const use = required ? ` use="required"` : '';
+  if (!description) return `${indent}<xs:attribute name="${name}" type="${type}"${use}/>`;
+  return [
+    `${indent}<xs:attribute name="${name}" type="${type}"${use}>`,
+    ...xsDoc(`${indent}  `, description),
+    `${indent}</xs:attribute>`,
+  ].join('\n');
 }
 
 /** XSD attribute type for a component property. */
@@ -232,7 +252,15 @@ function choiceGroup(name: string, tags: string[]): string {
   return [`  <xs:group name="${name}">`, `    <xs:choice>`, ...refs, `    </xs:choice>`, `  </xs:group>`].join('\n');
 }
 
-const comment = (text?: string) => (text ? ` <!-- ${escapeXml(text)} -->` : '');
+/** Lines for an `xs:annotation/xs:documentation` block (IDE hover help), or none. */
+function xsDoc(indent: string, text?: string): string[] {
+  if (!text) return [];
+  return [
+    `${indent}<xs:annotation>`,
+    `${indent}  <xs:documentation>${escapeXml(text)}</xs:documentation>`,
+    `${indent}</xs:annotation>`,
+  ];
+}
 
 function escapeXml(s: string): string {
   return s

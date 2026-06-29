@@ -2,7 +2,8 @@ import {
   AmbientLight, Box3, Color, DirectionalLight, PerspectiveCamera, Sphere, Vector3, type Object3D,
 } from 'three';
 import { Engine, Registry, bundleKind, type Bundle, type Component } from '@scenoco-three/core';
-import type { EditOp } from '../src/protocol.js';
+import type { SceneProvenance } from '@scenoco-three/compiler';
+import type { EditOp, EditorResult, SimStep } from '../src/protocol.js';
 
 export type EditorMode = 'edit' | 'play';
 
@@ -20,10 +21,14 @@ export class EditorSession {
   editorCamera?: PerspectiveCamera;
   /** Fired after the engine/scene changes, so the host rebinds camera + panels. */
   onChange?: () => void;
+  /** Fired when a watched file changes on disk (the open file or a `src=` dep). */
+  onExternalChange?: (file: string, role: 'open' | 'dep') => void;
 
   private bundle?: Bundle;
   /** Source path of the open scene/prefab — the target of `save`. */
   filePath?: string;
+  /** Editor provenance for the open file (prefab/material origins), for the document. */
+  provenance?: SceneProvenance;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.engine = this.makeEngine(true);
@@ -36,9 +41,12 @@ export class EditorSession {
   /** Fetch + load a scene/prefab (edit mode). Returns a small summary. */
   async open(path: string): Promise<{ file: string; kind: 'scene' | 'prefab'; nodes: number }> {
     const res = await fetch(`/@scenoco/bundle?file=${encodeURIComponent(path)}`);
-    const data = (await res.json()) as Bundle | { error: string };
-    if (!res.ok || !Array.isArray(data)) throw new Error((data as { error?: string }).error ?? 'failed to open file');
-    this.bundle = data;
+    const data = (await res.json()) as { bundle: Bundle; provenance: SceneProvenance } | { error: string };
+    if (!res.ok || !('bundle' in data) || !Array.isArray(data.bundle)) {
+      throw new Error((data as { error?: string }).error ?? 'failed to open file');
+    }
+    this.bundle = data.bundle;
+    this.provenance = data.provenance;
     this.filePath = path;
     this.toEdit();
     return { file: path, kind: bundleKind(this.bundle) === 'prefab' ? 'prefab' : 'scene', nodes: count(this.engine.scene) };
@@ -70,6 +78,11 @@ export class EditorSession {
   pause(): void {
     this.playing = false;
   }
+  /** Advance gameplay by a single frame while paused (no-op outside play mode). */
+  step(dt = 1 / 60): void {
+    if (this.mode !== 'play') return;
+    this.engine.tick(dt); // bypass the play+paused gate in tick()
+  }
   stop(): void {
     this.toEdit();
   }
@@ -97,7 +110,8 @@ export class EditorSession {
     if (!node) return { error: `no object with id "${id}"` };
     const components: Record<string, Record<string, unknown>> = {};
     for (const c of this.engine.getComponents(node)) {
-      components[componentName(c) ?? c.constructor.name] = propValues(c);
+      // Surface the component's scene id (if any), alongside its @property values.
+      components[componentName(c) ?? c.constructor.name] = { ...(c.id !== undefined ? { id: c.id } : {}), ...propValues(c) };
     }
     return {
       id,
@@ -110,6 +124,68 @@ export class EditorSession {
       },
       components,
     };
+  }
+
+  /**
+   * Execute a batch of player-simulation steps in order against the live engine —
+   * transport, frame stepping, synthetic key/mouse/gamepad input, and preview/
+   * telemetry captures. Runs synchronously (no real-time loop interleaves), so an
+   * agent can drive the game to a precise condition and sample it there. Injected
+   * input is committed on the next `step`, so the usual order is input → step →
+   * preview/telemetry. Returns the captures in step order.
+   */
+  simulate(steps: SimStep[]): EditorResult[] {
+    const out: EditorResult[] = [];
+    for (const step of steps) {
+      const input = this.engine.input;
+      switch (step.do) {
+        case 'play':
+          this.run();
+          break;
+        case 'pause':
+          this.pause();
+          break;
+        case 'stop':
+          this.stop();
+          break;
+        case 'step': {
+          const frames = Math.max(0, Math.floor(step.frames ?? 1));
+          const dt = step.dt ?? 1 / 60;
+          for (let i = 0; i < frames; i++) this.engine.tick(dt);
+          break;
+        }
+        case 'tap':
+          input.injectKey(step.key, true);
+          input.injectKey(step.key, false);
+          break;
+        case 'keyDown':
+          input.injectKey(step.key, true);
+          break;
+        case 'keyUp':
+          input.injectKey(step.key, false);
+          break;
+        case 'click': {
+          if (step.x !== undefined && step.y !== undefined) input.injectMouseMove(step.x, step.y);
+          const b = step.button === 'right' ? 1 : step.button === 'middle' ? 2 : 0;
+          input.injectMouseButton(b, true);
+          input.injectMouseButton(b, false);
+          break;
+        }
+        case 'move':
+          input.injectMouseMove(step.x ?? 0, step.y ?? 0, step.dx ?? 0, step.dy ?? 0);
+          break;
+        case 'gamepad':
+          input.injectGamepad(step.index ?? 0, { ...(step.buttons ? { buttons: step.buttons } : {}), ...(step.axes ? { axes: step.axes } : {}) });
+          break;
+        case 'preview':
+          out.push({ kind: 'image', dataUrl: this.preview({ ...(step.camera ? { camera: step.camera } : {}), ...(step.lookAt ? { lookAt: step.lookAt } : {}) }) });
+          break;
+        case 'telemetry':
+          out.push({ kind: 'json', data: this.telemetry(step.id) });
+          break;
+      }
+    }
+    return out;
   }
 
   // ── internals ────────────────────────────────────────────────────────────────
@@ -134,9 +210,13 @@ export class EditorSession {
     if (!this.bundle) return;
     if (bundleKind(this.bundle) === 'prefab') {
       this.engine.instantiate(this.bundle);
-      this.engine.scene.add(new AmbientLight(0xffffff, 0.6));
+      // Editor-only preview lights — flagged so the Hierarchy/picking ignore them.
+      const ambient = new AmbientLight(0xffffff, 0.6);
+      ambient.userData.scenocoEditorOnly = true;
+      this.engine.scene.add(ambient);
       const key = new DirectionalLight(0xffffff, 2);
       key.position.set(3, 5, 4);
+      key.userData.scenocoEditorOnly = true;
       this.engine.scene.add(key);
       if (!this.engine.scene.background) this.engine.scene.background = new Color(0x15181f);
     } else {

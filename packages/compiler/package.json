@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/compiler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SceNoCo build-time compiler, CLI and watcher",
   "type": "module",
   "license": "MIT",
@@ -18,7 +18,17 @@
   "files": [
     "dist"
   ],
-  "keywords": ["three", "threejs", "scene", "components", "ecs", "xml", "dsl", "compiler", "gamedev"],
+  "keywords": [
+    "three",
+    "threejs",
+    "scene",
+    "components",
+    "ecs",
+    "xml",
+    "dsl",
+    "compiler",
+    "gamedev"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -27,7 +37,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.1.0",
+    "@scenoco-three/core": "^0.2.0",
     "chokidar": "^4.0.3",
     "esbuild": "^0.25.12",
     "saxes": "^6.0.0"

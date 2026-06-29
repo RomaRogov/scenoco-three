@@ -45,9 +45,9 @@ describe('built-in components', () => {
   });
 
   it('components share data through typed references (Unity/Cocos style)', () => {
-    @component({ name: 'TestGlow' })
+    @component({ name: 'TestGlow', description: 'glows from an Oscillator' })
     class TestGlow extends Component {
-      @property(Oscillator)
+      @property({ type: Oscillator, description: 'the source oscillator' })
       source: Oscillator | null = null;
 
       seen = 0;

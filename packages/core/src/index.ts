@@ -1,7 +1,14 @@
 // `@scenoco-three/core` — the runtime entry point. Contains no XML parser,
 // validator, or compiler: it loads pre-built bundles only.
 
-export { Engine, type EngineOptions, type SceneGraph } from './core/Engine.js';
+export {
+  Engine,
+  type EngineOptions,
+  type SceneGraph,
+  type PreloadProvider,
+  type RaycastOptions,
+  type PointerEventData,
+} from './core/Engine.js';
 export { Component } from './core/Component.js';
 export { System } from './core/System.js';
 export {
@@ -18,11 +25,16 @@ export {
   type PropType,
   type PropertyType,
   type PropertyMeta,
+  type PropertyInput,
+  type Vec3Like,
+  type CompiledDefault,
   type ComponentMeta,
   type ComponentCtor,
   type RegisteredComponent,
 } from './core/Registry.js';
 export { enumOf, isEnumType, getEnum, allEnums, type EnumDef } from './core/EnumRegistry.js';
+export { AssetCache, type AssetKind, type AssetLoader } from './core/AssetCache.js';
+export { collectAssetRefs, type AssetRef } from './dsl/assets.js';
 
 // One authoring idiom: @property fields + a class decorator per role.
 export {
@@ -76,8 +88,10 @@ export type {
   CompiledNode,
   CompiledComponent,
   CompiledAsset,
+  CompiledUniform,
   CompiledRef,
   CompiledValue,
   CompiledTransform,
 } from './dsl/compiled.js';
+export { UNIFORM_TYPES, UniformType, isUniformType, type UniformTypeName } from './dsl/uniforms.js';
 

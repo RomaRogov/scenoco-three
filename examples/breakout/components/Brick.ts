@@ -2,7 +2,7 @@ import { Component, component, property } from '@scenoco-three/core';
 
 /**
  * A single Breakout brick — pure data on the brick prefab's node, alongside a
- * static `<RigidBody2D>` + `<Collider2D>` (so Box2D reports the ball's contact).
+ * static `<RigidBody2D>` + `<BoxCollider2D>` (so Box2D reports the ball's contact).
  *
  * The brick's mesh, material, size and physics all live in `brick.prefab.xml`;
  * this component is just the data the game logic reads off each placed instance.

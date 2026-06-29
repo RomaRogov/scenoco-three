@@ -1,8 +1,10 @@
-import { type Camera, PerspectiveCamera, Scene, Vector2, WebGLRenderer } from 'three';
-import type { Object3D } from 'three';
+import { AudioListener, type Camera, PerspectiveCamera, Raycaster, Scene, Vector2, WebGLRenderer } from 'three';
+import type { Intersection, Object3D, Vector3 } from 'three';
 import type { Component } from './Component.js';
+import { AssetCache } from './AssetCache.js';
 import { InputManager } from './Input.js';
 import { runsInEditor } from './decorators.js';
+import { collectAssetRefs } from '../dsl/assets.js';
 import { Registry } from './Registry.js';
 import type { ComponentCtor } from './Registry.js';
 import type { System } from './System.js';
@@ -28,6 +30,45 @@ export interface SceneGraph {
   componentIndexOf: Map<Component, number>;
 }
 
+/**
+ * An async hook the engine awaits before instantiating a scene/prefab. Asset
+ * packages register one (via `engine.addPreloadProvider`) that scans the
+ * compiled scene for the resources it owns and loads them into a shared cache,
+ * so a component's `onLoad` never runs before its assets exist.
+ */
+export type PreloadProvider = (compiled: CompiledScene) => Promise<void>;
+
+/** Options for {@link Engine.raycast}. */
+export interface RaycastOptions {
+  /** Normalized device coords `[-1..1]` to cast through. Default: `engine.input.mouseNdc`. */
+  ndc?: Vector2;
+  /** Objects to test. Default: the scene's children. */
+  objects?: Object3D[];
+  /** Recurse into descendants. Default: true. */
+  recursive?: boolean;
+}
+
+/**
+ * Payload for the pointer hooks a component may implement — `onPointerDown` /
+ * `onPointerUp` / `onPointerClick` (Unity-style). Dispatched by raycasting from
+ * the pointer through `mainCamera`, then bubbling up the hit object's ancestors.
+ */
+export interface PointerEventData {
+  /** The hit object (for down/click) or the originally-pressed object (for up/drag). */
+  object: Object3D;
+  /** World-space point of the hit, when there is one (absent for drag). */
+  point?: Vector3;
+  /** Distance from the camera to the hit. */
+  distance?: number;
+  /** Mouse button (0 = left). */
+  button: number;
+  /** Pointer movement this frame, in pixels — set for `onDrag`. */
+  delta?: Vector2;
+}
+
+/** The pointer hook names a component may implement (duck-typed). */
+type PointerHook = 'onPointerDown' | 'onPointerUp' | 'onPointerClick' | 'onDrag';
+
 export interface EngineOptions {
   /** Render target. Omit for headless use (tests, CLI tooling, validation). */
   canvas?: HTMLCanvasElement;
@@ -46,6 +87,12 @@ export interface EngineOptions {
    * (the editor uses this for previews). Slight cost; default false.
    */
   preserveDrawingBuffer?: boolean;
+  /**
+   * Seed for the engine's deterministic RNG (`engine.random()`). Same seed +
+   * same fixed-step input ⇒ identical runs (replays, tests, reproducible QA).
+   * Omit for a time-seeded (non-deterministic) stream.
+   */
+  seed?: number;
 }
 
 /**
@@ -83,9 +130,50 @@ export class Engine {
   /** Editor mode — component hooks/systems are inert unless `@executeInEditor`. */
   readonly editorMode: boolean;
 
+  /**
+   * URL-keyed cache of loaded runtime assets (textures, glTF models), shared
+   * across scene loads. A built-in preload provider fills it from a scene's
+   * declared assets before `loadSceneAsync` instantiates; register a custom
+   * loader with `engine.assets.registerLoader(...)`. Freed on `dispose`.
+   */
+  readonly assets = new AssetCache();
+
+  /**
+   * Time scale (Unity `Time.timeScale`): multiplies real frame time before it
+   * drives the simulation. `1` normal, `0.5` slow-motion, `0` pauses gameplay
+   * (fixed steps stop; `update` still runs with `deltaTime === 0`). Rendering
+   * and input sampling are unaffected.
+   */
+  timeScale = 1;
+  /** Scaled time elapsed since the engine started, in seconds (respects `timeScale`). */
+  time = 0;
+  /** Unscaled wall-clock time elapsed since the engine started, in seconds. */
+  unscaledTime = 0;
+  /** Scaled seconds for the current frame — the `dt` passed to `update`. */
+  deltaTime = 0;
+  /** Frames ticked since the engine started. */
+  frameCount = 0;
+  /**
+   * Blend factor in `[0, 1)` for rendering between the previous and current
+   * fixed step (`fixedAccumulator / fixedTimeStep`). Subsystems that move objects
+   * at the fixed rate (physics) read it to interpolate poses and avoid jitter
+   * when the render rate differs from the fixed rate.
+   */
+  interpolationAlpha = 0;
+
+  /** Deterministic PRNG state (mulberry32); reseed via `reseed`. */
+  private _seed: number;
+  private rng: () => number;
+
   private readonly components: Component[] = [];
+  /** Set when the component set changes, so the next tick re-sorts by execution order. */
+  private componentsDirty = false;
   private readonly byNode = new Map<Object3D, Component[]>();
   private readonly byId = new Map<string, Component>();
+  /** id → live Object3D, maintained on load/instantiate/destroy so findObject is O(1). */
+  private readonly objectsById = new Map<string, Object3D>();
+  /** Scene cameras, sorted by `priority` ascending — rendered in order (Unity camera depth). */
+  cameras: Camera[] = [];
   private readonly systems: System[] = [];
   /** Each running system → the component type its `components` query is kept in sync with. */
   private readonly systemQueries = new Map<System, ComponentType>();
@@ -103,11 +191,22 @@ export class Engine {
   private sceneGraph?: SceneGraph;
   /** Live spawned roots (from instantiate), so dispose() can tear down subtrees that live outside the scene root. */
   private readonly instances = new Set<Object3D>();
+  /** Async asset hooks awaited by loadSceneAsync/instantiateAsync before instantiation. */
+  private readonly preloadProviders: PreloadProvider[] = [];
+  private readonly raycaster = new Raycaster();
+  /** The object a pointer press landed on, so the release/click can target it. */
+  private pointerPressed?: Object3D;
+  private _audioListener?: AudioListener;
 
   constructor(options: EngineOptions = {}) {
     this.fixedTimeStep = options.fixedTimeStep ?? 1 / 60;
     this.editorMode = options.editor ?? false;
+    this._seed = (options.seed ?? Math.floor(Math.random() * 0x1_0000_0000)) >>> 0;
+    this.rng = mulberry32(this._seed);
     this.input = new InputManager({ ...(options.canvas ? { canvas: options.canvas } : {}) });
+    // Built-in asset preloading: load every texture/model a scene declares into
+    // the shared cache before instantiation (awaited only by the *Async loaders).
+    this.addPreloadProvider((compiled) => this.assets.loadAll(collectAssetRefs(compiled).map((r) => r.url)));
 
     if (options.canvas) {
       this.renderer = new WebGLRenderer({
@@ -156,6 +255,7 @@ export class Engine {
   private registerComponent(node: Object3D, instance: Component): void {
     instance.engine = this;
     this.components.push(instance);
+    this.componentsDirty = true;
     let list = this.byNode.get(node);
     if (!list) this.byNode.set(node, (list = []));
     list.push(instance);
@@ -183,6 +283,7 @@ export class Engine {
     const index = this.components.indexOf(instance);
     if (index === -1) return;
     this.components.splice(index, 1);
+    this.componentsDirty = true;
 
     const list = this.byNode.get(instance.node);
     if (list) {
@@ -258,7 +359,89 @@ export class Engine {
    * loaded scene and any spawned instances; returns the first match.
    */
   findObject(id: string): Object3D | undefined {
-    return this.scene.getObjectByName(id);
+    // Indexed lookup for scene/instance objects; fall back to a traversal for
+    // anything added to the scene outside the engine's load/instantiate paths.
+    return this.objectsById.get(id) ?? this.scene.getObjectByName(id);
+  }
+
+  /** Add or remove a subtree's named objects from the id index (first id wins). */
+  private indexObjects(root: Object3D, add: boolean): void {
+    root.traverse((object) => {
+      if (!object.name) return;
+      if (add) {
+        if (!this.objectsById.has(object.name)) this.objectsById.set(object.name, object);
+      } else if (this.objectsById.get(object.name) === object) {
+        this.objectsById.delete(object.name);
+      }
+    });
+  }
+
+  /** A component's execution order (static stamped by `@component({ order })`); default 0. */
+  private orderOf(component: Component): number {
+    return (component.constructor as { executionOrder?: number }).executionOrder ?? 0;
+  }
+
+  /**
+   * Cast a ray into the scene and return the hits (nearest first) — Unity
+   * `Physics.Raycast` / Three.js `Raycaster`. Defaults to a ray from the pointer
+   * (`input.mouseNdc`) through `mainCamera` against the whole scene, so
+   * `engine.raycast()[0]?.object` is "what's under the cursor". Returns `[]` with
+   * no active camera.
+   */
+  raycast(options: RaycastOptions = {}): Intersection[] {
+    if (!this.mainCamera) return [];
+    // Ensure world matrices are current — a raycast can run before the first
+    // render (or headless), when they'd otherwise be stale.
+    this.scene.updateMatrixWorld();
+    this.mainCamera.updateMatrixWorld();
+    this.raycaster.setFromCamera(options.ndc ?? this.input.mouseNdc, this.mainCamera);
+    return this.raycaster.intersectObjects(options.objects ?? this.scene.children, options.recursive ?? true);
+  }
+
+  /**
+   * Raycast from the pointer on press/release and deliver `onPointerDown` /
+   * `onPointerUp` / `onPointerClick` to the hit object's components, bubbling up
+   * its ancestors (Unity/DOM-style). `onPointerUp` goes to the originally-pressed
+   * object; `onPointerClick` fires only when the release is over that same object.
+   * Inert in editor mode / without a camera. Cheap: only raycasts on a click edge.
+   */
+  private dispatchPointerEvents(): void {
+    if (this.editorMode || !this.mainCamera) return;
+    const down = this.input.getMouseButtonDown(0);
+    const up = this.input.getMouseButtonUp(0);
+
+    // Drag: pointer held + moving after a press, delivered to the pressed object.
+    // Delta-based — no raycast (the dragged object needn't stay under the cursor).
+    if (!down && this.pointerPressed && this.input.getMouseButton(0)) {
+      const delta = this.input.mouseDelta;
+      if (delta.x !== 0 || delta.y !== 0) this.emitPointer('onDrag', this.pointerPressed, undefined, delta);
+    }
+
+    if (!down && !up) return;
+    const hit = this.raycast()[0];
+    if (down) {
+      this.pointerPressed = hit?.object;
+      if (hit) this.emitPointer('onPointerDown', hit.object, hit);
+    }
+    if (up) {
+      const pressed = this.pointerPressed;
+      this.pointerPressed = undefined;
+      if (pressed) this.emitPointer('onPointerUp', pressed, hit);
+      if (hit && hit.object === pressed) this.emitPointer('onPointerClick', hit.object, hit);
+    }
+  }
+
+  /** Dispatch a pointer hook to a target's components, then bubble up to the scene root. */
+  private emitPointer(hook: PointerHook, target: Object3D, hit: Intersection | undefined, delta?: Vector2): void {
+    const event: PointerEventData = { object: target, point: hit?.point, distance: hit?.distance, button: 0 };
+    if (delta) event.delta = delta.clone();
+    for (let object: Object3D | null = target; object; object = object.parent) {
+      for (const component of this.getComponents(object)) {
+        const fn = (component as unknown as Record<string, unknown>)[hook];
+        if (typeof fn === 'function') (fn as (e: PointerEventData) => void).call(component, event);
+      }
+      if (object === this.scene) break;
+    }
   }
 
   /**
@@ -269,6 +452,50 @@ export class Engine {
    */
   getSceneGraph(): SceneGraph | undefined {
     return this.sceneGraph;
+  }
+
+  /**
+   * The Web Audio listener (the "ears"), parented to the active camera so
+   * positional audio is heard from the camera's pose. Created **lazily** on first
+   * access — a scene with no audio never opens an `AudioContext`. Returns
+   * `undefined` headless (no Web Audio), so audio code stays no-op in tests/SSR.
+   * Used by `@scenoco-three/audio`'s `Sound` component.
+   */
+  get audioListener(): AudioListener | undefined {
+    if (typeof AudioContext === 'undefined') return undefined; // headless / no Web Audio
+    if (!this._audioListener) this._audioListener = new AudioListener();
+    const host = this.mainCamera ?? this.scene;
+    if (this._audioListener.parent !== host) host.add(this._audioListener);
+    return this._audioListener;
+  }
+
+  /** The current RNG seed (the value the stream was last (re)seeded with). */
+  get seed(): number {
+    return this._seed;
+  }
+
+  /** Restart the deterministic RNG from `seed` — for replays / reproducible runs. */
+  reseed(seed: number): void {
+    this._seed = seed >>> 0;
+    this.rng = mulberry32(this._seed);
+  }
+
+  /**
+   * Deterministic random in `[0, 1)` (Unity `Random.value`). Components should
+   * use this instead of `Math.random()` so a run is reproducible from its seed.
+   */
+  random(): number {
+    return this.rng();
+  }
+
+  /** Deterministic random float in `[min, max)`. */
+  randomRange(min: number, max: number): number {
+    return min + this.rng() * (max - min);
+  }
+
+  /** Deterministic random integer in `[min, max)` (max exclusive). */
+  randomInt(min: number, max: number): number {
+    return min + Math.floor(this.rng() * (max - min));
   }
 
   /**
@@ -298,21 +525,71 @@ export class Engine {
   }
 
   /**
+   * Register an async **preload provider** — a hook the engine awaits (in
+   * `loadSceneAsync` / `instantiateAsync`) before instantiating a scene, so a
+   * component's `onLoad` never runs before the assets it needs exist. Asset
+   * packages (glTF/texture loaders) register one that scans the compiled scene
+   * for the resources it owns and loads them into a shared cache. With none
+   * registered, the async path is equivalent to the synchronous one.
+   */
+  addPreloadProvider(provider: PreloadProvider): void {
+    this.preloadProviders.push(provider);
+  }
+
+  /** Remove a previously registered preload provider. */
+  removePreloadProvider(provider: PreloadProvider): void {
+    const i = this.preloadProviders.indexOf(provider);
+    if (i !== -1) this.preloadProviders.splice(i, 1);
+  }
+
+  /**
    * Load a scene from a pre-built bundle (or a CompiledScene), replacing any
-   * current one. Bundles are produced at build time by `scenoco/compiler`; the
-   * runtime never parses or validates XML. All components are instantiated and
-   * their references wired before any onLoad runs, so cross-component refs are
-   * valid from the first lifecycle hook.
+   * current one — **synchronously**. Bundles are produced at build time by
+   * `scenoco/compiler`; the runtime never parses or validates XML. All components
+   * are instantiated and their references wired before any onLoad runs, so
+   * cross-component refs are valid from the first lifecycle hook.
+   *
+   * This does **not** await preload providers — any external assets a scene
+   * references stream in afterward (the node updates when they arrive). Use
+   * {@link loadSceneAsync} when a component's `onLoad` must see its assets ready.
    *
    * If the scene defines a camera, it becomes `mainCamera`; with none, `mainCamera`
    * stays undefined and the loop skips rendering until one is set.
    */
   loadScene(source: Bundle | CompiledScene): void {
+    this.applyScene(this.toScene(source));
+  }
+
+  /**
+   * Like {@link loadScene}, but first `await`s every registered preload provider
+   * (asset loaders), so the scene is fully resourced before it is instantiated
+   * and before any `onLoad` runs. The returned promise resolves once the scene is
+   * live. With no providers registered it behaves like `loadScene` (resolving on
+   * the next microtask).
+   */
+  async loadSceneAsync(source: Bundle | CompiledScene): Promise<void> {
+    const compiled = this.toScene(source);
+    await this.preload(compiled);
+    this.applyScene(compiled);
+  }
+
+  /** Guard against a prefab bundle and deserialize a bundle to a CompiledScene. */
+  private toScene(source: Bundle | CompiledScene): CompiledScene {
     if (Array.isArray(source) && bundleKind(source) === 'prefab') {
       throw new Error('loadScene() received a prefab bundle — use engine.instantiate() to spawn a prefab.');
     }
-    const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
+    return Array.isArray(source) ? deserializeBundle(source) : source;
+  }
 
+  /** Await all preload providers for a scene (asset loaders fill their caches here). */
+  private async preload(compiled: CompiledScene): Promise<void> {
+    if (this.preloadProviders.length > 0) {
+      await Promise.all(this.preloadProviders.map((provider) => provider(compiled)));
+    }
+  }
+
+  /** The synchronous core shared by `loadScene` and `loadSceneAsync`. */
+  private applyScene(compiled: CompiledScene): void {
     // Full swap: tear the current scene down, then make the compiled Scene the
     // active one. The <Scene> node builds a real Three.js Scene, with fog/background
     // already applied and the camera living in it as a child node.
@@ -320,12 +597,16 @@ export class Engine {
     const live = instantiateScene(compiled, this.instantiateContext());
     this.scene = live.root as Scene;
     this.sceneAttachments = live.attachments;
+    this.indexObjects(this.scene, true);
     this.initLive(live);
     this.sceneGraph = buildSceneGraph(compiled, live);
     // Auto-run registered systems whose component type the scene contains — but
     // not in editor mode (no physics/batch processing on a static scene).
     this.sceneSystems = this.editorMode ? [] : this.runSceneSystems();
 
+    // Cameras: render in `priority` order; the first found is the default main
+    // camera (used for raycasting/pointer) unless overridden.
+    this.cameras = collectCameras(this.scene);
     this.mainCamera = findCamera(this.scene);
   }
 
@@ -353,9 +634,22 @@ export class Engine {
     const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
     const live = instantiateScene(compiled, this.instantiateContext());
     parent.add(live.root);
+    this.indexObjects(live.root, true);
     this.initLive(live);
     this.instances.add(live.root);
     return live.root;
+  }
+
+  /**
+   * Like {@link instantiate}, but `await`s the preload providers first — so a
+   * prefab whose assets aren't cached yet is fully resourced before its `onLoad`
+   * runs. Prefer preloading a prefab's assets once at scene load; use this when a
+   * prefab is spawned with assets that may not be ready.
+   */
+  async instantiateAsync(source: Bundle | CompiledScene, parent: Object3D = this.scene): Promise<Object3D> {
+    const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
+    await this.preload(compiled);
+    return this.instantiate(compiled, parent);
   }
 
   /**
@@ -375,6 +669,7 @@ export class Engine {
       this.instances.delete(node);
     });
     for (const c of components) this.removeComponent(c);
+    this.indexObjects(object, false);
     object.removeFromParent();
     disposeObject(object);
   }
@@ -386,6 +681,7 @@ export class Engine {
   private instantiateContext(): InstantiateContext {
     return {
       spawn: (compiled, parent) => this.instantiate(compiled, parent),
+      assets: this.assets,
     };
   }
 
@@ -393,7 +689,9 @@ export class Engine {
   private initLive(live: InstantiatedScene): Component[] {
     const components = live.components.map(({ instance }) => instance);
     for (const { instance, node } of live.components) this.registerComponent(node, instance);
-    for (const { instance } of live.components) this.initComponent(instance);
+    // onLoad in execution order (stable within equal orders).
+    const ordered = [...live.components].sort((a, b) => this.orderOf(a.instance) - this.orderOf(b.instance));
+    for (const { instance } of ordered) this.initComponent(instance);
     return components;
   }
 
@@ -417,10 +715,12 @@ export class Engine {
     this.sceneSystems = [];
     this.sceneAttachments = [];
     this.sceneGraph = undefined;
+    this.indexObjects(this.scene, false);
     disposeObject(this.scene);
     // Start fresh: an empty scene with no camera (rendering pauses until one loads).
     this.scene = new Scene();
     this.mainCamera = undefined;
+    this.cameras = [];
   }
 
   /**
@@ -434,9 +734,27 @@ export class Engine {
     // Sample input first so getKey/getKeyDown are consistent across every phase.
     this.input.beginFrame();
 
+    // Scale real frame time into simulation time (timeScale: slow-mo / pause).
+    // Input and rendering use real time; everything else uses the scaled dt.
+    const scaled = dt * this.timeScale;
+    this.deltaTime = scaled;
+    this.time += scaled;
+    this.unscaledTime += dt;
+    this.frameCount++;
+
+    // Re-sort components by execution order if the set changed (stable: equal
+    // orders keep insertion order). Every phase below then runs in that order.
+    if (this.componentsDirty) {
+      this.components.sort((a, b) => this.orderOf(a) - this.orderOf(b));
+      this.componentsDirty = false;
+    }
+
+    // Deliver pointer press/release/click to components before gameplay runs.
+    this.dispatchPointerEvents();
+
     // Fixed-timestep phase (deterministic; physics + fixedUpdate). The substep
     // cap prevents a "spiral of death" after a long pause.
-    this.fixedAccumulator += dt;
+    this.fixedAccumulator += scaled;
     let steps = 0;
     while (this.fixedAccumulator >= this.fixedTimeStep && steps < MAX_FIXED_SUBSTEPS) {
       this.fixedStep(this.fixedTimeStep);
@@ -444,6 +762,8 @@ export class Engine {
       steps++;
     }
     if (steps === MAX_FIXED_SUBSTEPS) this.fixedAccumulator = 0; // drop the backlog
+    // Fraction into the next fixed step — physics subsystems lerp poses by this.
+    this.interpolationAlpha = this.fixedTimeStep > 0 ? this.fixedAccumulator / this.fixedTimeStep : 0;
 
     // Variable-rate phase: start (once) then update.
     for (let i = 0; i < this.components.length; i++) {
@@ -453,21 +773,63 @@ export class Engine {
         c._started = true;
         c.start?.();
       }
-      c.update?.(dt);
+      c.update?.(scaled);
     }
     // Late phase: after every update this frame.
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (c.enabled && c._loaded) c.lateUpdate?.(dt);
+      if (c.enabled && c._loaded) c.lateUpdate?.(scaled);
     }
-    if (!this.editorMode) for (const s of this.systems) s.step?.(dt);
+    if (!this.editorMode) for (const s of this.systems) s.step?.(scaled);
 
-    // Render only when there's both a target and a camera — the engine never
-    // supplies a fallback camera, so a scene without one simply doesn't draw.
-    if (this.renderer && this.mainCamera) {
+    // Render only when there's both a target and at least one camera — the engine
+    // never supplies a fallback camera, so a scene without one simply doesn't draw.
+    if (this.renderer && (this.cameras.length > 0 || this.mainCamera)) {
       this.resizeToCanvas();
-      this.renderer.render(this.scene, this.mainCamera);
+      this.renderCameras();
     }
+  }
+
+  /**
+   * The cameras to render this frame, in order. Normally the scene's cameras by
+   * `priority` (Unity camera depth). But an explicitly-assigned `mainCamera` that
+   * is **not** one of the scene's cameras is treated as a render **override** —
+   * the engine draws through it alone (e.g. an editor's free-look camera, or any
+   * external camera you point `mainCamera` at). With none, renders nothing.
+   */
+  private renderList(): Camera[] {
+    if (this.mainCamera && !this.cameras.includes(this.mainCamera)) return [this.mainCamera];
+    if (this.cameras.length > 0) return this.cameras;
+    return this.mainCamera ? [this.mainCamera] : [];
+  }
+
+  /**
+   * Render the scene through each camera in `priority` order (Unity camera depth),
+   * one after another. A single camera renders normally; multiple cameras
+   * composite — the first clears + draws the background, later cameras clear only
+   * depth and draw on top (overlay/UI). Assign each camera's priority via the
+   * `<PerspectiveCamera priority>` / `<OrthographicCamera priority>` attr.
+   */
+  private renderCameras(): void {
+    const renderer = this.renderer!;
+    const list = this.renderList();
+    if (list.length === 0) return;
+    if (list.length === 1) {
+      renderer.render(this.scene, list[0]!);
+      return;
+    }
+    const background = this.scene.background;
+    renderer.autoClear = false;
+    renderer.clear();
+    list.forEach((camera, i) => {
+      if (i > 0) {
+        this.scene.background = null; // only the first camera paints the background
+        renderer.clearDepth();
+      }
+      renderer.render(this.scene, camera);
+    });
+    this.scene.background = background;
+    renderer.autoClear = true;
   }
 
   /** One fixed step: components' fixedUpdate (apply forces/read), then subsystems step. */
@@ -508,6 +870,7 @@ export class Engine {
     for (const c of [...this.components]) this.removeComponent(c);
     for (const s of [...this.systems]) this.removeSystem(s);
     this.input.dispose();
+    this.assets.dispose();
     this.renderer?.dispose();
   }
 
@@ -520,11 +883,12 @@ export class Engine {
     renderer.getSize(this.rendererSize);
     if (this.rendererSize.x !== width || this.rendererSize.y !== height) {
       renderer.setSize(width, height, false);
-      // Keep the main camera's aspect current when it's a perspective camera.
-      const camera = this.mainCamera;
-      if (camera instanceof PerspectiveCamera) {
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
+      // Keep every perspective camera's aspect current.
+      for (const camera of this.renderList()) {
+        if (camera instanceof PerspectiveCamera) {
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+        }
       }
     }
   }
@@ -551,13 +915,76 @@ function findCamera(root: Object3D): Camera | undefined {
   return found;
 }
 
-/** Release geometries and materials of every mesh in a subtree. */
+/** Every camera in a subtree, sorted by `userData.priority` ascending (render order). */
+function collectCameras(root: Object3D): Camera[] {
+  const cameras: Camera[] = [];
+  root.traverse((o) => {
+    if ((o as Object3D & { isCamera?: boolean }).isCamera) cameras.push(o as unknown as Camera);
+  });
+  cameras.sort((a, b) => priorityOf(a) - priorityOf(b));
+  return cameras;
+}
+
+function priorityOf(camera: Camera): number {
+  return (camera.userData.priority as number | undefined) ?? 0;
+}
+
+/**
+ * Release geometries, materials, and their textures for every mesh in a subtree.
+ * **Skips cache-managed resources** (`AssetCache`-owned textures, and the
+ * geometry/materials a glTF clone shares with its cached original) — those
+ * outlive any one scene and are freed by `engine.assets.dispose()`.
+ */
 function disposeObject(root: Object3D): void {
   root.traverse((object) => {
-    const mesh = object as Object3D & { geometry?: { dispose(): void }; material?: unknown };
-    mesh.geometry?.dispose();
+    const mesh = object as Object3D & {
+      geometry?: { dispose(): void; userData?: Record<string, unknown> };
+      material?: unknown;
+    };
+    if (mesh.geometry && !AssetCache.isManaged(mesh.geometry)) mesh.geometry.dispose();
     const material = mesh.material;
-    if (Array.isArray(material)) for (const m of material) (m as { dispose(): void }).dispose();
-    else (material as { dispose?: () => void } | undefined)?.dispose?.();
+    if (Array.isArray(material)) for (const m of material) disposeMaterial(m);
+    else if (material) disposeMaterial(material);
   });
+}
+
+/**
+ * Dispose a material **and the textures it holds** — `Material.dispose()` does
+ * not free its texture maps, so without this every scene reload leaks GPU
+ * texture memory. Covers both map-style fields (`map`, `normalMap`, …) and the
+ * textures a `ShaderMaterial` carries in its `uniforms`.
+ */
+function disposeMaterial(material: unknown): void {
+  // A managed material (a glTF clone's shared material) is cache-owned — leave it.
+  if (AssetCache.isManaged(material as { userData?: Record<string, unknown> })) return;
+  const m = material as Record<string, unknown> & {
+    dispose?: () => void;
+    uniforms?: Record<string, { value?: unknown }>;
+  };
+  for (const value of Object.values(m)) {
+    if (isTexture(value) && !AssetCache.isManaged(value)) value.dispose();
+  }
+  if (m.uniforms) {
+    for (const uniform of Object.values(m.uniforms)) {
+      const value = uniform?.value;
+      if (isTexture(value) && !AssetCache.isManaged(value)) value.dispose();
+    }
+  }
+  m.dispose?.();
+}
+
+/** A three.js Texture, structurally (avoids importing the class). */
+function isTexture(value: unknown): value is { dispose(): void; userData?: Record<string, unknown> } {
+  return typeof value === 'object' && value !== null && (value as { isTexture?: boolean }).isTexture === true;
+}
+
+/** mulberry32 — a tiny, fast, seedable PRNG for the engine's deterministic `random()`. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 0x1_0000_0000;
+  };
 }

@@ -1,0 +1,40 @@
+{
+  "name": "@scenoco-three/audio",
+  "version": "0.2.0",
+  "description": "Audio for SceNoCo: a <Sound> component (2D + positional) on the AssetCache + a camera AudioListener",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": true,
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "audio",
+    "sound",
+    "gamedev"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^0.2.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.160"
+  }
+}

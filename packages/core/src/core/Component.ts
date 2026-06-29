@@ -1,5 +1,5 @@
 import type { Object3D } from 'three';
-import type { Engine } from './Engine.js';
+import type { Engine, PointerEventData } from './Engine.js';
 
 /**
  * Base class for all SceNoCo components (Cocos Creator / Unity MonoBehaviour style).
@@ -13,8 +13,8 @@ import type { Engine } from './Engine.js';
  *   onDestroy — once, when the component is removed or the engine is disposed
  *
  * Components share data through typed references — a field declared with
- * `@property(SomeComponent)` holds a live instance of that component — not
- * through any global bus.
+ * `@property({ type: SomeComponent, description })` holds a live instance of that
+ * component — not through any global bus.
  *
  * `TNode` types the host node. A component attached to a specific kind of node
  * declares it and gets typed access with no casts:
@@ -81,4 +81,15 @@ export abstract class Component<TNode extends Object3D = Object3D> {
   lateUpdate?(dt: number): void;
   onDisable?(): void;
   onDestroy?(): void;
+
+  // Pointer events (Unity-style), dispatched by the engine via a raycast from the
+  // pointer through the active camera, bubbling up the hit object's ancestors.
+  /** The pointer pressed over this object (or a descendant). */
+  onPointerDown?(event: PointerEventData): void;
+  /** The pointer was released — delivered to the object the press started on. */
+  onPointerUp?(event: PointerEventData): void;
+  /** A press + release on this same object (a click / tap). */
+  onPointerClick?(event: PointerEventData): void;
+  /** The pointer moved while held after pressing this object; `event.delta` is the px movement. */
+  onDrag?(event: PointerEventData): void;
 }

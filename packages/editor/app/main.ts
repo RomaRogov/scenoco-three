@@ -45,7 +45,7 @@ function rebind(): void {
     desktop = new DesktopControls(rig, session.engine.input);
     if (isTouchDevice()) new TouchControls(rig, canvas, () => gizmo?.dragging ?? false);
     if (graph) {
-      doc = new SceneDocument(graph);
+      doc = new SceneDocument(graph, session.provenance);
       doc.onChange(() => toolbar?.refresh()); // keep the dirty/undo state live
       gizmo = new Gizmo(session.editorCamera, canvas, session.engine.scene, isTouchDevice(), {
         onObjectChange: () => panels?.refresh(),
@@ -62,6 +62,22 @@ function rebind(): void {
 session.onChange = rebind;
 
 const toolbarHandlers = {
+  play: () => {
+    session.run();
+    toolbar?.refresh();
+  },
+  pause: () => {
+    session.pause();
+    toolbar?.refresh();
+  },
+  step: () => {
+    session.step();
+    toolbar?.refresh();
+  },
+  stop: () => {
+    session.stop();
+    toolbar?.refresh();
+  },
   getMode: () => gizmoMode,
   setMode: setGizmoMode,
   undo: () => {
@@ -76,6 +92,8 @@ const toolbarHandlers = {
   },
   save: () => void doSave(),
   state: () => ({
+    mode: session.mode,
+    playing: session.playing,
     canUndo: doc?.canUndo ?? false,
     canRedo: doc?.canRedo ?? false,
     dirty: doc?.isDirty ?? false,
@@ -113,6 +131,7 @@ function onSelect(node: Object3D | null): void {
   }
   if (node) {
     selection = new BoxHelper(node, 0x4af0e0);
+    selection.userData.scenocoEditorOnly = true; // keep out of the Hierarchy + picking
     session.engine.scene.add(selection);
     rig?.focusOn(node.getWorldPosition(new Vector3()));
   }
@@ -152,7 +171,7 @@ function pickAt(clientX: number, clientY: number): Object3D | null {
   const ndc = new Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(ndc, cam);
   for (const hit of raycaster.intersectObjects(session.engine.scene.children, true)) {
-    if (gizmo?.contains(hit.object) || hit.object === selection) continue; // ignore gizmo / box helper
+    if (isEditorOnly(hit.object)) continue; // ignore gizmo handles / box helper / preview lights
     return selectable(hit.object);
   }
   return null;
@@ -164,6 +183,12 @@ function selectable(object: Object3D): Object3D {
     if (o.name) return o;
   }
   return object;
+}
+
+/** True if `object` (or any ancestor) is editor-internal — excluded from the tree + picking. */
+export function isEditorOnly(object: Object3D): boolean {
+  for (let o: Object3D | null = object; o; o = o.parent) if (o.userData.scenocoEditorOnly) return true;
+  return false;
 }
 
 // ── gizmo mode keys (W/A/S/D/Q/E drive the fly camera; use G/R/Y) ──────────────────
@@ -183,6 +208,67 @@ window.addEventListener('keydown', (e) => {
 function isTextField(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+}
+
+// ── external file changes (watcher) ──────────────────────────────────────────────
+
+let reloading = false;
+let conflictBanner: HTMLElement | undefined;
+
+session.onExternalChange = (_file, role) => void handleExternalChange(role);
+
+async function handleExternalChange(role: 'open' | 'dep'): Promise<void> {
+  if (reloading) return;
+  if (role === 'dep') {
+    await reloadScene(true); // a prefab/material changed — refresh now, preserving unsaved edits
+  } else if (!(doc?.isDirty ?? false)) {
+    await reloadScene(false); // the open file changed externally with nothing unsaved — just sync
+  } else {
+    showConflict(); // unsaved edits vs. an external change — let the user decide
+  }
+}
+
+async function reloadScene(preserveEdits: boolean): Promise<void> {
+  const path = session.filePath;
+  if (!path) return;
+  reloading = true;
+  const pending = preserveEdits ? (doc?.netEdits() ?? []) : [];
+  try {
+    await session.open(path); // re-fetch + swap → rebind() builds a fresh document
+    if (pending.length) doc?.applyEdits(pending);
+  } catch (e) {
+    console.error('[editor] reload failed:', e);
+  } finally {
+    reloading = false;
+    dismissConflict();
+    panels?.refresh();
+    toolbar?.refresh();
+  }
+}
+
+function showConflict(): void {
+  if (conflictBanner) return;
+  const bar = document.createElement('div');
+  bar.id = 'sc-conflict';
+  bar.append(textSpan('Conflicting changes were made in the original file.'));
+  bar.append(bannerButton('Reload', () => void reloadScene(false)), bannerButton('Keep editing', dismissConflict));
+  document.body.append(bar);
+  conflictBanner = bar;
+}
+function dismissConflict(): void {
+  conflictBanner?.remove();
+  conflictBanner = undefined;
+}
+function textSpan(text: string): HTMLElement {
+  const s = document.createElement('span');
+  s.textContent = text;
+  return s;
+}
+function bannerButton(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
 }
 
 let last = performance.now();

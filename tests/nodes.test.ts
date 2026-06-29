@@ -40,9 +40,9 @@ describe('custom node + custom attachment (goal: flexibility)', () => {
       return new Group();
     }
   }
-  @attachment({ name: 'Knot', target: 'Widget', group: 'shape', required: true })
+  @attachment({ name: 'Knot', description: 'torus-knot shape', target: 'Widget', group: 'shape', required: true })
   class KnotAttachment extends Attachment {
-    @property({ type: 'float', default: 1 }) radius = 1;
+    @property({ type: 'float', default: 1, description: 'knot radius' }) radius = 1;
     attach(ctx: AttachContext): void {
       ctx.node.add(new Mesh(new TorusKnotGeometry(this.radius)));
     }

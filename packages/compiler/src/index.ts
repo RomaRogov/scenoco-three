@@ -8,7 +8,7 @@
 // This is the Node process only; it never reaches the browser bundle.
 import '@scenoco-three/core/nodes';
 
-export { parseScene, type SceElement, type ParseResult } from './dsl/SceneParser.js';
+export { parseScene, type SncElement as SceElement, type ParseResult } from './dsl/SceneParser.js';
 export { validateScene } from './dsl/Validator.js';
 export {
   compileSceneXml,
@@ -21,6 +21,8 @@ export {
 export { bundleScene, bundlePrefab } from './dsl/bundle.js';
 export { serializeScene } from './dsl/serialize.js';
 export { patchSceneXml, type PatchEdit, type PatchTarget, type PatchResult } from './dsl/patch.js';
+export { parseUniforms, glslMatches } from './dsl/shader.js';
+export type { NodeOrigin, SceneProvenance } from './dsl/provenance.js';
 export {
   watchSceneFiles,
   type WatchOptions,
@@ -32,6 +34,9 @@ export { scaffoldFiles } from './cli/templates.js';
 
 // Built-in node tag → package subpath that registers it, for usage-based shipping.
 export { builtinNodeModules, builtinNodeModule } from '@scenoco-three/core/internal';
+
+// Asset enumeration — the Vite plugin uses it to rewrite asset URLs to bundler-served assets.
+export { collectAssetRefs, type AssetRef } from '@scenoco-three/core';
 
 export { generateXsd } from './exporters/xsd.js';
 export {
@@ -50,7 +55,7 @@ export {
   type AttachmentGroupRef,
 } from './exporters/api.js';
 
-export { formatDiagnostic, type SceDiagnostic } from './dsl/diagnostics.js';
+export { formatDiagnostic, type SncDiagnostic as SceDiagnostic } from './dsl/diagnostics.js';
 export { codecs, parseArrayLiteral, parseScalarArray, serializeScalarArray, type ScalarType, type TypeCodec } from './dsl/types.js';
 
 // Re-export the data types tooling produces, for convenience.

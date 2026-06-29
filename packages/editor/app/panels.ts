@@ -1,16 +1,18 @@
-import type { Color, Euler, Mesh, Object3D, Vector2, Vector3 } from 'three';
+import type { Color, Euler, Object3D, Vector2, Vector3 } from 'three';
 import {
   Registry,
   elementType,
+  getAttachmentDef,
   isArrayType,
   isEnumType,
   isScalarType,
   type Component,
   type EnumDef,
   type Engine,
+  type NodeAttr,
   type PropertyMeta,
 } from '@scenoco-three/core';
-import type { SceneDocument } from './document.js';
+import type { AttachmentView, SceneDocument } from './document.js';
 
 export interface Panels {
   /** Re-read the scene into the tree + inspector. */
@@ -51,17 +53,18 @@ export function buildPanels(
 
   function renderTree(): void {
     tree.replaceChildren();
-    for (const child of engine().scene.children) tree.append(treeRow(child, 0));
+    // <Scene> is the root row, so its own attachments (Background/Fog) are selectable.
+    tree.append(treeRow(engine().scene, 0));
   }
 
   function treeRow(node: Object3D, depth: number): HTMLElement {
     const wrap = div('');
     const row = div('sc-node' + (node === selected ? ' sel' : ''));
     row.style.paddingLeft = `${6 + depth * 14}px`;
-    const hasChildren = node.children.length > 0;
+    const children = node.children.filter((c) => !isEditorOnly(c)); // hide gizmo/helper/preview objects
     const open = !collapsedNodes.has(node);
-    const caret = div('sc-caret', hasChildren ? (open ? '▾' : '▸') : '');
-    if (hasChildren) {
+    const caret = div('sc-caret', children.length > 0 ? (open ? '▾' : '▸') : '');
+    if (children.length > 0) {
       caret.onclick = (e) => {
         e.stopPropagation();
         if (open) collapsedNodes.add(node);
@@ -72,7 +75,7 @@ export function buildPanels(
     row.append(caret, nodeLabel(node));
     row.onclick = () => select(node);
     wrap.append(row);
-    if (hasChildren && open) for (const child of node.children) wrap.append(treeRow(child, depth + 1));
+    if (open) for (const child of children) wrap.append(treeRow(child, depth + 1));
     return wrap;
   }
 
@@ -92,42 +95,110 @@ export function buildPanels(
     if (node.name) head.append(row('id', node.name));
     inspector.append(head);
 
-    inspector.append(
-      sectionBlock('Transform', [
-        vecEditor('position', () => node.position.toArray(), (v, c) => doc?.setTransform(node, 'position', v, c)),
-        eulerEditor('rotation', () => eulerArr(node.rotation), (v, c) => doc?.setTransform(node, 'rotation', v, c)),
-        vecEditor('scale', () => node.scale.toArray(), (v, c) => doc?.setTransform(node, 'scale', v, c)),
-        boolEditor('visible', () => node.visible, (v) => doc?.setVisible(node, v)),
-      ]),
-    );
-
-    const mesh = node as Mesh & { geometry?: { type?: string; parameters?: Record<string, unknown> }; material?: unknown };
-    if (mesh.geometry) {
-      const rows = [row('type', mesh.geometry.type ?? '?')];
-      for (const [k, v] of Object.entries(mesh.geometry.parameters ?? {})) rows.push(row(k, fmt(v)));
-      inspector.append(sectionBlock('Geometry', rows));
-    }
-    const mat = pickMaterial(mesh.material);
-    if (mat) {
-      const rows = [row('type', String(mat.type ?? '?'))];
-      if (mat.color) rows.push(row('color', `#${(mat.color as Color).getHexString()}`));
-      for (const k of ['roughness', 'metalness', 'opacity'] as const) {
-        if (typeof mat[k] === 'number') rows.push(row(k, fmt(mat[k])));
-      }
-      inspector.append(sectionBlock('Material', rows));
+    // A prefab instance: its `src` is editable (swap the prefab); content below is read-only.
+    const prefabSrc = doc?.prefabSrc(node);
+    if (prefabSrc !== undefined) {
+      inspector.append(
+        sectionBlock('Prefab', [editRow('src', textField(() => prefabSrc, (v) => doc?.setNodeSrc(node, v)))]),
+      );
     }
 
+    // Transform — editable on authored nodes + prefab roots; read-only inside a prefab.
+    if (node !== engine().scene) {
+      const editT = doc?.canEditTransform(node) ?? false;
+      inspector.append(
+        sectionBlock(
+          'Transform',
+          editT
+            ? [
+                vecEditor('position', () => node.position.toArray(), (v, c) => doc?.setTransform(node, 'position', v, c)),
+                eulerEditor('rotation', () => eulerArr(node.rotation), (v, c) => doc?.setTransform(node, 'rotation', v, c)),
+                vecEditor('scale', () => node.scale.toArray(), (v, c) => doc?.setTransform(node, 'scale', v, c)),
+                boolEditor('visible', () => node.visible, (v) => doc?.setVisible(node, v)),
+              ]
+            : [
+                row('position', vec(node.position)),
+                row('rotation', euler(node.rotation)),
+                row('scale', vec(node.scale)),
+                row('visible', String(node.visible)),
+              ],
+        ),
+      );
+    }
+
+    // Attachments (geometry / material / scene settings) from the compiled model.
+    for (const view of doc?.attachmentsOf(node) ?? []) inspector.append(attachmentSection(node, view, doc));
+
+    // Components — editable only on authored scene nodes.
+    const editC = doc?.canEditComponents(node) ?? false;
     for (const component of engine().getComponents(node)) {
-      inspector.append(sectionBlock(componentName(component) ?? component.constructor.name, componentRows(component, doc)));
+      inspector.append(sectionBlock(componentName(component) ?? component.constructor.name, componentRows(component, doc, editC)));
     }
   }
 
-  function componentRows(component: Component, doc: SceneDocument | undefined): HTMLElement[] {
-    const meta = registeredMeta(component);
-    if (!meta) return [];
+  /** A section for one attachment slot: editable inline attrs, or a `src` field for file-loaded ones. */
+  function attachmentSection(node: Object3D, view: AttachmentView, doc: SceneDocument | undefined): HTMLElement {
+    const def = getAttachmentDef(view.tag);
+    const rows: HTMLElement[] = [];
+    if (view.src !== null) {
+      // Loaded from a file: only the src is editable; its props are read-only.
+      rows.push(editRow('src', textField(() => view.src ?? '', (v) => doc?.setAttachmentSrc(node, view.slot, v))));
+      for (const attr of Object.keys(def?.attrs ?? {})) rows.push(row(attr, fmt(view.attrs[attr])));
+    } else {
+      for (const [attr, meta] of Object.entries(def?.attrs ?? {})) {
+        rows.push(attachmentAttrRow(node, view, attr, meta.type, view.editable, doc));
+      }
+    }
+    return sectionBlock(view.tag, rows);
+  }
+
+  /** One attachment attribute, dispatched by type (reads/writes the compiled value). */
+  function attachmentAttrRow(
+    node: Object3D,
+    view: AttachmentView,
+    attr: string,
+    type: NodeAttr['type'],
+    editable: boolean,
+    doc: SceneDocument | undefined,
+  ): HTMLElement {
+    const get = () => doc?.attachmentAttr(node, view.slot, attr) ?? view.attrs[attr];
+    const commit = (v: number | boolean | string | number[], c?: { coalesce?: boolean }) =>
+      doc?.setAttachmentProp(node, view.slot, attr, v, c);
+    const elem = elementType(type);
+    if (!editable) return row(attr, fmt(get()));
+    if (isEnumType(elem) && !isArrayType(type)) return enumEditor(attr, elem, get, (v) => commit(v));
+    if (isArrayType(type) || !isScalarType(elem)) return row(attr, fmt(get())); // arrays read-only this pass
+    switch (elem) {
+      case 'float':
+      case 'int':
+        return editRow(attr, numField(() => get() as number, (v, c) => commit(v, c), elem === 'int'));
+      case 'bool':
+        return boolEditor(attr, () => get() as boolean, (v) => commit(v));
+      case 'string':
+        return editRow(attr, textField(() => String(get() ?? ''), (v) => commit(v)));
+      case 'color':
+        return editRow(attr, colorField(() => get() as number, (v) => commit(v)));
+      case 'vec2':
+        return vecEditor(attr, () => get() as number[], (v, c) => commit(v, c), ['x', 'y']);
+      case 'vec3':
+        return vecEditor(attr, () => get() as number[], (v, c) => commit(v, c));
+      case 'euler':
+        return eulerEditor(attr, () => get() as number[], (v, c) => commit(v, c));
+      default:
+        return row(attr, fmt(get()));
+    }
+  }
+
+  function componentRows(component: Component, doc: SceneDocument | undefined, editable: boolean): HTMLElement[] {
     const out: HTMLElement[] = [];
-    for (const [name, prop] of meta.properties) {
-      out.push(propEditor(component, name, prop, doc));
+    // The component's scene id (addressable as `#id`), read-only — like a node's id.
+    if (component.id) out.push(row('id', component.id));
+    const meta = registeredMeta(component);
+    if (meta) {
+      const live = component as unknown as Record<string, unknown>;
+      for (const [name, prop] of meta.properties) {
+        out.push(editable ? propEditor(component, name, prop, doc) : row(name, fmt(live[name])));
+      }
     }
     return out;
   }
@@ -475,8 +546,8 @@ function nodeLabel(node: Object3D): DocumentFragment {
 function typeName(node: Object3D): string {
   return node.type || node.constructor.name;
 }
-function pickMaterial(material: unknown): Record<string, unknown> | undefined {
-  if (!material) return undefined;
-  const m = Array.isArray(material) ? material[0] : material;
-  return m as Record<string, unknown>;
+/** True if `object` (or an ancestor) is editor-internal — kept out of the Hierarchy. */
+function isEditorOnly(object: Object3D): boolean {
+  for (let o: Object3D | null = object; o; o = o.parent) if (o.userData.scenocoEditorOnly) return true;
+  return false;
 }

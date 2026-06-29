@@ -3,7 +3,7 @@
  * Diagnostics carry a source position so agents driving the engine with plain
  * file tools (grep, line edits) can jump straight to the offending line.
  */
-export interface SceDiagnostic {
+export interface SncDiagnostic {
   /** 1-based line in the source XML. */
   line: number;
   /** 1-based column in the source XML. */
@@ -17,7 +17,7 @@ export interface SceDiagnostic {
 }
 
 /** tsc-style `file:line:col` rendering, e.g. `scene.xml:12:6  unknown-tag  ...`. */
-export function formatDiagnostic(d: SceDiagnostic, file = '<scene>'): string {
+export function formatDiagnostic(d: SncDiagnostic, file = '<scene>'): string {
   return `${d.file ?? file}:${d.line}:${d.column}  ${d.code}  ${d.message}`;
 }
 

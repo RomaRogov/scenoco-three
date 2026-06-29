@@ -20,8 +20,8 @@ export class RigidBody2D extends Component {
   @property({ type: RigidBody2DKind, default: 'dynamic', description: 'How the body moves' })
   kind = 'dynamic';
 
-  @property({ type: 'float', default: 0 }) linearDamping = 0;
-  @property({ type: 'float', default: 0 }) angularDamping = 0;
+  @property({ type: 'float', default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
+  @property({ type: 'float', default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
 
   @property({ type: 'bool', default: false, description: 'Lock rotation (common for characters)' })
   fixedRotation = false;

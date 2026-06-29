@@ -23,6 +23,7 @@ import {
   type CompiledRef,
   type CompiledScene,
   type CompiledTransform,
+  type CompiledUniform,
   type NodeAttr,
   type PropertyType,
 } from '@scenoco-three/core/internal';
@@ -84,6 +85,11 @@ function buildStringPool(compiled: CompiledScene): { strings: string[]; index: M
   for (const a of compiled.attachments) {
     add(a.tag);
     addStringAttrs(attachmentAttrEntries(a.tag), a.attrs);
+    for (const u of a.uniforms ?? []) {
+      add(u.name);
+      add(u.type);
+      if (u.type === 'sampler2D') add(u.value as string);
+    }
   }
   for (const c of compiled.components) {
     add(c.type);
@@ -105,7 +111,16 @@ function buildStringPool(compiled: CompiledScene): { strings: string[]; index: M
 
 function encodeTag(asset: CompiledAsset, intern: (s: string) => number): BundleTag {
   const { mask, values } = encodeAttrs(attachmentAttrEntries(asset.tag), asset.attrs, intern);
-  return [intern(asset.tag), mask, ...values];
+  const tag: BundleTag = [intern(asset.tag), mask, ...values];
+  // Shader uniforms (if any) trail the attr values as one nested array.
+  if (asset.uniforms?.length) tag.push(asset.uniforms.map((u) => encodeUniform(u, intern)));
+  return tag;
+}
+
+/** A uniform → `[nameIndex, typeIndex, value]` (sampler2D path interned, else raw). */
+function encodeUniform(u: CompiledUniform, intern: (s: string) => number): BundleValue {
+  const value = u.type === 'sampler2D' ? intern(u.value as string) : (u.value as CompiledScalar);
+  return [intern(u.name), intern(u.type), value];
 }
 
 function encodeNode(n: CompiledNode, intern: (s: string) => number): BundleNode {

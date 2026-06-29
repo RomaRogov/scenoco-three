@@ -73,4 +73,24 @@ describe('patchSceneXml — surgical, minimal-diff editing', () => {
     expect(changed).toBe(0);
     expect(unresolved).toEqual(edits);
   });
+
+  it('edits an attachment attribute (material colour) by node id + tag', () => {
+    const { text, changed, unresolved } = patchSceneXml(scene, [
+      { target: { kind: 'attachment', nodeId: 'wall_left', tag: 'MeshStandardMaterial', ordinal: 0 }, attr: 'color', value: 0x00ff00 },
+    ]);
+    expect(changed).toBe(1);
+    expect(unresolved).toEqual([]);
+    expect(text).toMatch(/<MeshStandardMaterial color="#00ff00"/);
+    expect((text.match(/<PrefabInstance/g) ?? []).length).toBe(12); // structure intact
+    expect(changedLines(scene, text)).toHaveLength(1);
+  });
+
+  it('edits a <PrefabInstance> src by id (the source keeps its instances)', () => {
+    const { text, changed, unresolved } = patchSceneXml(scene, [
+      { target: { kind: 'node', id: 'b1' }, attr: 'src', value: 'crate.prefab.xml' },
+    ]);
+    expect(changed).toBe(1);
+    expect(unresolved).toEqual([]);
+    expect(text).toMatch(/<PrefabInstance src="crate.prefab.xml"\s+id="b1"/);
+  });
 });

@@ -1,5 +1,7 @@
 import type { Object3D } from 'three';
 import type { CompiledScalar, ScalarType } from '../dsl/types.js';
+import type { CompiledUniform } from '../dsl/compiled.js';
+import type { AssetCache, AssetKind } from './AssetCache.js';
 import type { EnumDef } from './EnumRegistry.js';
 
 /**
@@ -24,7 +26,10 @@ export interface NodeAttr {
   /** Default in compiled form (number, boolean, number[], 0xRRGGBB; or an array of those). */
   default?: CompiledScalar | CompiledScalar[];
   required?: boolean;
-  description?: string;
+  /** Mandatory one-line summary of the attribute (read by people, agents, and RAG). */
+  description: string;
+  /** Marks a `string` attr as an asset reference (texture/model URL) — see `AssetKind`. */
+  asset?: AssetKind;
 }
 
 /** What a node may contain (attachments are governed separately, by target). */
@@ -38,7 +43,8 @@ export interface ChildRules {
 export interface NodeDef {
   tag: string;
   kind: NodeKind;
-  description?: string;
+  /** Mandatory one-line summary of the node tag (read by people, agents, and RAG). */
+  description: string;
   /** Type-specific attributes (transform attrs are shared, see TRANSFORM_ATTRS). */
   attrs: Record<string, NodeAttr>;
   children: ChildRules;
@@ -61,6 +67,13 @@ export type AttachTarget = AttachClass | AttachClass[] | string;
  */
 export interface AttachContext<TNode extends Object3D = Object3D> {
   node: TNode;
+  /**
+   * Loaded assets for the scene being instantiated — an attachment reads a
+   * texture/model it declared (`@property({ asset })`) via `ctx.assets?.get(url)`.
+   * Populated by the preload providers before `loadSceneAsync` instantiates;
+   * `undefined` for synchronous `loadScene` / standalone instantiation.
+   */
+  assets?: AssetCache;
 }
 
 /** A live attachment instance (created by the def, holds @property fields). */
@@ -70,7 +83,8 @@ export interface AttachmentInstance {
 
 export interface AttachmentDef {
   tag: string;
-  description?: string;
+  /** Mandatory one-line summary of the attachment tag (read by people, agents, and RAG). */
+  description: string;
   attrs: Record<string, NodeAttr>;
   /** The node(s) this attaches to. */
   target: AttachTarget;
@@ -80,8 +94,10 @@ export interface AttachmentDef {
   required: boolean;
   /** At most one attachment of this group per target (default true). */
   unique: boolean;
-  /** Make a fresh instance and assign its attrs. */
-  make(attrs: Record<string, CompiledScalar | CompiledScalar[]>): AttachmentInstance;
+  /** Structured child tags this attachment accepts (e.g. `<ShaderMaterial>` → `['Uniform']`). */
+  children?: string[];
+  /** Make a fresh instance, assign its attrs, and hand over any custom-shader uniforms. */
+  make(attrs: Record<string, CompiledScalar | CompiledScalar[]>, uniforms?: CompiledUniform[]): AttachmentInstance;
 }
 
 export interface SystemDef {

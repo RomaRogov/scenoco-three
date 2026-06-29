@@ -1,5 +1,5 @@
 import { SaxesParser } from 'saxes';
-import type { SceDiagnostic } from './diagnostics.js';
+import type { SncDiagnostic } from './diagnostics.js';
 
 /**
  * A parsed XML element with its source position. This is the lightweight,
@@ -7,20 +7,22 @@ import type { SceDiagnostic } from './diagnostics.js';
  * SAX parser precisely so every node retains line/column (a DOMParser would
  * throw that away, breaking the grep/line-edit fix loop).
  */
-export interface SceElement {
+export interface SncElement {
   tag: string;
   attributes: Map<string, string>;
-  children: SceElement[];
-  parent: SceElement | null;
+  children: SncElement[];
+  parent: SncElement | null;
   line: number;
   column: number;
   /** Set on elements spliced in from another file (prefab expansion). */
   file?: string;
+  /** Set on a scene-level `<PrefabInstance>` root after expansion: the original `src=` value. */
+  prefabSrc?: string;
 }
 
 export type ParseResult =
-  | { ok: true; root: SceElement }
-  | { ok: false; diagnostics: SceDiagnostic[] };
+  | { ok: true; root: SncElement }
+  | { ok: false; diagnostics: SncDiagnostic[] };
 
 /**
  * Parse a scene XML string into a position-aware element tree. Returns XML
@@ -29,13 +31,13 @@ export type ParseResult =
  */
 export function parseScene(xml: string): ParseResult {
   const parser = new SaxesParser({ fileName: 'scene' });
-  const diagnostics: SceDiagnostic[] = [];
+  const diagnostics: SncDiagnostic[] = [];
 
-  let root: SceElement | null = null;
-  const stack: SceElement[] = [];
+  let root: SncElement | null = null;
+  const stack: SncElement[] = [];
 
   parser.on('opentagstart', (tag) => {
-    const el: SceElement = {
+    const el: SncElement = {
       tag: tag.name,
       attributes: new Map(),
       children: [],

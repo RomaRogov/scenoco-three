@@ -54,6 +54,9 @@ Options:
   --components <dirs>   Comma-separated directories scanned for @component classes
                         (default: "src"). They are compiled and registered so scenes
                         can reference them and the exporters can document them.
+  --packages <pkgs>     Comma-separated tag packages to register (e.g.
+                        @scenoco-three/box2d), so their tags validate and appear
+                        in the XSD/docs.
 
 Exit code is non-zero when validation fails — wire it into your edit→check→fix loop.`;
 
@@ -61,8 +64,8 @@ Exit code is non-zero when validation fails — wire it into your edit→check�
 const SKIP_COMPONENT_LOAD = new Set(['init', 'new']);
 
 async function main(argv: string[]): Promise<number> {
-  // Strip the global --components flag; commands re-parse their own flags.
-  const { positionals, options } = parseArgs(argv, { '--components': 'components' });
+  // Strip the global --components / --packages flags; commands re-parse their own.
+  const { positionals, options } = parseArgs(argv, { '--components': 'components', '--packages': 'packages' });
   const [command, ...rest] = positionals;
 
   if (command !== undefined && command !== '-h' && command !== '--help' && !SKIP_COMPONENT_LOAD.has(command)) {
@@ -70,7 +73,13 @@ async function main(argv: string[]): Promise<number> {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    await loadComponents(roots);
+    // Tag packages (e.g. @scenoco-three/box2d) register their tags on import, so
+    // validate/bundle/export/watch see them — and the XSD/docs cover them too.
+    const packages = (options.packages ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await loadComponents(roots, undefined, packages.length > 0 ? { packages } : undefined);
   }
 
   switch (command) {

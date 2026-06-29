@@ -7,8 +7,8 @@ import { node, property } from '../../core/decorators.js';
   description: 'Distant light emitting parallel rays from its position toward the origin',
 })
 export class DirectionalLightNode extends Object3DNode {
-  @property({ type: 'color', default: 0xffffff }) color = 0xffffff;
-  @property({ type: 'float', default: 1 }) intensity = 1;
+  @property({ type: 'color', default: 0xffffff, description: 'Light color' }) color = 0xffffff;
+  @property({ type: 'float', default: 1, description: 'Light intensity' }) intensity = 1;
 
   build(): DirectionalLight {
     return new DirectionalLight(this.color, this.intensity);

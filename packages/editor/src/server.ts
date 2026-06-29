@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import chokidar from 'chokidar';
 import { createServer, type Plugin, type ViteDevServer } from 'vite';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
@@ -15,7 +16,7 @@ import {
   type PatchEdit,
   type ResourceResolver,
 } from '@scenoco-three/compiler';
-import { WS_PATH, type EditorCommand, type EditorResponse } from './protocol.js';
+import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse } from './protocol.js';
 
 export interface ServerOptions {
   /** Directories scanned for `@component`/`@node` tags (default `['src']`). */
@@ -32,6 +33,18 @@ export interface ServerOptions {
 export interface EditorBridge {
   connected(): boolean;
   send(cmd: EditorCommand): Promise<EditorResponse>;
+  /** Send an unsolicited notification to the editor page (e.g. a file change). */
+  push(msg: EditorPush): void;
+}
+
+/** Watches the open file + its `src=` deps and pushes change notifications. */
+export interface FileWatcher {
+  /** (Re)arm the watch set after a successful compile of `openFile` with `deps`. */
+  arm(openFile: string, openContents: string, deps: { path: string; contents: string }[]): void;
+  /** Record content the editor itself just wrote, so its own save isn't seen as external. */
+  note(file: string, contents: string): void;
+  setPush(push: (msg: EditorPush) => void): void;
+  close(): Promise<void>;
 }
 
 export interface EditorServer {
@@ -62,19 +75,78 @@ export async function startEditorServer(opts: ServerOptions = {}): Promise<Edito
   const port = opts.port ?? (await freePort());
   const cwd = opts.cwd ?? process.cwd();
 
+  const watcher = createFileWatcher();
   const server = await createServer({
     configFile: false,
     root: appDir,
     logLevel: 'warn',
     server: { host: true, port, strictPort: true, fs: { strict: false } },
-    plugins: [allComponentsPlugin(componentRoots, packages, cwd), bundleEndpointPlugin(componentRoots, packages, cwd)],
+    plugins: [allComponentsPlugin(componentRoots, packages, cwd), bundleEndpointPlugin(componentRoots, packages, cwd, watcher)],
   });
   await server.listen();
 
   const bridge = attachBridge(server);
+  watcher.setPush((msg) => bridge.push(msg));
   const url = server.resolvedUrls?.local[0] ?? `http://localhost:${port}/`;
   const networkUrl = server.resolvedUrls?.network[0];
-  return { url, ...(networkUrl ? { networkUrl } : {}), bridge, close: () => server.close() };
+  return {
+    url,
+    ...(networkUrl ? { networkUrl } : {}),
+    bridge,
+    close: async () => {
+      await watcher.close();
+      await server.close();
+    },
+  };
+}
+
+/**
+ * A push-based file watcher: tracks the open file plus its `src=` dependencies,
+ * and notifies the editor when one changes on disk. Changes whose content matches
+ * what we last compiled/wrote are ignored — so the editor's own save (and no-op
+ * touches) don't masquerade as external edits.
+ */
+function createFileWatcher(): FileWatcher {
+  const w = chokidar.watch([], { ignoreInitial: true, awaitWriteFinish: true });
+  const content = new Map<string, string>(); // abs path → last-known content
+  let openFile = '';
+  let push: (msg: EditorPush) => void = () => {};
+
+  const onChange = (changed: string): void => {
+    const abs = resolve(changed);
+    if (!content.has(abs)) return; // not in our set
+    let text: string;
+    try {
+      text = readFileSync(abs, 'utf8');
+    } catch {
+      return; // deleted mid-event; ignore
+    }
+    if (text === content.get(abs)) return; // our own write or a no-op touch
+    content.set(abs, text);
+    push({ push: 'fileChanged', file: abs, role: abs === openFile ? 'open' : 'dep' });
+  };
+  w.on('change', onChange);
+  w.on('add', onChange);
+
+  return {
+    arm(file, openContents, deps) {
+      const abs = resolve(file);
+      const next = new Map<string, string>([[abs, openContents]]);
+      for (const d of deps) next.set(resolve(d.path), d.contents);
+      for (const old of content.keys()) if (!next.has(old)) w.unwatch(old);
+      for (const p of next.keys()) if (!content.has(p)) w.add(p);
+      content.clear();
+      for (const [k, v] of next) content.set(k, v);
+      openFile = abs;
+    },
+    note(file, contents) {
+      content.set(resolve(file), contents);
+    },
+    setPush(fn) {
+      push = fn;
+    },
+    close: () => w.close(),
+  };
 }
 
 /** `virtual:scenoco-components` → import every project component + package + built-in nodes. */
@@ -94,7 +166,7 @@ function allComponentsPlugin(roots: string[], packages: string[], cwd: string): 
 }
 
 /** `GET /@scenoco/bundle?file=<abs>` → the compiled runtime bundle (JSON). */
-function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string): Plugin {
+function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, watcher: FileWatcher): Plugin {
   return {
     name: 'scenoco:bundle-endpoint',
     async configureServer(server) {
@@ -110,6 +182,7 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string):
             const abs = resolve(cwd, file);
             const { text, changed, unresolved } = patchSceneXml(readFileSync(abs, 'utf8'), edits);
             if (changed > 0) writeFileSync(abs, text);
+            watcher.note(abs, text); // our own write — don't report it back as an external change
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true, changed, unresolved: unresolved.length }));
           })
@@ -128,18 +201,26 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string):
           const abs = resolve(cwd, file);
           const xml = readFileSync(abs, 'utf8');
           const isPrefab = abs.endsWith('.prefab.xml');
+          // Track which src= files the compile touches, so we can watch them too.
+          const deps: { path: string; contents: string }[] = [];
+          const trackingResolver: ResourceResolver = (request, referrer) => {
+            const r = fsResolver(request, referrer);
+            if (r) deps.push({ path: r.path, contents: r.contents });
+            return r;
+          };
           const result = isPrefab
-            ? compilePrefabXml(xml, { path: abs, resolve: fsResolver })
-            : compileSceneXml(xml, { path: abs, resolve: fsResolver });
+            ? compilePrefabXml(xml, { path: abs, resolve: trackingResolver })
+            : compileSceneXml(xml, { path: abs, resolve: trackingResolver });
           if (!result.ok) {
             res.statusCode = 400;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: 'compile failed', diagnostics: result.diagnostics }));
             return;
           }
+          watcher.arm(abs, xml, deps); // watch this file + its src deps for changes
           const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify(bundle));
+          res.end(JSON.stringify({ bundle, provenance: result.provenance }));
         } catch (e: unknown) {
           res.statusCode = 400;
           res.setHeader('Content-Type', 'application/json');
@@ -190,6 +271,9 @@ function attachBridge(server: ViteDevServer): EditorBridge {
           if (pending.delete(cmd.id)) rej(new Error('editor did not respond in time'));
         }, 15000);
       }),
+    push: (msg) => {
+      if (editor && editor.readyState === editor.OPEN) editor.send(JSON.stringify(msg));
+    },
   };
 }
 

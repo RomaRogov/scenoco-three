@@ -3,7 +3,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { commandId, type EditorCommand, type EditorResult } from './protocol.js';
+import { commandId, type EditorCommand, type EditorResult, type SimStep } from './protocol.js';
 import type { EditorBridge } from './server.js';
 
 export interface McpHandle {
@@ -48,13 +48,50 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     ({ camera, lookAt }) =>
       relay({ id: commandId(), type: 'preview', ...(camera ? { camera } : {}), ...(lookAt ? { lookAt } : {}) }),
   );
-  server.registerTool('run', { description: 'Start gameplay (play mode): runs components, systems and physics.' }, () => relay({ id: commandId(), type: 'run' }));
-  server.registerTool('pause', { description: 'Pause gameplay, freezing the current state.' }, () => relay({ id: commandId(), type: 'pause' }));
-  server.registerTool('stop', { description: 'Stop gameplay and return to the authored scene (edit mode).' }, () => relay({ id: commandId(), type: 'stop' }));
+  server.registerTool(
+    'playback',
+    {
+      description: 'Control gameplay: play (run components/systems/physics), pause, or stop (back to edit mode).',
+      inputSchema: { state: z.enum(['play', 'pause', 'stop']) },
+    },
+    ({ state }) => relay({ id: commandId(), type: state === 'play' ? 'run' : state }),
+  );
   server.registerTool(
     'get_telemetry',
     { description: 'Current property values (JSON) for the node/components at a scene id.', inputSchema: { id: z.string() } },
     ({ id }) => relay({ id: commandId(), type: 'telemetry', targetId: id }),
+  );
+
+  // A simulation command — one entry in the `simulate` batch. Loose (all fields
+  // optional) so the agent composes any step; only `do` is required.
+  const simStep = z.object({
+    do: z.enum(['play', 'pause', 'stop', 'step', 'tap', 'keyDown', 'keyUp', 'click', 'move', 'gamepad', 'preview', 'telemetry']),
+    key: z.string().optional().describe("tap/keyDown/keyUp: key name, e.g. 'Space', 'W', 'LeftArrow'"),
+    frames: z.number().int().optional(),
+    dt: z.number().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    dx: z.number().optional(),
+    dy: z.number().optional(),
+    button: z.enum(['left', 'right', 'middle']).optional(),
+    index: z.number().int().optional(),
+    buttons: z.array(z.boolean()).optional(),
+    axes: z.array(z.number()).optional(),
+    camera: z.string().optional(),
+    lookAt: z.string().optional(),
+    id: z.string().optional(),
+  });
+  server.registerTool(
+    'simulate',
+    {
+      description:
+        'Drive gameplay: an ordered batch of steps; returns previews (images) and telemetry (JSON) in order. ' +
+        'Each step is one self-contained verb: { do: "play"|"pause"|"stop" | "step"(frames) | "tap"(key) | ' +
+        '"keyDown"(key) | "keyUp"(key) | "click"(x,y,button) | "move"(x,y,dx,dy) | "preview"(camera,lookAt) | "telemetry"(id) }. ' +
+        'Example: [{do:"play"},{do:"tap",key:"Space"},{do:"step",frames:90},{do:"preview"}].',
+      inputSchema: { commands: z.array(simStep) },
+    },
+    ({ commands }) => relay({ id: commandId(), type: 'simulate', steps: commands as SimStep[] }),
   );
 
   return server;
@@ -72,17 +109,24 @@ async function relayToEditor(bridge: EditorBridge, cmd: EditorCommand) {
   return toContent(response.result);
 }
 
-function toContent(result: EditorResult) {
+type ContentBlock = { type: 'image'; data: string; mimeType: string } | { type: 'text'; text: string };
+
+function toContent(result: EditorResult): { content: ContentBlock[] } {
   switch (result.kind) {
     case 'image': {
       const base64 = result.dataUrl.replace(/^data:image\/png;base64,/, '');
-      return { content: [{ type: 'image' as const, data: base64, mimeType: 'image/png' }] };
+      return { content: [{ type: 'image', data: base64, mimeType: 'image/png' }] };
     }
     case 'json':
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(result.data, null, 2) }] };
+    case 'multi': {
+      // Flatten each capture's blocks, preserving step order.
+      const content = result.results.flatMap((r) => toContent(r).content);
+      return { content: content.length > 0 ? content : [{ type: 'text', text: 'ok' }] };
+    }
     case 'ok':
     default:
-      return { content: [{ type: 'text' as const, text: result.info ?? 'ok' }] };
+      return { content: [{ type: 'text', text: result.info ?? 'ok' }] };
   }
 }
 

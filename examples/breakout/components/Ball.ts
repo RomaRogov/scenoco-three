@@ -16,7 +16,7 @@ import { Brick } from './Brick.js';
  *     them, the ball logs the hit and removes the brick.
  *
  * Collision detection is entirely Box2D's: the ball has a dynamic `<RigidBody2D>`
- * (a circle `<Collider2D>` with restitution 1), and `onCollisionEnter2D` is the
+ * (a `<CircleCollider2D>` with restitution 1), and `onCollisionEnter2D` is the
  * duck-typed hook the `Physics2DSystem` calls on contact.
  */
 @component({
@@ -29,7 +29,7 @@ export class Ball extends Component {
   bounceSpeeds: number[] = [8, 12, 16];
 
   /** The brick instances placed in the scene, referenced as an array. */
-  @property([Brick])
+  @property({ type: [Brick], description: 'Brick instances the ball can break' })
   bricks: Brick[] = [];
 
   @property({ type: 'float', default: 12, description: 'Speed the ball is launched at' })

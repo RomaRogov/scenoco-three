@@ -1,29 +1,60 @@
-import { MeshStandardMaterial, type Mesh } from 'three';
+import { MeshStandardMaterial, type Mesh, type Texture } from 'three';
 import { Attachment } from '../base.js';
 import { attachment, property } from '../../core/decorators.js';
 import type { AttachContext } from '../../core/NodeRegistry.js';
 import { MATERIAL_TARGETS } from '../targets.js';
 
-@attachment({ name: 'MeshStandardMaterial', target: MATERIAL_TARGETS, group: 'material' })
+@attachment({
+  name: 'MeshStandardMaterial',
+  description: 'Physically based (PBR) material with roughness/metalness and texture maps.',
+  target: MATERIAL_TARGETS,
+  group: 'material',
+})
 export class MeshStandardMaterialNode extends Attachment<Mesh> {
-  @property({ type: 'color', default: 0xffffff }) color = 0xffffff;
-  @property({ type: 'float', default: 1 }) roughness = 1;
-  @property({ type: 'float', default: 0 }) metalness = 0;
-  @property({ type: 'color', default: 0x000000 }) emissive = 0x000000;
-  @property({ type: 'float', default: 1 }) opacity = 1;
-  @property({ type: 'bool', default: false }) transparent = false;
-  @property({ type: 'bool', default: false }) wireframe = false;
+  @property({ type: 'color', default: 0xffffff, description: 'Base (albedo) color' }) color = 0xffffff;
+  @property({ type: 'float', default: 1, description: 'Surface roughness, 0 (glossy) to 1 (matte)' }) roughness = 1;
+  @property({ type: 'float', default: 0, description: 'Metalness, 0 (dielectric) to 1 (metal)' }) metalness = 0;
+  @property({ type: 'color', default: 0x000000, description: 'Emissive (self-lit) color' }) emissive = 0x000000;
+  @property({ type: 'float', default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: 'bool', default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: 'bool', default: false, description: 'Render as wireframe' }) wireframe = false;
+
+  // Texture maps — image URLs loaded into the engine's AssetCache and assigned at
+  // attach. Need `loadSceneAsync` so the texture is ready (synchronous `loadScene`
+  // leaves them unset).
+  @property({ type: 'string', asset: 'texture', default: '', description: 'Base color (albedo) texture URL' }) map = '';
+  @property({ type: 'string', asset: 'texture', default: '', description: 'Normal map texture URL' }) normalMap = '';
+  @property({ type: 'string', asset: 'texture', default: '', description: 'Roughness map texture URL' }) roughnessMap = '';
+  @property({ type: 'string', asset: 'texture', default: '', description: 'Metalness map texture URL' }) metalnessMap = '';
+  @property({ type: 'string', asset: 'texture', default: '', description: 'Emissive map texture URL' }) emissiveMap = '';
+  @property({ type: 'string', asset: 'texture', default: '', description: 'Ambient occlusion map texture URL' }) aoMap = '';
 
   private cached?: MeshStandardMaterial;
   attach(ctx: AttachContext<Mesh>): void {
-    ctx.node.material = (this.cached ??= new MeshStandardMaterial({
-      color: this.color,
-      roughness: this.roughness,
-      metalness: this.metalness,
-      emissive: this.emissive,
-      opacity: this.opacity,
-      transparent: this.transparent,
-      wireframe: this.wireframe,
-    }));
+    if (!this.cached) {
+      const m = new MeshStandardMaterial({
+        color: this.color,
+        roughness: this.roughness,
+        metalness: this.metalness,
+        emissive: this.emissive,
+        opacity: this.opacity,
+        transparent: this.transparent,
+        wireframe: this.wireframe,
+      });
+      this.cached = m;
+      // Resolve textures from the cache (sync if loaded, else streamed in).
+      const set = (url: string, assign: (t: Texture) => void): void =>
+        ctx.assets?.resolve<Texture>(url, (t) => {
+          assign(t);
+          m.needsUpdate = true;
+        });
+      set(this.map, (t) => (m.map = t));
+      set(this.normalMap, (t) => (m.normalMap = t));
+      set(this.roughnessMap, (t) => (m.roughnessMap = t));
+      set(this.metalnessMap, (t) => (m.metalnessMap = t));
+      set(this.emissiveMap, (t) => (m.emissiveMap = t));
+      set(this.aoMap, (t) => (m.aoMap = t));
+    }
+    ctx.node.material = this.cached;
   }
 }

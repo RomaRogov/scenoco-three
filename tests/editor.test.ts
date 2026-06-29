@@ -34,6 +34,7 @@ function stubBridge(reply: (cmd: EditorCommand) => EditorResponse): { bridge: Ed
         sent.push(cmd);
         return reply(cmd);
       },
+      push: () => {},
     },
   };
 }
@@ -57,7 +58,7 @@ describe('editor — MCP tools', () => {
   it('registers the editor toolset', async () => {
     const { client, close } = await connect(stubBridge(() => ({ id: 'x', ok: true, result: { kind: 'ok' } })).bridge);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['get_preview', 'get_telemetry', 'open_file', 'pause', 'run', 'stop']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['get_preview', 'get_telemetry', 'open_file', 'playback', 'simulate']);
     await close();
   });
 
@@ -87,9 +88,10 @@ describe('editor — MCP tools', () => {
       send: async () => {
         throw new Error('no editor connected — open the editor page in a browser first');
       },
+      push: () => {},
     };
     const { client, close } = await connect(bridge);
-    const res = await client.callTool({ name: 'run', arguments: {} });
+    const res = await client.callTool({ name: 'playback', arguments: { state: 'play' } });
     expect(res.isError).toBe(true);
     const content = res.content as Array<{ text?: string }>;
     expect(content[0]!.text).toContain('no editor connected');

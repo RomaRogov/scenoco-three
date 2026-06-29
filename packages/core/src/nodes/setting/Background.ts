@@ -5,7 +5,7 @@ import type { AttachContext } from '../../core/NodeRegistry.js';
 
 @attachment({ name: 'Background', target: 'Scene', group: 'background', description: 'Solid background color for the scene' })
 export class BackgroundAttachment extends Attachment<Scene> {
-  @property({ type: 'color', default: 0xffffff }) color = 0xffffff;
+  @property({ type: 'color', default: 0xffffff, description: 'Background color' }) color = 0xffffff;
 
   attach(ctx: AttachContext<Scene>): void {
     ctx.node.background = new Color(this.color);

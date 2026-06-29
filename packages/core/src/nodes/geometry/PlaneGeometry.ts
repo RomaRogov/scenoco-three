@@ -4,12 +4,18 @@ import { attachment, property } from '../../core/decorators.js';
 import type { AttachContext } from '../../core/NodeRegistry.js';
 import { GEOMETRY_TARGETS } from '../targets.js';
 
-@attachment({ name: 'PlaneGeometry', target: GEOMETRY_TARGETS, group: 'geometry', required: true })
+@attachment({
+  name: 'PlaneGeometry',
+  description: 'Flat plane geometry (in the XY plane) for a mesh.',
+  target: GEOMETRY_TARGETS,
+  group: 'geometry',
+  required: true,
+})
 export class PlaneGeometryNode extends Attachment<Mesh> {
-  @property({ type: 'float', default: 1 }) width = 1;
-  @property({ type: 'float', default: 1 }) height = 1;
-  @property({ type: 'int', default: 1 }) widthSegments = 1;
-  @property({ type: 'int', default: 1 }) heightSegments = 1;
+  @property({ type: 'float', default: 1, description: 'Size along X' }) width = 1;
+  @property({ type: 'float', default: 1, description: 'Size along Y' }) height = 1;
+  @property({ type: 'int', default: 1, description: 'Subdivisions along X' }) widthSegments = 1;
+  @property({ type: 'int', default: 1, description: 'Subdivisions along Y' }) heightSegments = 1;
 
   private cached?: PlaneGeometry;
   attach(ctx: AttachContext<Mesh>): void {

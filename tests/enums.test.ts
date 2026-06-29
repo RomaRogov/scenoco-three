@@ -79,9 +79,10 @@ describe('enums — XSD exposure', () => {
     expect(xsd).toContain('<xs:enumeration value="Double"/>');
     expect(xsd).toContain('<xs:simpleType name="BodyKind">');
     expect(xsd).toContain('<xs:enumeration value="Kinematic"/>');
-    // The component property + the node attribute both reference the enum type.
-    expect(xsd).toMatch(/<xs:attribute name="side" type="Side"\/>/);
-    expect(xsd).toMatch(/<xs:attribute name="kind" type="BodyKind"\/>/);
+    // The component property + the node attribute both reference the enum type
+    // (annotated, non-self-closing, because every property carries a description).
+    expect(xsd).toContain('<xs:attribute name="side" type="Side">');
+    expect(xsd).toContain('<xs:attribute name="kind" type="BodyKind">');
   });
 });
 

@@ -14,7 +14,7 @@
       <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
       <Components>
         <RigidBody2D kind="static" />
-        <Collider2D shape="box" halfExtents="0.5 8" restitution="1" />
+        <BoxCollider2D halfExtents="0.5 8" restitution="1" />
       </Components>
     </Mesh>
     <Mesh id="wall_right" position="8.5 7 0">
@@ -22,7 +22,7 @@
       <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
       <Components>
         <RigidBody2D kind="static" />
-        <Collider2D shape="box" halfExtents="0.5 8" restitution="1" />
+        <BoxCollider2D halfExtents="0.5 8" restitution="1" />
       </Components>
     </Mesh>
     <Mesh id="wall_top" position="0 15 0">
@@ -30,7 +30,7 @@
       <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
       <Components>
         <RigidBody2D kind="static" />
-        <Collider2D shape="box" halfExtents="9 0.5" restitution="1" />
+        <BoxCollider2D halfExtents="9 0.5" restitution="1" />
       </Components>
     </Mesh>
   </Group>
@@ -40,9 +40,9 @@
     <BoxGeometry width="3" height="0.4" depth="0.5" />
     <MeshStandardMaterial color="#38bdf8" emissive="#0c4a6e" roughness="0.2" metalness="0.6" />
     <Components>
-      <PaddleController speed="10" halfRange="6.0" />
+      <PaddleController id="paddleController" speed="10" halfRange="6.0" />
       <RigidBody2D kind="kinematic" />
-      <Collider2D shape="box" halfExtents="1.5 0.2" restitution="1" />
+      <BoxCollider2D halfExtents="1.5 0.2" restitution="1" />
     </Components>
   </Mesh>
 
@@ -52,7 +52,7 @@
     <MeshStandardMaterial color="#fb923c" emissive="#7c2d12" roughness="0.25" metalness="0.3" />
     <Components>
       <RigidBody2D kind="dynamic" bullet="true" gravityScale="0" />
-      <Collider2D shape="circle" radius="0.3" restitution="1" friction="0" density="1" />
+      <CircleCollider2D radius="0.3" restitution="1" friction="0" density="1" />
       <Ball
         launchSpeed="12"
         lives="3"
@@ -73,7 +73,7 @@
     <MeshStandardMaterial color="#000000" />
     <Components>
       <RigidBody2D kind="static" />
-      <Collider2D shape="box" halfExtents="9 0.25" isSensor="true" />
+      <BoxCollider2D halfExtents="9 0.25" isSensor="true" />
     </Components>
   </Mesh>
 

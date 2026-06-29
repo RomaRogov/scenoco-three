@@ -14,8 +14,8 @@ export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed
 export class RigidBody extends Component {
   @property({ type: RigidBodyKind, default: 'dynamic', description: 'How the body moves' })
   kind = 'dynamic';
-  @property({ type: 'float', default: 0 }) linearDamping = 0;
-  @property({ type: 'float', default: 0 }) angularDamping = 0;
+  @property({ type: 'float', default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
+  @property({ type: 'float', default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
   @property({ type: 'float', default: 1, description: 'Multiplier on world gravity for this body' })
   gravityScale = 1;
 

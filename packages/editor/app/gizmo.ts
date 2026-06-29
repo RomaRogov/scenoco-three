@@ -34,6 +34,7 @@ export class Gizmo {
     this.controls = new TransformControls(camera, domElement);
     this.controls.setSize(touch ? 1.4 : 1); // fat-finger handles on touch
     this.helper = this.controls.getHelper();
+    this.helper.userData.scenocoEditorOnly = true; // keep it out of the Hierarchy + picking
     scene.add(this.helper);
 
     this.controls.addEventListener('objectChange', () => opts.onObjectChange?.());

@@ -4,24 +4,84 @@ The [Vite](https://vite.dev) plugin for [SceNoCo](https://github.com/): import a
 file and get a compiled bundle, with exactly the component and node modules that scene uses
 imported alongside it — nothing more.
 
+```bash
+npm i -D @scenoco-three/vite
+```
+
+## Setup
+
 ```ts
 // vite.config.ts
+import { defineConfig } from 'vite';
 import { bundlePlugin } from '@scenoco-three/vite';
+
 export default defineConfig({
-  plugins: [bundlePlugin({ componentRoots: ['src/components'] })],
+  plugins: [
+    bundlePlugin({
+      componentRoots: ['src/components'],            // scanned for @component / @node / @attachment
+      registerPackages: ['@scenoco-three/box2d'],    // tag packages a scene may use
+    }),
+  ],
 });
 ```
 
 ```ts
-import sceneBundle from './scenes/level.scene.xml?bundle'; // compiled in Node
+// app.ts
+import sceneBundle from './scenes/level.scene.xml?bundle';   // compiled in Node
+import prefab from './scenes/brick.prefab.xml?bundle';        // .prefab.xml → a prefab bundle
 engine.loadScene(sceneBundle);
 ```
 
-The scene is validated and compiled in Node (via `@scenoco-three/compiler`); the browser
-receives the bundle data plus usage-based imports of the components/tags it needs (including
-those used by embedded prefabs). No XML parser, validator, or compiler reaches the browser.
+A TypeScript declaration for the `?bundle` suffix (drop in `vite-env.d.ts`):
 
-`vite` is a peer dependency. See the [repository](../../README.md).
+```ts
+declare module '*.xml?bundle' {
+  import type { Bundle } from '@scenoco-three/core';
+  const bundle: Bundle;
+  export default bundle;
+}
+```
+
+## Options
+
+```ts
+interface BundlePluginOptions {
+  componentRoots?: string[];    // default ['src'] — dirs scanned for tag/component modules
+  registerPackages?: string[];  // npm packages that register tags on import (validated + auto-imported)
+}
+```
+
+## What it does
+
+For `import x from './s.scene.xml?bundle'`, in Node at build/serve time:
+
+1. **Discovers** your components (`loadComponents`) and registers them so the validator has
+   the full vocabulary, mapping each tag → the file that defines it.
+2. **Validates + compiles** the scene (`compileSceneXml`) — a `file:line:col` error fails the
+   build. `.prefab.xml` compiles to a standalone prefab bundle for `engine.instantiate`.
+3. Emits the bundle **plus usage-based imports** of exactly the modules the scene (and any
+   embedded prefab) uses:
+
+```ts
+// generated module for level.scene.xml?bundle
+import '/abs/src/components/Rotator.ts';   // ← used by this scene
+import '@scenoco-three/core/nodes/Mesh';   // ← built-in tag it uses
+export default [1, [/* strings */], [/* assets */]];
+```
+
+So loading a scene auto-registers its components (decorator side effect), unused tags (and
+their three.js classes) never ship, and **no XML parser, validator, or compiler reaches the
+browser**. Edits to a watched component or `src=` resource trigger a recompile in dev.
+
+## Standalone & dependencies
+
+Depends on `@scenoco-three/compiler` (which pulls in `core`); `vite` is a **peer**. This
+package is purely the build-time glue between the two — the optional convenience layer for a
+Vite app. You don't need it: any bundler (or a plain `scenoco bundle` step) can produce the
+same bundle JSON for `engine.loadScene(...)`. The `@scenoco-three/editor` package builds on
+this plugin to serve scenes the same way production does.
+
+See the [repository](../../README.md).
 
 ## License
 

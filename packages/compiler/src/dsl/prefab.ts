@@ -8,8 +8,8 @@ import {
   TRANSFORM_ATTRS,
 } from '@scenoco-three/core/internal';
 import type { CompileOptions } from './compile.js';
-import type { SceDiagnostic } from './diagnostics.js';
-import { parseScene, type SceElement } from './SceneParser.js';
+import type { SncDiagnostic } from './diagnostics.js';
+import { parseScene, type SncElement } from './SceneParser.js';
 import { codecs, parseScalarArray, type ScalarType } from './types.js';
 import { validatePrefab } from './Validator.js';
 
@@ -40,10 +40,10 @@ import { validatePrefab } from './Validator.js';
  * instance internals (`target="#t1/osc"`) like any other id.
  */
 export function expandPrefabs(
-  root: SceElement,
+  root: SncElement,
   referrer: string,
   options: CompileOptions,
-  diagnostics: SceDiagnostic[],
+  diagnostics: SncDiagnostic[],
   stack: string[] = [],
 ): void {
   for (let i = 0; i < root.children.length; i++) {
@@ -65,13 +65,13 @@ export function expandPrefabs(
 }
 
 function expandInstance(
-  instance: SceElement,
+  instance: SncElement,
   referrer: string,
   options: CompileOptions,
-  diagnostics: SceDiagnostic[],
+  diagnostics: SncDiagnostic[],
   stack: string[],
-): SceElement | null {
-  const fail = (code: string, message: string, el: SceElement = instance) =>
+): SncElement | null {
+  const fail = (code: string, message: string, el: SncElement = instance) =>
     void diagnostics.push({ line: el.line, column: el.column, code, message, ...(el.file ? { file: el.file } : {}) });
 
   const src = instance.attributes.get('src')!;
@@ -111,6 +111,9 @@ function expandInstance(
 
   const prefabRoot = parsed.root.children.find((c) => isSpatial(c.tag))!;
   const clone = cloneSubtree(prefabRoot, file.path, null);
+  // Mark scene-level instance roots with their src so the editor can edit it;
+  // nested instances (inside another prefab) stay read-only prefab content.
+  if (stack.length === 0) clone.prefabSrc = src;
 
   // Scope ids into the instance: root id → instance id, inner `x` → `id/x`.
   const rename = buildRenameMap(clone, instanceId);
@@ -156,8 +159,8 @@ function expandInstance(
 
 // ---- subtree mechanics ------------------------------------------------------
 
-function cloneSubtree(el: SceElement, file: string, parent: SceElement | null): SceElement {
-  const clone: SceElement = {
+function cloneSubtree(el: SncElement, file: string, parent: SncElement | null): SncElement {
+  const clone: SncElement = {
     tag: el.tag,
     attributes: new Map(el.attributes),
     children: [],
@@ -171,12 +174,12 @@ function cloneSubtree(el: SceElement, file: string, parent: SceElement | null): 
 }
 
 /** old prefab-local id → scoped id. The root's own id maps to the instance id. */
-function buildRenameMap(clonedRoot: SceElement, instanceId: string): Map<string, string> {
+function buildRenameMap(clonedRoot: SncElement, instanceId: string): Map<string, string> {
   const rename = new Map<string, string>();
   const rootId = clonedRoot.attributes.get('id');
   if (rootId !== undefined) rename.set(rootId, instanceId);
 
-  const walk = (el: SceElement) => {
+  const walk = (el: SncElement) => {
     if (el !== clonedRoot) {
       const id = el.attributes.get('id');
       if (id !== undefined && idCarrier(el)) rename.set(id, `${instanceId}/${id}`);
@@ -189,8 +192,8 @@ function buildRenameMap(clonedRoot: SceElement, instanceId: string): Map<string,
   return rename;
 }
 
-function applyRenames(root: SceElement, rename: Map<string, string>): void {
-  const walk = (el: SceElement) => {
+function applyRenames(root: SncElement, rename: Map<string, string>): void {
+  const walk = (el: SncElement) => {
     if (el !== root && idCarrier(el)) {
       const id = el.attributes.get('id');
       const renamed = id !== undefined ? rename.get(id) : undefined;
@@ -231,18 +234,18 @@ function applyRenames(root: SceElement, rename: Map<string, string>): void {
 }
 
 /** Elements whose `id` participates in the scene namespace (nodes + components). */
-function idCarrier(el: SceElement): boolean {
+function idCarrier(el: SncElement): boolean {
   return isSpatial(el.tag) || el.parent?.tag === 'Components';
 }
 
 // ---- <Override> -------------------------------------------------------------
 
 function applyOverride(
-  override: SceElement,
-  clonedRoot: SceElement,
+  override: SncElement,
+  clonedRoot: SncElement,
   rename: Map<string, string>,
   instanceId: string,
-  fail: (code: string, message: string, el?: SceElement) => void,
+  fail: (code: string, message: string, el?: SncElement) => void,
 ): void {
   const target = override.attributes.get('target');
   if (target === undefined || !target.startsWith('#')) {
@@ -279,7 +282,7 @@ function applyOverride(
   }
 }
 
-function findById(root: SceElement, id: string): SceElement | undefined {
+function findById(root: SncElement, id: string): SncElement | undefined {
   if (root.attributes.get('id') === id) return root;
   for (const c of root.children) {
     const found = findById(c, id);
@@ -289,7 +292,7 @@ function findById(root: SceElement, id: string): SceElement | undefined {
 }
 
 /** attr → scalar type (or array scalar type) for value checking; `null` marks reference props (any #id). */
-function attrSchema(el: SceElement): Map<string, ScalarType | [ScalarType] | null> {
+function attrSchema(el: SncElement): Map<string, ScalarType | [ScalarType] | null> {
   const out = new Map<string, ScalarType | [ScalarType] | null>();
   if (el.parent?.tag === 'Components') {
     const entry = Registry.getComponent(el.tag);

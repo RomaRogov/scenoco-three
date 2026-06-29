@@ -3,12 +3,12 @@ import { dirname, resolve } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { bundlePrefab, bundleScene } from './dsl/bundle.js';
 import { compilePrefabXml, compileSceneXml, type CompileOptions, type ResourceResolver } from './dsl/compile.js';
-import type { SceDiagnostic } from './dsl/diagnostics.js';
+import type { SncDiagnostic } from './dsl/diagnostics.js';
 
 export type WatchEvent =
   | { type: 'start'; file: string }
   | { type: 'success'; file: string; outputPath: string; durationMs: number }
-  | { type: 'diagnostics'; file: string; diagnostics: SceDiagnostic[] }
+  | { type: 'diagnostics'; file: string; diagnostics: SncDiagnostic[] }
   | { type: 'error'; file: string; message: string };
 
 export interface WatchOptions {

@@ -19,12 +19,15 @@ import {
   type CompiledRef,
   type CompiledScene,
   type CompiledTransform,
+  type CompiledUniform,
 } from '@scenoco-three/core/internal';
-import { parseScene, type SceElement } from './SceneParser.js';
+import { parseScene, type SncElement } from './SceneParser.js';
 import { validatePrefab, validateScene } from './Validator.js';
 import { expandPrefabs } from './prefab.js';
-import { parseArrayLiteral, parseScalarArray, scalarCodec, type CompiledScalar, type ScalarType } from './types.js';
-import type { SceDiagnostic } from './diagnostics.js';
+import { parseArrayLiteral, parseScalarArray, scalarCodec, uniformValue, type CompiledScalar, type ScalarType } from './types.js';
+import { glslMatches, parseUniforms } from './shader.js';
+import type { NodeOrigin, SceneProvenance } from './provenance.js';
+import type { SncDiagnostic } from './diagnostics.js';
 
 // Re-exported so existing `from './compile.js'` imports keep working.
 export type {
@@ -38,8 +41,8 @@ export type {
 } from '@scenoco-three/core/internal';
 
 export type CompileResult =
-  | { ok: true; scene: CompiledScene }
-  | { ok: false; diagnostics: SceDiagnostic[] };
+  | { ok: true; scene: CompiledScene; provenance: SceneProvenance }
+  | { ok: false; diagnostics: SncDiagnostic[] };
 
 /** A referenced file loaded by a resolver: its canonical path and contents. */
 export interface ResolvedFile {
@@ -68,7 +71,7 @@ export function compileSceneXml(xml: string, options: CompileOptions = {}): Comp
 
   // Expand <PrefabInstance src> elements inline before validation, so the
   // validator and compiler see ordinary nodes (the bundle format is prefab-agnostic).
-  const expansion: SceDiagnostic[] = [];
+  const expansion: SncDiagnostic[] = [];
   expandPrefabs(parsed.root, options.path ?? '', options, expansion);
   if (expansion.length > 0) return { ok: false, diagnostics: sortDiagnostics(expansion) };
 
@@ -77,7 +80,7 @@ export function compileSceneXml(xml: string, options: CompileOptions = {}): Comp
 
   const result = compileTree(parsed.root, options);
   if (result.diagnostics.length > 0) return { ok: false, diagnostics: result.diagnostics };
-  return { ok: true, scene: result.scene };
+  return { ok: true, scene: result.scene, provenance: result.provenance };
 }
 
 /**
@@ -90,7 +93,7 @@ export function compilePrefabXml(xml: string, options: CompileOptions = {}): Com
   const parsed = parseScene(xml);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
 
-  const expansion: SceDiagnostic[] = [];
+  const expansion: SncDiagnostic[] = [];
   expandPrefabs(parsed.root, options.path ?? '', options, expansion);
   if (expansion.length > 0) return { ok: false, diagnostics: sortDiagnostics(expansion) };
 
@@ -100,10 +103,10 @@ export function compilePrefabXml(xml: string, options: CompileOptions = {}): Com
   const prefabRoot = parsed.root.children.find((c) => isSpatial(c.tag))!;
   const result = compileTree(prefabRoot, options);
   if (result.diagnostics.length > 0) return { ok: false, diagnostics: result.diagnostics };
-  return { ok: true, scene: result.scene };
+  return { ok: true, scene: result.scene, provenance: result.provenance };
 }
 
-function sortDiagnostics(diagnostics: SceDiagnostic[]): SceDiagnostic[] {
+function sortDiagnostics(diagnostics: SncDiagnostic[]): SncDiagnostic[] {
   return [...diagnostics].sort((a, b) => (a.file ?? '').localeCompare(b.file ?? '') || a.line - b.line || a.column - b.column);
 }
 
@@ -123,11 +126,14 @@ interface PendingRef {
 
 /** Compile an already-validated tree, resolving referenced resource files. */
 function compileTree(
-  root: SceElement,
+  root: SncElement,
   options: CompileOptions,
-): { scene: CompiledScene; diagnostics: SceDiagnostic[] } {
+): { scene: CompiledScene; diagnostics: SncDiagnostic[]; provenance: SceneProvenance } {
   const scene: CompiledScene = { root: 0, nodes: [], attachments: [], components: [] };
-  const diagnostics: SceDiagnostic[] = [];
+  const diagnostics: SncDiagnostic[] = [];
+  // Editor provenance, index-aligned with scene.nodes / scene.attachments.
+  const nodeOrigins: NodeOrigin[] = [];
+  const attachmentSrc: (string | null)[] = [];
 
   const nodeIdToIndex = new Map<string, number>();
   const componentIdToIndex = new Map<string, number>();
@@ -138,12 +144,13 @@ function compileTree(
   // Prefab files referenced by `prefab` props, deduped by source path.
   const prefabPool = new Map<string, number>();
 
-  const internAttachment = (asset: CompiledAsset): number => {
-    const key = `${asset.tag}|${JSON.stringify(asset.attrs)}`;
+  const internAttachment = (asset: CompiledAsset, src?: string): number => {
+    const key = `${asset.tag}|${JSON.stringify(asset.attrs)}|${asset.uniforms ? JSON.stringify(asset.uniforms) : ''}`;
     const existing = attachmentPool.get(key);
     if (existing !== undefined) return existing;
     const index = scene.attachments.length;
     scene.attachments.push(asset);
+    attachmentSrc[index] = src ?? null;
     attachmentPool.set(key, index);
     return index;
   };
@@ -153,7 +160,7 @@ function compileTree(
    * and intern it into the scene's prefabs[] pool. Returns its index, or
    * undefined (with a diagnostic) if it can't be resolved/compiled.
    */
-  const internPrefab = (src: string, el: SceElement): number | undefined => {
+  const internPrefab = (src: string, el: SncElement): number | undefined => {
     const cached = prefabPool.get(src);
     if (cached !== undefined) return cached;
 
@@ -181,7 +188,7 @@ function compileTree(
     return index;
   };
 
-  const buildNode = (el: SceElement, parent: number): number => {
+  const buildNode = (el: SncElement, parent: number): number => {
     const def = getNodeDef(el.tag)!;
     const index = scene.nodes.length;
     const id = el.attributes.get('id');
@@ -197,12 +204,23 @@ function compileTree(
     };
     scene.nodes.push(node);
     if (id !== undefined) nodeIdToIndex.set(id, index);
+    // Origin: a scene-level instance root carries `prefabSrc`; anything else with a
+    // `.file` was expanded from inside a prefab; the rest is authored here.
+    nodeOrigins[index] =
+      el.prefabSrc !== undefined
+        ? { kind: 'prefab-root', src: el.prefabSrc }
+        : el.file !== undefined
+          ? { kind: 'prefab-internal' }
+          : { kind: 'scene' };
 
     for (const child of el.children) {
       const attDef = getAttachmentDef(child.tag);
       if (attDef) {
         const attrs = resolveAttachmentAttrs(child, attDef.attrs, options, diagnostics);
-        node.attachments.push(internAttachment({ tag: child.tag, attrs }));
+        const asset: CompiledAsset = { tag: child.tag, attrs };
+        // Shader attachments resolve their .vert/.frag and validate their <Uniform>s.
+        if (attDef.children?.includes('Uniform')) compileShader(child, asset, options, diagnostics);
+        node.attachments.push(internAttachment(asset, child.attributes.get('src')));
       } else if (child.tag === 'Components') {
         buildComponents(child, index, node);
       } else if (getNodeDef(child.tag)) {
@@ -212,7 +230,7 @@ function compileTree(
     return index;
   };
 
-  const buildComponents = (block: SceElement, nodeIndex: number, node: CompiledNode): void => {
+  const buildComponents = (block: SncElement, nodeIndex: number, node: CompiledNode): void => {
     const targets = componentsOnNode.get(nodeIndex) ?? [];
     componentsOnNode.set(nodeIndex, targets);
 
@@ -247,7 +265,7 @@ function compileTree(
     else props[ref.attr] = resolved;
   }
 
-  return { scene, diagnostics };
+  return { scene, diagnostics, provenance: { nodes: nodeOrigins, attachments: attachmentSrc } };
 }
 
 /**
@@ -256,15 +274,18 @@ function compileTree(
  * `.material.xml`. Diagnostics for a missing/invalid file point at that file.
  */
 function resolveAttachmentAttrs(
-  el: SceElement,
+  el: SncElement,
   attrs: Record<string, NodeAttr>,
   options: CompileOptions,
-  diagnostics: SceDiagnostic[],
+  diagnostics: SncDiagnostic[],
 ): Record<string, CompiledScalar | CompiledScalar[]> {
   const src = el.attributes.get('src');
   if (src === undefined) return compileAttrs(el, attrs);
+  // An asset-flagged `src` (e.g. <Model src="hero.glb">) is a runtime asset URL,
+  // not a compile-time resource file to inline — keep it as a plain string attr.
+  if (attrs.src?.asset) return compileAttrs(el, attrs);
 
-  const push = (d: Omit<SceDiagnostic, 'line' | 'column'> & Partial<Pick<SceDiagnostic, 'line' | 'column'>>) =>
+  const push = (d: Omit<SncDiagnostic, 'line' | 'column'> & Partial<Pick<SncDiagnostic, 'line' | 'column'>>) =>
     diagnostics.push({ line: el.line, column: el.column, ...d });
 
   if (!options.resolve) {
@@ -309,7 +330,73 @@ function resolveAttachmentAttrs(
   return out;
 }
 
-function compileTransform(el: SceElement): CompiledTransform {
+/**
+ * Resolve a `<ShaderMaterial>`'s vertex/fragment files into inline GLSL (so the
+ * bundle is self-contained) and compile + cross-validate its `<Uniform>` children
+ * against the shader's actual uniform declarations. Mutates `asset` in place.
+ */
+function compileShader(child: SncElement, asset: CompiledAsset, options: CompileOptions, diagnostics: SncDiagnostic[]): void {
+  const push = (code: string, message: string) =>
+    diagnostics.push({ line: child.line, column: child.column, code, message, ...(child.file ? { file: child.file } : {}) });
+
+  const vertex = resolveShader('vertex', child, options, push);
+  const fragment = resolveShader('fragment', child, options, push);
+  asset.attrs.vertex = vertex ?? '';
+  asset.attrs.fragment = fragment ?? '';
+
+  // The set of uniforms the shaders actually declare (name → GLSL type).
+  const declared = new Map<string, string>();
+  for (const glsl of [vertex, fragment]) if (glsl) for (const [name, type] of parseUniforms(glsl)) declared.set(name, type);
+
+  const uniforms: CompiledUniform[] = [];
+  for (const u of child.children) {
+    if (u.tag !== 'Uniform') continue; // structurally validated by the Validator
+    const name = u.attributes.get('name');
+    const type = u.attributes.get('type');
+    if (name === undefined || type === undefined) continue;
+    const glslType = declared.get(name);
+    if (glslType === undefined) {
+      push('bad-value', `<Uniform> "${name}" is not declared in the shader (uniforms: ${[...declared.keys()].join(', ') || 'none'})`);
+      continue;
+    }
+    if (!glslMatches(type, glslType)) {
+      push('bad-value', `<Uniform> "${name}" is declared "${type}" but the shader uniform is "${glslType}"`);
+      continue;
+    }
+    const parsed = uniformValue(type, u.attributes.get('value') ?? '');
+    if (!parsed.ok) {
+      push('bad-value', `<Uniform> "${name}" value: ${parsed.message}`);
+      continue;
+    }
+    uniforms.push({ name, type, value: parsed.value });
+  }
+  if (uniforms.length > 0) asset.uniforms = uniforms;
+}
+
+function resolveShader(
+  attr: 'vertex' | 'fragment',
+  child: SncElement,
+  options: CompileOptions,
+  push: (code: string, message: string) => void,
+): string | undefined {
+  const path = child.attributes.get(attr)?.trim();
+  if (!path) {
+    push('missing-attr', `<ShaderMaterial> requires "${attr}" (a ${attr === 'vertex' ? '.vert' : '.frag'}/.glsl file path)`);
+    return undefined;
+  }
+  if (!options.resolve) {
+    push('no-resolver', `<ShaderMaterial> ${attr}="${path}" but no resource resolver is configured`);
+    return undefined;
+  }
+  const file = options.resolve(path, options.path ?? '');
+  if (!file) {
+    push('resource-not-found', `Cannot resolve ${attr}="${path}"`);
+    return undefined;
+  }
+  return file.contents;
+}
+
+function compileTransform(el: SncElement): CompiledTransform {
   const t = (key: string) => {
     const meta = TRANSFORM_ATTRS[key]!;
     return scalarValue(meta.type as ScalarType, el.attributes.get(key), meta.default as CompiledScalar | undefined);
@@ -322,7 +409,7 @@ function compileTransform(el: SceElement): CompiledTransform {
   };
 }
 
-function compileAttrs(el: SceElement, attrs: Record<string, NodeAttr>): Record<string, CompiledScalar | CompiledScalar[]> {
+function compileAttrs(el: SncElement, attrs: Record<string, NodeAttr>): Record<string, CompiledScalar | CompiledScalar[]> {
   const out: Record<string, CompiledScalar | CompiledScalar[]> = {};
   for (const [key, meta] of Object.entries(attrs)) {
     out[key] = attrValue(meta, el.attributes.get(key));
@@ -331,12 +418,12 @@ function compileAttrs(el: SceElement, attrs: Record<string, NodeAttr>): Record<s
 }
 
 function collectComponentProps(
-  el: SceElement,
+  el: SncElement,
   props: Map<string, PropertyMeta>,
   componentIndex: number,
   compiled: CompiledComponent,
   pending: PendingRef[],
-  internPrefab: (src: string, el: SceElement) => number | undefined,
+  internPrefab: (src: string, el: SncElement) => number | undefined,
 ): void {
   for (const [attr, raw] of el.attributes) {
     if (attr === 'id') continue;
@@ -370,8 +457,8 @@ function compileArrayProp(
   componentIndex: number,
   compiled: CompiledComponent,
   pending: PendingRef[],
-  internPrefab: (src: string, el: SceElement) => number | undefined,
-  el: SceElement,
+  internPrefab: (src: string, el: SncElement) => number | undefined,
+  el: SncElement,
 ): void {
   const literal = parseArrayLiteral(raw);
   if (!literal.ok) return; // validated upstream

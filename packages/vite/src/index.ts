@@ -4,6 +4,7 @@ import {
   builtinNodeModule,
   bundlePrefab,
   bundleScene,
+  collectAssetRefs,
   compilePrefabXml,
   compileSceneXml,
   formatDiagnostic,
@@ -133,9 +134,33 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
       ].join('\n');
 
       const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
-      return `${imports}\nexport default ${JSON.stringify(bundle)};`;
+
+      // Asset URLs (textures/models) are runtime fetches. Rewrite each that
+      // resolves to a local file into a Vite asset import, so it is served in
+      // dev, hashed/emitted in the build, and watched for HMR. URLs that don't
+      // resolve to a file (absolute http(s), /public paths) are left untouched.
+      let bundleCode = JSON.stringify(bundle);
+      const assetImports: string[] = [];
+      for (const [i, ref] of collectAssetRefs(result.scene).entries()) {
+        const assetPath = resolveAssetFile(ref.url, file);
+        if (!assetPath) continue;
+        this.addWatchFile(assetPath);
+        const binding = `__asset_${i}`;
+        assetImports.push(`import ${binding} from ${JSON.stringify(asImportSpecifier(assetPath, isServe))};`);
+        // Replace every occurrence of the interned URL (incl. embedded prefab pools).
+        bundleCode = bundleCode.split(JSON.stringify(ref.url)).join(binding);
+      }
+
+      return `${imports}\n${assetImports.join('\n')}\nexport default ${bundleCode};`;
     },
   };
+}
+
+/** Resolve an asset URL to a local file (relative to the scene), or null if it isn't one. */
+function resolveAssetFile(url: string, sceneFile: string): string | null {
+  if (/^[a-z]+:\/\//i.test(url) || url.startsWith('/')) return null; // absolute URL or /public path
+  const path = resolve(dirname(sceneFile), url);
+  return existsSync(path) ? path : null;
 }
 
 /**

@@ -53,6 +53,9 @@ export const builtinNodeModules: Record<string, string> = {
   LineBasicMaterial: '@scenoco-three/core/nodes/material/LineBasicMaterial.js',
   PointsMaterial: '@scenoco-three/core/nodes/material/PointsMaterial.js',
   SpriteMaterial: '@scenoco-three/core/nodes/material/SpriteMaterial.js',
+  ShaderMaterial: '@scenoco-three/core/nodes/material/ShaderMaterial.js',
+  // assets
+  Model: '@scenoco-three/core/nodes/asset/Model.js',
   // settings
   Fog: '@scenoco-three/core/nodes/setting/Fog.js',
   FogExp2: '@scenoco-three/core/nodes/setting/FogExp2.js',

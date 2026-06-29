@@ -1,5 +1,5 @@
 import { SaxesParser } from 'saxes';
-import { Registry, isScalarType, isEnumType, valueEquals, type EnumDef } from '@scenoco-three/core/internal';
+import { Registry, getAttachmentDef, isScalarType, isEnumType, valueEquals, type EnumDef } from '@scenoco-three/core/internal';
 import { scalarCodec, type ScalarType } from './types.js';
 
 /**
@@ -19,7 +19,8 @@ import { scalarCodec, type ScalarType } from './types.js';
 
 export type PatchTarget =
   | { kind: 'node'; id?: string }
-  | { kind: 'component'; nodeId?: string; type: string; ordinal: number };
+  | { kind: 'component'; nodeId?: string; type: string; ordinal: number }
+  | { kind: 'attachment'; nodeId?: string; root?: boolean; tag: string; ordinal: number };
 
 export interface PatchEdit {
   target: PatchTarget;
@@ -53,7 +54,6 @@ const TRANSFORM: Record<string, { type: ScalarType; default: number | boolean | 
 
 export function patchSceneXml(xml: string, edits: PatchEdit[]): PatchResult {
   const { all, roots } = scan(xml);
-  void roots;
 
   // One attribute op per (element, attr); group by element so each start tag is
   // rewritten once even when several of its attributes change.
@@ -61,7 +61,7 @@ export function patchSceneXml(xml: string, edits: PatchEdit[]): PatchResult {
   const unresolved: PatchEdit[] = [];
 
   for (const edit of edits) {
-    const el = locate(all, edit.target);
+    const el = locate(all, roots, edit.target);
     const codec = resolve(edit);
     if (!el || !codec) {
       unresolved.push(edit);
@@ -132,8 +132,14 @@ function startTagEnd(xml: string, from: number): number {
   return xml.length;
 }
 
-function locate(all: El[], target: PatchTarget): El | undefined {
+function locate(all: El[], roots: El[], target: PatchTarget): El | undefined {
   if (target.kind === 'node') return target.id ? all.find((e) => e.id === target.id) : undefined;
+  if (target.kind === 'attachment') {
+    // Attachments are direct children of their node (the scene root when `root`).
+    const owner = target.root ? roots[0] : target.nodeId ? all.find((e) => e.id === target.nodeId) : undefined;
+    const matches = owner?.children.filter((c) => c.tag === target.tag) ?? [];
+    return matches[target.ordinal];
+  }
   if (!target.nodeId) return undefined;
   const node = all.find((e) => e.id === target.nodeId);
   const components = node?.children.find((c) => c.tag === 'Components');
@@ -141,10 +147,18 @@ function locate(all: El[], target: PatchTarget): El | undefined {
   return matches[target.ordinal];
 }
 
-/** The codec type + default for an edit's attribute (transform attrs are fixed; props from the registry). */
+/** The codec type + default for an edit's attribute (transform/registry/attachment; `src` is a plain string). */
 function resolve(edit: PatchEdit): { type: ScalarType | EnumDef; default?: number | boolean | string | number[] } | undefined {
-  if (edit.target.kind === 'node') return TRANSFORM[edit.attr];
-  const meta = Registry.getComponent(edit.target.type)?.meta.properties.get(edit.attr);
+  const t = edit.target;
+  if (t.kind === 'node') return edit.attr === 'src' ? { type: 'string' } : TRANSFORM[edit.attr];
+  if (t.kind === 'component') {
+    const meta = Registry.getComponent(t.type)?.meta.properties.get(edit.attr);
+    if (!meta || (!isScalarType(meta.type) && !isEnumType(meta.type))) return undefined;
+    return { type: meta.type, ...(meta.default !== undefined ? { default: meta.default as number | boolean | string | number[] } : {}) };
+  }
+  // attachment
+  if (edit.attr === 'src') return { type: 'string' };
+  const meta = getAttachmentDef(t.tag)?.attrs[edit.attr];
   if (!meta || (!isScalarType(meta.type) && !isEnumType(meta.type))) return undefined;
   return { type: meta.type, ...(meta.default !== undefined ? { default: meta.default as number | boolean | string | number[] } : {}) };
 }

@@ -32,12 +32,29 @@ describe('XSD exporter', () => {
 
   it('types a component reference attribute as a #id ref', () => {
     // <Follow source="..."/> → the source attribute uses the "ref" simple type.
-    expect(xsd).toMatch(/<xs:attribute name="source" type="ref"\/>/);
+    // It carries a description, so it's the annotated (non-self-closing) form.
+    expect(xsd).toContain('<xs:attribute name="source" type="ref">');
+    expect(xsd).toContain('<xs:documentation>The Oscillator this follows</xs:documentation>');
   });
 
   it('shares transform attributes through an attribute group', () => {
     expect(xsd).toContain('<xs:attributeGroup name="transform">');
-    expect(xsd).toContain('<xs:attribute name="position" type="vec3"/>');
+    expect(xsd).toContain('<xs:attribute name="position" type="vec3">');
+  });
+
+  it('surfaces mandatory descriptions as xs:documentation (IDE hover)', () => {
+    expect(xsd).toContain('<xs:annotation>');
+    expect(xsd).toContain('<xs:documentation>Local position x y z</xs:documentation>');
+  });
+
+  it('declares no duplicate attribute within any element (valid XSD 1.0)', () => {
+    // Guards the class of bug where an attachment's own `src` collided with the
+    // auto-added resource `src` — a "Duplicate attribute use" schema-compile error.
+    for (const block of xsd.split('<xs:element name=').slice(1)) {
+      const element = block.split('</xs:element>')[0]!;
+      const names = [...element.matchAll(/<xs:attribute name="([^"]+)"/g)].map((m) => m[1]);
+      expect(new Set(names).size, `duplicate attribute in element: ${block.slice(0, 40)}`).toBe(names.length);
+    }
   });
 
   it('declares the expanded Object3D set, settings, and PrefabInstance', () => {
@@ -124,10 +141,11 @@ describe('user components are first-class in both exporters', () => {
   }
   void ExporterProbe;
 
-  it('appears in the XSD with its attribute', () => {
+  it('appears in the XSD with its attribute and documented description', () => {
     const xsd = generateXsd();
     expect(xsd).toContain('<xs:element name="ExporterProbe">');
-    expect(xsd).toMatch(/<xs:attribute name="knob" type="xs:float"\/>/);
+    expect(xsd).toContain('<xs:attribute name="knob" type="xs:float">');
+    expect(xsd).toContain('<xs:documentation>a knob</xs:documentation>');
   });
 
   it('appears in the API with its description and typed default', () => {
@@ -171,6 +189,7 @@ describe('API exporter — array properties', () => {
   it('types array attributes as xs:string in the XSD', () => {
     const xsd = generateXsd();
     // ArrayProbe's "points" is a float array — should be xs:string (bracketed list).
-    expect(xsd).toMatch(/<xs:attribute name="points" type="xs:string"\/>/);
+    // It has a description, so it's the annotated (non-self-closing) form.
+    expect(xsd).toContain('<xs:attribute name="points" type="xs:string">');
   });
 });

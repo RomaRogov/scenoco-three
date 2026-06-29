@@ -63,7 +63,7 @@ describe('components on any node, incl. lights/cameras/scene (goal 2)', () => {
 });
 
 describe('typed node access (goal 2)', () => {
-  @component({ name: 'FovSetter' })
+  @component({ name: 'FovSetter', description: 'sets the camera fov' })
   class FovSetter extends Component<PerspectiveCamera> {
     override start(): void {
       // Typed: no cast needed to reach PerspectiveCamera.fov.
