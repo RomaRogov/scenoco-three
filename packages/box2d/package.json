@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/box2d",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Box2D (planck) 2D physics for SceNoCo: <Physics2D> setting + RigidBody2D/Collider2D components on the System seam",
   "type": "module",
   "license": "MIT",
@@ -36,7 +36,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.2.0",
+    "@scenoco-three/core": "^0.3.0",
     "planck": "^1.5.0"
   },
   "peerDependencies": {

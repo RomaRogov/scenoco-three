@@ -40,6 +40,7 @@ export {
 } from './dsl/nodes.js';
 
 export { builtinNodeModules, builtinNodeModule } from './nodes/manifest.js';
+export { getSrcCompiler, type ParsedElement, type SrcCompiler } from './dsl/srcCompiler.js';
 
 export {
   BUNDLE_VERSION,

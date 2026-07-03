@@ -4,7 +4,7 @@ import { Engine } from '@scenoco-three/core';
 import '@scenoco-three/box2d';
 // Compiled to a compact bundle at build time (Vite plugin runs @scenoco-three/compiler
 // in Node). The browser receives no XML parser — just the bundle data + component imports.
-import breakoutScene from './scenes/breakout.scene.xml?bundle';
+import breakoutScene from './assets/scenes/breakout.scene.xml?bundle';
 
 function boot(): void {
   const canvas = document.querySelector<HTMLCanvasElement>('#app');

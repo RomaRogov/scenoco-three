@@ -37,11 +37,27 @@ export type BundleValue = CompiledScalar | BundleValue[];
  */
 export type BundleKind = 'scene' | 'prefab';
 
-export type Bundle = [version: number, strings: string[], scene: BundleAsset, kind?: BundleKind];
+export type Bundle = [
+  version: number,
+  strings: string[],
+  scene: BundleAsset,
+  kind?: BundleKind,
+  /**
+   * A scene's DOM UI overlay — the raw HTML of its sibling `*.ui.html`, mounted
+   * over the canvas on load (see `Engine.overlay`). Appended only when the scene
+   * has one; `kind` is then written explicitly so this stays at index 4.
+   */
+  ui?: string,
+];
 
 /** The bundle's kind, defaulting to `scene` for bundles that predate the marker. */
 export function bundleKind(bundle: Bundle): BundleKind {
   return bundle[3] ?? 'scene';
+}
+
+/** The scene's DOM UI overlay HTML, if it declared a sibling `*.ui.html`. */
+export function bundleUi(bundle: Bundle): string | undefined {
+  return bundle[4];
 }
 
 export type BundleAsset = [
@@ -91,4 +107,6 @@ export const NodeFlag = {
 /** Component flag bits. */
 export const ComponentFlag = {
   Id: 1 << 0,
+  /** Carries a build-time `config` blob compiled from the component's `src=` document (e.g. a particle system). */
+  Config: 1 << 1,
 } as const;

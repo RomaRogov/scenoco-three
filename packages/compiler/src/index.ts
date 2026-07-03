@@ -29,7 +29,7 @@ export {
   type WatchHandle,
   type WatchEvent,
 } from './watch.js';
-export { scanComponents, loadComponents, type ComponentScan, type LoadOptions } from './components.js';
+export { scanComponents, loadComponents, detectTagPackages, collectedPackageSchemas, componentLoadError, type ComponentScan, type LoadOptions, type SchemaFile, type ComponentLoadError } from './components.js';
 export { scaffoldFiles } from './cli/templates.js';
 
 // Built-in node tag → package subpath that registers it, for usage-based shipping.
@@ -38,7 +38,7 @@ export { builtinNodeModules, builtinNodeModule } from '@scenoco-three/core/inter
 // Asset enumeration — the Vite plugin uses it to rewrite asset URLs to bundler-served assets.
 export { collectAssetRefs, type AssetRef } from '@scenoco-three/core';
 
-export { generateXsd } from './exporters/xsd.js';
+export { generateXsd, generateMaterialXsd, generatePrefabXsd } from './exporters/xsd.js';
 export {
   generateApi,
   generateApiJson,

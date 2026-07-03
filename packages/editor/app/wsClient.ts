@@ -10,6 +10,8 @@ export function connectEditor(session: EditorSession): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}${WS_PATH}`;
 
+  let stopped = false; // set on a shutdown push — don't reconnect to a dead server
+
   const open = (): void => {
     const ws = new WebSocket(url);
     ws.onmessage = async (ev) => {
@@ -19,9 +21,14 @@ export function connectEditor(session: EditorSession): void {
       } catch {
         return;
       }
-      // Unsolicited server push (a watched file changed) — not an id-correlated command.
+      // Unsolicited server pushes — not id-correlated commands.
       if ('push' in msg) {
-        session.onExternalChange?.(msg.file, msg.role);
+        if (msg.push === 'shutdown') {
+          stopped = true;
+          closeEditorTab();
+        } else {
+          session.onExternalChange?.(msg.file, msg.role);
+        }
         return;
       }
       const cmd = msg;
@@ -33,10 +40,29 @@ export function connectEditor(session: EditorSession): void {
       }
       ws.send(JSON.stringify(response));
     };
-    ws.onclose = () => setTimeout(open, 1000);
+    ws.onclose = () => {
+      if (!stopped) setTimeout(open, 1000);
+    };
     ws.onerror = () => ws.close();
   };
   open();
+}
+
+/**
+ * The dev server stopped: close this tab. `window.close()` only succeeds for a
+ * tab the script itself opened (or one Chrome deems closable) — if the browser
+ * blocks it, fall back to a "server stopped" placeholder so the stale page is
+ * obvious and inert rather than silently retrying a dead connection.
+ */
+function closeEditorTab(): void {
+  window.close();
+  setTimeout(() => {
+    document.title = 'Editor stopped';
+    document.body.innerHTML =
+      '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'font:500 15px system-ui,sans-serif;color:#9aa4b2;background:#0a0e16">' +
+      'Editor server stopped — you can close this tab.</div>';
+  }, 150);
 }
 
 /**

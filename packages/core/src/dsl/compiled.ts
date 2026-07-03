@@ -23,6 +23,12 @@ export interface CompiledScene {
    * a PrefabRef bound to `prefabs[i]`. Present only when the scene uses one.
    */
   prefabs?: CompiledScene[];
+  /**
+   * Raw HTML of the scene's sibling `*.ui.html`, mounted over the canvas as a
+   * DOM UI overlay on load (see `Engine.overlay`). Present only when the scene
+   * declares one; prefabs never carry it.
+   */
+  ui?: string;
 }
 
 /** A resolved reference: an index into nodes[], components[], or prefabs[]. */
@@ -74,4 +80,12 @@ export interface CompiledComponent {
   node: number; // owning node index
   /** Only explicitly-set props; omitted props keep the component's field defaults. */
   props: Record<string, CompiledValue>;
+  /**
+   * Build-time config compiled from this component's `src=` document — a
+   * package-owned format (e.g. a particle system's `.particle.xml`) that a
+   * registered src-compiler turned into a plain JSON blob. Opaque to the scene;
+   * handed to the live component via `applyConfig` before onLoad. Absent unless
+   * the component used `src=`.
+   */
+  config?: unknown;
 }

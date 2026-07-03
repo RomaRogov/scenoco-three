@@ -16,19 +16,16 @@ import { defineConfig } from 'vite';
 import { bundlePlugin } from '@scenoco-three/vite';
 
 export default defineConfig({
-  plugins: [
-    bundlePlugin({
-      componentRoots: ['src/components'],            // scanned for @component / @node / @attachment
-      registerPackages: ['@scenoco-three/box2d'],    // tag packages a scene may use
-    }),
-  ],
+  // Zero-config: scans assets/ for @component / @node / @attachment modules and
+  // auto-registers every @scenoco-three/* tag package from your package.json.
+  plugins: [bundlePlugin()],
 });
 ```
 
 ```ts
 // app.ts
-import sceneBundle from './scenes/level.scene.xml?bundle';   // compiled in Node
-import prefab from './scenes/brick.prefab.xml?bundle';        // .prefab.xml → a prefab bundle
+import sceneBundle from '../assets/scenes/level.scene.xml?bundle';   // compiled in Node
+import prefab from '../assets/scenes/brick.prefab.xml?bundle';        // .prefab.xml → a prefab bundle
 engine.loadScene(sceneBundle);
 ```
 
@@ -46,8 +43,8 @@ declare module '*.xml?bundle' {
 
 ```ts
 interface BundlePluginOptions {
-  componentRoots?: string[];    // default ['src'] — dirs scanned for tag/component modules
-  registerPackages?: string[];  // npm packages that register tags on import (validated + auto-imported)
+  componentRoots?: string[];    // default ['assets'] — dirs scanned for tag/component modules
+  registerPackages?: string[];  // tag packages; default: @scenoco-three/* deps from package.json
 }
 ```
 
@@ -64,7 +61,7 @@ For `import x from './s.scene.xml?bundle'`, in Node at build/serve time:
 
 ```ts
 // generated module for level.scene.xml?bundle
-import '/abs/src/components/Rotator.ts';   // ← used by this scene
+import '/abs/assets/components/Rotator.ts';   // ← used by this scene
 import '@scenoco-three/core/nodes/Mesh';   // ← built-in tag it uses
 export default [1, [/* strings */], [/* assets */]];
 ```

@@ -42,16 +42,16 @@ export type EditorResponse =
   | { id: string; ok: false; error: string };
 
 /**
- * An unsolicited server→editor notification (not id-correlated). Sent when a
- * watched file changes on disk: the open scene/prefab (`role: 'open'`) or one of
- * its `src=` dependencies — a prefab/material (`role: 'dep'`).
+ * An unsolicited server→editor notification (not id-correlated).
+ *
+ * - `fileChanged`: a watched file changed on disk — the open scene/prefab
+ *   (`role: 'open'`) or one of its `src=` deps, a prefab/material (`role: 'dep'`).
+ * - `shutdown`: the dev server is stopping; the editor page closes itself so no
+ *   stale tab is left behind.
  */
-export interface EditorPush {
-  push: 'fileChanged';
-  /** Absolute path of the changed file. */
-  file: string;
-  role: 'open' | 'dep';
-}
+export type EditorPush =
+  | { push: 'fileChanged'; file: string; role: 'open' | 'dep' }
+  | { push: 'shutdown' };
 
 /** Result payloads, discriminated by `kind`. */
 export type EditorResult =

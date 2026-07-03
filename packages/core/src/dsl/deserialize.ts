@@ -3,6 +3,7 @@ import { isEnumType } from '../core/EnumRegistry.js';
 import {
   ComponentFlag,
   NodeFlag,
+  bundleUi,
   type Bundle,
   type BundleComponent,
   type BundleNode,
@@ -44,7 +45,8 @@ export function deserializeBundle(bundle: Bundle): CompiledScene {
     for (const c of node.components) components[c]!.node = i;
   });
 
-  return { root, nodes, attachments, components, ...(prefabs ? { prefabs } : {}) };
+  const ui = bundleUi(bundle);
+  return { root, nodes, attachments, components, ...(prefabs ? { prefabs } : {}), ...(ui ? { ui } : {}) };
 }
 
 function decodeTag(data: BundleTag, strings: string[]): CompiledAsset {
@@ -110,6 +112,7 @@ function decodeComponent(data: BundleComponent, strings: string[]): CompiledComp
 
   const component: CompiledComponent = { type, node: -1, props };
   if (flags & ComponentFlag.Id) component.id = strings[data[i++] as number]!;
+  if (flags & ComponentFlag.Config) component.config = JSON.parse(strings[data[i++] as number]!);
   return component;
 }
 

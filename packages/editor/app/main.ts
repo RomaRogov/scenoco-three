@@ -1,7 +1,4 @@
 import { Box3, BoxHelper, Raycaster, Vector2, Vector3, type Object3D } from 'three';
-// Register every project component, package tag, and built-in node up front, so
-// any scene/prefab the agent opens has its tags available.
-import 'virtual:scenoco-components';
 import { EditorSession } from './session.js';
 import { connectEditor } from './wsClient.js';
 import { CameraRig } from './cameraRig.js';
@@ -11,6 +8,7 @@ import { buildPanels, type Panels } from './panels.js';
 import { SceneDocument } from './document.js';
 import { Gizmo, type GizmoMode } from './gizmo.js';
 import { buildToolbar, type Toolbar } from './toolbar.js';
+import { showFilePicker } from './filePicker.js';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 // Right mouse drag is the fly-camera look control — suppress the native
@@ -32,6 +30,9 @@ let saving = false;
 // engine swaps (open / run / stop). Play mode runs the scene's own camera with
 // no editor rig, document, or gizmo.
 function rebind(): void {
+  // A file is loaded (from the URL, a user pick, or an MCP `open`) — the start-up
+  // picker, if still up, has served its purpose.
+  if (session.filePath) document.querySelector('.sc-picker')?.remove();
   selection = undefined; // the old engine (and its scene helpers) is disposed
   rig = undefined;
   desktop = undefined;
@@ -234,10 +235,12 @@ async function reloadScene(preserveEdits: boolean): Promise<void> {
   reloading = true;
   const pending = preserveEdits ? (doc?.netEdits() ?? []) : [];
   try {
-    await session.open(path); // re-fetch + swap → rebind() builds a fresh document
+    const summary = await session.open(path); // re-fetch + swap → rebind() builds a fresh document
     if (pending.length) doc?.applyEdits(pending);
+    setComponentError(summary.componentError); // clears when a fix takes effect
   } catch (e) {
     console.error('[editor] reload failed:', e);
+    setComponentError(e instanceof Error ? e.message : String(e));
   } finally {
     reloading = false;
     dismissConflict();
@@ -258,6 +261,28 @@ function showConflict(): void {
 function dismissConflict(): void {
   conflictBanner?.remove();
   conflictBanner = undefined;
+}
+
+// A persistent error banner for a broken component set. The editor page stays
+// alive (MCP too) but can't render until the code compiles again; this says why
+// and reloads automatically on fix. Passing `undefined` clears it.
+let errorBanner: HTMLElement | undefined;
+function setComponentError(message: string | undefined): void {
+  if (!message) {
+    errorBanner?.remove();
+    errorBanner = undefined;
+    return;
+  }
+  const text = `Component code has an error — the editor will reload once it's fixed:\n${message}`;
+  if (errorBanner) {
+    (errorBanner.firstChild as HTMLElement).textContent = text;
+    return;
+  }
+  const bar = document.createElement('div');
+  bar.id = 'sc-error';
+  bar.append(textSpan(text), bannerButton('Dismiss', () => setComponentError(undefined)));
+  document.body.append(bar);
+  errorBanner = bar;
 }
 function textSpan(text: string): HTMLElement {
   const s = document.createElement('span');
@@ -282,17 +307,38 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
+/** Open a file and reflect it in the URL, so reloads and the wi-fi link resume it. */
+async function openFile(path: string): Promise<void> {
+  try {
+    const summary = await session.open(path);
+    const url = new URL(location.href);
+    url.searchParams.set('file', path);
+    history.replaceState(null, '', url);
+    setComponentError(summary.componentError);
+  } catch (e) {
+    console.error('[editor] open failed:', e);
+    setComponentError(e instanceof Error ? e.message : String(e));
+  }
+}
+
 void (async () => {
+  // Register every project component, package tag, and built-in node. Imported
+  // dynamically + caught so a broken component file can't abort page startup: the
+  // WS bridge (hence MCP) and the error banner still come up. While something is
+  // broken the editor can't render scenes, but it stays alive; a full reload on
+  // the next successful HMR update revives it once every error is fixed.
+  try {
+    await import('virtual:scenoco-components');
+  } catch (e) {
+    console.error('[editor] components failed to load:', e);
+    setComponentError(e instanceof Error ? e.message : String(e));
+    if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', () => location.reload());
+  }
   rebind(); // builds the (empty) panels
   connectEditor(session);
   const initial = new URLSearchParams(location.search).get('file');
-  if (initial) {
-    try {
-      await session.open(initial);
-    } catch (e) {
-      console.error('[editor] open failed:', e);
-    }
-  }
+  if (initial) await openFile(initial);
+  else void showFilePicker(openFile); // no ?file= → let the user pick from assets/
   requestAnimationFrame(frame);
 })();
 

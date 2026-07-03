@@ -12,8 +12,10 @@ export default defineConfig({
       '@scenoco-three/vite': fileURLToPath(new URL('./packages/vite/src/index.ts', import.meta.url)),
       '@scenoco-three/rapier': fileURLToPath(new URL('./packages/rapier/src/index.ts', import.meta.url)),
       '@scenoco-three/box2d': fileURLToPath(new URL('./packages/box2d/src/index.ts', import.meta.url)),
+      '@scenoco-three/collision': fileURLToPath(new URL('./packages/collision/src/index.ts', import.meta.url)),
       '@scenoco-three/audio': fileURLToPath(new URL('./packages/audio/src/index.ts', import.meta.url)),
       '@scenoco-three/animation': fileURLToPath(new URL('./packages/animation/src/index.ts', import.meta.url)),
+      '@scenoco-three/particles': fileURLToPath(new URL('./packages/particles/src/index.ts', import.meta.url)),
     },
   },
   test: {

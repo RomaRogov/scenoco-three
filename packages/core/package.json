@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SceNoCo runtime: a component-based scene framework for Three.js (Engine, Component, registry, bundle loader)",
   "type": "module",
   "license": "MIT",

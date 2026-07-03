@@ -185,6 +185,8 @@ export class Engine {
   private lastFrameTime?: number;
   /** Systems auto-run for the loaded scene — removed on unload. */
   private sceneSystems: System[] = [];
+  /** True while `applyScene` registers the initial component batch; `runSceneSystems` attaches systems then (with the full set). */
+  private applyingScene = false;
   /** Live attachment instances of the loaded scene (retained for findAttachment). */
   private sceneAttachments: AttachmentInstance[] = [];
   /** Tooling map of the loaded scene: live objects ⇄ their compiled-source indices. */
@@ -197,6 +199,8 @@ export class Engine {
   /** The object a pointer press landed on, so the release/click can target it. */
   private pointerPressed?: Object3D;
   private _audioListener?: AudioListener;
+  /** DOM UI overlay layered over the canvas; created on first `overlay` access. */
+  private _overlay?: HTMLElement;
 
   constructor(options: EngineOptions = {}) {
     this.fixedTimeStep = options.fixedTimeStep ?? 1 / 60;
@@ -217,6 +221,34 @@ export class Engine {
       this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
       if (options.autoStart !== false) this.start();
     }
+  }
+
+  /**
+   * The DOM UI overlay — a `<div>` layered over the canvas for HTML/CSS UI (a
+   * HUD, menus). Created on first access and positioned to cover the canvas. Its
+   * root ignores pointer events so gameplay clicks still reach the canvas;
+   * interactive widgets opt back in with `pointer-events:auto`.
+   *
+   * A component reaches it with plain DOM — `this.engine.overlay.querySelector(...)`,
+   * `.textContent = ...`, `.addEventListener(...)` — no UI-specific API. A scene's
+   * sibling `*.ui.html` is mounted here automatically on load; components just
+   * drive the elements it declares.
+   */
+  get overlay(): HTMLElement {
+    if (this._overlay) return this._overlay;
+    const el = document.createElement('div');
+    el.className = 'scenoco-ui';
+    Object.assign(el.style, { position: 'absolute', inset: '0', overflow: 'hidden', pointerEvents: 'none' });
+    // Sit inside the canvas's box: make the canvas's parent a positioning context
+    // (only if it isn't one already) and overlay-fill it. Detached canvas (headless
+    // tests) → the div stays unattached, which is harmless.
+    const parent = this.renderer?.domElement.parentElement;
+    if (parent) {
+      if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+      parent.appendChild(el);
+    }
+    this._overlay = el;
+    return el;
   }
 
   /**
@@ -266,6 +298,22 @@ export class Engine {
     for (const [system, type] of this.systemQueries) {
       if (instance instanceof type) (system.components as Component[]).push(instance);
     }
+    // A component appearing at RUNTIME (spawn / addComponent after load) must
+    // start any `@system` that processes its type but isn't running yet —
+    // otherwise a spawn-only scene (all bodies from prefabs, none at load) gets
+    // silently dead physics. During the initial scene-load batch this is deferred
+    // to runSceneSystems, which seeds each system with the full component set.
+    if (!this.applyingScene) this.ensureSystemsFor(instance);
+  }
+
+  /** Start each scene-scoped `@system` that processes `instance`'s type and isn't already running. */
+  private ensureSystemsFor(instance: Component): void {
+    if (this.editorMode) return;
+    for (const def of allSystemDefs()) {
+      if (!(instance instanceof (def.componentType as ComponentType))) continue;
+      if (this.systems.some((s) => s instanceof def.ctor)) continue;
+      this.sceneSystems.push(this.addSystem(new def.ctor() as System));
+    }
   }
 
   /** Run onLoad + onEnable for an already-registered instance (skipped in editor mode). */
@@ -308,6 +356,19 @@ export class Engine {
 
   getComponents(node: Object3D): readonly Component[] {
     return this.byNode.get(node) ?? [];
+  }
+
+  /**
+   * Every live component assignable to `type`, across the whole engine (Unity
+   * `FindObjectsByType`) — the type-only counterpart to `findComponent(id, Type)`,
+   * which the id→instance map couldn't answer. Includes components on spawned
+   * instances, not just the loaded scene; order is execution order. Returns `[]`
+   * when none exist.
+   */
+  getComponentsOfType<T extends Component>(type: abstract new (...args: never[]) => T): T[] {
+    const out: T[] = [];
+    for (const c of this.components) if (c instanceof type) out.push(c as T);
+    return out;
   }
 
   /**
@@ -517,7 +578,9 @@ export class Engine {
         : type;
     const direct = this.byId.get(id);
     if (direct && (!ctor || direct instanceof ctor)) return direct as T;
-    const node = this.scene.getObjectByName(id);
+    // Fall back to the node with this id (indexed via findObject, so it also
+    // resolves ids on spawned instances — not just a scene-root traversal).
+    const node = this.findObject(id);
     if (node) {
       for (const c of this.getComponents(node)) if (!ctor || c instanceof ctor) return c as T;
     }
@@ -598,7 +661,21 @@ export class Engine {
     this.scene = live.root as Scene;
     this.sceneAttachments = live.attachments;
     this.indexObjects(this.scene, true);
-    this.initLive(live);
+    // Mount the scene's DOM UI overlay (its sibling *.ui.html) *before* onLoad,
+    // so a component's onLoad can query its elements (engine.overlay). The static
+    // HTML shows even in editor edit mode (components that drive it only run in
+    // play mode); headless engines skip it (no document).
+    if (compiled.ui && typeof document !== 'undefined') this.overlay.innerHTML = compiled.ui;
+    // Defer system attach to runSceneSystems below, so each system starts once
+    // with the full component set (not incrementally as the batch registers).
+    // try/finally so a throwing onLoad can't wedge the flag on and disable
+    // runtime system attach for the rest of the engine's life.
+    this.applyingScene = true;
+    try {
+      this.initLive(live);
+    } finally {
+      this.applyingScene = false;
+    }
     this.sceneGraph = buildSceneGraph(compiled, live);
     // Auto-run registered systems whose component type the scene contains — but
     // not in editor mode (no physics/batch processing on a static scene).
@@ -717,6 +794,8 @@ export class Engine {
     this.sceneGraph = undefined;
     this.indexObjects(this.scene, false);
     disposeObject(this.scene);
+    // Clear the DOM UI overlay; applyScene re-mounts the next scene's, if any.
+    this._overlay?.replaceChildren();
     // Start fresh: an empty scene with no camera (rendering pauses until one loads).
     this.scene = new Scene();
     this.mainCamera = undefined;
@@ -872,6 +951,8 @@ export class Engine {
     this.input.dispose();
     this.assets.dispose();
     this.renderer?.dispose();
+    this._overlay?.remove();
+    this._overlay = undefined;
   }
 
   private resizeToCanvas(): void {

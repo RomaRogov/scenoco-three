@@ -13,8 +13,8 @@ export function scaffoldFiles(packageName: string, version = '^0.1.0'): Record<s
       scripts: {
         dev: 'vite',
         build: 'vite build',
-        validate: 'scenoco validate src/scenes/hello.scene.xml --components src/components',
-        export: 'scenoco export --out schema --components src/components',
+        validate: 'scenoco validate assets/scenes/hello.scene.xml',
+        export: 'scenoco export --out schema',
       },
       dependencies: {
         '@scenoco-three/core': version,
@@ -41,16 +41,17 @@ export function scaffoldFiles(packageName: string, version = '^0.1.0'): Record<s
         skipLibCheck: true,
         noEmit: true,
       },
-      include: ['src', 'vite.config.ts'],
+      include: ['src', 'assets', 'vite.config.ts'],
     }),
 
     'vite.config.ts': `import { defineConfig } from 'vite';
 import { bundlePlugin } from '@scenoco-three/vite';
 
 // Compiles \`*.scene.xml?bundle\` imports to bundles in Node, and registers the
-// components each scene uses — so the browser ships no XML parser.
+// components each scene uses — so the browser ships no XML parser. Components are
+// scanned from assets/ and tag packages read from package.json by default.
 export default defineConfig({
-  plugins: [bundlePlugin({ componentRoots: ['src/components'] })],
+  plugins: [bundlePlugin()],
 });
 `,
 
@@ -81,7 +82,7 @@ declare module '*.scene.xml?bundle' {
 `,
 
     'src/main.ts': `import { Engine } from '@scenoco-three/core';
-import scene from './scenes/hello.scene.xml?bundle';
+import scene from '../assets/scenes/hello.scene.xml?bundle';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#app')!;
 const engine = new Engine({ canvas });
@@ -89,7 +90,7 @@ const engine = new Engine({ canvas });
 engine.loadScene(scene);
 `,
 
-    'src/components/Spin.ts': `import { Component, component, property } from '@scenoco-three/core';
+    'assets/components/Spin.ts': `import { Component, component, property } from '@scenoco-three/core';
 
 @component({ name: 'Spin', description: 'Spins the host node around its Y axis over time' })
 export class Spin extends Component {
@@ -103,7 +104,7 @@ export class Spin extends Component {
 }
 `,
 
-    'src/scenes/hello.scene.xml': `<Scene>
+    'assets/scenes/hello.scene.xml': `<Scene>
   <PerspectiveCamera id="cam" position="0 1 5" />
   <AmbientLight intensity="0.4" />
   <DirectionalLight intensity="2" position="2 4 3" />

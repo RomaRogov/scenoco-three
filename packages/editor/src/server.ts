@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
 import { createServer, type Plugin, type ViteDevServer } from 'vite';
@@ -8,20 +8,27 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   bundlePrefab,
   bundleScene,
+  collectedPackageSchemas,
   compilePrefabXml,
   compileSceneXml,
+  componentLoadError,
+  detectTagPackages,
+  generateMaterialXsd,
+  generatePrefabXsd,
+  generateXsd,
   loadComponents,
   patchSceneXml,
   scanComponents,
+  type ComponentLoadError,
   type PatchEdit,
   type ResourceResolver,
 } from '@scenoco-three/compiler';
 import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse } from './protocol.js';
 
 export interface ServerOptions {
-  /** Directories scanned for `@component`/`@node` tags (default `['src']`). */
+  /** Directories scanned for `@component`/`@node` tags (default `['assets']`). */
   componentRoots?: string[];
-  /** Tag packages to register (e.g. `['@scenoco-three/box2d']`). */
+  /** Tag packages to register (default: the `@scenoco-three/*` deps in package.json). */
   packages?: string[];
   /** Fixed port (default: a free OS port). */
   port?: number;
@@ -65,15 +72,61 @@ const fsResolver: ResourceResolver = (request, referrer) => {
 };
 
 /**
+ * (Re)register the project's components (change-aware — a no-op when nothing
+ * changed) and, while the registry is healthy, keep the project's `schema/` XSDs
+ * in sync. A corrupted component file no longer wipes the registry: the last-good
+ * set stays live and the failure is returned for the editor/MCP to surface.
+ */
+async function refreshComponents(roots: string[], cwd: string, packages: string[]): Promise<ComponentLoadError | undefined> {
+  await loadComponents(roots, cwd, { packages }).catch(() => {});
+  const error = componentLoadError();
+  if (!error) regenerateSchemas(cwd);
+  return error;
+}
+
+/**
+ * Rewrite `schema/{scene,prefab,material}.xsd` plus each tag package's XSD from the
+ * live registry, so an IDE linked to them tracks component edits without a manual
+ * `scenoco export`. Opt-in: only maintains an *existing* `schema/` dir; writes only
+ * files whose content changed (no git churn, no watcher feedback loop).
+ */
+function regenerateSchemas(cwd: string): void {
+  const dir = resolve(cwd, 'schema');
+  if (!existsSync(dir)) return;
+  writeIfChanged(resolve(dir, 'scene.xsd'), generateXsd());
+  writeIfChanged(resolve(dir, 'prefab.xsd'), generatePrefabXsd());
+  writeIfChanged(resolve(dir, 'material.xsd'), generateMaterialXsd());
+  for (const schema of collectedPackageSchemas()) {
+    try {
+      writeIfChanged(resolve(dir, schema.filename), readFileSync(schema.path, 'utf8'));
+    } catch {
+      /* a package XSD went missing — skip it */
+    }
+  }
+}
+
+function writeIfChanged(path: string, content: string): void {
+  try {
+    if (existsSync(path) && readFileSync(path, 'utf8') === content) return;
+  } catch {
+    /* unreadable — fall through and overwrite */
+  }
+  writeFileSync(path, content);
+}
+
+/**
  * Start the editor's Vite dev server: serves the app, registers all project
  * components/packages, compiles any scene/prefab on demand, and bridges the page
  * to the MCP server over a WebSocket.
  */
 export async function startEditorServer(opts: ServerOptions = {}): Promise<EditorServer> {
-  const componentRoots = opts.componentRoots ?? ['src'];
-  const packages = opts.packages ?? [];
-  const port = opts.port ?? (await freePort());
   const cwd = opts.cwd ?? process.cwd();
+  // Convention over configuration: scan `assets/` for components and register the
+  // `@scenoco-three/*` tag packages listed in the project's package.json, so the
+  // editor needs no `--components`/`--packages`.
+  const componentRoots = opts.componentRoots ?? ['assets'];
+  const packages = opts.packages ?? detectTagPackages(cwd);
+  const port = opts.port ?? (await freePort());
 
   const watcher = createFileWatcher();
   const server = await createServer({
@@ -170,8 +223,9 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, 
   return {
     name: 'scenoco:bundle-endpoint',
     async configureServer(server) {
-      // Register components in this Node process so compilation/validation works.
-      await loadComponents(roots, cwd, { packages }).catch(() => {});
+      // Register components in this Node process so compilation/validation works,
+      // and publish the project's XSDs (if it has a schema/ dir).
+      await refreshComponents(roots, cwd, packages);
       // POST /@scenoco/save — surgical, attribute-level write-back to the source.
       server.middlewares.use((req, res, next) => {
         if (req.method !== 'POST' || !req.url || !req.url.startsWith('/@scenoco/save')) return next();
@@ -193,39 +247,68 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, 
           });
       });
 
+      // GET /@scenoco/files — the scenes/prefabs under the project's asset roots,
+      // for the start-up file picker (used when the editor is opened with no ?file=).
+      // Isolated to `roots` (default assets/): nothing outside them is listed.
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith('/@scenoco/files')) return next();
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ files: listSceneFiles(roots, cwd) }));
+      });
+
       server.middlewares.use((req, res, next) => {
         if (!req.url || !req.url.startsWith('/@scenoco/bundle')) return next();
-        try {
-          const file = new URL(req.url, 'http://x').searchParams.get('file');
-          if (!file) throw new Error('missing ?file=');
-          const abs = resolve(cwd, file);
-          const xml = readFileSync(abs, 'utf8');
-          const isPrefab = abs.endsWith('.prefab.xml');
-          // Track which src= files the compile touches, so we can watch them too.
-          const deps: { path: string; contents: string }[] = [];
-          const trackingResolver: ResourceResolver = (request, referrer) => {
-            const r = fsResolver(request, referrer);
-            if (r) deps.push({ path: r.path, contents: r.contents });
-            return r;
-          };
-          const result = isPrefab
-            ? compilePrefabXml(xml, { path: abs, resolve: trackingResolver })
-            : compileSceneXml(xml, { path: abs, resolve: trackingResolver });
-          if (!result.ok) {
+        void (async () => {
+          // Pick up any component edits (and re-sync schema/) before compiling, with
+          // last-good fallback — a broken component is reported, not fatal.
+          const compError = await refreshComponents(roots, cwd, packages);
+          try {
+            const file = new URL(req.url!, 'http://x').searchParams.get('file');
+            if (!file) throw new Error('missing ?file=');
+            const abs = resolve(cwd, file);
+            const xml = readFileSync(abs, 'utf8');
+            const isPrefab = abs.endsWith('.prefab.xml');
+            // Track which src= files the compile touches, so we can watch them too.
+            const deps: { path: string; contents: string }[] = [];
+            const trackingResolver: ResourceResolver = (request, referrer) => {
+              const r = fsResolver(request, referrer);
+              if (r) deps.push({ path: r.path, contents: r.contents });
+              return r;
+            };
+            const result = isPrefab
+              ? compilePrefabXml(xml, { path: abs, resolve: trackingResolver })
+              : compileSceneXml(xml, { path: abs, resolve: trackingResolver });
+            if (!result.ok) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              // A component load failure is the likely root cause of an "unknown tag"
+              // compile error — pass it along so the editor can explain it.
+              res.end(JSON.stringify({ error: 'compile failed', diagnostics: result.diagnostics, componentError: compError?.message }));
+              return;
+            }
+            // A scene's sibling `*.ui.html` (its DOM UI overlay) is embedded in the
+            // bundle and watched as a dep, so editing it live-refreshes the overlay
+            // — visible statically even in edit mode (engine.overlay).
+            if (!isPrefab) {
+              const uiFile = abs.replace(/\.(scene\.)?xml$/, '.ui.html');
+              if (existsSync(uiFile)) {
+                const uiHtml = readFileSync(uiFile, 'utf8');
+                result.scene.ui = uiHtml;
+                deps.push({ path: uiFile, contents: uiHtml });
+              }
+            }
+            watcher.arm(abs, xml, deps); // watch this file + its src/ui deps for changes
+            const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
+            res.setHeader('Content-Type', 'application/json');
+            // `componentError` is present when the scene still compiled (stale last-good
+            // registry) but a component file is currently broken — a warning, not fatal.
+            res.end(JSON.stringify({ bundle, provenance: result.provenance, componentError: compError?.message }));
+          } catch (e: unknown) {
             res.statusCode = 400;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: 'compile failed', diagnostics: result.diagnostics }));
-            return;
+            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e), componentError: compError?.message }));
           }
-          watcher.arm(abs, xml, deps); // watch this file + its src deps for changes
-          const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ bundle, provenance: result.provenance }));
-        } catch (e: unknown) {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
-        }
+        })();
       });
     },
   };
@@ -291,6 +374,43 @@ function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown
     });
     req.on('error', reject);
   });
+}
+
+/** A scene/prefab source the picker can open, addressed relative to `cwd`. */
+export interface SceneFile {
+  /** Path relative to `cwd` — what the editor passes to `?file=` / `open()`. */
+  file: string;
+  /** Whether it's a scene or a prefab, for the picker's label. */
+  kind: 'scene' | 'prefab';
+}
+
+/**
+ * Every `*.scene.xml` / `*.prefab.xml` under the asset `roots` (default assets/),
+ * relative to `cwd`. Isolated to the roots — the walk never escapes them, and
+ * build/cache dirs are skipped. Sorted for a stable picker order.
+ */
+export function listSceneFiles(roots: string[], cwd: string): SceneFile[] {
+  const found = new Map<string, SceneFile>(); // keyed by file, dedupes overlapping roots
+  const skip = new Set(['node_modules', 'dist', '.scenoco', '.git']);
+  const walk = (dir: string): void => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // missing/unreadable root — nothing to list
+    }
+    for (const e of entries) {
+      const abs = resolve(dir, e.name);
+      if (e.isDirectory()) {
+        if (!e.name.startsWith('.') && !skip.has(e.name)) walk(abs);
+      } else if (e.name.endsWith('.scene.xml') || e.name.endsWith('.prefab.xml')) {
+        const file = relative(cwd, abs).split(sep).join('/');
+        found.set(file, { file, kind: e.name.endsWith('.prefab.xml') ? 'prefab' : 'scene' });
+      }
+    }
+  };
+  for (const root of roots) walk(resolve(cwd, root));
+  return [...found.values()].sort((a, b) => a.file.localeCompare(b.file));
 }
 
 /** Ask the OS for a free TCP port (avoids Vite's 5173-default collisions). */

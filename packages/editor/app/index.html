@@ -93,6 +93,33 @@
         color: #ffd9d9; padding: 5px 10px; cursor: pointer; font: 12px ui-monospace, monospace; }
       #sc-conflict button:first-of-type { background: var(--accent); color: #0e1219; border-color: var(--accent); }
       #sc-conflict button:hover { filter: brightness(1.1); }
+      /* component-load error banner: last-good is live, this says what's broken */
+      #sc-error { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 7;
+        display: flex; align-items: flex-start; gap: 10px; max-width: min(680px, 92vw);
+        padding: 9px 13px; border-radius: 10px; background: rgba(44, 22, 14, 0.97);
+        border: 1px solid #7a4326; color: #ffdcc2; font: 12px/1.45 ui-monospace, monospace;
+        backdrop-filter: blur(6px); box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5); }
+      #sc-error > span { white-space: pre-wrap; overflow: auto; max-height: 34vh; }
+      #sc-error button { flex: 0 0 auto; border: 1px solid #7a4326; border-radius: 7px; background: transparent;
+        color: #ffdcc2; padding: 5px 10px; cursor: pointer; font: 12px ui-monospace, monospace; }
+      #sc-error button:hover { filter: brightness(1.15); }
+      /* start-up file picker: shown when the editor opens with no ?file= */
+      .sc-picker { position: fixed; inset: 0; z-index: 8; display: flex; align-items: center;
+        justify-content: center; background: rgba(10, 12, 18, 0.72); backdrop-filter: blur(4px); }
+      .sc-picker-panel { width: min(440px, 88vw); max-height: 76vh; display: flex; flex-direction: column;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+        font: 13px/1.5 ui-monospace, monospace; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
+      .sc-picker-title { padding: 14px 18px; font-weight: 700; color: #9fe7ff; letter-spacing: 0.06em;
+        text-transform: uppercase; font-size: 12px; border-bottom: 1px solid var(--line); }
+      .sc-picker-list { overflow: auto; padding: 6px; }
+      .sc-picker-row { width: 100%; display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; padding: 9px 12px; border: 0; border-radius: 8px; background: transparent; color: #e7f0fb;
+        font: 13px ui-monospace, monospace; text-align: left; cursor: pointer; }
+      .sc-picker-row:hover { background: rgba(74, 240, 224, 0.12); color: #eafdff; }
+      .sc-picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .sc-picker-kind { flex: 0 0 auto; color: #6f93b8; font-size: 11px; text-transform: uppercase;
+        letter-spacing: 0.04em; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+      .sc-picker-empty { padding: 22px 18px; color: #8fa6c4; text-align: center; }
     </style>
   </head>
   <body>

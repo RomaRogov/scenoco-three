@@ -8,6 +8,7 @@ import {
   Registry,
   getNodeDef,
   getAttachmentDef,
+  getSrcCompiler,
   allAttachmentDefs,
   attachmentAcceptsNode,
   attachmentTags,
@@ -57,6 +58,7 @@ export function validatePrefab(root: SncElement): SncDiagnostic[] {
     ctx.error(root, 'bad-root', `A prefab file's root element must be <Prefab>, got <${root.tag}>`);
   }
   for (const attr of root.attributes.keys()) {
+    if (isNamespaceAttr(attr)) continue; // xmlns / xsi schema hints for IDEs
     ctx.error(root, 'unexpected-attr', `A prefab file's <Prefab> root takes no attributes (found "${attr}")`);
   }
 
@@ -311,6 +313,10 @@ class ValidationContext {
         this.registerId(el, raw, 'component');
         continue;
       }
+      // A component may load its definition from a package-owned `src=` document
+      // (e.g. a particle system's `.particle.xml`); the file is resolved and
+      // checked at compile time. Only allowed when a src-compiler is registered.
+      if (attr === 'src' && getSrcCompiler(el.tag)) continue;
       const meta = props.get(attr);
       if (!meta) {
         const suggestion = nearestName(attr, [...props.keys(), 'id']);
@@ -463,6 +469,6 @@ function targetHint(attDef: AttachmentDef): string {
 }
 
 /** XML namespace bookkeeping (xmlns, xsi:*) — used to wire an XSD, ignored by us. */
-function isNamespaceAttr(name: string): boolean {
+export function isNamespaceAttr(name: string): boolean {
   return name === 'xmlns' || name.startsWith('xmlns:') || name.startsWith('xsi:');
 }

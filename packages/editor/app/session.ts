@@ -39,17 +39,22 @@ export class EditorSession {
   }
 
   /** Fetch + load a scene/prefab (edit mode). Returns a small summary. */
-  async open(path: string): Promise<{ file: string; kind: 'scene' | 'prefab'; nodes: number }> {
+  async open(path: string): Promise<{ file: string; kind: 'scene' | 'prefab'; nodes: number; componentError?: string }> {
     const res = await fetch(`/@scenoco/bundle?file=${encodeURIComponent(path)}`);
-    const data = (await res.json()) as { bundle: Bundle; provenance: SceneProvenance } | { error: string };
+    const data = (await res.json()) as
+      | { bundle: Bundle; provenance: SceneProvenance; componentError?: string }
+      | { error: string; componentError?: string };
     if (!res.ok || !('bundle' in data) || !Array.isArray(data.bundle)) {
-      throw new Error((data as { error?: string }).error ?? 'failed to open file');
+      const message = (data as { error?: string }).error ?? 'failed to open file';
+      const componentError = (data as { componentError?: string }).componentError;
+      throw new Error(componentError ? `${message}\n\n${componentError}` : message);
     }
     this.bundle = data.bundle;
     this.provenance = data.provenance;
     this.filePath = path;
     this.toEdit();
-    return { file: path, kind: bundleKind(this.bundle) === 'prefab' ? 'prefab' : 'scene', nodes: count(this.engine.scene) };
+    const summary = { file: path, kind: bundleKind(this.bundle) === 'prefab' ? ('prefab' as const) : ('scene' as const), nodes: count(this.engine.scene) };
+    return data.componentError ? { ...summary, componentError: data.componentError } : summary;
   }
 
   /** Write a set of attribute edits back to the source file (surgical diff). */
@@ -228,13 +233,9 @@ export class EditorSession {
   private frameCamera(): PerspectiveCamera {
     const cam = new PerspectiveCamera(50, this.canvas.clientWidth / this.canvas.clientHeight || 1, 0.01, 50000);
     const box = new Box3().setFromObject(this.engine.scene);
-    const center = new Vector3();
-    let radius = 1;
-    if (!box.isEmpty()) {
-      const sphere = box.getBoundingSphere(new Sphere());
-      center.copy(sphere.center);
-      radius = sphere.radius || 1;
-    }
+    const sphere = box.isEmpty() ? new Sphere(new Vector3(), 1) : box.getBoundingSphere(new Sphere());
+    const center = sphere.center;
+    const radius = sphere.radius || 1;
     cam.position.copy(center).addScaledVector(new Vector3(0.6, 0.45, 1).normalize(), (radius / Math.sin((50 * Math.PI) / 180 / 2)) * 1.2);
     cam.lookAt(center);
     this.engine.mainCamera = cam;

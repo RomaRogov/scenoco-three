@@ -6,10 +6,14 @@ import { deserializeBundle } from '@scenoco-three/core';
 import {
   bundlePrefab,
   bundleScene,
+  collectedPackageSchemas,
   compilePrefabXml,
   compileSceneXml,
+  detectTagPackages,
   formatDiagnostic,
   generateApiJson,
+  generateMaterialXsd,
+  generatePrefabXsd,
   generateXsd,
   loadComponents,
   serializeScene,
@@ -41,18 +45,18 @@ const USAGE = `scenoco — Scene · Node · Component CLI
 
 Usage:
   scenoco init [dir]                        Scaffold a new SceNoCo project (default: current dir)
-  scenoco new component <Name>              Generate src/components/<Name>.ts boilerplate
-  scenoco new scene <name>                  Generate src/scenes/<name>.scene.xml skeleton
-  scenoco check                             Pre-flight: @system co-location, physics
+  scenoco new component <Name>              Generate assets/components/<Name>.ts boilerplate
+  scenoco new scene <name>                  Generate assets/scenes/<name>.scene.xml skeleton
+  scenoco check                             Pre-flight: scans components + flags physics setup
   scenoco validate <file...>                Validate scene XML; prints file:line:col diagnostics
   scenoco bundle <file> [-o out]            Build the runtime bundle (default: <file>.bundle.json)
   scenoco decompile <bundle.json> [-o out]  Inverse of bundle: a bundle back to canonical scene XML
   scenoco watch <file...> [--out dir]       Rebuild bundles on XML/resource changes
-  scenoco export [--out <dir>]              Write scene.xsd + scene-api.json (default: ./schema)
+  scenoco export [--out <dir>]              Write scene/prefab/material(+package) .xsd + scene-api.json (default: ./schema)
 
 Options:
   --components <dirs>   Comma-separated directories scanned for @component classes
-                        (default: "src"). They are compiled and registered so scenes
+                        (default: "assets"). They are compiled and registered so scenes
                         can reference them and the exporters can document them.
   --packages <pkgs>     Comma-separated tag packages to register (e.g.
                         @scenoco-three/box2d), so their tags validate and appear
@@ -69,16 +73,17 @@ async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = positionals;
 
   if (command !== undefined && command !== '-h' && command !== '--help' && !SKIP_COMPONENT_LOAD.has(command)) {
-    const roots = (options.components ?? 'src')
+    const roots = (options.components ?? 'assets')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    // Tag packages (e.g. @scenoco-three/box2d) register their tags on import, so
-    // validate/bundle/export/watch see them — and the XSD/docs cover them too.
-    const packages = (options.packages ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // Tag packages register their tags on import so validate/bundle/export/watch
+    // see them (and the XSD/docs cover them). Default to the @scenoco-three/* deps
+    // in package.json; --packages overrides.
+    const packages =
+      options.packages !== undefined
+        ? options.packages.split(',').map((s) => s.trim()).filter(Boolean)
+        : detectTagPackages();
     await loadComponents(roots, undefined, packages.length > 0 ? { packages } : undefined);
   }
 
@@ -212,7 +217,7 @@ function cmdNew(args: string[]): number {
   }
 
   if (subCommand === 'component') {
-    const path = resolve(`src/components/${name}.ts`);
+    const path = resolve(`assets/components/${name}.ts`);
     if (existsSync(path)) {
       console.error(`new: ${path} already exists`);
       return 1;
@@ -225,7 +230,7 @@ function cmdNew(args: string[]): number {
   }
 
   if (subCommand === 'scene') {
-    const path = resolve(`src/scenes/${name}.scene.xml`);
+    const path = resolve(`assets/scenes/${name}.scene.xml`);
     if (existsSync(path)) {
       console.error(`new: ${path} already exists`);
       return 1;
@@ -245,7 +250,7 @@ async function cmdCheck(
   _args: string[],
   options: Record<string, string>,
 ): Promise<number> {
-  const roots = (options.components ?? 'src')
+  const roots = (options.components ?? 'assets')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -253,9 +258,6 @@ async function cmdCheck(
   const rf = readFileSync;
   const res = resolve;
 
-  const SYSTEM_RE = /@system\s*\(/;
-  const COMPONENT_RE = /@component\s*\(/;
-  const NODE_TAG_RE = /@(?:node|attachment)\s*\(/;
   const PHYSICS_RE = /<Physics[\s/]/;
   const SOURCE_EXT = /\.(?:[cm]?[jt]sx?)$/;
   const SKIP = new Set(['.git', 'node_modules', 'dist', 'build', '.scenoco']);
@@ -284,14 +286,9 @@ async function cmdCheck(
   for (const root of roots) {
     for (const f of walkFiles(res(process.cwd(), root))) {
       if (!SOURCE_EXT.test(f) || f.endsWith('.d.ts')) continue;
-      const src = rf(f, 'utf8');
       checked++;
-      if (SYSTEM_RE.test(src) && !COMPONENT_RE.test(src) && !NODE_TAG_RE.test(src)) {
-        const rel = f.replace(process.cwd() + '/', '');
-        console.warn(`  ✗ ${rel}: @system declared but no @component/@node in same file`);
-        console.warn(`      → co-locate @system(T) with @component T or this file will be skipped`);
-        warnings++;
-      }
+      // (A stand-alone @system file is no longer a problem — discovery ships it
+      // by the component it processes; see @scenoco-three/compiler components.ts.)
     }
   }
 
@@ -360,9 +357,19 @@ function cmdWatch(args: string[]): number {
 function cmdExport(args: string[]): number {
   const { options } = parseArgs(args, { '--out': 'out', '-o': 'out' });
   const dir = resolve(options.out ?? 'schema');
+  // Document schemas derivable from the registry: scenes, prefabs, materials.
   write(`${dir}/scene.xsd`, generateXsd());
+  write(`${dir}/prefab.xsd`, generatePrefabXsd());
+  write(`${dir}/material.xsd`, generateMaterialXsd());
   write(`${dir}/scene-api.json`, generateApiJson());
-  console.log(`✓ wrote scene.xsd and scene-api.json to ${dir}`);
+  const written = ['scene.xsd', 'prefab.xsd', 'material.xsd'];
+  // Package-owned `src=` document schemas (e.g. particles' particle.xsd) — copied
+  // verbatim from each registered tag package that ships one.
+  for (const schema of collectedPackageSchemas()) {
+    write(`${dir}/${schema.filename}`, readFileSync(schema.path, 'utf8'));
+    written.push(schema.filename);
+  }
+  console.log(`✓ wrote ${written.join(', ')} + scene-api.json to ${dir}`);
   return 0;
 }
 

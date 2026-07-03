@@ -1,0 +1,35 @@
+<!--
+  Breakout HUD — plain HTML/CSS, layered over the canvas by SceNoCo.
+
+  This is the whole "UI API": ordinary DOM. The `Scoreboard` component grabs
+  these elements with `engine.overlay.querySelector(...)` and updates them; there
+  is nothing SceNoCo-specific in this file. The overlay root ignores pointer
+  events so gameplay clicks still reach the canvas — interactive widgets opt back
+  in with `pointer-events:auto`.
+-->
+<style>
+  .scenoco-ui { font-family: system-ui, -apple-system, sans-serif; color: #e2e8f0; }
+  .scenoco-ui #hud {
+    position: absolute; inset: 0; padding: 20px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .scenoco-ui .pill {
+    background: rgba(10, 14, 22, 0.7); border-radius: 10px;
+    padding: 10px 16px; font-weight: 700; font-size: 26px; letter-spacing: 0.5px;
+  }
+  .scenoco-ui #score { color: #4af0e0; }
+  .scenoco-ui #lives { color: #fb923c; }
+  .scenoco-ui #banner {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    font-size: 64px; font-weight: 800;
+    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.7);
+    background: rgba(10, 14, 22, 0.35);
+  }
+</style>
+
+<div id="hud">
+  <div class="pill">SCORE <span id="score">0</span></div>
+  <div class="pill">LIVES <span id="lives">3</span></div>
+</div>
+<div id="banner"></div>

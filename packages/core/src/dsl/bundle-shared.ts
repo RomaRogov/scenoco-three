@@ -7,19 +7,40 @@ import { getAttachmentDef, getNodeDef, type NodeAttr } from './nodes.js';
  * values are interned strings. Both derive the schema from the same registries.
  */
 
+/**
+ * A bundle references a tag/component that isn't registered in this process. The
+ * decoder can't proceed without its schema, so fail with a message that names the
+ * tag and how to register it — rather than the opaque `Cannot read properties of
+ * undefined (reading 'attrs')` a bare deref would throw (the symptom an editor or
+ * any host sees when a scene uses a tag whose module was never imported).
+ */
+function unregistered(kind: 'node' | 'attachment' | 'component', tag: string): never {
+  throw new Error(
+    `Cannot decode bundle: ${kind} "${tag}" is not registered. Import the module that ` +
+      `declares it before loading the scene — a project file (via component discovery) or a ` +
+      `tag package (pass it to the Vite plugin's registerPackages / the editor's --packages).`,
+  );
+}
+
 /** Ordered [name, meta] of a node tag's type-specific attributes. */
 export function nodeAttrEntries(tag: string): [string, NodeAttr][] {
-  return Object.entries(getNodeDef(tag)!.attrs);
+  const def = getNodeDef(tag);
+  if (!def) unregistered('node', tag);
+  return Object.entries(def.attrs);
 }
 
 /** Ordered [name, meta] of an attachment tag's attributes. */
 export function attachmentAttrEntries(tag: string): [string, NodeAttr][] {
-  return Object.entries(getAttachmentDef(tag)!.attrs);
+  const def = getAttachmentDef(tag);
+  if (!def) unregistered('attachment', tag);
+  return Object.entries(def.attrs);
 }
 
 /** Ordered [name, meta] of a component type's properties. */
 export function componentPropEntries(type: string): [string, PropertyMeta][] {
-  return [...Registry.getComponent(type)!.meta.properties];
+  const entry = Registry.getComponent(type);
+  if (!entry) unregistered('component', type);
+  return [...entry.meta.properties];
 }
 
 /** Number of set bits — how many values a mask selects. */

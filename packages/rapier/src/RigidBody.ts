@@ -18,6 +18,12 @@ export class RigidBody extends Component {
   @property({ type: 'float', default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
   @property({ type: 'float', default: 1, description: 'Multiplier on world gravity for this body' })
   gravityScale = 1;
+  @property({
+    type: 'bool',
+    default: false,
+    description: 'Continuous collision detection — stops fast small bodies (bullets) tunnelling through thin colliders',
+  })
+  ccd = false;
 
   /** The live Rapier body, set by the PhysicsSystem after it builds it. */
   body?: RAPIER.RigidBody;

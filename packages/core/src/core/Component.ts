@@ -61,10 +61,49 @@ export abstract class Component<TNode extends Object3D = Object3D> {
     return null;
   }
 
+  /**
+   * First component of the given type on this node or any descendant, or null
+   * (Unity `GetComponentInChildren` — includes self). Depth-first.
+   */
+  getComponentInChildren<T extends Component>(type: abstract new () => T): T | null {
+    let found: T | null = null;
+    this.node.traverse((object) => {
+      if (found) return;
+      for (const c of this.engine.getComponents(object)) {
+        if (c instanceof type) {
+          found = c as T;
+          return;
+        }
+      }
+    });
+    return found;
+  }
+
+  /**
+   * Every component of the given type on this node and its descendants (Unity
+   * `GetComponentsInChildren` — includes self). Returns `[]` when none.
+   */
+  getComponentsInChildren<T extends Component>(type: abstract new () => T): T[] {
+    const out: T[] = [];
+    this.node.traverse((object) => {
+      for (const c of this.engine.getComponents(object)) if (c instanceof type) out.push(c as T);
+    });
+    return out;
+  }
+
   /** Remove this component from the engine, running onDisable/onDestroy (Cocos style). */
   destroy(): void {
     this.engine.removeComponent(this);
   }
+
+  /**
+   * Receives the build-time `config` compiled from this component's `src=`
+   * document — a package-owned format (e.g. a particle system's `.particle.xml`)
+   * turned into a plain JSON blob by a registered src-compiler. Called once,
+   * before onLoad, only when the component used `src=`. Components without a
+   * src document never implement this.
+   */
+  applyConfig?(config: unknown): void;
 
   onLoad?(): void;
   onEnable?(): void;

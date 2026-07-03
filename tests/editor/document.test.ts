@@ -1,0 +1,118 @@
+import { Mesh, Object3D } from 'three';
+import { describe, expect, it } from 'vitest';
+import { getAttachmentDef, type Component, type CompiledScene, type SceneGraph } from '@scenoco-three/core';
+import type { SceneProvenance } from '@scenoco-three/compiler';
+import { SceneDocument } from '../../packages/editor/app/document.js';
+import { Rotator } from '../fixtures/components/Rotator.js';
+
+const colorOf = (mesh: Object3D): number =>
+  ((mesh as Mesh).material as unknown as { color: { getHex(): number } }).color.getHex();
+
+/** A minimal scene graph: one node with a Rotator, mirroring what the engine exposes. */
+function makeGraph(): { graph: SceneGraph; node: Object3D; rotator: Component } {
+  const node = new Object3D();
+  node.position.set(0, 1, 0);
+  const rotator = new Rotator();
+  rotator.node = node;
+  const compiled: CompiledScene = {
+    root: 0,
+    nodes: [{
+      tag: 'Object3D', parent: -1, children: [],
+      transform: { position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true },
+      attrs: {}, attachments: [], components: [0],
+    }],
+    attachments: [],
+    components: [{ type: 'Rotator', node: 0, props: {} }],
+  };
+  return { node, rotator, graph: { compiled, nodeByIndex: [node], nodeIndexOf: new Map([[node, 0]]), componentIndexOf: new Map([[rotator, 0]]) } };
+}
+
+describe('SceneDocument — stateful edits', () => {
+  it('applies a transform to the live object, tracks it as a net edit, and undo/redo restores state', () => {
+    const { graph, node } = makeGraph();
+    const doc = new SceneDocument(graph);
+    expect(doc.isDirty).toBe(false);
+
+    doc.setTransform(node, 'position', [5, 1, 0]);
+    expect(node.position.toArray()).toEqual([5, 1, 0]);
+    expect(doc.isDirty).toBe(true);
+    expect(doc.netEdits()).toEqual([{ target: { kind: 'node', nodeIndex: 0 }, attr: 'position', value: [5, 1, 0] }]);
+
+    doc.undoLast();
+    expect(node.position.toArray()).toEqual([0, 1, 0]);
+    expect(doc.netEdits()).toEqual([]);
+    doc.redoLast();
+    expect(node.position.toArray()).toEqual([5, 1, 0]);
+  });
+
+  it('coalesces a scrub/drag (same node + channel) into one undo step', () => {
+    const { graph, node } = makeGraph();
+    const doc = new SceneDocument(graph);
+    doc.setTransform(node, 'position', [1, 1, 0], { coalesce: true });
+    doc.setTransform(node, 'position', [2, 1, 0], { coalesce: true });
+    doc.setTransform(node, 'position', [3, 1, 0], { coalesce: true });
+    expect(doc.netEdits()).toEqual([{ target: { kind: 'node', nodeIndex: 0 }, attr: 'position', value: [3, 1, 0] }]);
+    doc.undoLast(); // one undo rewinds the whole gesture
+    expect(node.position.toArray()).toEqual([0, 1, 0]);
+    expect(doc.canUndo).toBe(false);
+  });
+
+  it('edits a component property and emits a component-addressed net edit', () => {
+    const { graph, rotator } = makeGraph();
+    const doc = new SceneDocument(graph);
+    doc.setComponentProp(rotator, 'speed', 5);
+    expect((rotator as unknown as { speed: number }).speed).toBe(5);
+    expect(doc.netEdits()).toEqual([
+      { target: { kind: 'component', componentIndex: 0, nodeIndex: 0, type: 'Rotator', ordinal: 0 }, attr: 'speed', value: 5 },
+    ]);
+    doc.undoLast();
+    expect((rotator as unknown as { speed: number }).speed).toBe(1);
+  });
+});
+
+/** Two meshes sharing one pooled MeshStandardMaterial (white) + scene provenance. */
+function makeSharedMaterialGraph(): { graph: SceneGraph; provenance: SceneProvenance; a: Object3D; b: Object3D } {
+  const a = new Mesh();
+  const b = new Mesh();
+  const inst = getAttachmentDef('MeshStandardMaterial')!.make({ color: 0xffffff });
+  inst.attach({ node: a });
+  inst.attach({ node: b });
+  const meshNode = (): CompiledScene['nodes'][number] => ({
+    tag: 'Mesh', parent: -1, children: [],
+    transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true },
+    attrs: {}, attachments: [0], components: [],
+  });
+  const compiled: CompiledScene = {
+    root: 0,
+    nodes: [{ ...meshNode(), id: 'a' }, { ...meshNode(), id: 'b' }],
+    attachments: [{ tag: 'MeshStandardMaterial', attrs: { color: 0xffffff } }],
+    components: [],
+  };
+  return {
+    a, b,
+    provenance: { nodes: [{ kind: 'scene' }, { kind: 'scene' }], attachments: [null] },
+    graph: { compiled, nodeByIndex: [a, b], nodeIndexOf: new Map([[a, 0], [b, 1]]), componentIndexOf: new Map() },
+  };
+}
+
+describe('SceneDocument — attachment editing', () => {
+  it('copy-on-write changes only the edited node, not a sibling sharing the pooled asset', () => {
+    const { graph, provenance, a, b } = makeSharedMaterialGraph();
+    const doc = new SceneDocument(graph, provenance);
+    doc.setAttachmentProp(a, 0, 'color', 0x00ff00);
+    expect(colorOf(a)).toBe(0x00ff00); // edited node updated
+    expect(colorOf(b)).toBe(0xffffff); // sibling untouched
+    doc.undoLast();
+    expect(colorOf(a)).toBe(0xffffff);
+    expect(doc.isDirty).toBe(false);
+  });
+
+  it('rejects edits to prefab-internal content', () => {
+    const { graph, node } = makeGraph();
+    const internal: SceneProvenance = { nodes: [{ kind: 'prefab-internal' }], attachments: [] };
+    const doc = new SceneDocument(graph, internal);
+    doc.setTransform(node, 'position', [9, 9, 9]);
+    expect(node.position.toArray()).toEqual([0, 1, 0]); // unchanged
+    expect(doc.canUndo).toBe(false);
+  });
+});

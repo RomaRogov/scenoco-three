@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Schema for a SceNoCo `.particle.xml` document (@scenoco-three/particles).
+  This is the particle format's *own* grammar — separate from the scene schema.
+  A scene references a document with <ParticleSystem src="fire.particle.xml"/>;
+  the file itself is validated against this XSD. Reference it from a document with:
+    <ParticleSystem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:noNamespaceSchemaLocation="particle.xsd" …>
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+
+  <!-- #rgb / #rrggbb hex color. -->
+  <xs:simpleType name="color">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- A `[a, b, c]` array literal (numbers or #hex colors). -->
+  <xs:simpleType name="array">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="\[.*\]" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="shapeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Cone" /><xs:enumeration value="Sphere" />
+      <xs:enumeration value="Hemisphere" /><xs:enumeration value="Circle" />
+      <xs:enumeration value="Donut" /><xs:enumeration value="Rectangle" />
+      <xs:enumeration value="Point" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="renderMode">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Billboard" /><xs:enumeration value="StretchedBillboard" />
+      <xs:enumeration value="HorizontalBillboard" /><xs:enumeration value="VerticalBillboard" />
+      <xs:enumeration value="Mesh" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="blending">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Additive" /><xs:enumeration value="Alpha" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="ParticleSystem">
+    <xs:complexType>
+      <!-- Modules, any order, each at most once. -->
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="Emission">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Burst" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="time" type="xs:decimal" default="0" />
+                  <xs:attribute name="count" type="xs:decimal" default="0" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="rateOverTime" type="xs:decimal" />
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="Shape">
+          <xs:complexType>
+            <xs:attribute name="type" type="shapeType" />
+            <xs:attribute name="radius" type="xs:decimal" />
+            <xs:attribute name="angle" type="xs:decimal" />
+            <xs:attribute name="arc" type="xs:decimal" />
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="Renderer">
+          <xs:complexType>
+            <xs:attribute name="renderMode" type="renderMode" />
+            <xs:attribute name="blending" type="blending" />
+            <xs:attribute name="texture" type="xs:string" />
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="ColorOverLifetime">
+          <xs:complexType><xs:attribute name="colors" type="array" use="required" /></xs:complexType>
+        </xs:element>
+        <xs:element name="SizeOverLifetime">
+          <xs:complexType><xs:attribute name="curve" type="array" use="required" /></xs:complexType>
+        </xs:element>
+        <xs:element name="RotationOverLifetime">
+          <xs:complexType><xs:attribute name="angularVelocity" type="xs:decimal" use="required" /></xs:complexType>
+        </xs:element>
+        <xs:element name="Noise">
+          <xs:complexType>
+            <xs:attribute name="strength" type="xs:decimal" />
+            <xs:attribute name="frequency" type="xs:decimal" />
+          </xs:complexType>
+        </xs:element>
+      </xs:choice>
+      <!-- Main module. -->
+      <xs:attribute name="duration" type="xs:decimal" />
+      <xs:attribute name="looping" type="xs:boolean" />
+      <xs:attribute name="prewarm" type="xs:boolean" />
+      <xs:attribute name="startLifetime" type="xs:decimal" />
+      <xs:attribute name="startSpeed" type="xs:decimal" />
+      <xs:attribute name="startSize" type="xs:decimal" />
+      <xs:attribute name="startRotation" type="xs:decimal" />
+      <xs:attribute name="startColor" type="color" />
+      <xs:attribute name="gravityModifier" type="xs:decimal" />
+      <xs:attribute name="simulationSpace">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="Local" /><xs:enumeration value="World" />
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

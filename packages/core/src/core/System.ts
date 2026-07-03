@@ -3,10 +3,11 @@ import type { Engine } from './Engine.js';
 
 /**
  * An ECS-hybrid system: registered with `@system(SomeComponent)`, the engine
- * auto-runs it while the loaded scene contains at least one component of that
- * type and keeps `this.components` populated with the live set. The system owns
- * the behaviour; the components are plain data (they keep their own lifecycle —
- * this is additive, à la Unity DOTS hybrid).
+ * auto-runs it once a component of that type exists — whether present at scene
+ * load or added later at runtime (a spawned prefab, `addComponent`) — and keeps
+ * `this.components` populated with the live set. The system owns the behaviour;
+ * the components are plain data (they keep their own lifecycle — this is
+ * additive, à la Unity DOTS hybrid).
  *
  *   @system(RigidBody)
  *   class PhysicsSystem extends System<RigidBody> {
@@ -24,7 +25,7 @@ export abstract class System<T extends Component = Component> {
   /** The live set of components of this system's type — maintained by the engine. */
   readonly components: readonly T[] = [];
 
-  /** Once, when the engine starts running the system (its component type appeared). */
+  /** Once, when the engine starts running the system (its component type first appeared, at load or runtime). */
   onAttach?(): void;
   /** Fixed-rate step, for deterministic simulation (physics world step, …). */
   fixedStep?(fixedDt: number): void;

@@ -47,6 +47,9 @@ export function bundleScene(compiled: CompiledScene, kind: BundleKind = 'scene')
   const asset: BundleAsset = compiled.prefabs?.length
     ? [nodes, attachments, components, compiled.root, compiled.prefabs.map((p) => bundlePrefab(p))]
     : [nodes, attachments, components, compiled.root];
+  // A scene's DOM UI overlay HTML rides at index 4; `kind` (index 3) is then
+  // written explicitly. Prefabs never carry UI, so their shape is unchanged.
+  if (kind !== 'prefab' && compiled.ui) return [BUNDLE_VERSION, pool.strings, asset, 'scene', compiled.ui];
   // The `kind` slot is appended only for prefabs, so scene bundles stay at 3 elements.
   return kind === 'prefab' ? [BUNDLE_VERSION, pool.strings, asset, 'prefab'] : [BUNDLE_VERSION, pool.strings, asset];
 }
@@ -97,6 +100,8 @@ function buildStringPool(compiled: CompiledScene): { strings: string[]; index: M
     for (const [name, meta] of componentPropEntries(c.type)) {
       if (name in c.props) addStrings(meta.type, c.props[name]);
     }
+    // A `src=` document's config rides as one interned JSON string.
+    if (c.config !== undefined) add(JSON.stringify(c.config));
   }
 
   // Most-used strings first → smallest indices (cheapest in any varint codec).
@@ -169,6 +174,11 @@ function encodeComponent(c: CompiledComponent, intern: (s: string) => number): B
   if (c.id !== undefined) {
     flags |= ComponentFlag.Id;
     out.push(intern(c.id));
+  }
+  // A `src=` document's compiled config trails as one interned JSON string.
+  if (c.config !== undefined) {
+    flags |= ComponentFlag.Config;
+    out.push(intern(JSON.stringify(c.config)));
   }
   out[1] = flags;
   return out;

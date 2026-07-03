@@ -11,8 +11,10 @@
       "@scenoco-three/vite": ["./packages/vite/src/index.ts"],
       "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"],
       "@scenoco-three/box2d": ["./packages/box2d/src/index.ts"],
+      "@scenoco-three/collision": ["./packages/collision/src/index.ts"],
       "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
       "@scenoco-three/animation": ["./packages/animation/src/index.ts"],
+      "@scenoco-three/particles": ["./packages/particles/src/index.ts"],
       "@scenoco-three/editor": ["./packages/editor/src/index.ts"]
     }
   },

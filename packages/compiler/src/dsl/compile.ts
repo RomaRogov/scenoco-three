@@ -7,7 +7,9 @@ import {
   Registry,
   getNodeDef,
   getAttachmentDef,
+  getSrcCompiler,
   TRANSFORM_ATTRS,
+  type ParsedElement,
   type ComponentCtor,
   type EnumDef,
   type PropType,
@@ -22,7 +24,7 @@ import {
   type CompiledUniform,
 } from '@scenoco-three/core/internal';
 import { parseScene, type SncElement } from './SceneParser.js';
-import { validatePrefab, validateScene } from './Validator.js';
+import { isNamespaceAttr, validatePrefab, validateScene } from './Validator.js';
 import { expandPrefabs } from './prefab.js';
 import { parseArrayLiteral, parseScalarArray, scalarCodec, uniformValue, type CompiledScalar, type ScalarType } from './types.js';
 import { glslMatches, parseUniforms } from './shader.js';
@@ -251,6 +253,13 @@ function compileTree(
       if (id !== undefined) componentIdToIndex.set(id, componentIndex);
 
       collectComponentProps(el, entry.meta.properties, componentIndex, compiled, pending, internPrefab);
+      // A component may point `src=` at a package-owned document (e.g. a particle
+      // system's `.particle.xml`) — but only when a src-compiler is registered for
+      // it. Otherwise `src` is an ordinary property (e.g. <Sound src="music.mp3">).
+      const srcAttr = el.attributes.get('src');
+      if (srcAttr !== undefined && getSrcCompiler(el.tag)) {
+        compileComponentSrc(el, srcAttr.trim(), compiled, options, diagnostics);
+      }
     }
   };
 
@@ -313,6 +322,7 @@ function resolveAttachmentAttrs(
   for (const [k, v] of el.attributes) if (k !== 'src' && k in attrs) merged.set(k, v);
   // Validate the file's own values so a bad resource reports against its file.
   for (const [k, v] of fileRoot.attributes) {
+    if (isNamespaceAttr(k)) continue; // xmlns / xsi schema hints for IDEs
     const meta = attrs[k];
     if (!meta) {
       diagnostics.push({ line: fileRoot.line, column: fileRoot.column, file: file.path, code: 'unknown-attr', message: `<${fileRoot.tag}> has no attribute "${k}"` });
@@ -415,6 +425,62 @@ function compileAttrs(el: SncElement, attrs: Record<string, NodeAttr>): Record<s
     out[key] = attrValue(meta, el.attributes.get(key));
   }
   return out;
+}
+
+/**
+ * Resolve a component's `src=` document and compile it to a config blob stored on
+ * the component. A `*.json` src is loaded as an already-compiled config (e.g. a
+ * three.quarks export); any other file is parsed and handed to the src-compiler
+ * the owning package registered for this component type (`registerSrcCompiler`).
+ * Diagnostics about the file point at that file.
+ */
+function compileComponentSrc(
+  el: SncElement,
+  src: string,
+  compiled: CompiledComponent,
+  options: CompileOptions,
+  diagnostics: SncDiagnostic[],
+): void {
+  const atEl = (code: string, message: string): void => {
+    diagnostics.push({ line: el.line, column: el.column, code, message, ...(el.file ? { file: el.file } : {}) });
+  };
+  if (src === '') return atEl('missing-src', `<${el.tag}> has an empty src=`);
+  if (!options.resolve) return atEl('no-resolver', `<${el.tag}> uses src="${src}" but no resource resolver is configured`);
+  const file = options.resolve(src, options.path ?? '');
+  if (!file) return atEl('resource-not-found', `Cannot resolve src="${src}"`);
+
+  // `*.json` is an already-compiled config blob (e.g. a three.quarks export).
+  if (src.toLowerCase().endsWith('.json')) {
+    try {
+      compiled.config = JSON.parse(file.contents);
+    } catch (e) {
+      diagnostics.push({ line: 1, column: 1, code: 'bad-json', message: `src="${src}" is not valid JSON: ${(e as Error).message}`, file: file.path });
+    }
+    return;
+  }
+
+  const compileDoc = getSrcCompiler(el.tag);
+  if (!compileDoc) {
+    return atEl(
+      'no-src-compiler',
+      `<${el.tag}> uses src="${src}" but no src-document compiler is registered — import the package that defines <${el.tag}>`,
+    );
+  }
+  const parsed = parseScene(file.contents);
+  if (!parsed.ok) {
+    for (const d of parsed.diagnostics) diagnostics.push({ ...d, file: file.path });
+    return;
+  }
+  const result = compileDoc(toParsedElement(parsed.root), { file: file.path });
+  for (const d of result.diagnostics ?? []) {
+    diagnostics.push({ line: 1, column: 1, code: d.code ?? 'src-document', message: d.message, file: file.path });
+  }
+  if (result.config !== undefined) compiled.config = result.config;
+}
+
+/** Adapt the compiler's parsed element to the core `ParsedElement` a src-compiler receives. */
+function toParsedElement(el: SncElement): ParsedElement {
+  return { tag: el.tag, attributes: Object.fromEntries(el.attributes), children: el.children.map(toParsedElement) };
 }
 
 function collectComponentProps(

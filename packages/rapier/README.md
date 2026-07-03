@@ -60,6 +60,7 @@ bundlePlugin({ registerPackages: ['@scenoco-three/rapier'] });
 | `linearDamping` | `float` | `0` | |
 | `angularDamping` | `float` | `0` | |
 | `gravityScale` | `float` | `1` | Multiplier on world gravity for this body. |
+| `ccd` | `bool` | `false` | Continuous collision detection — stops fast small bodies tunnelling thin colliders. |
 
 ### Colliders — one tag per shape (each a component; attaches to the node's `RigidBody`)
 

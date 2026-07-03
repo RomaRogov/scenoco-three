@@ -1,0 +1,109 @@
+<Scene xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/scene.xsd">
+  <Background color="#0a0e16" />
+  <AmbientLight intensity="0.5" />
+  <DirectionalLight intensity="2.5" position="0 8 10" />
+  <PerspectiveCamera id="cam" position="0 7 20" fov="45" near="0.1" far="200" />
+
+  <!-- 2D physics in the XY plane, no gravity (the ball keeps its speed). -->
+  <Physics2D gravity="0 0" />
+
+  <Group id="walls" position="0 0 0">
+    <!-- ─── Walls (static Box2D bodies, restitution 1 → perfect bounce) ───────── -->
+    <Mesh id="wall_left" position="-8.5 7 0">
+      <BoxGeometry width="1" height="16" depth="0.5" />
+      <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
+      <Components>
+        <RigidBody2D kind="static" />
+        <BoxCollider2D halfExtents="0.5 8" restitution="1" />
+      </Components>
+    </Mesh>
+    <Mesh id="wall_right" position="8.5 7 0">
+      <BoxGeometry width="1" height="16" depth="0.5" />
+      <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
+      <Components>
+        <RigidBody2D kind="static" />
+        <BoxCollider2D halfExtents="0.5 8" restitution="1" />
+      </Components>
+    </Mesh>
+    <Mesh id="wall_top" position="0 15 0">
+      <BoxGeometry width="18" height="1" depth="0.5" />
+      <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
+      <Components>
+        <RigidBody2D kind="static" />
+        <BoxCollider2D halfExtents="9 0.5" restitution="1" />
+      </Components>
+    </Mesh>
+  </Group>
+
+  <!-- ─── Paddle (kinematic body: PaddleController moves the node, body follows) -->
+  <Mesh id="paddle" position="0 0.5 0">
+    <BoxGeometry width="3" height="0.4" depth="0.5" />
+    <MeshStandardMaterial color="#38bdf8" emissive="#0c4a6e" roughness="0.2" metalness="0.6" />
+    <Components>
+      <PaddleController id="paddleController" speed="10" halfRange="6.0" />
+      <RigidBody2D kind="kinematic" />
+      <BoxCollider2D halfExtents="1.5 0.2" restitution="1" />
+    </Components>
+  </Mesh>
+
+  <!-- ─── Ball (dynamic bullet body; references the bricks as an array) ──────── -->
+  <Mesh id="ball" position="0 1.1 0">
+    <SphereGeometry radius="0.3" widthSegments="16" heightSegments="12" />
+    <MeshStandardMaterial color="#fb923c" emissive="#7c2d12" roughness="0.25" metalness="0.3" />
+    <Components>
+      <RigidBody2D kind="dynamic" bullet="true" gravityScale="0" />
+      <CircleCollider2D radius="0.3" restitution="1" friction="0" density="1" />
+      <Ball
+        launchSpeed="12"
+        lives="3"
+        paddle="#paddle"
+        bottom="#bottom"
+        scoreboard="#ui"
+        bounceSpeeds="[8,12,16]"
+        bricks="[#b1,#b2,#b3,#b4,#b5,#b6,#b7,#b8,#b9,#b10,#b11,#b12]" />
+    </Components>
+  </Mesh>
+
+  <!-- ─── Bottom sensor ──────────────────────────────────────────────────────
+       An invisible static trigger spanning the floor. It generates no collision
+       response (isSensor) — when the ball overlaps it, Box2D fires the ball's
+       onTriggerEnter2D and a life is lost.
+  -->
+  <Mesh id="bottom" position="0 -1.5 0" visible="false">
+    <BoxGeometry width="18" height="0.5" depth="0.5" />
+    <MeshStandardMaterial color="#000000" />
+    <Components>
+      <RigidBody2D kind="static" />
+      <BoxCollider2D halfExtents="9 0.25" isSensor="true" />
+    </Components>
+  </Mesh>
+
+  <!-- ─── Bricks ─────────────────────────────────────────────────────────────
+       Placed individually from a prefab (not procedurally generated), each with
+       a stable id so the Ball can reference the whole set as an array above.
+       Two rows of six.
+  -->
+  <PrefabInstance src="brick.prefab.xml" id="b1"  position="-6.75 12 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b2"  position="-4.05 12 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b3"  position="-1.35 12 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b4"  position="1.35 12 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b5"  position="4.05 12 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b6"  position="6.75 12 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b7"  position="-6.75 11 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b8"  position="-4.05 11 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b9"  position="-1.35 11 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b10" position="1.35 11 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b11" position="4.05 11 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b12" position="6.75 11 0" />
+
+  <!-- ─── HUD (DOM overlay) ───────────────────────────────────────────────────
+       The HUD lives in the sibling `breakout.ui.html` — plain HTML/CSS layered
+       over the canvas (engine.overlay). This empty node just hosts the
+       `Scoreboard` controller that drives those elements; the Ball references it
+       as `scoreboard="#ui"`.
+  -->
+  <Group id="ui">
+    <Components><Scoreboard /></Components>
+  </Group>
+</Scene>

@@ -13,17 +13,20 @@ npm i -D @scenoco-three/editor
 ## CLI
 
 ```
-scenoco-editor <scene|prefab> [options]
-  --components <dirs>   Comma-separated component dirs (default: "src")
-  --packages <pkgs>     Comma-separated tag packages (e.g. @scenoco-three/box2d)
-  --port <n>            Fixed editor server port (default: a free port)
+scenoco-editor [scene|prefab] [options]     Omit the file to choose from a start-up picker
+  --components <dirs>   Comma-separated component dirs (default: "assets")
+  --packages <pkgs>     Comma-separated tag packages (default: every @scenoco-three/*
+                        dependency in the project's package.json)
+  --port <n>            Fixed MCP port — pin it so your MCP client survives restarts
+                        (the HTTP editor server always takes a free port and prints its URL)
   --no-open             Don't auto-open a browser
 ```
 
 ```bash
-scenoco-editor scenes/level.scene.xml --components src --packages @scenoco-three/box2d
-#   editor:  http://localhost:PORT?file=…   ← opens in your browser
-#   mcp:     http://localhost:PORT/mcp      ← add to your MCP client (transport: http)
+scenoco-editor                                    # zero-config: file picker, auto-detected packages
+scenoco-editor assets/scenes/level.scene.xml --port 55470
+#   editor:  http://localhost:HTTP_PORT?file=…    ← opens in your browser
+#   mcp:     http://localhost:55470/mcp           ← add to your MCP client (transport: http)
 ```
 
 It serves the editor app through Vite + `@scenoco-three/vite` (so the open scene compiles
@@ -44,15 +47,17 @@ prompt).
 ### `simulate` — closed-loop driving
 
 One call injects input, steps the sim, and captures — *see a game move, not a static scene*.
-Each command is `{ do, … }`:
+Each command is a self-contained verb `{ do, … }`:
 
 ```ts
 type SimStep =
   | { do: 'play' | 'pause' | 'stop' }
-  | { do: 'step'; frames?: number; dt?: number }
-  | { do: 'key'; code: string; action: 'down' | 'up' | 'tap' }
-  | { do: 'mouse'; x?: number; y?: number; dx?: number; dy?: number;
-      button?: 'left' | 'right' | 'middle'; action?: 'move' | 'down' | 'up' | 'click' }
+  | { do: 'step'; frames?: number; dt?: number }            // advance `frames` ticks (default 1)
+  | { do: 'tap'; key: string }                               // key press + release
+  | { do: 'keyDown'; key: string }
+  | { do: 'keyUp'; key: string }
+  | { do: 'click'; x?: number; y?: number; button?: 'left' | 'right' | 'middle' }
+  | { do: 'move'; x?: number; y?: number; dx?: number; dy?: number }
   | { do: 'gamepad'; index?: number; buttons?: boolean[]; axes?: number[] }
   | { do: 'preview'; camera?: string; lookAt?: string }
   | { do: 'telemetry'; id: string };
@@ -61,7 +66,7 @@ type SimStep =
 ```jsonc
 // "press Space, advance 90 frames, read the ball, screenshot" — in one tool call
 [ { "do": "play" },
-  { "do": "key", "code": "Space", "action": "tap" },
+  { "do": "tap", "key": "Space" },
   { "do": "step", "frames": 90 },
   { "do": "telemetry", "id": "ball" },
   { "do": "preview" } ]
@@ -74,8 +79,8 @@ The result is a `multi` payload: each capture's image/JSON in step order.
 ```ts
 import { startEditorServer, startMcpServer } from '@scenoco-three/editor';
 
-const editor = await startEditorServer({ cwd, componentRoots: ['src'], packages: [] });
-const mcp = await startMcpServer(editor.bridge);   // editor.bridge.send(EditorCommand)
+const editor = await startEditorServer({ cwd });   // defaults: assets/ roots, packages from package.json
+const mcp = await startMcpServer(editor.bridge, { port: 55470 });   // editor.bridge.send(EditorCommand)
 console.log(editor.url, mcp.url);
 // … later
 await mcp.close(); await editor.close();

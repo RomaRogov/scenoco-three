@@ -157,7 +157,8 @@ export class PhysicsSystem extends System<RigidBody> {
       .setRotation({ x: this.q.x, y: this.q.y, z: this.q.z, w: this.q.w })
       .setLinearDamping(rb.linearDamping)
       .setAngularDamping(rb.angularDamping)
-      .setGravityScale(rb.gravityScale);
+      .setGravityScale(rb.gravityScale)
+      .setCcdEnabled(rb.ccd);
     const body = world.createRigidBody(desc);
     this.bodies.set(rb, body);
     rb.body = body;

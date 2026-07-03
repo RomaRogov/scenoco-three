@@ -1,0 +1,20 @@
+<!--
+  A fire effect — its own document, its own grammar/XSD (see particle.xsd),
+  referenced from a scene as <ParticleSystem src="../vfx/fire.particle.xml"/>.
+  Unity Shuriken module names; SceNoCo formats (#hex colors, [a, b, c] arrays).
+-->
+<ParticleSystem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:noNamespaceSchemaLocation="../../schema/particle.xsd"
+                duration="3" looping="true" simulationSpace="World"
+                startLifetime="1.6" startSpeed="4.5" startSize="0.7"
+                startColor="#ffdd66" gravityModifier="-0.15">
+  <Emission rateOverTime="90">
+    <Burst time="0" count="10" />
+  </Emission>
+  <Shape type="Cone" radius="0.35" angle="14" />
+  <Renderer renderMode="Billboard" blending="Additive" />
+  <ColorOverLifetime colors="[#ffee88, #ff6622, #661100]" />
+  <SizeOverLifetime curve="[0.4, 1, 0.2]" />
+  <RotationOverLifetime angularVelocity="40" />
+  <Noise strength="0.4" frequency="1.5" />
+</ParticleSystem>

@@ -7,6 +7,7 @@ import {
   collectAssetRefs,
   compilePrefabXml,
   compileSceneXml,
+  detectTagPackages,
   formatDiagnostic,
   loadComponents,
   type ResourceResolver,
@@ -38,20 +39,21 @@ import type { Plugin } from 'vite';
 export interface BundlePluginOptions {
   /**
    * Directories (relative to the Vite project cwd) scanned for files declaring
-   * `@component` / `@node` / … tags. Defaults to `['src']`.
+   * `@component` / `@node` / … tags. Defaults to `['assets']`.
    */
   componentRoots?: string[];
   /**
    * npm packages that register tags on import (e.g. `['@scenoco-three/rapier']`).
    * Their tags are validated like any other, and a scene that uses one imports
-   * the package; scenes that don't, don't.
+   * the package; scenes that don't, don't. Defaults to the `@scenoco-three/*`
+   * dependencies in the project's package.json (auto-detected).
    */
   registerPackages?: string[];
 }
 
 export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
-  const componentRoots = options.componentRoots ?? ['src'];
-  const registerPackages = options.registerPackages ?? [];
+  const componentRoots = options.componentRoots ?? ['assets'];
+  const registerPackages = options.registerPackages ?? detectTagPackages();
   let isServe = false;
 
   return {
@@ -121,7 +123,13 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
       // Walk the scene and every embedded prefab (referenced by `prefab` props):
       // a spawned prefab registers its own components/tags, so they must ship too.
       const collectModules = (scene: typeof result.scene): void => {
-        for (const c of scene.components) addModule(scan.byName.get(c.type));
+        for (const c of scene.components) {
+          addModule(scan.byName.get(c.type));
+          // Ship any @system(c.type) that lives in its own module too, so a
+          // stand-alone system (e.g. a custom physics/AI processor) isn't
+          // silently dropped and left dead when its component is used.
+          for (const systemFile of scan.byComponentSystem.get(c.type) ?? []) addModule(systemFile);
+        }
         for (const n of scene.nodes) addTag(n.tag);
         for (const a of scene.attachments) addTag(a.tag);
         for (const p of scene.prefabs ?? []) collectModules(p);
@@ -132,6 +140,17 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
         ...[...projectFiles].map((f) => `import ${JSON.stringify(asImportSpecifier(f, isServe))};`),
         ...[...bareSpecifiers].map((spec) => `import ${JSON.stringify(spec)};`),
       ].join('\n');
+
+      // A scene may declare a DOM UI overlay in a sibling `*.ui.html`; embed its
+      // HTML in the bundle so the runtime mounts it over the canvas
+      // (engine.overlay). Watched so editing the HTML re-triggers a rebuild.
+      if (!isPrefab) {
+        const uiFile = file.replace(/\.(scene\.)?xml$/, '.ui.html');
+        if (existsSync(uiFile)) {
+          this.addWatchFile(uiFile);
+          result.scene.ui = readFileSync(uiFile, 'utf8');
+        }
+      }
 
       const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
 

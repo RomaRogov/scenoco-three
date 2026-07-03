@@ -137,5 +137,5 @@ class EngineRegistry {
   }
 }
 
-/** Global registry indexing all available components (and, later, node tags). */
+/** Global registry indexing all available components by name (node/attachment tags live in NodeRegistry). */
 export const Registry = new EngineRegistry();

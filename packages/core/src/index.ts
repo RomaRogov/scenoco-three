@@ -72,8 +72,24 @@ export {
   type AttachContext,
 } from './dsl/nodes.js';
 
-// Bundle: the optimized format the runtime loads.
+// Stable runtime API: a `@property({ type: 'prefab' })` field receives a PrefabRef.
+export { PrefabRef, type SpawnOptions, type SpawnFn, type Vec3Input, type RotationInput } from './dsl/PrefabRef.js';
+
+// ── Advanced / tooling surface ──────────────────────────────────────────────
+// The compiled-bundle format and the low-level instantiate/deserialize entry
+// points. Consumed by the compiler, the editor, and bundle round-trip tests;
+// game code rarely touches these. Their shape tracks the compiler and may change
+// with the bundle wire format (see `BUNDLE_VERSION`) — treat as less stable than
+// the runtime API above.
 export { deserializeBundle } from './dsl/deserialize.js';
+export {
+  registerSrcCompiler,
+  getSrcCompiler,
+  type ParsedElement,
+  type SrcCompiler,
+  type SrcCompileResult,
+  type SrcDiagnostic,
+} from './dsl/srcCompiler.js';
 export {
   BUNDLE_VERSION,
   bundleKind,
@@ -82,7 +98,6 @@ export {
   type BundleKind,
 } from './dsl/bundle-format.js';
 export { instantiateScene, type InstantiatedScene } from './dsl/instantiate.js';
-export { PrefabRef, type SpawnOptions, type SpawnFn } from './dsl/PrefabRef.js';
 export type {
   CompiledScene,
   CompiledNode,

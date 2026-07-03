@@ -188,6 +188,13 @@ export interface NodeOptions {
   children?: Partial<ChildRules>;
   /** `'scene'` only for the root; everything else (the default) is `'object3d'`. */
   kind?: 'scene' | 'object3d';
+  /**
+   * Whether this node accepts attachments (geometry/material/…). Default true.
+   * Set `false` for a node that extends a Three.js class like `Mesh` but manages
+   * its own rendering (e.g. a UI element) — it then matches no attachment target,
+   * so it requires no `<geometry>`/`<material>` and rejects them if authored.
+   */
+  attachments?: boolean;
 }
 
 /** Registers an Object3D-family node tag (lights, cameras, meshes, groups, …). */
@@ -201,12 +208,15 @@ export function node(options: NodeOptions) {
       return inst.build();
     };
     // Probe the produced Three.js class (for attachment target matching). Build
-    // with no attrs so fields keep their initializers.
+    // with no attrs so fields keep their initializers. Skipped when the node
+    // opts out of attachments (a Mesh-extending node that renders itself).
     let produces: AttachClass | undefined;
-    try {
-      produces = build({}).constructor as AttachClass;
-    } catch {
-      produces = undefined;
+    if (options.attachments !== false) {
+      try {
+        produces = build({}).constructor as AttachClass;
+      } catch {
+        produces = undefined;
+      }
     }
     registerNode({
       tag: options.name,

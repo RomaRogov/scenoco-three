@@ -1,0 +1,20 @@
+<Prefab xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
+  <!--
+    A single Breakout brick. Composer-authored, validated, declarative — its
+    geometry, material, data, and physics all live here. The scene places these
+    individually as <PrefabInstance>s and the Ball references them as an array.
+
+    A static Box2D body + box collider make the ball bounce off the brick and let
+    the Physics2DSystem report the contact (Ball.onCollisionEnter2D).
+  -->
+  <Mesh>
+    <BoxGeometry width="1.2" height="0.4" depth="0.5" />
+    <MeshStandardMaterial color="#e9c46a" emissive="#3a2f10" roughness="0.5" metalness="0.1" />
+    <Components>
+      <Brick points="10" />
+      <RigidBody2D kind="static" />
+      <BoxCollider2D halfExtents="0.6 0.2" restitution="1" />
+    </Components>
+  </Mesh>
+</Prefab>

@@ -10,33 +10,35 @@ npm i -D @scenoco-three/compiler
 ```
 
 - [CLI](#cli) · [Library API](#library-api) · [The compile pipeline](#the-compile-pipeline) ·
-  [Diagnostics](#diagnostics) · [Standalone & dependencies](#standalone--dependencies)
+  [Prefabs](#prefabs) · [Diagnostics](#diagnostics) · [Standalone & dependencies](#standalone--dependencies)
 
 ## CLI
 
 ```
 scenoco init [dir]                        Scaffold a runnable project
-scenoco new component <Name>              Generate src/components/<Name>.ts
-scenoco new scene <name>                  Generate a scene skeleton
-scenoco check                             Pre-flight (@system co-location, physics)
+scenoco new component <Name>              Generate assets/components/<Name>.ts
+scenoco new scene <name>                  Generate assets/scenes/<name>.scene.xml
+scenoco check                             Pre-flight: scans components, flags physics setup
 scenoco validate <file...>                "tsc for scenes": file:line:col diagnostics
 scenoco bundle <file> [-o out]            Build the runtime bundle (.bundle.json)
 scenoco decompile <bundle.json> [-o out]  Inverse of bundle: back to canonical XML
 scenoco watch <file...> [--out dir]       Rebuild bundles on XML/resource changes
-scenoco export [--out dir]                Write scene.xsd + the API reference (default ./schema)
+scenoco export [--out dir]                Write scene/prefab/material .xsd + scene-api.json (default ./schema)
 
-  --components <dirs>   Comma-separated dirs scanned for @component classes (default "src")
-  --packages <pkgs>     Comma-separated tag packages to register (e.g. @scenoco-three/box2d),
-                        so their tags validate and appear in the XSD/docs
+  --components <dirs>   Comma-separated dirs scanned for @component classes (default "assets")
+  --packages <pkgs>     Comma-separated tag packages to register (default: every
+                        @scenoco-three/* dependency in the project's package.json)
 ```
 
-The exit code is non-zero when validation fails — wire it straight into an edit→check→fix loop.
+Configuration is zero-config by convention — components/scenes under `assets/`, tag packages
+read from `package.json`. The exit code is non-zero when validation fails — wire it straight
+into an edit→check→fix loop.
 
 ```bash
 scenoco init my-app
-scenoco validate scenes/level.scene.xml --components src   # all problems, with fix-its
-scenoco bundle  scenes/level.scene.xml -o level.bundle.json --components src
-scenoco export  --out schema --components src               # scene.xsd for IDE autocomplete
+scenoco validate assets/scenes/hello.scene.xml     # all problems, with fix-its
+scenoco bundle   assets/scenes/hello.scene.xml -o hello.bundle.json
+scenoco export   --out schema                      # XSDs for IDE autocomplete + scene-api.json
 ```
 
 ## Library API
@@ -76,7 +78,7 @@ scenes that pull in resource files via `src=`. `CompileResult` is
 ### Discover project components
 
 ```ts
-const scan = await loadComponents(['src'], undefined, { packages: ['@scenoco-three/box2d'] });
+const scan = await loadComponents(['assets'], undefined, { packages: ['@scenoco-three/box2d'] });
 // scan.byName: component name → file · scan.byTag: tag → module · scan.files: watched files
 ```
 
@@ -87,7 +89,7 @@ static (non-executing) scan.
 ### Watch
 
 ```ts
-const handle = watchSceneFiles({ files: ['scenes/level.scene.xml'], componentRoots: ['src'] });
+const handle = watchSceneFiles({ files: ['scenes/level.scene.xml'], componentRoots: ['assets'] });
 handle.on?.((event) => { /* 'diagnostics' | 'success' | 'error' */ });
 ```
 
@@ -115,6 +117,51 @@ XML ──parse(saxes)──► expand prefabs ──► VALIDATE ──► comp
 
 The validator, compiler, and exporters are all generated views of the **same registry** as
 the runtime, so the schema cannot drift.
+
+## Prefabs
+
+A **prefab file** has a `<Prefab>` root wrapping one node; a scene places an instance of it
+with `<PrefabInstance src="…prefab.xml" id="…">`. Expansion happens **before validation** — the
+`<PrefabInstance>` is replaced by the prefab's node subtree, so the validator/compiler/bundle
+see ordinary nodes. During expansion:
+
+- the prefab file is parsed, expanded, and **validated standalone** (a prefab is self-contained,
+  which is what makes it dynamically spawnable);
+- internal ids are **namespaced** into the instance scope (`osc` → `t1/osc`; nested composes to
+  `t1/inner/osc`) and internal `#refs` are rewritten to match — so the scene can address an
+  instance internal by its scoped id (`<Follow source="#t1/osc"/>`);
+- instance **transform attrs** (`position`/`rotation`/`scale`) override the prefab root's.
+
+Per-instance customization uses two children:
+
+```xml
+<PrefabInstance src="turbine.prefab.xml" id="t2" position="5 0 0">
+  <Override target="#osc" amplitude="1.5" />   <!-- patch an internal by prefab-local id -->
+  <Components><Highlight color="#f00" /></Components> <!-- extra components on the instance root -->
+</PrefabInstance>
+```
+
+`<Override>` values are validated against the target's schema, so mistakes point at the
+`<Override>` you wrote, not into the prefab file.
+
+### Wiring a prefab internal to a scene reference (the cross-boundary case)
+
+Because a prefab is validated standalone, it can't *name* a scene object. Leave the reference
+unset in the prefab and wire it from the instance — the override value is applied **after**
+id-scoping, so a scene id passes through unchanged and resolves in the normal scene reference pass:
+
+```xml
+<Mesh id="hud"><Components><GameManager id="gm" /></Components></Mesh>
+<PrefabInstance src="player.prefab.xml" id="p1">
+  <Override target="#controller" gameManager="#gm" />   <!-- #gm is a SCENE id -->
+</PrefabInstance>
+```
+
+This connects the spawned player's `controller.gameManager` to the scene's `<GameManager>`.
+For a prefab spawned at **runtime** (`engine.instantiate` / `PrefabRef.spawn`, no scene context
+at author time), wire it in code instead — see the
+[`@scenoco-three/core`](../core/README.md#prefabref) README (spawn → `getComponent` → set field,
+or the prefab's script resolving the scene object via `getComponentsOfType` / `findComponent`).
 
 ## Diagnostics
 

@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/compiler",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SceNoCo build-time compiler, CLI and watcher",
   "type": "module",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.2.0",
+    "@scenoco-three/core": "^0.3.0",
     "chokidar": "^4.0.3",
     "esbuild": "^0.25.12",
     "saxes": "^6.0.0"

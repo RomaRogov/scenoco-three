@@ -66,6 +66,8 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
     instance.node = objects[c.node]!;
     if (c.id !== undefined) instance.id = c.id;
     setScalarProps(instance, c, entry.meta.properties);
+    // Hand a `src=` document's compiled config to the component before onLoad.
+    if (c.config !== undefined) instance.applyConfig?.(c.config);
     return instance;
   });
 

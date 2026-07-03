@@ -146,6 +146,7 @@ engine.addComponent(node, Rotator, { speed: 2 })  // by class (typed) …
 engine.addComponent(node, 'Rotator', { speed: 2 }) // … or by registered name
 engine.removeComponent(instance)
 engine.getComponents(node): readonly Component[]
+engine.getComponentsOfType<T>(Type): T[]           // every live instance of a type (Unity FindObjectsByType)
 engine.findComponent<T>(id, type?): T | undefined  // type may be a class or a name string
 engine.findObject(id): Object3D | undefined        // by scene id — indexed (O(1)), with a traversal fallback
 ```
@@ -243,7 +244,8 @@ Type the host node for cast-free access: `class Rig extends Component<Perspectiv
 **Fields:** `node: TNode` · `engine: Engine` · `id?: string` · `enabled: boolean`
 (setting it runs `onEnable`/`onDisable`).
 
-**Methods:** `getComponent(Type): T | null` · `destroy()`.
+**Methods:** `getComponent(Type): T | null` · `getComponentInChildren(Type): T | null` ·
+`getComponentsInChildren(Type): T[]` (self + descendants, Unity-style) · `destroy()`.
 
 **Lifecycle hooks** (all optional, in order):
 
@@ -376,7 +378,8 @@ nodeTags(); getNodeDef('Mesh'); attachmentTags(); getAttachmentDef('BoxGeometry'
 ### `PrefabRef`
 
 What a `@property({ type: 'prefab' })` field receives — a handle that spawns a
-build-time-embedded prefab:
+build-time-embedded prefab. `spawn(options)` mirrors Unity `Instantiate(prefab,
+position, rotation, parent)` — **placement only**:
 
 ```ts
 @property({ type: 'prefab' }) brick: PrefabRef | null = null;
@@ -384,6 +387,36 @@ build-time-embedded prefab:
 const root = this.brick!.spawn({ position: [x, y, 0] }); // parent defaults to this.node
 // later: this.engine.destroy(root);  // you own spawned subtrees
 ```
+
+`position`/`rotation` accept **native Three.js types** (`Vector3`, `Euler`, `Quaternion`) or plain
+`[x,y,z]` arrays (rotation arrays are radians) — the same value you'd set on any `Object3D`:
+
+```ts
+const bullet = this.prefab!.spawn({ position: muzzle.clone(), rotation: ship.quaternion });
+```
+
+**Setting fields / wiring references on a spawned instance** is done the Unity/Cocos way — there is
+no override bag on `spawn`. Take the returned root and `GetComponent`, then set fields (references are
+just live instances you already hold):
+
+```ts
+const root = this.prefab!.spawn({ position: p });
+const ctrl = this.engine.getComponents(root).find((c) => c instanceof Controller) as Controller;
+ctrl.gameManager = this.engine.findComponent('gm', GameManager); // wire a scene reference
+```
+
+Or let the prefab's **own script** resolve the scene object in `start()`, Unity `FindObjectOfType` /
+Cocos `find` style:
+
+```ts
+override start() {
+  this.gameManager = this.engine.getComponentsOfType(GameManager)[0]   // FindObjectOfType
+    ?? this.engine.findComponent('GameManager', GameManager);          // or find by id/name
+}
+```
+
+> Author-time placement (a `<PrefabInstance>` in a scene) can wire prefab internals to scene objects
+> declaratively with `<Override>` — see the [`@scenoco-three/compiler`](../compiler/README.md#prefabs) README.
 
 ### bundle
 

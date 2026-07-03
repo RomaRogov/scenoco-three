@@ -80,11 +80,13 @@ component up automatically. No registration wiring.
 | [`@scenoco-three/core`](packages/core) | Runtime: `Engine`, `Component`, decorators, registry, bundle deserializer, Three.js node factories. No XML anywhere. |
 | [`@scenoco-three/compiler`](packages/compiler) | Build-time: XML parser, validator, scene compiler, bundler, XSD/docs exporters, component discovery, file watcher, and the `scenoco` CLI. |
 | [`@scenoco-three/vite`](packages/vite) | Vite plugin: `import scene from './x.scene.xml?bundle'` — compiles in Node, ships the bundle + the components the scene uses. |
-| [`@scenoco-three/editor`](packages/editor) | Local visual editor + headless renderer + **MCP server** (open/preview/run/pause/stop/telemetry/simulate) — the "eyes and hands" for a multimodal agent. Build-time only. |
+| [`@scenoco-three/editor`](packages/editor) | Local visual editor + headless renderer + **MCP server** (`open_file` / `get_preview` / `playback` / `simulate` / `get_telemetry`) — the "eyes and hands" for a multimodal agent. Build-time only. |
 | [`@scenoco-three/rapier`](packages/rapier) | Optional **3D physics** add-on: `<Physics>` setting + `<RigidBody>`/`<Collider>` components (Rapier) on the public `System` seam. Import it, or ship no physics. |
 | [`@scenoco-three/box2d`](packages/box2d) | Optional **2D physics** add-on: `<Physics2D>` setting + `<RigidBody2D>`/`<Collider2D>` components (planck/Box2D), with Unity-style `onCollisionEnter2D`/`onTriggerEnter2D` hooks. Same `System` seam; pure JS (no WASM). |
+| [`@scenoco-three/collision`](packages/collision) | Optional **detection-only collision** add-on: the *same tags and hooks as rapier* (`<RigidBody>`/`<*Collider>`, `onCollisionEnter`/`onTriggerEnter`) with inert dynamics — overlap events without a physics solver; switch to real physics by swapping one import. Zero deps. |
 | [`@scenoco-three/audio`](packages/audio) | Optional **audio** add-on: a `<Sound>` component (2D + positional 3D) on core's lazy `AudioListener` + the `AssetCache`. Import it, or open no `AudioContext`. |
 | [`@scenoco-three/animation`](packages/animation) | Optional **animation** add-on: a declarative `<Tween>` (easing/looping, zero-dep) + an `<Animator>` that plays a model's premade glTF clips (Unity `Animator` API). |
+| [`@scenoco-three/particles`](packages/particles) | Optional **particles/VFX** add-on: a Unity-Shuriken-style `<ParticleSystem>` rendered by [three.quarks](https://github.com/Alchemist0823/three.quarks) (batched) — inline props for quick effects, or `src="fire.particle.xml"` for a full definition with its own grammar + XSD. |
 
 ## Start a new project
 
@@ -97,15 +99,17 @@ npm run export        # generate schema/ (XSD + scene-api.json)
 ```
 
 The scaffold ships an `AGENTS.md` explaining the edit→validate→fix loop, so an agent can be
-productive immediately. Custom components under `src/components/` are auto-discovered — the
-validator, XSD, and docs pick them up with no registration.
+productive immediately. The project convention is **zero-config**: components and scenes live
+under `assets/` (auto-discovered — the validator, XSD, and docs pick them up with no
+registration), and any `@scenoco-three/*` tag package in your `package.json` (physics, audio,
+particles, …) is registered automatically by the CLI, the Vite plugin, and the editor.
 
 ## Quick start (this repo)
 
 ```bash
 npm install
-npm run examples:dev    # examples/playground at :5173
-npm test                # 343 tests (44 files)
+npm run examples:dev    # examples/breakout at :5173 (Box2D physics, DOM HUD, particles)
+npm test                # vitest — zone folders under tests/{core,compiler,tooling,packages,editor}
 npm run build           # build every package in dependency order
 npm run typecheck       # cross-package tsc --noEmit
 ```
@@ -113,37 +117,43 @@ npm run typecheck       # cross-package tsc --noEmit
 Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md) (repo map) and
 [`CONVENTIONS.md`](CONVENTIONS.md) (editing rules).
 
-CLI (after `npm run build`):
+CLI (after `npm run build`; run from a project root — components in `assets/` and tag
+packages in `package.json` are picked up with no flags):
 
 ```bash
-node packages/compiler/dist/cli/index.js validate playground/scenes/turbine.scene.xml --components playground/components
-node packages/compiler/dist/cli/index.js bundle   playground/scenes/turbine.prefab.xml -o turbine.bundle.json --components playground/components
-node packages/compiler/dist/cli/index.js export   --out schema --components playground/components
+cd examples/breakout
+node ../../packages/compiler/dist/cli/index.js validate assets/scenes/breakout.scene.xml
+node ../../packages/compiler/dist/cli/index.js bundle   assets/scenes/brick.prefab.xml -o brick.bundle.json
+node ../../packages/compiler/dist/cli/index.js export   --out schema
 ```
 
 ## Documentation
 
 Each package documents its own surface in `packages/*/README.md` (linked from the table
 above). `npm run export` generates a machine-readable scene-language reference
-(`schema/scene-api.json`) and an XSD (`schema/scene.xsd`) for IDE autocomplete, both
-derived from the same component registry as the runtime.
+(`schema/scene-api.json`) and XSDs for every document kind (`scene.xsd`, `prefab.xsd`,
+`material.xsd`, plus any tag package's own — e.g. particles' `particle.xsd`) for IDE
+autocomplete, all derived from the same component registry as the runtime.
 
 ## Status
 
-**`0.2.0`** — a large feature release on the frozen 0.1.0 baseline; pre-1.0, so the surface may
-still evolve. See [CHANGELOG.md](CHANGELOG.md) for the full list.
+**`0.3.0`** — a hardening release driven by shipping real games on the framework; pre-1.0, so
+the surface may still evolve. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
-On top of the 0.1.0 core (component lifecycle + `System` seam, the extensible node registry, the
-validated XML DSL with compiler/optimized bundles/XSD+docs exporters, the Vite plugin, prefabs +
-the `prefab` property kind, and scene settings), 0.2.0 adds: **custom shaders** (`<ShaderMaterial>`
-+ validated `<Uniform>`s); an **asset pipeline** (textures + glTF `<Model>`, `AssetCache`, async
-`loadSceneAsync`); **raycasting + Unity-style pointer events** (`onPointerDown/Up/Click/onDrag`) and
-**single-touch** input; **camera priority / multi-camera rendering** and component **execution
-order**; **deterministic RNG**, `timeScale`, and physics **render interpolation**; **physics joints**
-(`<Joint>` / `<Joint2D>`) and 3D **collision hooks**; two new add-on packages —
-**`@scenoco-three/audio`** (`<Sound>`) and **`@scenoco-three/animation`** (`<Tween>` + `<Animator>`);
-plus consistency fixes (forgiving `vec`/`color` `@property` defaults) and a tightened editor MCP
-toolset. Now **8 packages**.
+On top of the 0.2.0 feature set (asset pipeline, custom shaders, pointer events + touch input,
+multi-camera, execution order, deterministic RNG, physics joints + collision hooks, audio and
+animation add-ons), 0.3.0 adds: a **zero-config project convention** (components/scenes under
+`assets/`; tag packages auto-registered from `package.json` by the CLI, Vite plugin, and
+editor); two new add-on packages — **`@scenoco-three/collision`** (detection-only, rapier's
+exact API) and **`@scenoco-three/particles`** (three.quarks VFX with a validated
+`.particle.xml` format); **UI as a DOM/CSS overlay** (`engine.overlay` + a scene's sibling
+`*.ui.html`, embedded in the bundle — no UI tags, no wrapper API); the **`src=` sub-document
+seam** (`registerSrcCompiler` + `Component.applyConfig`, letting a package own its own
+validated file format); runtime `@system` attachment for spawn-only scenes; Unity-shaped
+`PrefabRef.spawn` placement and type-only component queries; `scenoco export` publishing
+**all four document XSDs**; and an editor that **survives broken component code** (last-good
+registry, error banner, auto-reload) with a start-up file picker and a pinned MCP port. Now
+**10 packages**.
 
 ## License
 
