@@ -202,21 +202,61 @@ function createFileWatcher(): FileWatcher {
   };
 }
 
-/** `virtual:scenoco-components` → import every project component + package + built-in nodes. */
+/**
+ * Two virtual modules, split so a broken project component can't wipe the core
+ * tag registry (the P1 "Background not registered" cascade):
+ *  - `virtual:scenoco-runtime`    → `@scenoco-three/core/nodes` + tag packages
+ *    (the infrastructure every core scene decodes against; imported first).
+ *  - `virtual:scenoco-components` → only the project's component files (fragile —
+ *    a broken one throws here, isolated from core/package registration).
+ * The components module is invalidated when a component file is added/removed, so
+ * a deleted file never lingers as a stale import (the client-cache half of P1).
+ */
 function allComponentsPlugin(roots: string[], packages: string[], cwd: string): Plugin {
-  const id = 'virtual:scenoco-components';
-  const resolved = '\0' + id;
+  const runtimeId = 'virtual:scenoco-runtime';
+  const componentsId = 'virtual:scenoco-components';
+  const resolvedRuntime = '\0' + runtimeId;
+  const resolvedComponents = '\0' + componentsId;
+  const absRoots = roots.map((r) => resolve(cwd, r));
+  const isComponentFile = (file: string): boolean => SOURCE_EXT_RE.test(file) && absRoots.some((r) => resolve(file).startsWith(r));
+
   return {
     name: 'scenoco:all-components',
-    resolveId: (source) => (source === id ? resolved : null),
+    resolveId: (source) =>
+      source === runtimeId ? resolvedRuntime : source === componentsId ? resolvedComponents : null,
     load(source) {
-      if (source !== resolved) return null;
-      const files = [...scanComponents(roots, cwd).files.keys()].map((f) => `import ${JSON.stringify(`/@fs${f}`)};`);
-      const pkgs = packages.map((p) => `import ${JSON.stringify(p)};`);
-      return ['import "@scenoco-three/core/nodes";', ...pkgs, ...files].join('\n');
+      if (source === resolvedRuntime) {
+        // Core nodes first (so core tags register even if a package throws next), then packages.
+        return ['import "@scenoco-three/core/nodes";', ...packages.map((p) => `import ${JSON.stringify(p)};`)].join('\n');
+      }
+      if (source === resolvedComponents) {
+        return [...scanComponents(roots, cwd).files.keys()].map((f) => `import ${JSON.stringify(`/@fs${f}`)};`).join('\n') || 'export {};';
+      }
+      return null;
+    },
+    configureServer(server) {
+      // Vite's watcher is rooted at the editor app dir, so it only sees component
+      // files once they're in the module graph (already imported). Watch the project
+      // component roots explicitly, so a brand-NEW file's `add` fires too — not just
+      // edits/deletes of already-imported ones.
+      server.watcher.add(absRoots);
+      // Adding/removing a component file changes the import list — rebuild the
+      // components module (not the runtime one) and reload, so a new file gets
+      // imported and a just-deleted one isn't imported from a stale graph.
+      const invalidate = (file: string): void => {
+        if (!isComponentFile(file)) return;
+        const mod = server.moduleGraph.getModuleById(resolvedComponents);
+        if (mod) server.moduleGraph.invalidateModule(mod);
+        server.ws.send({ type: 'full-reload' });
+      };
+      server.watcher.on('add', invalidate);
+      server.watcher.on('unlink', invalidate);
     },
   };
 }
+
+/** Component source extensions the editor imports (mirrors the compiler's scan). */
+const SOURCE_EXT_RE = /\.[cm]?[jt]sx?$/;
 
 /** `GET /@scenoco/bundle?file=<abs>` → the compiled runtime bundle (JSON). */
 function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, watcher: FileWatcher): Plugin {

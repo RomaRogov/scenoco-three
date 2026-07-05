@@ -59,7 +59,9 @@ export class PhysicsSystem extends System<RigidBody> {
   private readonly bodyColliders = new Map<RigidBody, number[]>();
   /** Per dynamic body: the two most recent fixed poses, lerped at render time. */
   private readonly interp = new Map<RigidBody, Interp>();
+  /** Pooled contact records; `contactCount` is the live prefix reused each step (no per-event allocation). */
   private readonly contacts: QueuedContact[] = [];
+  private contactCount = 0;
   private readonly v = new Vector3();
   private readonly q = new Quaternion();
 
@@ -142,6 +144,7 @@ export class PhysicsSystem extends System<RigidBody> {
     this.colliderMeta.clear();
     this.bodyColliders.clear();
     this.contacts.length = 0;
+    this.contactCount = 0;
   }
 
   /** The live Rapier body for a RigidBody, once built (for RigidBody.applyImpulse, etc.). */
@@ -186,27 +189,34 @@ export class PhysicsSystem extends System<RigidBody> {
     this.bodyColliders.set(rb, handles);
   }
 
-  /** Pull this step's started/stopped contacts into the queue, resolved to nodes. */
+  /** Pull this step's started/stopped contacts into the pooled queue, resolved to nodes. */
   private drainEvents(): void {
     this.events?.drainCollisionEvents((h1, h2, started) => {
       const a = this.colliderMeta.get(h1);
       const b = this.colliderMeta.get(h2);
       if (!a || !b) return; // a side was removed this step — drop the stale event
-      this.contacts.push({ a: a.node, b: b.node, sensor: a.sensor || b.sensor, phase: started ? 'enter' : 'exit' });
+      // Reuse a pooled record (grow the pool once), so a busy contact frame allocates nothing.
+      let c = this.contacts[this.contactCount];
+      if (c) { c.a = a.node; c.b = b.node; c.sensor = a.sensor || b.sensor; c.phase = started ? 'enter' : 'exit'; }
+      else this.contacts[this.contactCount] = c = { a: a.node, b: b.node, sensor: a.sensor || b.sensor, phase: started ? 'enter' : 'exit' };
+      this.contactCount++;
     });
   }
 
   private flushContacts(): void {
-    if (this.contacts.length === 0) return;
-    const batch = this.contacts.splice(0, this.contacts.length);
-    for (const { a, b, sensor, phase } of batch) {
+    // Dispatch the live prefix in place, then reset the count (records stay pooled).
+    // Deferred destruction means a hook can't splice the world mid-loop.
+    for (let i = 0; i < this.contactCount; i++) {
+      const { a, b, sensor, phase } = this.contacts[i]!;
       this.dispatch(a, b, sensor, phase);
       this.dispatch(b, a, sensor, phase);
     }
+    this.contactCount = 0;
   }
 
   private dispatch(node: Object3D, other: Object3D, sensor: boolean, phase: 'enter' | 'exit'): void {
     for (const c of this.engine.getComponents(node)) {
+      if (c._destroyed) continue; // enqueued for destruction this tick — skip its hooks
       const h = c as unknown as ContactHandlers;
       const fn = sensor
         ? phase === 'enter'

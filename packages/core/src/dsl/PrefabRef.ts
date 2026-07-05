@@ -58,6 +58,16 @@ export class PrefabRef {
     if (options.rotation) setRotation(root, options.rotation);
     return root;
   }
+
+  /**
+   * A short human-readable label identifying the embedded prefab — its root node's
+   * id, else its tag. For tooling/telemetry (an editor serializing a `prefab` prop),
+   * so it reads as e.g. `#Brick` rather than `[object Object]`.
+   */
+  describe(): string {
+    const root = this.compiled.nodes[this.compiled.root];
+    return root?.id ?? root?.tag ?? 'prefab';
+  }
 }
 
 /** Copy a `Vector3` or `[x, y, z]` into a target vector. */

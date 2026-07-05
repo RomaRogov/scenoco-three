@@ -1,4 +1,4 @@
-import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../src/protocol.js';
+import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../dist/protocol.js';
 import type { EditorSession } from './session.js';
 
 /**

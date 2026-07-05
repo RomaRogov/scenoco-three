@@ -10,6 +10,8 @@ export class BoxCollider extends Collider {
 
   private readonly _center = new Vector3();
   private readonly _half = new Vector3();
+  /** Reused per-step bounds — its center/half are the vectors above, mutated in place (no per-step allocation). */
+  private readonly _bounds = { shape: 'box' as const, center: this._center, half: this._half };
 
   override worldBounds(): Bounds {
     this.node.getWorldPosition(this._center);
@@ -19,6 +21,6 @@ export class BoxCollider extends Collider {
       Math.abs(this._half.y) * this.halfExtents.y,
       Math.abs(this._half.z) * this.halfExtents.z,
     );
-    return { shape: 'box', center: this._center, half: this._half };
+    return this._bounds;
   }
 }

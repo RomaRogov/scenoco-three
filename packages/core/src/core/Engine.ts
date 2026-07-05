@@ -195,6 +195,13 @@ export class Engine {
   private readonly instances = new Set<Object3D>();
   /** Async asset hooks awaited by loadSceneAsync/instantiateAsync before instantiation. */
   private readonly preloadProviders: PreloadProvider[] = [];
+  /**
+   * Deferred destruction (Unity-style) — reused buffers of work enqueued by
+   * `destroy`/`destroyComponent` during a tick and flushed once at end of tick.
+   * Persistent so a frame of many despawns allocates nothing here.
+   */
+  private readonly pendingNodes: Object3D[] = [];
+  private readonly pendingComponents: Component[] = [];
   private readonly raycaster = new Raycaster();
   /** The object a pointer press landed on, so the release/click can target it. */
   private pointerPressed?: Object3D;
@@ -367,7 +374,7 @@ export class Engine {
    */
   getComponentsOfType<T extends Component>(type: abstract new (...args: never[]) => T): T[] {
     const out: T[] = [];
-    for (const c of this.components) if (c instanceof type) out.push(c as T);
+    for (const c of this.components) if (!c._destroyed && c instanceof type) out.push(c as T);
     return out;
   }
 
@@ -498,6 +505,7 @@ export class Engine {
     if (delta) event.delta = delta.clone();
     for (let object: Object3D | null = target; object; object = object.parent) {
       for (const component of this.getComponents(object)) {
+        if (component._destroyed) continue;
         const fn = (component as unknown as Record<string, unknown>)[hook];
         if (typeof fn === 'function') (fn as (e: PointerEventData) => void).call(component, event);
       }
@@ -577,12 +585,13 @@ export class Engine {
         ? (Registry.getComponent(type)?.ctor as (abstract new () => T) | undefined)
         : type;
     const direct = this.byId.get(id);
-    if (direct && (!ctor || direct instanceof ctor)) return direct as T;
+    // Skip a component enqueued for destruction — to callers it's already gone.
+    if (direct && !direct._destroyed && (!ctor || direct instanceof ctor)) return direct as T;
     // Fall back to the node with this id (indexed via findObject, so it also
     // resolves ids on spawned instances — not just a scene-root traversal).
     const node = this.findObject(id);
     if (node) {
-      for (const c of this.getComponents(node)) if (!ctor || c instanceof ctor) return c as T;
+      for (const c of this.getComponents(node)) if (!c._destroyed && (!ctor || c instanceof ctor)) return c as T;
     }
     return undefined;
   }
@@ -731,24 +740,75 @@ export class Engine {
 
   /**
    * Destroy an object and its whole subtree — Unity/Cocos `Destroy(gameObject)`.
-   * Recursively removes every component on the object and its descendants (running
-   * their onDisable/onDestroy), detaches it from the scene graph, and frees its GPU
-   * resources. Works on any Object3D — a `instantiate`/`PrefabRef.spawn` root, a
-   * single node, or a hand-built subtree. Calling it again is a harmless no-op.
+   * **Deferred**: the object and its components are marked destroyed immediately
+   * (so every phase this tick skips them) but the actual teardown — onDisable/
+   * onDestroy, scene-graph detach, GPU free — runs when the engine flushes at end
+   * of tick. Destroying inside a hook (a bullet despawning on hit) is therefore
+   * safe: no system's live component array is spliced mid-step. Works on any
+   * Object3D — an `instantiate`/`PrefabRef.spawn` root, a single node, or a
+   * hand-built subtree. Calling it again is a harmless no-op.
    */
   destroy(object: Object3D): void {
-    // Collect first: removeComponent mutates byNode as we go. Also forget any
-    // spawned root inside this subtree so dispose() won't try to free it twice.
-    const components: Component[] = [];
+    let alreadyQueued = true;
     object.traverse((node) => {
-      const onNode = this.byNode.get(node);
-      if (onNode) components.push(...onNode);
-      this.instances.delete(node);
+      for (const c of this.byNode.get(node) ?? []) {
+        if (!c._destroyed) {
+          c._destroyed = true;
+          alreadyQueued = false;
+        }
+      }
     });
-    for (const c of components) this.removeComponent(c);
-    this.indexObjects(object, false);
-    object.removeFromParent();
-    disposeObject(object);
+    // A subtree with no live components (or already fully marked) still needs its
+    // node enqueued once so it's detached/freed — unless it's already pending.
+    if (!alreadyQueued || !this.pendingNodes.includes(object)) this.pendingNodes.push(object);
+  }
+
+  /**
+   * Destroy a single component (Cocos `Component.destroy`) — enqueued and torn
+   * down at end of tick, like {@link destroy}. Marked destroyed at once so every
+   * phase skips it from here on.
+   */
+  destroyComponent(instance: Component): void {
+    if (instance._destroyed) return;
+    instance._destroyed = true;
+    this.pendingComponents.push(instance);
+  }
+
+  /**
+   * Flush all destruction enqueued this tick: run the real teardown for each
+   * pending node subtree (remove components → onDisable/onDestroy, drop from the
+   * id index, detach, free GPU resources) and each pending lone component. Called
+   * once per tick after systems step (before render), and defensively before any
+   * scene swap/dispose so queued work never leaks across a load.
+   */
+  private flushDestroyed(): void {
+    // Cursor-drain, not for-of: a component's onDestroy may itself destroy more
+    // (a parent despawning its children), appending to these buffers as we go —
+    // the cursors pick that up in the same flush without mutating a live loop.
+    let ni = 0;
+    let ci = 0;
+    while (ni < this.pendingNodes.length || ci < this.pendingComponents.length) {
+      while (ni < this.pendingNodes.length) {
+        const object = this.pendingNodes[ni++]!;
+        // Collect first: removeComponent mutates byNode as we go. Also forget any
+        // spawned root inside this subtree so dispose() won't try to free it twice.
+        const components: Component[] = [];
+        object.traverse((node) => {
+          const onNode = this.byNode.get(node);
+          if (onNode) components.push(...onNode);
+          this.instances.delete(node);
+        });
+        for (const c of components) this.removeComponent(c);
+        this.indexObjects(object, false);
+        object.removeFromParent();
+        disposeObject(object);
+      }
+      // Lone components whose node wasn't itself destroyed (removeComponent is a
+      // harmless no-op for any already torn down by a node flush above).
+      while (ci < this.pendingComponents.length) this.removeComponent(this.pendingComponents[ci++]!);
+    }
+    this.pendingNodes.length = 0;
+    this.pendingComponents.length = 0;
   }
 
   /**
@@ -779,6 +839,9 @@ export class Engine {
    * isn't part of the scene, or in a spawned instance).
    */
   disposeScene(): void {
+    // Flush any destruction still queued from the last tick before we swap, so a
+    // pending subtree is torn down cleanly rather than stranded across the load.
+    this.flushDestroyed();
     // Components first (a RigidBody.onDisable removes its body), then the
     // subsystems they used (PhysicsSystem.onDetach frees the world).
     const components: Component[] = [];
@@ -847,7 +910,7 @@ export class Engine {
     // Variable-rate phase: start (once) then update.
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (!c.enabled || !c._loaded) continue;
+      if (!c.enabled || !c._loaded || c._destroyed) continue;
       if (!c._started) {
         c._started = true;
         c.start?.();
@@ -857,9 +920,14 @@ export class Engine {
     // Late phase: after every update this frame.
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (c.enabled && c._loaded) c.lateUpdate?.(scaled);
+      if (c.enabled && c._loaded && !c._destroyed) c.lateUpdate?.(scaled);
     }
     if (!this.editorMode) for (const s of this.systems) s.step?.(scaled);
+
+    // Flush deferred destruction now — after all gameplay/systems ran, before
+    // render — so a destroyed object neither draws a final frame nor lingers into
+    // the next tick, and no phase above ever saw a spliced component array.
+    this.flushDestroyed();
 
     // Render only when there's both a target and at least one camera — the engine
     // never supplies a fallback camera, so a scene without one simply doesn't draw.
@@ -915,7 +983,7 @@ export class Engine {
   private fixedStep(fixedDt: number): void {
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (c.enabled && c._loaded) c.fixedUpdate?.(fixedDt);
+      if (c.enabled && c._loaded && !c._destroyed) c.fixedUpdate?.(fixedDt);
     }
     if (!this.editorMode) for (const s of this.systems) s.fixedStep?.(fixedDt);
   }

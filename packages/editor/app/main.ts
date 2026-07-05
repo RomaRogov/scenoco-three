@@ -217,6 +217,9 @@ let reloading = false;
 let conflictBanner: HTMLElement | undefined;
 
 session.onExternalChange = (_file, role) => void handleExternalChange(role);
+// A gameplay frame that throws surfaces in the same banner; playback is already
+// paused by the session, so the editor stays alive until the code is fixed.
+session.onRuntimeError = (message) => setComponentError(message);
 
 async function handleExternalChange(role: 'open' | 'dep'): Promise<void> {
   if (reloading) return;
@@ -322,11 +325,19 @@ async function openFile(path: string): Promise<void> {
 }
 
 void (async () => {
-  // Register every project component, package tag, and built-in node. Imported
-  // dynamically + caught so a broken component file can't abort page startup: the
-  // WS bridge (hence MCP) and the error banner still come up. While something is
-  // broken the editor can't render scenes, but it stays alive; a full reload on
-  // the next successful HMR update revives it once every error is fixed.
+  // Core tags + tag packages first, as their own import — this is the registry
+  // every core scene decodes against, so it must NOT depend on project components
+  // loading (a broken component previously cascaded into "Background not registered").
+  try {
+    await import('virtual:scenoco-runtime');
+  } catch (e) {
+    console.error('[editor] runtime tags failed to load:', e);
+    setComponentError(e instanceof Error ? e.message : String(e));
+  }
+  // Project components, imported separately + caught so a broken component file
+  // can't abort page startup or wipe the core tags above: the WS bridge (hence
+  // MCP) and the error banner still come up, and core scenes still preview. A full
+  // reload on the next successful HMR update revives components once they're fixed.
   try {
     await import('virtual:scenoco-components');
   } catch (e) {

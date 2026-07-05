@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/audio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Audio for SceNoCo: a <Sound> component (2D + positional) on the AssetCache + a camera AudioListener",
   "type": "module",
   "license": "MIT",
@@ -32,7 +32,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.3.0"
+    "@scenoco-three/core": "^0.4.0"
   },
   "peerDependencies": {
     "three": ">=0.160"

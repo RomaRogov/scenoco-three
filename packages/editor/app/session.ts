@@ -1,9 +1,9 @@
 import {
   AmbientLight, Box3, Color, DirectionalLight, PerspectiveCamera, Sphere, Vector3, type Object3D,
 } from 'three';
-import { Engine, Registry, bundleKind, type Bundle, type Component } from '@scenoco-three/core';
+import { Engine, PrefabRef, Registry, bundleKind, type Bundle, type Component } from '@scenoco-three/core';
 import type { SceneProvenance } from '@scenoco-three/compiler';
-import type { EditOp, EditorResult, SimStep } from '../src/protocol.js';
+import type { EditOp, EditorResult, SimStep } from '../dist/protocol.js';
 
 export type EditorMode = 'edit' | 'play';
 
@@ -19,10 +19,19 @@ export class EditorSession {
   playing = false;
   /** The editor camera (edit mode only). */
   editorCamera?: PerspectiveCamera;
+  /** A reused framing camera for play-mode previews of scenes/prefabs that have no camera of their own. */
+  private previewCamera?: PerspectiveCamera;
   /** Fired after the engine/scene changes, so the host rebinds camera + panels. */
   onChange?: () => void;
   /** Fired when a watched file changes on disk (the open file or a `src=` dep). */
   onExternalChange?: (file: string, role: 'open' | 'dep') => void;
+  /**
+   * Fired when a gameplay frame throws (a component hook / system error). The host
+   * shows it in the same "component code has an error" banner; the session stays
+   * alive (playback paused) so a fix + HMR reload recovers, rather than the RAF
+   * loop dying or the MCP session wedging.
+   */
+  onRuntimeError?: (message: string) => void;
 
   private bundle?: Bundle;
   /** Source path of the open scene/prefab — the target of `save`. */
@@ -86,7 +95,7 @@ export class EditorSession {
   /** Advance gameplay by a single frame while paused (no-op outside play mode). */
   step(dt = 1 / 60): void {
     if (this.mode !== 'play') return;
-    this.engine.tick(dt); // bypass the play+paused gate in tick()
+    this.runTick(dt); // bypass the play+paused gate in tick()
   }
   stop(): void {
     this.toEdit();
@@ -94,18 +103,45 @@ export class EditorSession {
 
   /** Advance one frame: edit always renders; play advances only while playing. */
   tick(dt: number): void {
-    this.engine.tick(this.mode === 'play' && !this.playing ? 0 : dt);
+    this.runTick(this.mode === 'play' && !this.playing ? 0 : dt);
+  }
+
+  /**
+   * Drive the engine one frame, catching any error a component hook / system
+   * throws so a single bad frame can't kill the RAF loop or the MCP session.
+   * On failure it pauses playback (so the failing frame isn't re-run every RAF)
+   * and surfaces the error to the host banner. Returns the error message, if any.
+   */
+  private runTick(dt: number): string | undefined {
+    try {
+      this.engine.tick(dt);
+      return undefined;
+    } catch (e) {
+      this.playing = false;
+      const message = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      this.onRuntimeError?.(message);
+      return message;
+    }
   }
 
   /** Capture the current view as a PNG data URL (optionally re-framing the editor camera). */
   preview(opts: { camera?: string; lookAt?: string }): string {
-    if (this.mode === 'edit' && this.editorCamera) {
-      const cam = vec3(opts.camera);
-      const look = vec3(opts.lookAt);
-      if (cam) this.editorCamera.position.copy(cam);
-      if (look) this.editorCamera.lookAt(look);
+    if (this.mode === 'edit') {
+      if (this.editorCamera) {
+        const cam = vec3(opts.camera);
+        const look = vec3(opts.lookAt);
+        if (cam) this.editorCamera.position.copy(cam);
+        if (look) this.editorCamera.lookAt(look);
+      }
+      // Particles only emit under their play-mode render system — render a short
+      // throwaway play burst so a VFX prefab isn't previewed empty while authoring.
+      if (this.hasParticles()) return this.particlePreview(opts);
+    } else {
+      // Play mode: honor the camera override (P2) and give a camera-less lone prefab
+      // a default framed camera + backdrop, so it isn't a blank white frame.
+      this.framePlayPreview(opts);
     }
-    this.engine.tick(0); // render the current frame
+    this.runTick(0); // render the current frame (guarded — a bad frame won't wedge the session)
     return this.canvas.toDataURL('image/png');
   }
 
@@ -156,7 +192,12 @@ export class EditorSession {
         case 'step': {
           const frames = Math.max(0, Math.floor(step.frames ?? 1));
           const dt = step.dt ?? 1 / 60;
-          for (let i = 0; i < frames; i++) this.engine.tick(dt);
+          for (let i = 0; i < frames; i++) {
+            // A throwing frame surfaces as a result (not a bare transport error)
+            // and stops the batch, leaving the session alive for the agent to inspect.
+            const error = this.runTick(dt);
+            if (error) { out.push({ kind: 'json', data: { error } }); return out; }
+          }
           break;
         }
         case 'tap':
@@ -212,35 +253,100 @@ export class EditorSession {
   }
 
   private applyBundle(): void {
-    if (!this.bundle) return;
-    if (bundleKind(this.bundle) === 'prefab') {
-      this.engine.instantiate(this.bundle);
-      // Editor-only preview lights — flagged so the Hierarchy/picking ignore them.
-      const ambient = new AmbientLight(0xffffff, 0.6);
-      ambient.userData.scenocoEditorOnly = true;
-      this.engine.scene.add(ambient);
-      const key = new DirectionalLight(0xffffff, 2);
-      key.position.set(3, 5, 4);
-      key.userData.scenocoEditorOnly = true;
-      this.engine.scene.add(key);
-      if (!this.engine.scene.background) this.engine.scene.background = new Color(0x15181f);
-    } else {
-      this.engine.loadScene(this.bundle);
-    }
+    if (this.bundle) applyBundleToEngine(this.engine, this.bundle);
   }
 
   /** Editor camera framing the scene from a 3/4 angle. */
   private frameCamera(): PerspectiveCamera {
     const cam = new PerspectiveCamera(50, this.canvas.clientWidth / this.canvas.clientHeight || 1, 0.01, 50000);
-    const box = new Box3().setFromObject(this.engine.scene);
-    const sphere = box.isEmpty() ? new Sphere(new Vector3(), 1) : box.getBoundingSphere(new Sphere());
-    const center = sphere.center;
-    const radius = sphere.radius || 1;
-    cam.position.copy(center).addScaledVector(new Vector3(0.6, 0.45, 1).normalize(), (radius / Math.sin((50 * Math.PI) / 180 / 2)) * 1.2);
-    cam.lookAt(center);
+    frameCameraTo(cam, this.engine.scene);
     this.engine.mainCamera = cam;
     return cam;
   }
+
+  /** Any live `ParticleSystem` component in the scene — VFX that only emits under its play-mode render system. */
+  private hasParticles(): boolean {
+    const ctor = Registry.getComponent('ParticleSystem')?.ctor;
+    return ctor ? this.engine.getComponentsOfType(ctor).length > 0 : false;
+  }
+
+  /**
+   * Frame a preview for the current play scene: honor a `camera`/`lookAt` override
+   * (P2 — worked only in edit mode before), and give a scene with no camera of its
+   * own (a lone prefab) a default framed camera + neutral backdrop so it isn't a
+   * blank white frame. Left untouched when the scene has its own camera and no override.
+   */
+  private framePlayPreview(opts: { camera?: string; lookAt?: string }): void {
+    const camPos = vec3(opts.camera);
+    const lookAt = vec3(opts.lookAt);
+    if (this.engine.mainCamera && !camPos && !lookAt) return; // scene's own camera, no override — leave it
+    const cam = (this.previewCamera ??= new PerspectiveCamera(50, 1, 0.01, 50000));
+    cam.aspect = this.canvas.clientWidth / this.canvas.clientHeight || 1;
+    const center = frameCameraTo(cam, this.engine.scene); // auto-frame, then apply any override
+    if (camPos) cam.position.copy(camPos);
+    if (lookAt) cam.lookAt(lookAt);
+    else if (camPos) cam.lookAt(center);
+    cam.updateProjectionMatrix();
+    this.engine.mainCamera = cam; // not one of the scene's cameras → a render override
+    if (!this.engine.scene.background) this.engine.scene.background = new Color(0x15181f);
+  }
+
+  /**
+   * Render a particle-bearing file in a throwaway play engine advanced a few
+   * frames, so its VFX is actually visible when previewed while authoring (in edit
+   * mode the particle render system never runs, so the effect shows empty). The
+   * edit session's own engine is left untouched; the next frame re-renders it.
+   */
+  private particlePreview(opts: { camera?: string; lookAt?: string }): string {
+    const engine = new Engine({ canvas: this.canvas, autoStart: false, editor: false, preserveDrawingBuffer: true });
+    try {
+      if (this.bundle) applyBundleToEngine(engine, this.bundle);
+      const cam = new PerspectiveCamera(50, this.canvas.clientWidth / this.canvas.clientHeight || 1, 0.01, 50000);
+      const center = frameCameraTo(cam, engine.scene);
+      const camPos = vec3(opts.camera);
+      const lookAt = vec3(opts.lookAt);
+      if (camPos) cam.position.copy(camPos);
+      if (lookAt || camPos) cam.lookAt(lookAt ?? center);
+      cam.updateProjectionMatrix();
+      engine.mainCamera = cam;
+      for (let i = 0; i < PARTICLE_PREVIEW_FRAMES; i++) engine.tick(1 / 60);
+      return this.canvas.toDataURL('image/png');
+    } finally {
+      engine.dispose();
+    }
+  }
+}
+
+/** Frames to advance a particle preview so the effect has visibly emitted. */
+const PARTICLE_PREVIEW_FRAMES = 30;
+
+/** Instantiate a bundle into `engine`: a prefab gets neutral preview lights + backdrop; a scene loads as-is. */
+function applyBundleToEngine(engine: Engine, bundle: Bundle): void {
+  if (bundleKind(bundle) === 'prefab') {
+    engine.instantiate(bundle);
+    // Editor-only preview lights — flagged so the Hierarchy/picking ignore them.
+    const ambient = new AmbientLight(0xffffff, 0.6);
+    ambient.userData.scenocoEditorOnly = true;
+    engine.scene.add(ambient);
+    const key = new DirectionalLight(0xffffff, 2);
+    key.position.set(3, 5, 4);
+    key.userData.scenocoEditorOnly = true;
+    engine.scene.add(key);
+    if (!engine.scene.background) engine.scene.background = new Color(0x15181f);
+  } else {
+    engine.loadScene(bundle);
+  }
+}
+
+/** Position `cam` to frame `scene` from a 3/4 angle; returns the scene center it looks at. */
+function frameCameraTo(cam: PerspectiveCamera, scene: Object3D): Vector3 {
+  const box = new Box3().setFromObject(scene);
+  const sphere = box.isEmpty() ? new Sphere(new Vector3(), 1) : box.getBoundingSphere(new Sphere());
+  const center = sphere.center;
+  const radius = sphere.radius || 1;
+  cam.position.copy(center).addScaledVector(new Vector3(0.6, 0.45, 1).normalize(), (radius / Math.sin((50 * Math.PI) / 180 / 2)) * 1.2);
+  cam.lookAt(center);
+  return center;
 }
 
 // ── value helpers (telemetry → JSON) ─────────────────────────────────────────────
@@ -255,13 +361,19 @@ function propValues(component: Component): Record<string, unknown> {
 function jsonValue(v: unknown): unknown {
   if (v == null || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return v ?? null;
   if (Array.isArray(v)) return v.map(jsonValue);
+  if (v instanceof PrefabRef) return v.describe(); // a `prefab` prop → its label, not "[object Object]"
   const o = v as { isVector3?: boolean; isVector2?: boolean; isColor?: boolean; isEuler?: boolean; isObject3D?: boolean; x?: number; y?: number; z?: number; name?: string; getHexString?: () => string };
   if (o.isVector3) return [o.x, o.y, o.z];
   if (o.isVector2) return [o.x, o.y];
   if (o.isEuler) return [deg(o.x!), deg(o.y!), deg(o.z!)];
   if (o.isColor) return `#${o.getHexString!()}`;
   if (o.isObject3D) return o.name || '(node)';
-  if ('node' in (o as object) && 'engine' in (o as object)) return componentName(v as Component) ?? '(component)';
+  // A component reference → its scene #id (what the agent correlates on), falling
+  // back to the class name only when the target has no id.
+  if ('node' in (o as object) && 'engine' in (o as object)) {
+    const c = v as Component;
+    return c.id !== undefined ? `#${c.id}` : (componentName(c) ?? '(component)');
+  }
   return String(v);
 }
 const arr = (v: { x: number; y: number; z: number }) => [round(v.x), round(v.y), round(v.z)];

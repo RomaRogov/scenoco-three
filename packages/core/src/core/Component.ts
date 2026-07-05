@@ -37,6 +37,13 @@ export abstract class Component<TNode extends Object3D = Object3D> {
   _loaded = false;
   /** @internal set by the engine when start has run */
   _started = false;
+  /**
+   * @internal set by the engine when this component is enqueued for destruction.
+   * Deferred destruction (Unity-style): the component stays live until the engine
+   * flushes at end of tick, but every phase loop skips it from the moment it's
+   * marked, so a hook that destroys mid-tick can't act on a dead component.
+   */
+  _destroyed = false;
 
   private _enabled = true;
 
@@ -91,9 +98,13 @@ export abstract class Component<TNode extends Object3D = Object3D> {
     return out;
   }
 
-  /** Remove this component from the engine, running onDisable/onDestroy (Cocos style). */
+  /**
+   * Destroy this component (Cocos style) — enqueued and torn down (onDisable/
+   * onDestroy) at the end of the current tick, so destroying inside a hook can't
+   * corrupt a loop that's mid-iteration. It's skipped by every phase from now on.
+   */
   destroy(): void {
-    this.engine.removeComponent(this);
+    this.engine.destroyComponent(this);
   }
 
   /**

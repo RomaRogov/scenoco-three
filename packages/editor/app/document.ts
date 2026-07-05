@@ -12,7 +12,7 @@ import {
   type SceneGraph,
 } from '@scenoco-three/core';
 import type { NodeOrigin, SceneProvenance } from '@scenoco-three/compiler';
-import type { EditOp, EditTarget } from '../src/protocol.js';
+import type { EditOp, EditTarget } from '../dist/protocol.js';
 import { UndoStack } from './commands.js';
 
 export type TransformChannel = 'position' | 'rotation' | 'scale';

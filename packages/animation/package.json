@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/animation",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Animation for SceNoCo: a declarative <Tween> component (easing/looping) + a reusable Tween class, and an <Animator> that plays a model's glTF clips",
   "type": "module",
   "license": "MIT",
@@ -35,7 +35,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.3.0"
+    "@scenoco-three/core": "^0.4.0"
   },
   "peerDependencies": {
     "three": ">=0.160"

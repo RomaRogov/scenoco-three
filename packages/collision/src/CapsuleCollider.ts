@@ -15,6 +15,8 @@ export class CapsuleCollider extends Collider {
   private readonly _dir = new Vector3();
   private readonly _q = new Quaternion();
   private readonly _scale = new Vector3();
+  /** Reused per-step bounds — endpoints/radius mutated in place (no per-step allocation). */
+  private readonly _bounds = { shape: 'capsule' as const, a: this._a, b: this._b, radius: 0 };
 
   override worldBounds(): Bounds {
     this.node.getWorldScale(this._scale);
@@ -24,6 +26,7 @@ export class CapsuleCollider extends Collider {
     this._dir.set(0, this.halfHeight * Math.abs(this._scale.y), 0).applyQuaternion(this.node.getWorldQuaternion(this._q));
     this._a.sub(this._dir);
     this._b.add(this._dir);
-    return { shape: 'capsule', a: this._a, b: this._b, radius: this.radius * Math.max(Math.abs(this._scale.x), Math.abs(this._scale.z)) };
+    this._bounds.radius = this.radius * Math.max(Math.abs(this._scale.x), Math.abs(this._scale.z));
+    return this._bounds;
   }
 }

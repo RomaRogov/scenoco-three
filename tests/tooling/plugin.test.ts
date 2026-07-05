@@ -1,4 +1,4 @@
-import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,6 +105,36 @@ export class Widget extends Component {
     await loadComponents([dir]);
     expect(Registry.getComponent('Widget')).toBeDefined();
     expect(componentLoadError()).toBeUndefined(); // recovered
+  });
+
+  // A broken file added *alongside* a good set fails the reload (last-good stays),
+  // but removing it returns the set to the exact key that last loaded cleanly. The
+  // load-key short-circuit must then clear the now-stale error, not keep reporting it.
+  it('clears a stale error when a broken file is removed and the set returns to a good key', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'scenoco-recover-'));
+    writeFileSync(
+      join(dir, 'Gizmo.ts'),
+      `import { Component, component } from '@scenoco-three/core';
+@component({ name: 'Gizmo', description: 'A test gizmo' })
+export class Gizmo extends Component {}`,
+    );
+    await loadComponents([dir]);
+    expect(componentLoadError()).toBeUndefined();
+
+    const broken = join(dir, 'Broken.ts');
+    writeFileSync(
+      broken,
+      `import { Component, component } from '@scenoco-three/core';
+@component({ name: 'BrokenGizmo', description: 'oops' })
+export class BrokenGizmo extends Component {}
+this is not valid typescript {{{`,
+    );
+    await loadComponents([dir]);
+    expect(componentLoadError()?.files).toContain(broken); // reported while broken
+
+    rmSync(broken); // remove → set returns to the exact good key
+    await loadComponents([dir]);
+    expect(componentLoadError()).toBeUndefined(); // stale error cleared (the fix)
   });
 });
 

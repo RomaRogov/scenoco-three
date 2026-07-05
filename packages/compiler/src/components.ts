@@ -213,7 +213,14 @@ export async function loadComponents(
   const key = createHash('sha1')
     .update(files.map((f) => `${f}:${statSync(f).mtimeMs}`).join('|'))
     .digest('hex');
-  if (key === loadedKey) return scan;
+  // Set is byte-identical to the last successfully-loaded one → the live registry
+  // is already correct. Clear any stale error from a broken *interim* set (e.g. a
+  // bad file was added then removed, returning to this same good key) — otherwise
+  // the last-good short-circuit would keep reporting an error that no longer exists.
+  if (key === loadedKey) {
+    loadError = undefined;
+    return scan;
+  }
 
   // Transpile the fresh set FIRST — a corruption (syntax/type/unresolved-import
   // error) throws here, *before* we touch the live registry, so the last-good set

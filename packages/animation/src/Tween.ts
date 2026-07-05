@@ -30,6 +30,8 @@ export class Tween {
   /** True once a non-looping tween has finished (looping tweens never set this). */
   done = false;
   private elapsed = 0;
+  /** Reused output buffer — filled and handed to `onUpdate` each step (no per-frame allocation). */
+  private readonly out: number[] = [];
 
   constructor(
     private readonly from: readonly number[],
@@ -57,7 +59,13 @@ export class Tween {
     }
 
     const eased = EASINGS[this.options.easing ?? 'quadInOut'](t);
-    this.onUpdate(this.from.map((f, i) => f + ((this.to[i] ?? f) - f) * eased));
+    const { from, to, out } = this;
+    out.length = from.length;
+    for (let i = 0; i < from.length; i++) {
+      const f = from[i]!;
+      out[i] = f + ((to[i] ?? f) - f) * eased;
+    }
+    this.onUpdate(out);
 
     if (loop === 'none' && t >= 1) {
       this.done = true;

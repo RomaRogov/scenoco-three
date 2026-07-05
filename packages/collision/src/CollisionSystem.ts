@@ -15,8 +15,17 @@ import { Collider, type Bounds, type ContactHandlers } from './Collider.js';
  */
 @system(Collider)
 export class CollisionSystem extends System<Collider> {
-  /** Pairs overlapping last frame: key → the two colliders, so exits can be dispatched. */
-  private prev = new Map<string, [Collider, Collider]>();
+  // Pairs overlapping this/last frame: numeric key → the two colliders, so exits
+  // can be dispatched. Double-buffered — `prev`/`cur` (and their tuple pools) are
+  // swapped each step and the reused one cleared, so a steady state allocates
+  // nothing here (no `new Map`, no fresh `[a, b]` tuple, no string key per pair).
+  private prev = new Map<number, [Collider, Collider]>();
+  private cur = new Map<number, [Collider, Collider]>();
+  private prevPool: [Collider, Collider][] = [];
+  private curPool: [Collider, Collider][] = [];
+  private curUsed = 0;
+  /** Reused world-bounds buffer, index-aligned with `this.components` (length reset each step). */
+  private readonly bounds: Bounds[] = [];
   private readonly id = new WeakMap<Collider, number>();
   private nextId = 1;
 
@@ -24,39 +33,65 @@ export class CollisionSystem extends System<Collider> {
     const list = this.components;
     const n = list.length;
     if (n === 0) {
-      if (this.prev.size > 0) this.prev = new Map();
+      if (this.prev.size > 0) this.prev.clear();
       return;
     }
     this.engine.scene.updateMatrixWorld();
-    const bounds: Bounds[] = new Array(n);
+    const bounds = this.bounds;
+    bounds.length = n; // reuse capacity; each collider fills its own reused Bounds
     for (let i = 0; i < n; i++) bounds[i] = list[i]!.worldBounds();
 
-    const current = new Map<string, [Collider, Collider]>();
+    const cur = this.cur;
+    cur.clear();
+    this.curUsed = 0;
     for (let i = 0; i < n; i++) {
       const a = list[i]!;
+      if (a._destroyed) continue; // enqueued for destruction this tick — treat as gone
       for (let j = i + 1; j < n; j++) {
         const b = list[j]!;
+        if (b._destroyed) continue;
         if (a.node === b.node) continue; // colliders on the same node don't self-collide
         if (!overlaps(bounds[i]!, bounds[j]!)) continue;
         const key = this.pairKey(a, b);
-        current.set(key, [a, b]);
+        cur.set(key, this.borrow(a, b));
         if (!this.prev.has(key)) emit(a, b, 'enter');
       }
     }
     for (const [key, [a, b]] of this.prev) {
-      if (!current.has(key)) emit(a, b, 'exit');
+      if (!cur.has(key)) emit(a, b, 'exit');
     }
-    this.prev = current;
+    // Swap maps + their pools together: the just-built `cur` becomes next step's
+    // `prev` (still referencing curPool), and the old `prev` becomes the reusable
+    // `cur`. Swapping the pools in lockstep means next step's `borrow` overwrites
+    // only the pool the new `prev` does NOT reference — its exit-pass tuples stay live.
+    const oldPrev = this.prev;
+    this.prev = cur;
+    this.cur = oldPrev;
+    const tmpPool = this.prevPool;
+    this.prevPool = this.curPool;
+    this.curPool = tmpPool;
   }
 
   override onDetach(): void {
     this.prev.clear();
+    this.cur.clear();
   }
 
-  private pairKey(a: Collider, b: Collider): string {
+  /** A pooled `[a, b]` tuple from the current pool — grown once, reused thereafter. */
+  private borrow(a: Collider, b: Collider): [Collider, Collider] {
+    let t = this.curPool[this.curUsed];
+    if (t) { t[0] = a; t[1] = b; } else this.curPool[this.curUsed] = t = [a, b];
+    this.curUsed++;
+    return t;
+  }
+
+  private pairKey(a: Collider, b: Collider): number {
     const ia = this.idOf(a);
     const ib = this.idOf(b);
-    return ia < ib ? `${ia}:${ib}` : `${ib}:${ia}`;
+    // Pack the two small collider ids into one number (unordered). PAIR_BASE bounds
+    // the number of distinct colliders per session at 2**26 (~67M) before keys
+    // could alias — comfortably beyond any real play session.
+    return ia < ib ? ia * PAIR_BASE + ib : ib * PAIR_BASE + ia;
   }
 
   private idOf(c: Collider): number {
@@ -65,6 +100,9 @@ export class CollisionSystem extends System<Collider> {
     return n;
   }
 }
+
+/** Base for packing two collider ids into one numeric pair key (see `pairKey`). */
+const PAIR_BASE = 2 ** 26;
 
 /** Deliver contact hooks to both colliders' nodes (swapping self/other), rapier-style. */
 function emit(a: Collider, b: Collider, phase: 'enter' | 'exit'): void {
@@ -77,6 +115,7 @@ function dispatch(self: Collider, other: Object3D, sensor: boolean, phase: 'ente
   // A destroyed collider's node has no components left → getComponents returns [],
   // so exits still reach the surviving collider without touching the removed one.
   for (const c of self.engine.getComponents(self.node)) {
+    if (c._destroyed) continue; // don't fire hooks on a component already torn down this tick
     const h = c as unknown as ContactHandlers;
     const fn = sensor
       ? phase === 'enter'

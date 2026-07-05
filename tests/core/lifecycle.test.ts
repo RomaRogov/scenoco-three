@@ -41,7 +41,7 @@ describe('component lifecycle', () => {
     expect(probe.events).toEqual(['onLoad', 'onEnable', 'onDisable', 'onEnable', 'start', 'update:0.016']);
   });
 
-  it('engine.destroy() recursively tears down a subtree, firing onDestroy, idempotently', () => {
+  it('engine.destroy() defers teardown to end of tick, then tears down the subtree, idempotently', () => {
     const engine = new Engine();
     const root = new Object3D();
     const child = new Object3D();
@@ -51,11 +51,36 @@ describe('component lifecycle', () => {
     const onChild = engine.addComponent(child, Probe);
 
     engine.destroy(root);
-    for (const p of [onRoot, onChild]) expect(p.events).toContain('onDestroy');
+    // Deferred (Unity-style): marked at once but still attached, onDestroy not yet fired.
+    for (const p of [onRoot, onChild]) expect(p.events).not.toContain('onDestroy');
+    expect(engine.scene.children).toContain(root);
+
+    engine.tick(0.016);
+    // Flushed at end of tick: onDestroy fired, detached, and never updated (skipped while pending).
+    for (const p of [onRoot, onChild]) {
+      expect(p.events).toContain('onDestroy');
+      expect(p.events.filter((e) => e.startsWith('update'))).toHaveLength(0);
+    }
     expect(engine.scene.children).not.toContain(root);
     expect(() => engine.destroy(root)).not.toThrow(); // idempotent
+  });
+  it('a component destroyed during another component update is skipped that same tick', () => {
+    const engine = new Engine();
+    // A killer that destroys the victim on its own first update. Execution order is
+    // insertion order, so inserting the killer first makes it run before the victim.
+    class Killer extends Component {
+      target!: Probe;
+      override update(): void { this.engine.destroyComponent(this.target); }
+    }
+    const killer = engine.addComponent(new Object3D(), Killer);
+    const victim = engine.addComponent(new Object3D(), Probe);
+    killer.target = victim;
+
     engine.tick(0.016);
-    expect(onChild.events.filter((e) => e.startsWith('update'))).toHaveLength(0);
+    // Victim was marked before its turn in the update loop → never updated, and torn down at flush.
+    expect(victim.events.filter((e) => e.startsWith('update'))).toHaveLength(0);
+    expect(victim.events).toContain('onDestroy');
+    engine.dispose();
   });
 });
 

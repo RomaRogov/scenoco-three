@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/collision",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lightweight non-physics overlap detection for SceNoCo: <BoxTrigger>/<SphereTrigger> volumes + a TriggerSystem dispatching onTriggerEnter/onTriggerExit",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.3.0"
+    "@scenoco-three/core": "^0.4.0"
   },
   "peerDependencies": {
     "three": ">=0.160.0"

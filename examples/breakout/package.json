@@ -1,6 +1,6 @@
 {
   "name": "breakout",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "SceNoCo Breakout — a self-contained example project (2D physics + DOM overlay HUD)",
@@ -12,14 +12,14 @@
     "export": "scenoco export --out schema"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.3.0",
-    "@scenoco-three/box2d": "^0.3.0",
-    "@scenoco-three/particles": "^0.3.0",
+    "@scenoco-three/core": "^0.4.0",
+    "@scenoco-three/box2d": "^0.4.0",
+    "@scenoco-three/particles": "^0.4.0",
     "three": "^0.184.0"
   },
   "devDependencies": {
-    "@scenoco-three/compiler": "^0.3.0",
-    "@scenoco-three/vite": "^0.3.0",
+    "@scenoco-three/compiler": "^0.4.0",
+    "@scenoco-three/vite": "^0.4.0",
     "@types/three": "^0.184.0",
     "typescript": "^5.6.0",
     "vite": "^5.0.0"

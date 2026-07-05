@@ -73,6 +73,34 @@ describe('@scenoco-three/collision — CollisionSystem (rapier-aligned)', () => 
     engine.dispose();
   });
 
+  it('survives a contact hook that destroys both colliders mid-step (deferred destruction)', () => {
+    // The P0 repro: several coincident sensors whose onTriggerEnter despawns both
+    // itself and the other. Pre-deferred-destruction this spliced the live
+    // component array mid-pair-loop → `undefined.node`. Now destroy() only enqueues.
+    class Destroyer extends Component {
+      hits = 0;
+      onTriggerEnter(other: Object3D): void {
+        this.hits++;
+        this.engine.destroy(other);
+        this.engine.destroy(this.node);
+      }
+    }
+    const engine = new Engine();
+    const spheres: Object3D[] = [];
+    for (let i = 0; i < 4; i++) {
+      const node = new Object3D(); // all at the origin → every pair overlaps this frame
+      engine.scene.add(node);
+      engine.addComponent(node, SphereCollider, { radius: 1, isSensor: true });
+      engine.addComponent(node, Destroyer);
+      spheres.push(node);
+    }
+    expect(() => { engine.tick(1 / 60); engine.tick(1 / 60); }).not.toThrow();
+    // The whole cluster despawned; nothing lingers in the scene or re-fires.
+    for (const s of spheres) expect(engine.scene.children).not.toContain(s);
+    expect(engine.getComponentsOfType(SphereCollider)).toHaveLength(0);
+    engine.dispose();
+  });
+
   it('accepts a rapier-shaped scene (<Physics>/<RigidBody>/<*Collider>) as a drop-in', () => {
     const r = compileSceneXml(`<Scene>
       <Physics gravity="0 -9.81 0" />

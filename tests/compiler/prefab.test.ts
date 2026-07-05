@@ -1,6 +1,6 @@
-import { Mesh } from 'three';
+import { Mesh, Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
-import { Engine, bundleKind, type CompiledScene } from '@scenoco-three/core';
+import { Engine, PrefabRef, bundleKind, type CompiledScene } from '@scenoco-three/core';
 import {
   bundlePrefab,
   compilePrefabXml,
@@ -90,10 +90,16 @@ describe('prefab dynamic instantiation', () => {
     expect((a.getObjectByName('body') as Mesh).rotation.y).toBeCloseTo(1); // Rotator speed 2 × 0.5s
 
     engine.destroy(a);
+    engine.tick(0); // deferred destruction flushes at end of tick
     expect(engine.scene.children).not.toContain(a);
     expect(engine.scene.children).toContain(b); // sibling instance untouched
     expect(() => engine.loadScene(prefabBundle)).toThrow(/prefab bundle/);
     engine.dispose();
+  });
+
+  it('PrefabRef.describe() labels a prefab by its root id, for readable telemetry', () => {
+    const ref = new PrefabRef(ok(compilePrefabXml(turbine, { path: '/p', resolve: resolver(files) })), () => new Object3D());
+    expect(ref.describe()).toBe('root'); // the turbine's <Group id="root"> — not "[object Object]"
   });
 });
 

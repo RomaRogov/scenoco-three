@@ -56,7 +56,9 @@ export class Physics2DSystem extends System<RigidBody2D> {
   private readonly bodies = new Map<RigidBody2D, Body>();
   /** Per dynamic body: the two most recent fixed poses, lerped at render time. */
   private readonly interp = new Map<RigidBody2D, Interp>();
+  /** Pooled contact records; `contactCount` is the live prefix reused each step (no per-event allocation). */
   private readonly contacts: QueuedContact[] = [];
+  private contactCount = 0;
 
   override onAttach(): void {
     const cfg = this.engine.findAttachment(Physics2D);
@@ -139,6 +141,7 @@ export class Physics2DSystem extends System<RigidBody2D> {
     this.bodies.clear();
     this.interp.clear();
     this.contacts.length = 0;
+    this.contactCount = 0;
     this.world = undefined;
   }
 
@@ -174,20 +177,27 @@ export class Physics2DSystem extends System<RigidBody2D> {
     const rbA = fa.getBody().getUserData() as RigidBody2D | undefined;
     const rbB = fb.getBody().getUserData() as RigidBody2D | undefined;
     if (!rbA || !rbB) return;
-    this.contacts.push({ a: rbA.node, b: rbB.node, sensor: fa.isSensor() || fb.isSensor(), phase });
+    const sensor = fa.isSensor() || fb.isSensor();
+    // Reuse a pooled record (grow the pool once), so a busy contact frame allocates nothing.
+    let c = this.contacts[this.contactCount];
+    if (c) { c.a = rbA.node; c.b = rbB.node; c.sensor = sensor; c.phase = phase; }
+    else this.contacts[this.contactCount] = c = { a: rbA.node, b: rbB.node, sensor, phase };
+    this.contactCount++;
   }
 
   private flushContacts(): void {
-    if (this.contacts.length === 0) return;
-    const batch = this.contacts.splice(0, this.contacts.length);
-    for (const { a, b, sensor, phase } of batch) {
+    // Dispatch the live prefix in place, then reset the count (records stay pooled).
+    for (let i = 0; i < this.contactCount; i++) {
+      const { a, b, sensor, phase } = this.contacts[i]!;
       this.dispatch(a, b, sensor, phase);
       this.dispatch(b, a, sensor, phase);
     }
+    this.contactCount = 0;
   }
 
   private dispatch(node: Object3D, other: Object3D, sensor: boolean, phase: 'enter' | 'exit'): void {
     for (const c of this.engine.getComponents(node)) {
+      if (c._destroyed) continue; // enqueued for destruction this tick — skip its hooks
       const h = c as unknown as Contact2DHandlers;
       const fn = sensor
         ? phase === 'enter'
