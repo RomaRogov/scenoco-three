@@ -1,5 +1,5 @@
 import { Audio, PositionalAudio } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
 
 /**
  * Plays an audio clip — 2D (global, for music/UI/SFX) or **positional** 3D
@@ -16,15 +16,15 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'Sound', description: 'Plays an audio clip (2D, or positional 3D).' })
 export class Sound extends Component {
-  @property({ type: 'string', asset: 'audio', default: '', description: 'Audio file URL' })
+  @property({ type: ValueType.String, asset: 'audio', default: '', description: 'Audio file URL' })
   src = '';
-  @property({ type: 'bool', default: true, description: 'Play as soon as the clip is loaded' })
+  @property({ type: ValueType.Bool, default: true, description: 'Play as soon as the clip is loaded' })
   autoplay = true;
-  @property({ type: 'bool', default: false, description: 'Loop the clip' }) loop = false;
-  @property({ type: 'float', default: 1, description: 'Volume 0..1' }) volume = 1;
-  @property({ type: 'bool', default: false, description: 'Positional (3D) audio that attenuates with distance' })
+  @property({ type: ValueType.Bool, default: false, description: 'Loop the clip' }) loop = false;
+  @property({ type: ValueType.Float, default: 1, description: 'Volume 0..1' }) volume = 1;
+  @property({ type: ValueType.Bool, default: false, description: 'Positional (3D) audio that attenuates with distance' })
   positional = false;
-  @property({ type: 'float', default: 1, description: 'Reference distance for positional falloff' })
+  @property({ type: ValueType.Float, default: 1, description: 'Reference distance for positional falloff' })
   refDistance = 1;
 
   /** The live three.js audio node (undefined before load / when headless). */

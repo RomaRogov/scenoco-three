@@ -27,6 +27,7 @@ import {
   type NodeAttr,
   type PropertyType,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import type { CompiledScalar } from './types.js';
 
 /**
@@ -215,7 +216,7 @@ function encodeAttrValue(
     return (value as CompiledScalar[]).map((el) => encodeAttrValue(el, type[0], intern));
   }
   if (isEnumType(type)) return type.valueKind === 'string' ? intern(value as string) : (value as CompiledScalar);
-  return type === 'string' ? intern(value as string) : (value as CompiledScalar);
+  return type === ValueType.String ? intern(value as string) : (value as CompiledScalar);
 }
 
 /**
@@ -230,13 +231,13 @@ function encodePropValue(
   if (isArrayType(type)) {
     return (value as (CompiledScalar | CompiledRef)[]).map((el) => encodePropValue(el, type[0], intern));
   }
-  if (type === 'prefab') return (value as { prefab: number }).prefab;
+  if (type === ValueType.Prefab) return (value as { prefab: number }).prefab;
   if (isEnumType(type)) return type.valueKind === 'string' ? intern(value as string) : (value as CompiledScalar);
   if (!isScalarType(type)) {
     const ref = value as CompiledRef;
     return 'component' in ref ? ref.component : ~(ref as { node: number }).node;
   }
-  if (type === 'string') return intern(value as string);
+  if (type === ValueType.String) return intern(value as string);
   return value as CompiledScalar;
 }
 

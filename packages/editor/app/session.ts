@@ -3,7 +3,8 @@ import {
 } from 'three';
 import { Engine, PrefabRef, Registry, bundleKind, type Bundle, type Component } from '@scenoco-three/core';
 import type { SceneProvenance } from '@scenoco-three/compiler';
-import type { EditOp, EditorResult, SimStep } from '../dist/protocol.js';
+import type { EditOp, EditorResult, SimStep } from '../src/protocol.js';
+import { componentName, registeredMeta, round, toDeg } from './meta.js';
 
 export type EditorMode = 'edit' | 'play';
 
@@ -365,7 +366,7 @@ function jsonValue(v: unknown): unknown {
   const o = v as { isVector3?: boolean; isVector2?: boolean; isColor?: boolean; isEuler?: boolean; isObject3D?: boolean; x?: number; y?: number; z?: number; name?: string; getHexString?: () => string };
   if (o.isVector3) return [o.x, o.y, o.z];
   if (o.isVector2) return [o.x, o.y];
-  if (o.isEuler) return [deg(o.x!), deg(o.y!), deg(o.z!)];
+  if (o.isEuler) return [toDeg(o.x!), toDeg(o.y!), toDeg(o.z!)];
   if (o.isColor) return `#${o.getHexString!()}`;
   if (o.isObject3D) return o.name || '(node)';
   // A component reference → its scene #id (what the agent correlates on), falling
@@ -377,9 +378,7 @@ function jsonValue(v: unknown): unknown {
   return String(v);
 }
 const arr = (v: { x: number; y: number; z: number }) => [round(v.x), round(v.y), round(v.z)];
-const degArr = (v: { x: number; y: number; z: number }) => [deg(v.x), deg(v.y), deg(v.z)];
-const deg = (rad: number) => round((rad * 180) / Math.PI);
-const round = (n: number) => Math.round(n * 1000) / 1000;
+const degArr = (v: { x: number; y: number; z: number }) => [toDeg(v.x), toDeg(v.y), toDeg(v.z)];
 
 function vec3(s?: string): Vector3 | undefined {
   if (!s) return undefined;
@@ -390,18 +389,4 @@ function count(root: Object3D): number {
   let n = 0;
   root.traverse(() => n++);
   return n;
-}
-function registeredMeta(component: Component) {
-  for (const name of Registry.componentNames()) {
-    const entry = Registry.getComponent(name);
-    if (entry && component instanceof entry.ctor) return entry.meta;
-  }
-  return undefined;
-}
-function componentName(component: Component): string | undefined {
-  for (const name of Registry.componentNames()) {
-    const entry = Registry.getComponent(name);
-    if (entry && component.constructor === entry.ctor) return name;
-  }
-  return undefined;
 }

@@ -1,5 +1,5 @@
 import type { Object3D, Vector3 } from 'three';
-import { Component, property } from '@scenoco-three/core';
+import { Component, property, ValueType } from '@scenoco-three/core';
 
 /** World-space bounds the overlap tests consume (filled by each collider per step). */
 export type Bounds =
@@ -32,13 +32,13 @@ export interface ContactHandlers {
  * purpose — importing both packages throws, so a project picks one engine.
  */
 export abstract class Collider extends Component {
-  @property({ type: 'float', default: 0, description: 'Bounciness 0..1 (inert in detection-only mode)' })
+  @property({ type: ValueType.Float, default: 0, description: 'Bounciness 0..1 (inert in detection-only mode)' })
   restitution = 0;
-  @property({ type: 'float', default: 0.5, description: 'Friction 0..1 (inert in detection-only mode)' })
+  @property({ type: ValueType.Float, default: 0.5, description: 'Friction 0..1 (inert in detection-only mode)' })
   friction = 0.5;
-  @property({ type: 'float', default: 1, description: 'Density (inert in detection-only mode)' })
+  @property({ type: ValueType.Float, default: 1, description: 'Density (inert in detection-only mode)' })
   density = 1;
-  @property({ type: 'bool', default: false, description: 'A trigger: reports overlaps via onTriggerEnter (else onCollisionEnter)' })
+  @property({ type: ValueType.Bool, default: false, description: 'A trigger: reports overlaps via onTriggerEnter (else onCollisionEnter)' })
   isSensor = false;
 
   /** @internal Current world-space bounds, recomputed by the CollisionSystem each step. */

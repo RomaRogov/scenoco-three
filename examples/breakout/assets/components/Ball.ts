@@ -1,5 +1,5 @@
 import type { Object3D } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
 import { RigidBody2D } from '@scenoco-three/box2d';
 import { Brick } from './Brick.js';
 import { Scoreboard } from './Scoreboard.js';
@@ -26,29 +26,29 @@ import { Scoreboard } from './Scoreboard.js';
 })
 export class Ball extends Component {
   /** Candidate speeds — one is chosen at random on every bounce. */
-  @property({ type: ['float'], default: [8, 12, 16], description: 'Bounce speeds; one is picked at random per bounce' })
+  @property({ type: [ValueType.Float], default: [8, 12, 16], description: 'Bounce speeds; one is picked at random per bounce' })
   bounceSpeeds: number[] = [8, 12, 16];
 
   /** The brick instances placed in the scene, referenced as an array. */
   @property({ type: [Brick], description: 'Brick instances the ball can break' })
   bricks: Brick[] = [];
 
-  @property({ type: 'float', default: 12, description: 'Speed the ball is launched at' })
+  @property({ type: ValueType.Float, default: 12, description: 'Speed the ball is launched at' })
   launchSpeed = 12;
 
   /** The paddle node — the ball resets above it after a miss. */
-  @property({ type: 'node', description: 'Paddle node (the ball resets above it)' })
+  @property({ type: ValueType.Node, description: 'Paddle node (the ball resets above it)' })
   paddle: Object3D | null = null;
 
   /** The bottom trigger node — entering it costs a life. */
-  @property({ type: 'node', description: 'Bottom sensor node (entering it loses the ball)' })
+  @property({ type: ValueType.Node, description: 'Bottom sensor node (entering it loses the ball)' })
   bottom: Object3D | null = null;
 
   /** The HUD controller — updated as score/lives change (drives the DOM overlay). */
   @property({ type: Scoreboard, description: 'HUD readout to update on score/lives changes' })
   scoreboard: Scoreboard | null = null;
 
-  @property({ type: 'int', default: 3, description: 'Starting lives' })
+  @property({ type: ValueType.Int, default: 3, description: 'Starting lives' })
   lives = 3;
 
   private remaining = 0;
@@ -56,7 +56,7 @@ export class Ball extends Component {
   private body: RigidBody2D | null = null;
 
   override onLoad(): void {
-    this.body = this.getComponent(RigidBody2D);
+    this.body = this.node.getComponent(RigidBody2D);
     this.remaining = this.bricks.length;
     this.scoreboard?.setLives(this.lives);
     console.log(`[Breakout] ${this.remaining} bricks in play — press SPACE to launch.`);

@@ -1,5 +1,5 @@
 import { SaxesParser } from 'saxes';
-import { Registry, getAttachmentDef, isScalarType, isEnumType, valueEquals, type EnumDef } from '@scenoco-three/core/internal';
+import { Registry, ValueType, getAttachmentDef, getNodeDef, isScalarType, isEnumType, valueEquals, type EnumDef } from '@scenoco-three/core/internal';
 import { scalarCodec, type ScalarType } from './types.js';
 
 /**
@@ -12,15 +12,18 @@ import { scalarCodec, type ScalarType } from './types.js';
  * An attribute whose new value equals the registry default is **removed**,
  * matching the canonical serializer's default-elision so files stay clean.
  *
- * Edits are addressed by `id` (which survives prefab expansion, unlike structural
- * paths); component edits are `nodeId` → the Nth `<Type>` in that node's
- * `<Components>`. Edits that can't be located are returned in `unresolved`.
+ * Edits are addressed by `id` first (ids survive structural file edits); id-less
+ * nodes fall back to the structural `path`/`nodePath` — ordinals among node-kind
+ * child elements from the root, with `tag` verified so a stale path lands in
+ * `unresolved` rather than on the wrong element. Component edits are the Nth
+ * `<Type>` in the owning node's `<Components>`. Edits that can't be located are
+ * returned in `unresolved`.
  */
 
 export type PatchTarget =
-  | { kind: 'node'; id?: string }
-  | { kind: 'component'; nodeId?: string; type: string; ordinal: number }
-  | { kind: 'attachment'; nodeId?: string; root?: boolean; tag: string; ordinal: number };
+  | { kind: 'node'; id?: string; path?: number[]; tag?: string }
+  | { kind: 'component'; nodeId?: string; nodePath?: number[]; type: string; ordinal: number }
+  | { kind: 'attachment'; nodeId?: string; nodePath?: number[]; root?: boolean; tag: string; ordinal: number };
 
 export interface PatchEdit {
   target: PatchTarget;
@@ -46,10 +49,10 @@ interface El {
 
 /** Transform attributes the editor sets directly on a node, with their codec + default. */
 const TRANSFORM: Record<string, { type: ScalarType; default: number | boolean | number[] }> = {
-  position: { type: 'vec3', default: [0, 0, 0] },
-  rotation: { type: 'euler', default: [0, 0, 0] },
-  scale: { type: 'vec3', default: [1, 1, 1] },
-  visible: { type: 'bool', default: true },
+  position: { type: ValueType.Vec3, default: [0, 0, 0] },
+  rotation: { type: ValueType.Euler, default: [0, 0, 0] },
+  scale: { type: ValueType.Vec3, default: [1, 1, 1] },
+  visible: { type: ValueType.Bool, default: true },
 };
 
 export function patchSceneXml(xml: string, edits: PatchEdit[]): PatchResult {
@@ -133,31 +136,55 @@ function startTagEnd(xml: string, from: number): number {
 }
 
 function locate(all: El[], roots: El[], target: PatchTarget): El | undefined {
-  if (target.kind === 'node') return target.id ? all.find((e) => e.id === target.id) : undefined;
+  if (target.kind === 'node') return locateNode(all, roots, target.id, target.path, target.tag);
   if (target.kind === 'attachment') {
     // Attachments are direct children of their node (the scene root when `root`).
-    const owner = target.root ? roots[0] : target.nodeId ? all.find((e) => e.id === target.nodeId) : undefined;
+    const owner = target.root ? roots[0] : locateNode(all, roots, target.nodeId, target.nodePath);
     const matches = owner?.children.filter((c) => c.tag === target.tag) ?? [];
     return matches[target.ordinal];
   }
-  if (!target.nodeId) return undefined;
-  const node = all.find((e) => e.id === target.nodeId);
+  const node = locateNode(all, roots, target.nodeId, target.nodePath);
   const components = node?.children.find((c) => c.tag === 'Components');
   const matches = components?.children.filter((c) => c.tag === target.type) ?? [];
   return matches[target.ordinal];
 }
 
+/** A node element, by `id` first, else by structural path (ordinals among node-kind children from the root). */
+function locateNode(all: El[], roots: El[], id?: string, path?: number[], tag?: string): El | undefined {
+  if (id) return all.find((e) => e.id === id);
+  if (!path) return undefined;
+  // Path anchor = the compiled root's source element: <Scene> itself, or the one
+  // spatial node inside a prefab file's <Prefab> wrapper.
+  const doc = roots[0];
+  let el = doc && (isNodeEl(doc) ? doc : doc.children.find(isNodeEl));
+  for (const ordinal of path) {
+    if (!el) return undefined;
+    el = el.children.filter(isNodeEl)[ordinal];
+  }
+  if (!el) return undefined;
+  // Verify the tag when carried: a mismatch means the file changed on disk since
+  // the edit was made — unresolved, not a patch of the wrong element. A source
+  // <PrefabInstance> compiles to its prefab root's tag, so it matches any.
+  if (tag && el.tag !== tag && el.tag !== 'PrefabInstance') return undefined;
+  return el;
+}
+
+/** Whether a scanned element is a scene node (vs. an attachment / <Components> block). */
+function isNodeEl(e: El): boolean {
+  return e.tag === 'PrefabInstance' || getNodeDef(e.tag) !== undefined;
+}
+
 /** The codec type + default for an edit's attribute (transform/registry/attachment; `src` is a plain string). */
 function resolve(edit: PatchEdit): { type: ScalarType | EnumDef; default?: number | boolean | string | number[] } | undefined {
   const t = edit.target;
-  if (t.kind === 'node') return edit.attr === 'src' ? { type: 'string' } : TRANSFORM[edit.attr];
+  if (t.kind === 'node') return edit.attr === 'src' ? { type: ValueType.String } : TRANSFORM[edit.attr];
   if (t.kind === 'component') {
     const meta = Registry.getComponent(t.type)?.meta.properties.get(edit.attr);
     if (!meta || (!isScalarType(meta.type) && !isEnumType(meta.type))) return undefined;
     return { type: meta.type, ...(meta.default !== undefined ? { default: meta.default as number | boolean | string | number[] } : {}) };
   }
   // attachment
-  if (edit.attr === 'src') return { type: 'string' };
+  if (edit.attr === 'src') return { type: ValueType.String };
   const meta = getAttachmentDef(t.tag)?.attrs[edit.attr];
   if (!meta || (!isScalarType(meta.type) && !isEnumType(meta.type))) return undefined;
   return { type: meta.type, ...(meta.default !== undefined ? { default: meta.default as number | boolean | string | number[] } : {}) };

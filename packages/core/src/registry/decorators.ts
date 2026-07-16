@@ -1,6 +1,7 @@
 import type { Object3D } from 'three';
 import {
   Registry,
+  ValueType,
   isArrayType,
   elementType,
   type CompiledDefault,
@@ -10,6 +11,9 @@ import {
   type PropertyType,
 } from './Registry.js';
 import type { ComponentCtor } from './Registry.js';
+// Re-exported so node/attachment files import `ValueType` from the same module as
+// the decorators they already use (`'../../registry/decorators.js'`).
+export { ValueType };
 import { isEnumType, type EnumDef } from './EnumRegistry.js';
 import {
   registerAttachment,
@@ -22,8 +26,8 @@ import {
   type ChildRules,
   type NodeAttr,
 } from './NodeRegistry.js';
-import type { CompiledScalar } from '../dsl/types.js';
-import type { CompiledUniform } from '../dsl/compiled.js';
+import type { CompiledScalar } from '../scene/types.js';
+import type { CompiledUniform } from '../scene/compiled.js';
 
 // SceNoCo uses legacy (experimentalDecorators) decorators, like Cocos Creator.
 // Rationale: as of 2026 the TC39 standard decorators are still not lowered by
@@ -60,9 +64,9 @@ export interface ComponentOptions {
  * components, nodes, and attachments. A `description` is **mandatory** (it is the
  * primary signal for review/agents/RAG), so the object form is always required —
  * the type goes in `type`:
- *   @property({ type: 'float', default: 1, description: 'Radians per second' })
+ *   @property({ type: ValueType.Float, default: 1, description: 'Radians per second' })
  *   @property({ type: SomeComponent, description: 'The target to follow' })   — typed reference
- *   @property({ type: ['float'], description: 'Per-lane weights' })            — array property
+ *   @property({ type: [ValueType.Float], description: 'Per-lane weights' })            — array property
  *   @property({ type: [SomeComponent], description: 'Bricks to track' })       — array of references
  */
 export function property(meta: PropertyInput) {
@@ -105,9 +109,9 @@ function normalizeDefault(meta: PropertyInput): void {
     return;
   }
   if (isArrayType(meta.type)) return;
-  if (elem === 'vec2') meta.default = toVecArray(d, 2);
-  else if (elem === 'vec3' || elem === 'euler') meta.default = toVecArray(d, 3);
-  else if (elem === 'color') meta.default = toColorNumber(d);
+  if (elem === ValueType.Vec2) meta.default = toVecArray(d, 2);
+  else if (elem === ValueType.Vec3 || elem === ValueType.Euler) meta.default = toVecArray(d, 3);
+  else if (elem === ValueType.Color) meta.default = toColorNumber(d);
 }
 
 /** A vec default in any accepted form → a number array of length `n`. */
@@ -292,7 +296,7 @@ function readAttrs(target: CtorWithProps, tag: string): { attrs: Record<string, 
   const attrs: Record<string, NodeAttr> = {};
   for (const [name, meta] of props) {
     const elem = elementType(meta.type);
-    if (!isEnumType(elem) && (typeof elem !== 'string' || elem === 'node' || elem === 'prefab')) {
+    if (!isEnumType(elem) && (typeof elem !== 'string' || elem === ValueType.Node || elem === ValueType.Prefab)) {
       throw new Error(
         `<${tag}> @property "${name}" must use a scalar type (float/int/bool/string/vec2/vec3/euler/color), an enum, or an array of one ([float] …); references are for components only`,
       );

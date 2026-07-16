@@ -1,6 +1,6 @@
 import { LineLoop } from 'three';
 import { Object3DNode } from '../base.js';
-import { node } from '../../core/decorators.js';
+import { node } from '../../registry/decorators.js';
 
 @node({
   name: 'LineLoop',

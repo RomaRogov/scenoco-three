@@ -1,7 +1,7 @@
 import { AudioLoader, TextureLoader, type Object3D } from 'three';
 
 /**
- * The kind of external resource a `@property({ type: 'string', asset })` field
+ * The kind of external resource a `@property({ type: ValueType.String, asset })` field
  * references. Drives scene enumeration (which URLs to preload) and lets tooling
  * (editor/XSD) treat the attr as a texture/model/audio picker rather than a free
  * string.

@@ -1,11 +1,12 @@
 import { Color, Euler, type Object3D, Vector2, Vector3 } from 'three';
-import type { AssetCache } from '../core/AssetCache.js';
-import type { Component } from '../core/Component.js';
-import { Registry, isArrayType, elementType, type PropType, type PropertyMeta } from '../core/Registry.js';
-import type { EnumDef } from '../core/EnumRegistry.js';
+import type { AssetCache } from '../assets/AssetCache.js';
+import type { Component } from '../runtime/Component.js';
+import { Registry, isArrayType, elementType, type PropType, type PropertyMeta } from '../registry/Registry.js';
+import { ValueType } from '../registry/Registry.js';
+import type { EnumDef } from '../registry/EnumRegistry.js';
 import type { CompiledComponent, CompiledNode, CompiledRef, CompiledScene, CompiledValue } from './compiled.js';
 import type { CompiledScalar } from './types.js';
-import { getAttachmentDef, getNodeDef, type AttachmentInstance } from './nodes.js';
+import { getAttachmentDef, getNodeDef, type AttachmentInstance } from '../registry/NodeRegistry.js';
 import { PrefabRef, type SpawnFn } from './PrefabRef.js';
 
 /**
@@ -133,7 +134,7 @@ function setScalarProps(
   for (const [name, meta] of props) {
     if (name in compiled.props || isArrayType(meta.type)) continue;
     const elem = elementType(meta.type);
-    if (elem !== 'vec2' && elem !== 'vec3' && elem !== 'euler' && elem !== 'color') continue;
+    if (elem !== ValueType.Vec2 && elem !== ValueType.Vec3 && elem !== ValueType.Euler && elem !== ValueType.Color) continue;
     const current = target[name] !== undefined ? target[name] : meta.default;
     if (current !== undefined) target[name] = coerceMathValue(elem, current);
   }
@@ -142,16 +143,16 @@ function setScalarProps(
 /** Coerce an already-runtime value (Vector/Euler/Color, array, {x,y,z}, number) to the math type for `elem`. */
 function coerceMathValue(elem: PropType | { new (): unknown } | EnumDef, current: unknown): unknown {
   switch (elem) {
-    case 'vec2':
+    case ValueType.Vec2:
       return current instanceof Vector2 ? current : new Vector2().fromArray(toNumberArray(current, 2));
-    case 'vec3':
+    case ValueType.Vec3:
       return current instanceof Vector3 ? current : new Vector3().fromArray(toNumberArray(current, 3));
-    case 'euler': {
+    case ValueType.Euler: {
       if (current instanceof Euler) return current;
       const a = toNumberArray(current, 3);
       return new Euler(a[0]!, a[1]!, a[2]!);
     }
-    case 'color':
+    case ValueType.Color:
       return current instanceof Color ? current : new Color(current as number | string);
     default:
       return current;
@@ -174,15 +175,15 @@ function toNumberArray(v: unknown, n: number): number[] {
  */
 function toRuntimeValue(type: PropType | { new (): unknown } | EnumDef, value: CompiledScalar): unknown {
   switch (type) {
-    case 'vec2':
+    case ValueType.Vec2:
       return new Vector2().fromArray(value as number[]);
-    case 'vec3':
+    case ValueType.Vec3:
       return new Vector3().fromArray(value as number[]);
-    case 'euler': {
+    case ValueType.Euler: {
       const e = value as number[];
       return new Euler(e[0]!, e[1]!, e[2]!);
     }
-    case 'color':
+    case ValueType.Color:
       return new Color(value as number);
     default:
       return value; // float/int/bool/string
@@ -193,7 +194,7 @@ function toRuntimeValue(type: PropType | { new (): unknown } | EnumDef, value: C
 function isReferenceType(elem: PropType | { new (): unknown } | EnumDef): boolean {
   // Component-class refs are constructors (functions); 'node'/'prefab' are strings.
   // Scalars are strings and enums are plain objects — neither is a reference.
-  return typeof elem === 'function' || elem === 'node' || elem === 'prefab';
+  return typeof elem === 'function' || elem === ValueType.Node || elem === ValueType.Prefab;
 }
 
 /** Fallback for a prefab prop instantiated without an engine (pure/standalone use). */

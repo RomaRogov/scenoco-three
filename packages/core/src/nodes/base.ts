@@ -1,5 +1,5 @@
 import type { Object3D } from 'three';
-import type { AttachContext } from '../core/NodeRegistry.js';
+import type { AttachContext } from '../registry/NodeRegistry.js';
 
 /**
  * Base classes for the two tag kinds that live in the scene tree — the factory
@@ -12,7 +12,7 @@ import type { AttachContext } from '../core/NodeRegistry.js';
  *
  *   @attachment({ name: 'BoxGeometry', description: 'Box geometry', target: Mesh, group: 'geometry', required: true })
  *   class BoxGeometry extends Attachment<Mesh> {
- *     @property({ type: 'float', default: 1, description: 'Size along X' }) width = 1;
+ *     @property({ type: ValueType.Float, default: 1, description: 'Size along X' }) width = 1;
  *     attach(ctx) { ctx.node.geometry = new BoxGeometry(this.width); }
  *   }
  *

@@ -26,11 +26,11 @@ export interface SpawnOptions {
 }
 
 /**
- * The value a `@property({ type: 'prefab' })` field receives: a handle that
+ * The value a `@property({ type: ValueType.Prefab })` field receives: a handle that
  * spawns the build-time-embedded prefab at runtime — Unity/Cocos `Instantiate`,
  * without the component touching the bundle/instantiate machinery.
  *
- *   @property({ type: 'prefab', description: 'Brick prefab to spawn' }) brick: PrefabRef | null = null;
+ *   @property({ type: ValueType.Prefab, description: 'Brick prefab to spawn' }) brick: PrefabRef | null = null;
  *   // …
  *   const root = this.brick!.spawn({ position: [x, y, 0] });
  *   // wire fields/references on the fresh instance, GetComponent-style:

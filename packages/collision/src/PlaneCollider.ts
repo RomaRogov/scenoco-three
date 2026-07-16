@@ -1,5 +1,5 @@
 import { Vector2, Vector3 } from 'three';
-import { component, property } from '@scenoco-three/core';
+import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider, type Bounds } from './Collider.js';
 
 /** A plane trigger is a thin box in the XZ plane (matches rapier's PlaneCollider, a thin cuboid). */
@@ -11,7 +11,7 @@ const THICKNESS = 0.001;
  */
 @component({ name: 'PlaneCollider', description: 'A flat XZ ground collision shape (thin cuboid; detection-only)' })
 export class PlaneCollider extends Collider {
-  @property({ type: 'vec2', default: [5, 5], description: 'Half-extents in X and Z' })
+  @property({ type: ValueType.Vec2, default: [5, 5], description: 'Half-extents in X and Z' })
   halfExtents = new Vector2(5, 5);
 
   private readonly _center = new Vector3();

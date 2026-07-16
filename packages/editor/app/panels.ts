@@ -1,18 +1,22 @@
 import type { Color, Euler, Object3D, Vector2, Vector3 } from 'three';
 import {
-  Registry,
   elementType,
   getAttachmentDef,
   isArrayType,
   isEnumType,
   isScalarType,
   type Component,
-  type EnumDef,
   type Engine,
   type NodeAttr,
   type PropertyMeta,
 } from '@scenoco-three/core';
+import { ValueType } from '@scenoco-three/core';
 import type { AttachmentView, SceneDocument } from './document.js';
+import { componentName, isEditorOnly, registeredMeta } from './meta.js';
+import {
+  boolEditor, colorField, div, editRow, enumEditor, eulerArr, eulerEditor, euler, fmt, numField, row,
+  textField, vec, vecEditor,
+} from './fields.js';
 
 export interface Panels {
   /** Re-read the scene into the tree + inspector. */
@@ -169,20 +173,20 @@ export function buildPanels(
     if (isEnumType(elem) && !isArrayType(type)) return enumEditor(attr, elem, get, (v) => commit(v));
     if (isArrayType(type) || !isScalarType(elem)) return row(attr, fmt(get())); // arrays read-only this pass
     switch (elem) {
-      case 'float':
-      case 'int':
-        return editRow(attr, numField(() => get() as number, (v, c) => commit(v, c), elem === 'int'));
-      case 'bool':
+      case ValueType.Float:
+      case ValueType.Int:
+        return editRow(attr, numField(() => get() as number, (v, c) => commit(v, c), elem === ValueType.Int));
+      case ValueType.Bool:
         return boolEditor(attr, () => get() as boolean, (v) => commit(v));
-      case 'string':
+      case ValueType.String:
         return editRow(attr, textField(() => String(get() ?? ''), (v) => commit(v)));
-      case 'color':
+      case ValueType.Color:
         return editRow(attr, colorField(() => get() as number, (v) => commit(v)));
-      case 'vec2':
+      case ValueType.Vec2:
         return vecEditor(attr, () => get() as number[], (v, c) => commit(v, c), ['x', 'y']);
-      case 'vec3':
+      case ValueType.Vec3:
         return vecEditor(attr, () => get() as number[], (v, c) => commit(v, c));
-      case 'euler':
+      case ValueType.Euler:
         return eulerEditor(attr, () => get() as number[], (v, c) => commit(v, c));
       default:
         return row(attr, fmt(get()));
@@ -216,20 +220,20 @@ export function buildPanels(
     // References and arrays are read-only this pass.
     if (isArrayType(prop.type) || !isScalarType(elem)) return row(name, fmt(live[name]));
     switch (elem) {
-      case 'float':
-      case 'int':
-        return editRow(name, numField(() => live[name] as number, (v, c) => commit(v, c), elem === 'int'));
-      case 'bool':
+      case ValueType.Float:
+      case ValueType.Int:
+        return editRow(name, numField(() => live[name] as number, (v, c) => commit(v, c), elem === ValueType.Int));
+      case ValueType.Bool:
         return boolEditor(name, () => live[name] as boolean, (v) => commit(v));
-      case 'string':
+      case ValueType.String:
         return editRow(name, textField(() => String(live[name] ?? ''), (v) => commit(v)));
-      case 'color':
+      case ValueType.Color:
         return editRow(name, colorField(() => (live[name] as Color).getHex(), (v) => commit(v)));
-      case 'vec2':
+      case ValueType.Vec2:
         return vecEditor(name, () => (live[name] as Vector2).toArray(), (v, c) => commit(v, c), ['x', 'y']);
-      case 'vec3':
+      case ValueType.Vec3:
         return vecEditor(name, () => (live[name] as Vector3).toArray(), (v, c) => commit(v, c));
-      case 'euler':
+      case ValueType.Euler:
         return eulerEditor(name, () => eulerArr(live[name] as Euler), (v, c) => commit(v, c));
       default:
         return row(name, fmt(live[name]));
@@ -269,238 +273,13 @@ export function buildPanels(
   };
 }
 
-// ── editable field builders ──────────────────────────────────────────────────────
+// ── panel chrome ────────────────────────────────────────────────────────────────────
 
-/** A labelled multi-axis vector editor (x/y/z), each axis scrub + number input. */
-function vecEditor(
-  key: string,
-  get: () => number[],
-  commit: (value: number[], opts?: { coalesce?: boolean }) => void,
-  labels: string[] = ['x', 'y', 'z'],
-): HTMLElement {
-  const r = div('sc-row sc-vec');
-  r.append(div('k', key));
-  const fields = div('v sc-axes');
-  labels.forEach((axis, i) => {
-    fields.append(
-      axisField(
-        axis,
-        () => get()[i] ?? 0,
-        (v, opts) => {
-          const next = get();
-          next[i] = v;
-          commit(next, opts);
-        },
-      ),
-    );
-  });
-  r.append(fields);
-  return r;
-}
-
-/** Euler editor: UI in degrees, commits radians (the compiled/runtime unit). */
-function eulerEditor(
-  key: string,
-  getRad: () => number[],
-  commitRad: (value: number[], opts?: { coalesce?: boolean }) => void,
-): HTMLElement {
-  return vecEditor(
-    key,
-    () => getRad().map(toDeg),
-    (degs, opts) => commitRad(degs.map(toRad), opts),
-  );
-}
-
-/** One axis: a scrub handle (the axis letter) + a number input. */
-function axisField(label: string, get: () => number, set: (v: number, opts?: { coalesce?: boolean }) => void): HTMLElement {
-  const cell = div('sc-axis');
-  const handle = div('sc-axis-k', label);
-  const input = numInput(() => get(), (v, opts) => set(v, opts));
-  scrub(handle, () => Number(input.value) || 0, (v) => {
-    input.value = fmtNum(v);
-    set(v, { coalesce: true });
-  });
-  cell.append(handle, input);
-  return cell;
-}
-
-/** A standalone number row (single scalar property). */
-function numField(get: () => number, set: (v: number, opts?: { coalesce?: boolean }) => void, int = false): HTMLElement {
-  return numInput(get, (v, opts) => set(int ? Math.round(v) : v, opts), int);
-}
-
-function numInput(get: () => number, set: (v: number, opts?: { coalesce?: boolean }) => void, int = false): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.className = 'sc-input sc-num';
-  input.inputMode = int ? 'numeric' : 'decimal';
-  input.value = fmtNum(get());
-  input.onchange = () => {
-    const v = parseFloat(input.value);
-    if (Number.isFinite(v)) set(int ? Math.round(v) : v);
-  };
-  return input;
-}
-
-function textField(get: () => string, set: (v: string) => void): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'sc-input';
-  input.value = get();
-  input.onchange = () => set(input.value);
-  return input;
-}
-
-function colorField(getHex: () => number, set: (hex: number) => void): HTMLElement {
-  const wrap = div('sc-color');
-  const picker = document.createElement('input');
-  picker.type = 'color';
-  picker.className = 'sc-swatch';
-  const hex = document.createElement('input');
-  hex.type = 'text';
-  hex.className = 'sc-input sc-hex';
-  const sync = () => {
-    const css = '#' + getHex().toString(16).padStart(6, '0');
-    picker.value = css;
-    hex.value = css;
-  };
-  sync();
-  picker.oninput = () => {
-    hex.value = picker.value;
-    set(parseInt(picker.value.slice(1), 16));
-  };
-  hex.onchange = () => {
-    const v = parseInt(hex.value.replace(/^#/, ''), 16);
-    if (Number.isFinite(v)) {
-      set(v);
-      picker.value = '#' + v.toString(16).padStart(6, '0');
-    }
-  };
-  wrap.append(picker, hex);
-  return wrap;
-}
-
-/** A dropdown of enum member names; maps the live native value ↔ its name. */
-function enumEditor(key: string, def: EnumDef, get: () => unknown, set: (v: string | number) => void): HTMLElement {
-  const select = document.createElement('select');
-  select.className = 'sc-input sc-select';
-  for (const member of def.names) {
-    const opt = document.createElement('option');
-    opt.value = member;
-    opt.textContent = member;
-    select.append(opt);
-  }
-  const current = def.byValue.get(get() as string | number);
-  if (current !== undefined) select.value = current;
-  select.onchange = () => {
-    const value = def.byName.get(select.value);
-    if (value !== undefined) set(value);
-  };
-  return editRow(key, select);
-}
-
-function boolEditor(key: string, get: () => boolean, set: (v: boolean) => void): HTMLElement {
-  const r = div('sc-row');
-  r.append(div('k', key));
-  const toggle = document.createElement('input');
-  toggle.type = 'checkbox';
-  toggle.className = 'sc-toggle';
-  toggle.checked = get();
-  toggle.onchange = () => set(toggle.checked);
-  const v = div('v');
-  v.append(toggle);
-  r.append(v);
-  return r;
-}
-
-/** Drag horizontally on `handle` to scrub a numeric value (pointer + touch). */
-function scrub(handle: HTMLElement, get: () => number, set: (v: number) => void, step = 0.05): void {
-  handle.classList.add('sc-scrub');
-  let startX = 0;
-  let startV = 0;
-  let active = false;
-  let pid = -1;
-  handle.addEventListener('pointerdown', (e) => {
-    active = true;
-    pid = e.pointerId;
-    startX = e.clientX;
-    startV = get();
-    handle.setPointerCapture(pid);
-    e.preventDefault();
-  });
-  handle.addEventListener('pointermove', (e) => {
-    if (!active) return;
-    set(startV + (e.clientX - startX) * step);
-  });
-  const end = (): void => {
-    if (!active) return;
-    active = false;
-    try {
-      handle.releasePointerCapture(pid);
-    } catch {
-      /* capture already gone */
-    }
-  };
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', end);
-}
-
-// ── value formatting (read-only fallback) ─────────────────────────────────────────
-
-function fmt(v: unknown): string {
-  if (v == null) return '—';
-  if (typeof v === 'number') return fmtNum(v);
-  if (typeof v === 'boolean' || typeof v === 'string') return String(v);
-  if (Array.isArray(v)) return `[${v.map(fmt).join(', ')}]`;
-  const o = v as Record<string, unknown> & { isVector3?: boolean; isVector2?: boolean; isColor?: boolean; isEuler?: boolean; isObject3D?: boolean };
-  if (o.isVector3 || o.isVector2) return vec(o as unknown as Vector3);
-  if (o.isEuler) return euler(o as unknown as Euler);
-  if (o.isColor) return `#${(o as unknown as Color).getHexString()}`;
-  if (o.isObject3D) return (o as unknown as Object3D).name || '(node)';
-  if (o.constructor?.name === 'PrefabRef') return '(prefab)';
-  if ('node' in o && 'engine' in o) return componentName(v as Component) ?? '(component)';
-  return String(v);
-}
-
-const vec = (v: Vector3 | Vector2): string =>
-  'z' in v ? `${round(v.x)} ${round(v.y)} ${round((v as Vector3).z)}` : `${round(v.x)} ${round(v.y)}`;
-const euler = (e: Euler): string => `${toDeg(e.x)} ${toDeg(e.y)} ${toDeg(e.z)}`;
-const eulerArr = (e: Euler): number[] => [e.x, e.y, e.z];
-const toDeg = (rad: number): number => round((rad * 180) / Math.PI);
-const toRad = (deg: number): number => (deg * Math.PI) / 180;
-const round = (n: number): number => Math.round(n * 1000) / 1000;
-const fmtNum = (n: number): string => String(round(n));
-
-// ── registry helpers ──────────────────────────────────────────────────────────────
-
-function registeredMeta(component: Component) {
-  for (const name of Registry.componentNames()) {
-    const entry = Registry.getComponent(name);
-    if (entry && component instanceof entry.ctor) return entry.meta;
-  }
-  return undefined;
-}
-function componentName(component: Component): string | undefined {
-  for (const name of Registry.componentNames()) {
-    const entry = Registry.getComponent(name);
-    if (entry && component.constructor === entry.ctor) return name;
-  }
-  return undefined;
-}
-
-// ── DOM helpers ────────────────────────────────────────────────────────────────────
-
-function div(className: string, text?: string): HTMLDivElement {
-  const el = document.createElement('div');
-  if (className) el.className = className;
-  if (text) el.textContent = text;
-  return el;
-}
 /** A side drawer that slides off-screen, leaving an arrow tab to reopen it. */
 function drawer(side: 'left' | 'right', heading: string, content: HTMLElement): HTMLElement {
   const el = div(`sc-drawer sc-${side}`);
   const panel = div('sc-panel');
-  panel.append(titleEl(heading), content);
+  panel.append(div('sc-title', heading), content);
   const tab = document.createElement('button');
   tab.className = 'sc-tab';
   tab.title = `${heading} panel`;
@@ -516,22 +295,7 @@ function drawer(side: 'left' | 'right', heading: string, content: HTMLElement): 
   sync();
   return el;
 }
-function titleEl(text: string): HTMLDivElement {
-  return div('sc-title', text);
-}
-function row(key: string, value: string): HTMLDivElement {
-  const r = div('sc-row');
-  r.append(div('k', key), div('v', value));
-  return r;
-}
-/** A row whose value cell holds an editor element. */
-function editRow(key: string, control: HTMLElement): HTMLDivElement {
-  const r = div('sc-row');
-  const v = div('v');
-  v.append(control);
-  r.append(div('k', key), v);
-  return r;
-}
+
 function nodeLabel(node: Object3D): DocumentFragment {
   const frag = document.createDocumentFragment();
   const name = node.name || `(${typeName(node)})`;
@@ -543,11 +307,7 @@ function nodeLabel(node: Object3D): DocumentFragment {
   }
   return frag;
 }
+
 function typeName(node: Object3D): string {
   return node.type || node.constructor.name;
-}
-/** True if `object` (or an ancestor) is editor-internal — kept out of the Hierarchy. */
-function isEditorOnly(object: Object3D): boolean {
-  for (let o: Object3D | null = object; o; o = o.parent) if (o.userData.scenocoEditorOnly) return true;
-  return false;
 }

@@ -1,4 +1,4 @@
-import { World, Vec2, type Body, type BodyType } from 'planck';
+import { World, Vec2, type Body, type BodyType, type Fixture } from 'planck';
 import type { Object3D } from 'three';
 import { System, system } from '@scenoco-three/core';
 import { RigidBody2D } from './RigidBody2D.js';
@@ -54,6 +54,8 @@ interface Interp {
 export class Physics2DSystem extends System<RigidBody2D> {
   world?: World;
   private readonly bodies = new Map<RigidBody2D, Body>();
+  /** Collider → its live fixture, so the per-step reconcile can diff colliders against fixtures. */
+  private readonly fixtures = new WeakMap<Collider2D, Fixture>();
   /** Per dynamic body: the two most recent fixed poses, lerped at render time. */
   private readonly interp = new Map<RigidBody2D, Interp>();
   /** Pooled contact records; `contactCount` is the live prefix reused each step (no per-event allocation). */
@@ -74,20 +76,56 @@ export class Physics2DSystem extends System<RigidBody2D> {
     const world = this.world;
     if (!world) return;
 
-    // Reconcile bodies ↔ live components: create for new, remove for gone.
-    for (const rb of this.components) if (!this.bodies.has(rb)) this.createBody(world, rb);
+    // Reconcile bodies ↔ live components: create for new (deferred while disabled),
+    // remove for gone, and mirror `enabled` onto Box2D's active flag (Unity
+    // `Rigidbody2D.simulated`): a disabled body leaves the simulation — contacts
+    // end, velocities are retained — and rejoins where its node is on re-enable.
+    for (const rb of this.components) if (rb.enabled && !this.bodies.has(rb)) this.createBody(world, rb);
     for (const [rb, body] of this.bodies) {
       if (!this.components.includes(rb)) {
         world.destroyBody(body);
         this.bodies.delete(rb);
         this.interp.delete(rb);
         rb.body = undefined;
+        continue;
+      }
+      if (body.isActive() !== rb.enabled) {
+        body.setActive(rb.enabled);
+        // Re-enable: rejoin at the node's current pose (a script may have moved it
+        // while disabled) and snap interpolation so the render doesn't blend across
+        // the disabled gap.
+        if (rb.enabled) {
+          body.setTransform(new Vec2(rb.node.position.x, rb.node.position.y), rb.node.rotation.z);
+          const p = body.getPosition();
+          const a = body.getAngle();
+          if (rb.kind === 'dynamic') this.interp.set(rb, { px: p.x, py: p.y, pa: a, x: p.x, y: p.y, a });
+        }
+      }
+      // Reconcile fixtures ↔ the node's colliders: a Collider2D added, removed, or
+      // toggled after the body exists is attached/detached here (Unity attaches
+      // colliders to the body on the same GameObject dynamically). Shape *props*
+      // changed after attach are not re-synced — toggle collider.enabled to rebuild.
+      for (const c of this.engine.getComponents(rb.node)) {
+        if (c instanceof Collider2D && c.enabled && !c._destroyed && !this.fixtures.has(c)) {
+          const fixture = body.createFixture(c.toShape(), c.fixtureOpt());
+          fixture.setUserData(c);
+          this.fixtures.set(c, fixture);
+        }
+      }
+      for (let fixture = body.getFixtureList(); fixture; ) {
+        const next = fixture.getNext();
+        const c = fixture.getUserData() as Collider2D | undefined;
+        if (c && (c._destroyed || !c.enabled)) {
+          body.destroyFixture(fixture);
+          this.fixtures.delete(c);
+        }
+        fixture = next;
       }
     }
 
     // Kinematic bodies are driven by their node (game code moves the node).
     for (const [rb, body] of this.bodies) {
-      if (rb.kind === 'kinematic') body.setTransform(new Vec2(rb.node.position.x, rb.node.position.y), rb.node.rotation.z);
+      if (rb.kind === 'kinematic' && rb.enabled) body.setTransform(new Vec2(rb.node.position.x, rb.node.position.y), rb.node.rotation.z);
     }
 
     const cfg = this.engine.findAttachment(Physics2D);
@@ -96,7 +134,7 @@ export class Physics2DSystem extends System<RigidBody2D> {
     // Dynamic bodies record prev/cur poses for the render interpolation in
     // `step`; kinematic/static are driven elsewhere (kinematic from their node).
     for (const [rb, body] of this.bodies) {
-      if (rb.kind !== 'dynamic') continue;
+      if (rb.kind !== 'dynamic' || !rb.enabled) continue;
       const p = body.getPosition();
       const angle = body.getAngle();
       const s = this.interp.get(rb)!;
@@ -130,6 +168,7 @@ export class Physics2DSystem extends System<RigidBody2D> {
   override step(): void {
     const t = this.engine.interpolationAlpha;
     for (const [rb, s] of this.interp) {
+      if (!rb.enabled) continue; // a disabled body's node is script-owned — don't overwrite it
       rb.node.position.x = s.px + (s.x - s.px) * t;
       rb.node.position.y = s.py + (s.y - s.py) * t;
       rb.node.rotation.z = lerpAngle(s.pa, s.a, t);
@@ -157,9 +196,14 @@ export class Physics2DSystem extends System<RigidBody2D> {
       bullet: rb.bullet,
     });
     body.setUserData(rb);
-    // Attach the colliders declared on the same node.
+    // Attach the colliders declared on the same node, tagged so the per-step
+    // reconcile can diff fixtures against colliders added/removed later.
     for (const c of this.engine.getComponents(rb.node)) {
-      if (c instanceof Collider2D) body.createFixture(c.toShape(), c.fixtureOpt());
+      if (c instanceof Collider2D && c.enabled && !c._destroyed) {
+        const fixture = body.createFixture(c.toShape(), c.fixtureOpt());
+        fixture.setUserData(c);
+        this.fixtures.set(c, fixture);
+      }
     }
     this.bodies.set(rb, body);
     rb.body = body;

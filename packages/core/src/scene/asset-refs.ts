@@ -1,7 +1,7 @@
-import { Registry } from '../core/Registry.js';
-import type { AssetKind } from '../core/AssetCache.js';
+import { Registry } from '../registry/Registry.js';
+import type { AssetKind } from '../assets/AssetCache.js';
 import type { CompiledScene } from './compiled.js';
-import { getAttachmentDef } from './nodes.js';
+import { getAttachmentDef } from '../registry/NodeRegistry.js';
 
 /** A declared asset reference found in a compiled scene. */
 export interface AssetRef {

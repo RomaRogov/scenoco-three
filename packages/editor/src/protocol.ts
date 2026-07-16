@@ -13,7 +13,36 @@ export type EditorCommand =
   | { id: string; type: 'pause' }
   | { id: string; type: 'stop' }
   | { id: string; type: 'telemetry'; targetId: string }
-  | { id: string; type: 'simulate'; steps: SimStep[] };
+  | { id: string; type: 'simulate'; steps: SimStep[] }
+  | { id: string; type: 'edit'; edits: AgentEdit[] }
+  | { id: string; type: 'save' };
+
+/**
+ * One scene edit an agent requests over MCP, addressed by scene id (the same ids
+ * `get_telemetry` uses). Applied through the editor's document, so it is undoable,
+ * dirty-flagging, and live in the viewport — exactly as if typed in the inspector.
+ *
+ * - `node` only: a transform attr (`position`/`rotation`/`scale` as `[x,y,z]`,
+ *   `visible` as bool) or a prefab instance's `src`.
+ * - `node` + `component`: a `@property` of the Nth `<component>` on that node.
+ * - `node` + `attachment`: an attr of the Nth `<attachment>` (geometry/material)
+ *   on that node.
+ *
+ * Values use the compiled form (vecs as number arrays, colors as hex ints);
+ * strings like "3 1 0" or "#ff0000" are coerced where the target type is known.
+ */
+export interface AgentEdit {
+  /** Scene id of the target node (required in v1 — id-less nodes aren't addressable over MCP). */
+  node: string;
+  /** Component tag on that node (e.g. "Ball"). */
+  component?: string;
+  /** Attachment tag on that node (e.g. "MeshStandardMaterial"). */
+  attachment?: string;
+  /** Ordinal among same-tag components/attachments on the node. Default 0. */
+  ordinal?: number;
+  attr: string;
+  value: string | number | boolean | number[];
+}
 
 /**
  * One step in a `simulate` batch — transport, frame stepping, synthetic input, or
@@ -68,17 +97,29 @@ export function commandId(): string {
 // ── editing: a stateful, savable change to one source attribute ──────────────────
 
 /**
- * Which compiled element an edit targets. Resolved server-side via the source
- * map (compiled index → source element), so it survives prefab expansion where
- * structural paths don't. `id`s are carried for readability/debugging.
+ * Which compiled element an edit targets. The patcher locates the source element
+ * by `id` first (ids survive structural file edits); when the node has no id it
+ * falls back to the structural `path`/`nodePath` — ordinals among node-kind child
+ * elements from the root. `tag` verifies a path-located element, so an edit made
+ * against a stale file resolves to "unresolved" instead of patching the wrong node.
  */
 export type EditTarget =
-  | { kind: 'node'; nodeIndex: number; id?: string }
+  | {
+      kind: 'node';
+      nodeIndex: number;
+      id?: string;
+      /** Structural fallback: child ordinals (node-kind elements only) from the root; `[]` = the root itself. */
+      path?: number[];
+      /** The compiled node tag, verified against a path-located element. */
+      tag?: string;
+    }
   | {
       kind: 'component';
       componentIndex: number;
       nodeIndex: number;
       nodeId?: string;
+      /** Structural fallback for an id-less owning node (see the node variant's `path`). */
+      nodePath?: number[];
       /** Component tag + its ordinal among same-typed components on the node. */
       type: string;
       ordinal: number;
@@ -88,6 +129,8 @@ export type EditTarget =
       nodeIndex: number;
       /** Owning node id; absent for the scene-root, which `root` then marks. */
       nodeId?: string;
+      /** Structural fallback for an id-less owning node (see the node variant's `path`). */
+      nodePath?: number[];
       root?: boolean;
       /** Attachment tag + its ordinal among same-tag attachments on the node. */
       tag: string;

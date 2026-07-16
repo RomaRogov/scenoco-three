@@ -1,5 +1,5 @@
 import { AnimationMixer, LoopOnce, LoopRepeat, type AnimationAction, type AnimationClip, type Object3D } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
 
 /**
  * Plays a model's **premade glTF animation clips** via a `THREE.AnimationMixer`
@@ -18,11 +18,11 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'Animator', description: "Plays a model's glTF animation clips (AnimationMixer)." })
 export class Animator extends Component {
-  @property({ type: 'string', default: '', description: 'Clip name to play on start (empty = first clip)' })
+  @property({ type: ValueType.String, default: '', description: 'Clip name to play on start (empty = first clip)' })
   clip = '';
-  @property({ type: 'bool', default: true, description: 'Loop the clip' }) loop = true;
-  @property({ type: 'float', default: 1, description: 'Playback speed' }) speed = 1;
-  @property({ type: 'bool', default: true, description: 'Play automatically on start (Unity playAutomatically)' })
+  @property({ type: ValueType.Bool, default: true, description: 'Loop the clip' }) loop = true;
+  @property({ type: ValueType.Float, default: 1, description: 'Playback speed' }) speed = 1;
+  @property({ type: ValueType.Bool, default: true, description: 'Play automatically on start (Unity playAutomatically)' })
   playOnStart = true;
 
   private mixer?: AnimationMixer;

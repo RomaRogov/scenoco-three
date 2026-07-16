@@ -54,6 +54,22 @@ describe('@scenoco-three/collision — CollisionSystem (rapier-aligned)', () => 
     engine.dispose();
   });
 
+  it('disabling an overlapping collider fires onCollisionExit and stops further contact', () => {
+    const engine = new Engine();
+    const a = makeBox(engine, [0, 0, 0]);
+    const b = makeBox(engine, [1.5, 0, 0]); // overlapping
+    engine.tick(1 / 60);
+    expect(a.rec.collisions).toEqual([b.node]);
+
+    const bCollider = b.node.getComponent(BoxCollider)!;
+    bCollider.enabled = false;
+    engine.tick(1 / 60);
+    expect(a.rec.colExits).toEqual([b.node]); // disabled = gone (Unity)
+    engine.tick(1 / 60);
+    expect(a.rec.collisions).toHaveLength(1); // no re-enter while disabled
+    engine.dispose();
+  });
+
   it('detects a PlaneCollider (thin box) crossed by a sphere, and its exit', () => {
     const engine = new Engine();
     const plane = new Object3D();

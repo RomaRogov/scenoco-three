@@ -32,6 +32,7 @@
     "access": "public"
   },
   "scripts": {
+    "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js",
     "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && npm --prefix ../vite run build && npm run build && tsc --noEmit -p tsconfig.json"
   },

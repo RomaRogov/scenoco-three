@@ -23,5 +23,8 @@
     "packages",
     "examples",
     "vitest.config.ts"
+  ],
+  "exclude": [
+    "**/dist"
   ]
 }

@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { parseArgs, parseList } from '../../packages/editor/src/args.js';
-import { commandId, type EditorCommand, type EditorResponse } from '../../packages/editor/src/protocol.js';
+import { commandId, type AgentEdit, type EditorCommand, type EditorResponse } from '../../packages/editor/src/protocol.js';
 import { buildMcpServer } from '../../packages/editor/src/mcp.js';
 import { listSceneFiles, type EditorBridge } from '../../packages/editor/src/server.js';
+import { runCommand, type EditorHost } from '../../packages/editor/app/wsClient.js';
+import type { EditorSession } from '../../packages/editor/app/session.js';
 
 describe('editor — CLI args + protocol', () => {
   it('parses positionals, value flags, and boolean flags; commandId is a short unique token', () => {
@@ -40,7 +42,9 @@ describe('editor — MCP tools', () => {
     const { bridge, sent } = stubBridge((cmd) => ({ id: cmd.id, ok: true, result: { kind: 'json', data: { id: 'ball', visible: true } } }));
     const { client, close } = await connect(bridge);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['get_preview', 'get_telemetry', 'open_file', 'playback', 'simulate']);
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'edit_scene', 'get_preview', 'get_telemetry', 'open_file', 'playback', 'save_file', 'simulate',
+    ]);
 
     const res = await client.callTool({ name: 'get_telemetry', arguments: { id: 'ball' } });
     expect(sent[0]).toMatchObject({ type: 'telemetry', targetId: 'ball' });
@@ -48,6 +52,18 @@ describe('editor — MCP tools', () => {
     expect(content[0]!.type).toBe('text');
     expect(content[0]!.text).toContain('"id": "ball"');
     await close();
+  });
+
+  it('relays edit/save commands to the host page and wraps the results as JSON', async () => {
+    const session = {} as EditorSession; // edit/save never touch the session — they go to the host
+    const host: EditorHost = {
+      edit: (edits: AgentEdit[]) => ({ applied: edits.length, failed: [] }),
+      save: async () => ({ changed: 2, unresolved: 0 }),
+    };
+    const edit = await runCommand(session, { id: 'x', type: 'edit', edits: [{ node: 'a', attr: 'visible', value: false }] }, host);
+    expect(edit).toEqual({ kind: 'json', data: { applied: 1, failed: [] } });
+    const save = await runCommand(session, { id: 'y', type: 'save' }, host);
+    expect(save).toEqual({ kind: 'json', data: { changed: 2, unresolved: 0 } });
   });
 
   it('surfaces a "no editor connected" error', async () => {

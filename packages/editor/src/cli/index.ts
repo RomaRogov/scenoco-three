@@ -23,8 +23,8 @@ Options:
 Starts a local editor and an MCP server. The editor opens in your default
 browser; when you stop the server (Ctrl+C) it tells the page to close its own
 tab, so no stale tab is left behind. Point an MCP client at the printed
-endpoint; its tools — open_file, get_preview, run, pause, stop, get_telemetry —
-drive the live editor.`;
+endpoint; its tools — open_file, get_preview, playback, simulate, get_telemetry,
+edit_scene, save_file — drive the live editor.`;
 
 async function main(argv: string[]): Promise<number> {
   const { positionals, options } = parseArgs(argv);

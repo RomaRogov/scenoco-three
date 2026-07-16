@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ValueType } from '@scenoco-three/core';
 import { generateApi, generateApiJson, generateMaterialXsd, generatePrefabXsd, generateXsd, parseScene } from '@scenoco-three/compiler';
 
 describe('XSD exporter', () => {
@@ -73,7 +74,7 @@ describe('API exporter', () => {
 
     expect(api.components.find((c) => c.name === 'Rotator')!.properties.find((p) => p.name === 'speed')).toMatchObject({
       kind: 'scalar',
-      type: 'float',
+      type: ValueType.Float,
       default: 1,
     });
     expect(api.components.find((c) => c.name === 'Follow')!.properties.find((p) => p.name === 'source')).toMatchObject({

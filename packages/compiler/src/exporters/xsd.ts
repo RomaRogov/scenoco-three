@@ -14,6 +14,7 @@ import {
   type NodeDef,
   type AttachmentDef,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import { codecs, type ScalarType } from '../dsl/types.js';
 
 /**
@@ -279,8 +280,8 @@ function propertyXsdType(type: PropertyMeta['type']): string {
   // Array props ("[…]") and prefab file paths are typed loosely as strings.
   if (isArrayType(type)) return 'xs:string';
   if (isEnumType(type)) return type.name;
-  if (type === 'prefab') return 'xs:string';
-  if (typeof type === 'string' && type !== 'node') return xsdType(type);
+  if (type === ValueType.Prefab) return 'xs:string';
+  if (typeof type === 'string' && type !== ValueType.Node) return xsdType(type);
   return 'ref';
 }
 
@@ -288,10 +289,10 @@ function propertyXsdType(type: PropertyMeta['type']): string {
 function xsdType(type: ScalarType | EnumDef): string {
   if (isEnumType(type)) return type.name;
   switch (type) {
-    case 'vec2':
-    case 'vec3':
-    case 'euler':
-    case 'color':
+    case ValueType.Vec2:
+    case ValueType.Vec3:
+    case ValueType.Euler:
+    case ValueType.Color:
       return type;
     default:
       return codecs[type].xsd.base;

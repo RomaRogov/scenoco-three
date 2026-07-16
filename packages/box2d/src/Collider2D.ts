@@ -1,5 +1,5 @@
 import type { FixtureOpt, Shape } from 'planck';
-import { Component, property } from '@scenoco-three/core';
+import { Component, property, ValueType } from '@scenoco-three/core';
 
 /**
  * Shared base for the 2D collision shapes (planck), mirroring how each light is
@@ -12,16 +12,16 @@ import { Component, property } from '@scenoco-three/core';
  * shared fixture material/sensor properties.
  */
 export abstract class Collider2D extends Component {
-  @property({ type: 'float', default: 1, description: 'Density (kg/m²); 0 for static' })
+  @property({ type: ValueType.Float, default: 1, description: 'Density (kg/m²); 0 for static' })
   density = 1;
 
-  @property({ type: 'float', default: 0.3, description: 'Friction 0..1' })
+  @property({ type: ValueType.Float, default: 0.3, description: 'Friction 0..1' })
   friction = 0.3;
 
-  @property({ type: 'float', default: 0, description: 'Restitution (bounciness) 0..1' })
+  @property({ type: ValueType.Float, default: 0, description: 'Restitution (bounciness) 0..1' })
   restitution = 0;
 
-  @property({ type: 'bool', default: false, description: 'A trigger: reports overlaps, no collision response' })
+  @property({ type: ValueType.Bool, default: false, description: 'A trigger: reports overlaps, no collision response' })
   isSensor = false;
 
   /** The planck shape for this collider. */

@@ -8,6 +8,7 @@ import {
   component,
   deserializeBundle,
   property,
+  ValueType,
 } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml, type CompileResult, type ResourceResolver } from '@scenoco-three/compiler';
 
@@ -72,7 +73,7 @@ let assetReady = false;
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 @component({ name: 'NeedsAsset', description: 'Records whether its asset was ready at onLoad' })
 class NeedsAsset extends Component {
-  @property({ type: 'bool', default: false, description: 'ready at onLoad' }) sawAssetAtLoad = false;
+  @property({ type: ValueType.Bool, default: false, description: 'ready at onLoad' }) sawAssetAtLoad = false;
   override onLoad(): void {
     this.sawAssetAtLoad = assetReady;
   }
@@ -98,13 +99,13 @@ describe('engine: asynchronous scene loading', () => {
 });
 
 /**
- * A `@property({ type: 'prefab' })` field receives a PrefabRef whose `.spawn()`
+ * A `@property({ type: ValueType.Prefab })` field receives a PrefabRef whose `.spawn()`
  * instantiates a build-time-embedded prefab — the primitive behind spawners.
  */
 @component({ name: 'PrefabSpawner', description: 'Spawns N copies of a prefab on load' })
 class PrefabSpawner extends Component {
-  @property({ type: 'prefab', description: 'prefab to spawn' }) prefab: PrefabRef | null = null;
-  @property({ type: 'int', default: 3, description: 'how many to spawn' }) count = 3;
+  @property({ type: ValueType.Prefab, description: 'prefab to spawn' }) prefab: PrefabRef | null = null;
+  @property({ type: ValueType.Int, default: 3, description: 'how many to spawn' }) count = 3;
   readonly spawned: Object3D[] = [];
   override onLoad(): void {
     for (let i = 0; i < this.count; i++) if (this.prefab) this.spawned.push(this.prefab.spawn({ parent: this.node, position: [i, 0, 0] }));

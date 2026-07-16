@@ -1,7 +1,7 @@
 import { MeshStandardMaterial, type Mesh, type Texture } from 'three';
 import { Attachment } from '../base.js';
-import { attachment, property } from '../../core/decorators.js';
-import type { AttachContext } from '../../core/NodeRegistry.js';
+import { attachment, property, ValueType } from '../../registry/decorators.js';
+import type { AttachContext } from '../../registry/NodeRegistry.js';
 import { MATERIAL_TARGETS } from '../targets.js';
 
 @attachment({
@@ -11,23 +11,23 @@ import { MATERIAL_TARGETS } from '../targets.js';
   group: 'material',
 })
 export class MeshStandardMaterialNode extends Attachment<Mesh> {
-  @property({ type: 'color', default: 0xffffff, description: 'Base (albedo) color' }) color = 0xffffff;
-  @property({ type: 'float', default: 1, description: 'Surface roughness, 0 (glossy) to 1 (matte)' }) roughness = 1;
-  @property({ type: 'float', default: 0, description: 'Metalness, 0 (dielectric) to 1 (metal)' }) metalness = 0;
-  @property({ type: 'color', default: 0x000000, description: 'Emissive (self-lit) color' }) emissive = 0x000000;
-  @property({ type: 'float', default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
-  @property({ type: 'bool', default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
-  @property({ type: 'bool', default: false, description: 'Render as wireframe' }) wireframe = false;
+  @property({ type: ValueType.Color, default: 0xffffff, description: 'Base (albedo) color' }) color = 0xffffff;
+  @property({ type: ValueType.Float, default: 1, description: 'Surface roughness, 0 (glossy) to 1 (matte)' }) roughness = 1;
+  @property({ type: ValueType.Float, default: 0, description: 'Metalness, 0 (dielectric) to 1 (metal)' }) metalness = 0;
+  @property({ type: ValueType.Color, default: 0x000000, description: 'Emissive (self-lit) color' }) emissive = 0x000000;
+  @property({ type: ValueType.Float, default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: ValueType.Bool, default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: ValueType.Bool, default: false, description: 'Render as wireframe' }) wireframe = false;
 
   // Texture maps — image URLs loaded into the engine's AssetCache and assigned at
   // attach. Need `loadSceneAsync` so the texture is ready (synchronous `loadScene`
   // leaves them unset).
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Base color (albedo) texture URL' }) map = '';
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Normal map texture URL' }) normalMap = '';
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Roughness map texture URL' }) roughnessMap = '';
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Metalness map texture URL' }) metalnessMap = '';
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Emissive map texture URL' }) emissiveMap = '';
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Ambient occlusion map texture URL' }) aoMap = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Base color (albedo) texture URL' }) map = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Normal map texture URL' }) normalMap = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Roughness map texture URL' }) roughnessMap = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Metalness map texture URL' }) metalnessMap = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Emissive map texture URL' }) emissiveMap = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Ambient occlusion map texture URL' }) aoMap = '';
 
   private cached?: MeshStandardMaterial;
   attach(ctx: AttachContext<Mesh>): void {

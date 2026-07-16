@@ -1,5 +1,7 @@
 import type { Object3D } from 'three';
 import type { Engine, PointerEventData } from './Engine.js';
+// Side-effect: augments Object3D with the component API used by `this.node` below.
+import './node-augment.js';
 
 /**
  * Base class for all SceNoCo components (Cocos Creator / Unity MonoBehaviour style).
@@ -60,43 +62,12 @@ export abstract class Component<TNode extends Object3D = Object3D> {
     }
   }
 
-  /** First component of the given type on the same node, or null (Unity/Cocos style). */
-  getComponent<T extends Component>(type: abstract new () => T): T | null {
-    for (const c of this.engine.getComponents(this.node)) {
-      if (c instanceof type) return c;
-    }
-    return null;
-  }
-
-  /**
-   * First component of the given type on this node or any descendant, or null
-   * (Unity `GetComponentInChildren` — includes self). Depth-first.
-   */
-  getComponentInChildren<T extends Component>(type: abstract new () => T): T | null {
-    let found: T | null = null;
-    this.node.traverse((object) => {
-      if (found) return;
-      for (const c of this.engine.getComponents(object)) {
-        if (c instanceof type) {
-          found = c as T;
-          return;
-        }
-      }
-    });
-    return found;
-  }
-
-  /**
-   * Every component of the given type on this node and its descendants (Unity
-   * `GetComponentsInChildren` — includes self). Returns `[]` when none.
-   */
-  getComponentsInChildren<T extends Component>(type: abstract new () => T): T[] {
-    const out: T[] = [];
-    this.node.traverse((object) => {
-      for (const c of this.engine.getComponents(object)) if (c instanceof type) out.push(c as T);
-    });
-    return out;
-  }
+  // Component *querying* lives on the host node (the Object3D augmentation in
+  // node-augment.ts), not here — a component finds its siblings with
+  // `this.node.getComponent(T)`, its descendants with
+  // `this.node.getComponentInChildren(T)`, etc. Keeping those off the component
+  // keeps its surface to its own lifecycle; `destroy()` stays because a component
+  // ending its own life *is* its responsibility.
 
   /**
    * Destroy this component (Cocos style) — enqueued and torn down (onDisable/

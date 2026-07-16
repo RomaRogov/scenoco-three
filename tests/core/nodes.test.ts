@@ -25,6 +25,7 @@ import {
   unregisterNode,
   Engine,
   type AttachContext,
+  ValueType,
 } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
 
@@ -43,7 +44,7 @@ describe('tag registry — custom node/attachment', () => {
   }
   @attachment({ name: 'Knot', description: 'torus-knot shape', target: 'Widget', group: 'shape', required: true })
   class KnotAttachment extends Attachment {
-    @property({ type: 'float', default: 1, description: 'knot radius' }) radius = 1;
+    @property({ type: ValueType.Float, default: 1, description: 'knot radius' }) radius = 1;
     attach(ctx: AttachContext): void { ctx.node.add(new Mesh(new TorusKnotGeometry(this.radius))); }
   }
   void WidgetNode;

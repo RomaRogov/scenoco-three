@@ -103,6 +103,15 @@
       #sc-error button { flex: 0 0 auto; border: 1px solid #7a4326; border-radius: 7px; background: transparent;
         color: #ffdcc2; padding: 5px 10px; cursor: pointer; font: 12px ui-monospace, monospace; }
       #sc-error button:hover { filter: brightness(1.15); }
+      /* save-failure banner: transient — dismiss or a clean save clears it */
+      #sc-save-error { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 7;
+        display: flex; align-items: center; gap: 10px; max-width: min(680px, 92vw);
+        padding: 8px 12px; border-radius: 10px; background: rgba(40, 26, 26, 0.96);
+        border: 1px solid #6b3a3a; color: #ffd9d9; font: 13px ui-monospace, monospace;
+        backdrop-filter: blur(6px); }
+      #sc-save-error button { flex: 0 0 auto; border: 1px solid #6b3a3a; border-radius: 7px; background: transparent;
+        color: #ffd9d9; padding: 5px 10px; cursor: pointer; font: 12px ui-monospace, monospace; }
+      #sc-save-error button:hover { filter: brightness(1.1); }
       /* start-up file picker: shown when the editor opens with no ?file= */
       .sc-picker { position: fixed; inset: 0; z-index: 8; display: flex; align-items: center;
         justify-content: center; background: rgba(10, 12, 18, 0.72); backdrop-filter: blur(4px); }

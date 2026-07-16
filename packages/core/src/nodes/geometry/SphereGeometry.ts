@@ -1,7 +1,7 @@
 import { SphereGeometry, type Mesh } from 'three';
 import { Attachment } from '../base.js';
-import { attachment, property } from '../../core/decorators.js';
-import type { AttachContext } from '../../core/NodeRegistry.js';
+import { attachment, property, ValueType } from '../../registry/decorators.js';
+import type { AttachContext } from '../../registry/NodeRegistry.js';
 import { GEOMETRY_TARGETS } from '../targets.js';
 
 @attachment({
@@ -12,9 +12,9 @@ import { GEOMETRY_TARGETS } from '../targets.js';
   required: true,
 })
 export class SphereGeometryNode extends Attachment<Mesh> {
-  @property({ type: 'float', default: 1, description: 'Sphere radius' }) radius = 1;
-  @property({ type: 'int', default: 32, description: 'Horizontal (longitude) segments' }) widthSegments = 32;
-  @property({ type: 'int', default: 16, description: 'Vertical (latitude) segments' }) heightSegments = 16;
+  @property({ type: ValueType.Float, default: 1, description: 'Sphere radius' }) radius = 1;
+  @property({ type: ValueType.Int, default: 32, description: 'Horizontal (longitude) segments' }) widthSegments = 32;
+  @property({ type: ValueType.Int, default: 16, description: 'Vertical (latitude) segments' }) heightSegments = 16;
 
   private cached?: SphereGeometry;
   attach(ctx: AttachContext<Mesh>): void {

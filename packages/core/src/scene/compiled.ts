@@ -17,7 +17,7 @@ export interface CompiledScene {
   attachments: CompiledAsset[];
   components: CompiledComponent[];
   /**
-   * Embedded prefab subtrees referenced by `@property({ type: 'prefab' })`
+   * Embedded prefab subtrees referenced by `@property({ type: ValueType.Prefab })`
    * props, one self-contained CompiledScene each (resolved + compiled at build
    * time). A prefab prop stores `{ prefab: i }`; the runtime hands the component
    * a PrefabRef bound to `prefabs[i]`. Present only when the scene uses one.

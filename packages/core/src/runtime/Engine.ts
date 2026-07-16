@@ -1,21 +1,29 @@
-import { AudioListener, type Camera, PerspectiveCamera, Raycaster, Scene, Vector2, WebGLRenderer } from 'three';
-import type { Intersection, Object3D, Vector3 } from 'three';
+import { type Camera, PerspectiveCamera, Scene, Vector2, WebGLRenderer } from 'three';
+import type { AudioListener, Intersection, Object3D } from 'three';
 import type { Component } from './Component.js';
-import { AssetCache } from './AssetCache.js';
-import { InputManager } from './Input.js';
-import { runsInEditor } from './decorators.js';
-import { collectAssetRefs } from '../dsl/assets.js';
-import { Registry } from './Registry.js';
-import type { ComponentCtor } from './Registry.js';
-import type { System } from './System.js';
-import { bundleKind, type Bundle } from '../dsl/bundle-format.js';
-import type { CompiledScene } from '../dsl/compiled.js';
-import { deserializeBundle } from '../dsl/deserialize.js';
-import { allSystemDefs, type AttachmentInstance } from '../dsl/nodes.js';
-import { instantiateScene, type InstantiateContext, type InstantiatedScene } from '../dsl/instantiate.js';
+import { AssetCache } from '../assets/AssetCache.js';
+import { InputManager } from '../subsystems/Input.js';
+import { Random } from '../subsystems/Random.js';
+import { Raycasting } from '../subsystems/Raycasting.js';
+import { PointerInput } from '../subsystems/PointerInput.js';
+import { EngineAudio } from '../subsystems/EngineAudio.js';
+import { SystemManager } from './SystemManager.js';
+import { runsInEditor } from '../registry/decorators.js';
 
-/** A component constructor the engine can test instances against (for system queries). */
-type ComponentType = abstract new (...args: never[]) => Component;
+// Pointer types live with the pointer module; re-exported here so the public
+// import path (`@scenoco-three/core` → Engine) is unchanged.
+export type { PointerEventData } from '../subsystems/PointerInput.js';
+import { collectAssetRefs } from '../scene/asset-refs.js';
+import { Registry } from '../registry/Registry.js';
+import type { ComponentCtor } from '../registry/Registry.js';
+import type { System } from './System.js';
+import { bundleKind, type Bundle } from '../scene/bundle-format.js';
+import type { CompiledScene } from '../scene/compiled.js';
+import { deserializeBundle } from '../scene/deserialize.js';
+import type { AttachmentInstance } from '../registry/NodeRegistry.js';
+import { instantiateScene, type InstantiateContext, type InstantiatedScene } from '../scene/instantiate.js';
+// Side-effect: augments Object3D with getComponent/addComponent/removeComponent, etc.
+import './node-augment.js';
 
 /**
  * Tooling map of a loaded scene: the compiled source it came from, the live
@@ -48,27 +56,6 @@ export interface RaycastOptions {
   recursive?: boolean;
 }
 
-/**
- * Payload for the pointer hooks a component may implement — `onPointerDown` /
- * `onPointerUp` / `onPointerClick` (Unity-style). Dispatched by raycasting from
- * the pointer through `mainCamera`, then bubbling up the hit object's ancestors.
- */
-export interface PointerEventData {
-  /** The hit object (for down/click) or the originally-pressed object (for up/drag). */
-  object: Object3D;
-  /** World-space point of the hit, when there is one (absent for drag). */
-  point?: Vector3;
-  /** Distance from the camera to the hit. */
-  distance?: number;
-  /** Mouse button (0 = left). */
-  button: number;
-  /** Pointer movement this frame, in pixels — set for `onDrag`. */
-  delta?: Vector2;
-}
-
-/** The pointer hook names a component may implement (duck-typed). */
-type PointerHook = 'onPointerDown' | 'onPointerUp' | 'onPointerClick' | 'onDrag';
-
 export interface EngineOptions {
   /** Render target. Omit for headless use (tests, CLI tooling, validation). */
   canvas?: HTMLCanvasElement;
@@ -77,9 +64,13 @@ export interface EngineOptions {
   /** Seconds per fixed step (physics + `fixedUpdate`). Default 1/60. */
   fixedTimeStep?: number;
   /**
-   * Editor mode (Unity scene-view style): instantiate scenes but do **not** run
-   * component hooks or systems — only components marked `@executeInEditor` run.
-   * The scene shows its authored pose; no gameplay/physics. Default false.
+   * **Semi-internal — for the editor package only** (`@scenoco-three/editor`).
+   * A normal game never sets this. Editor mode (Unity scene-view style)
+   * instantiates the scene and shows its authored pose, but does **not** run
+   * component hooks or systems, so nothing simulates/mutates while you edit — only
+   * components marked `@executeInEditor` run (procedural geometry, layout tools).
+   * The single switch behind every "is this play mode?" gate in the engine; see
+   * `Engine.runsHooks` and the `editorMode` field. Default false.
    */
   editor?: boolean;
   /**
@@ -127,7 +118,14 @@ export class Engine {
    */
   readonly input: InputManager;
 
-  /** Editor mode — component hooks/systems are inert unless `@executeInEditor`. */
+  /**
+   * **Semi-internal — set by the editor package**, not by games. When true the
+   * engine loads scenes but stays in "edit mode": no component lifecycle, no
+   * systems, no gameplay/physics — only `@executeInEditor` components run. Every
+   * gameplay gate in the engine reads this one flag (via {@link runsHooks} for
+   * per-component checks); it never changes after construction. See
+   * {@link EngineOptions.editor}.
+   */
   readonly editorMode: boolean;
 
   /**
@@ -161,9 +159,8 @@ export class Engine {
    */
   interpolationAlpha = 0;
 
-  /** Deterministic PRNG state (mulberry32); reseed via `reseed`. */
-  private _seed: number;
-  private rng: () => number;
+  /** Deterministic PRNG (Unity `Random`); reseed via `reseed`. Exposed through the `random*` facade. */
+  private readonly rng: Random;
 
   private readonly components: Component[] = [];
   /** Set when the component set changes, so the next tick re-sorts by execution order. */
@@ -174,18 +171,15 @@ export class Engine {
   private readonly objectsById = new Map<string, Object3D>();
   /** Scene cameras, sorted by `priority` ascending — rendered in order (Unity camera depth). */
   cameras: Camera[] = [];
-  private readonly systems: System[] = [];
-  /** Each running system → the component type its `components` query is kept in sync with. */
-  private readonly systemQueries = new Map<System, ComponentType>();
+  /** ECS-hybrid `@system` instances + their live component queries; auto-run per scene. */
+  private readonly systemManager = new SystemManager(this, this.components);
   private readonly rendererSize = new Vector2();
   /** Seconds per fixed step; accumulator carries leftover frame time. */
   private readonly fixedTimeStep: number;
   private fixedAccumulator = 0;
   private rafId?: number;
   private lastFrameTime?: number;
-  /** Systems auto-run for the loaded scene — removed on unload. */
-  private sceneSystems: System[] = [];
-  /** True while `applyScene` registers the initial component batch; `runSceneSystems` attaches systems then (with the full set). */
+  /** True while `applyScene` registers the initial component batch; systems attach after it (with the full set). */
   private applyingScene = false;
   /** Live attachment instances of the loaded scene (retained for findAttachment). */
   private sceneAttachments: AttachmentInstance[] = [];
@@ -202,18 +196,28 @@ export class Engine {
    */
   private readonly pendingNodes: Object3D[] = [];
   private readonly pendingComponents: Component[] = [];
-  private readonly raycaster = new Raycaster();
-  /** The object a pointer press landed on, so the release/click can target it. */
-  private pointerPressed?: Object3D;
-  private _audioListener?: AudioListener;
+  /** Nodes already torn down in the current flush, so overlapping subtree entries (parent + child both enqueued) don't double-dispose. */
+  private readonly flushVisited = new Set<Object3D>();
+  /** True while `tick` runs — scene swaps requested mid-tick are deferred to end of tick (see {@link loadScene}). */
+  private ticking = false;
+  /** A scene swap requested during a tick; applied after the destruction flush. No `compiled` = dispose to an empty scene. */
+  private pendingSceneOp?: { compiled?: CompiledScene };
+  /** Scene picking (Three.js raycaster wrapper) — exposed via `engine.raycast`. */
+  private readonly raycasting = new Raycasting();
+  /** Pointer → component event dispatch (down/up/click/drag); ticked in play mode. */
+  private readonly pointer: PointerInput = new PointerInput(this);
+  /** Web Audio listener owner (lazy); exposed via `engine.audioListener`. */
+  private readonly audio = new EngineAudio();
   /** DOM UI overlay layered over the canvas; created on first `overlay` access. */
   private _overlay?: HTMLElement;
 
   constructor(options: EngineOptions = {}) {
     this.fixedTimeStep = options.fixedTimeStep ?? 1 / 60;
     this.editorMode = options.editor ?? false;
-    this._seed = (options.seed ?? Math.floor(Math.random() * 0x1_0000_0000)) >>> 0;
-    this.rng = mulberry32(this._seed);
+    // Stamp the scene root so the node component API (cube.addComponent, …) resolves
+    // this engine for any node in the scene tree — see node-augment's resolveEngine.
+    this.scene._engine = this;
+    this.rng = new Random(options.seed);
     this.input = new InputManager({ ...(options.canvas ? { canvas: options.canvas } : {}) });
     // Built-in asset preloading: load every texture/model a scene declares into
     // the shared cache before instantiation (awaited only by the *Async loaders).
@@ -293,6 +297,9 @@ export class Engine {
   /** Bookkeeping only: track the instance without running any lifecycle hook. */
   private registerComponent(node: Object3D, instance: Component): void {
     instance.engine = this;
+    // Ensure the host node can reach us even if it hasn't been indexed yet
+    // (addComponent on a freshly built, not-yet-added node).
+    node._engine = this;
     this.components.push(instance);
     this.componentsDirty = true;
     let list = this.byNode.get(node);
@@ -301,40 +308,44 @@ export class Engine {
     // Index by id for findComponent. First registration wins on a duplicate
     // (dynamically spawned prefab instances may reuse internal ids).
     if (instance.id !== undefined && !this.byId.has(instance.id)) this.byId.set(instance.id, instance);
-    // Keep each system's live query in sync.
-    for (const [system, type] of this.systemQueries) {
-      if (instance instanceof type) (system.components as Component[]).push(instance);
-    }
+    // Add to any already-running system's live query.
+    this.systemManager.onComponentAdded(instance);
     // A component appearing at RUNTIME (spawn / addComponent after load) must
     // start any `@system` that processes its type but isn't running yet —
     // otherwise a spawn-only scene (all bodies from prefabs, none at load) gets
     // silently dead physics. During the initial scene-load batch this is deferred
-    // to runSceneSystems, which seeds each system with the full component set.
-    if (!this.applyingScene) this.ensureSystemsFor(instance);
+    // to `applyScene` (ensureForScene), which seeds each system with the full set.
+    // Editor mode never auto-runs systems.
+    if (!this.applyingScene && !this.editorMode) this.systemManager.ensureFor(instance);
   }
 
-  /** Start each scene-scoped `@system` that processes `instance`'s type and isn't already running. */
-  private ensureSystemsFor(instance: Component): void {
-    if (this.editorMode) return;
-    for (const def of allSystemDefs()) {
-      if (!(instance instanceof (def.componentType as ComponentType))) continue;
-      if (this.systems.some((s) => s instanceof def.ctor)) continue;
-      this.sceneSystems.push(this.addSystem(new def.ctor() as System));
-    }
+  /**
+   * Whether `instance`'s lifecycle should run: always in play mode, and in editor
+   * mode only for `@executeInEditor` components. The one place the editor-mode
+   * per-component rule lives — `initComponent` gates on it, and because a skipped
+   * component is never `_loaded`, every downstream phase (update/fixed/late) skips
+   * it too without its own editor check.
+   */
+  private runsHooks(instance: Component): boolean {
+    return !this.editorMode || runsInEditor(instance);
   }
 
-  /** Run onLoad + onEnable for an already-registered instance (skipped in editor mode). */
+  /** Run onLoad + onEnable for an already-registered instance (inert in editor mode; see {@link runsHooks}). */
   private initComponent(instance: Component): void {
-    // Editor mode: leave non-@executeInEditor components inert (never loaded), so
-    // the update/fixed/late loops — which gate on `_loaded` — also skip them.
-    if (this.editorMode && !runsInEditor(instance)) return;
+    if (!this.runsHooks(instance)) return;
     instance.onLoad?.();
     instance._loaded = true;
     if (instance.enabled) instance.onEnable?.();
   }
 
-  /** Detach a component, running onDisable (if enabled) and onDestroy. */
-  removeComponent(instance: Component): void {
+  /**
+   * Immediate detach: unlink a component and run onDisable (if enabled) + onDestroy
+   * synchronously. **Internal** — public removal is always deferred (see
+   * {@link destroyComponent} / `component.destroy()` / `node.removeComponent()`),
+   * so no live phase loop is ever spliced mid-iteration. This is the teardown the
+   * end-of-tick flush and scene dispose call once destruction has been drained.
+   */
+  private teardownComponent(instance: Component): void {
     const index = this.components.indexOf(instance);
     if (index === -1) return;
     this.components.splice(index, 1);
@@ -349,12 +360,7 @@ export class Engine {
 
     if (instance.id !== undefined && this.byId.get(instance.id) === instance) this.byId.delete(instance.id);
     // Drop it from any system query it belonged to.
-    for (const [system, type] of this.systemQueries) {
-      if (!(instance instanceof type)) continue;
-      const q = system.components as Component[];
-      const qi = q.indexOf(instance);
-      if (qi !== -1) q.splice(qi, 1);
-    }
+    this.systemManager.onComponentRemoved(instance);
     if (instance.enabled && instance._loaded) instance.onDisable?.();
     // Only tear down what was set up — an inert (never-loaded) editor component
     // never ran onLoad, so it gets no onDestroy.
@@ -385,30 +391,17 @@ export class Engine {
    * auto-runs when its component type appears); call it directly for manual use.
    */
   addSystem<T extends System>(system: T): T {
-    system.engine = this;
-    const type = allSystemDefs().find((d) => system instanceof d.ctor)?.componentType;
-    if (type) {
-      this.systemQueries.set(system, type as ComponentType);
-      (system.components as Component[]).push(...this.components.filter((c) => c instanceof (type as ComponentType)));
-    }
-    this.systems.push(system);
-    system.onAttach?.();
-    return system;
+    return this.systemManager.add(system);
   }
 
   /** The first running system assignable to `type` (Unity GetComponent style). */
   getSystem<T extends System>(type: abstract new (...args: never[]) => T): T | undefined {
-    for (const s of this.systems) if (s instanceof type) return s as T;
-    return undefined;
+    return this.systemManager.get(type);
   }
 
   /** Remove a subsystem, running its `onDetach`. */
   removeSystem(system: System): void {
-    const i = this.systems.indexOf(system);
-    if (i === -1) return;
-    this.systems.splice(i, 1);
-    this.systemQueries.delete(system);
-    system.onDetach?.();
+    this.systemManager.remove(system);
   }
 
   /**
@@ -432,9 +425,17 @@ export class Engine {
     return this.objectsById.get(id) ?? this.scene.getObjectByName(id);
   }
 
-  /** Add or remove a subtree's named objects from the id index (first id wins). */
+  /**
+   * Add or remove a subtree's named objects from the id index (first id wins).
+   * Maintained on load/instantiate/destroy only — re-parenting a subtree between
+   * engines is unsupported (the index and `_engine` stamps aren't refreshed).
+   */
   private indexObjects(root: Object3D, add: boolean): void {
     root.traverse((object) => {
+      // Stamp/clear the owning-engine back-reference on every node (named or not),
+      // so `node.getComponent(...)` and friends can reach this engine's byNode map.
+      if (add) object._engine = this;
+      else if (object._engine === this) object._engine = undefined;
       if (!object.name) return;
       if (add) {
         if (!this.objectsById.has(object.name)) this.objectsById.set(object.name, object);
@@ -458,59 +459,16 @@ export class Engine {
    */
   raycast(options: RaycastOptions = {}): Intersection[] {
     if (!this.mainCamera) return [];
-    // Ensure world matrices are current — a raycast can run before the first
-    // render (or headless), when they'd otherwise be stale.
+    // Ensure the scene's world matrices are current — a raycast can run before the
+    // first render (or headless), when they'd otherwise be stale. (The Raycasting
+    // module updates the camera matrix itself.)
     this.scene.updateMatrixWorld();
-    this.mainCamera.updateMatrixWorld();
-    this.raycaster.setFromCamera(options.ndc ?? this.input.mouseNdc, this.mainCamera);
-    return this.raycaster.intersectObjects(options.objects ?? this.scene.children, options.recursive ?? true);
-  }
-
-  /**
-   * Raycast from the pointer on press/release and deliver `onPointerDown` /
-   * `onPointerUp` / `onPointerClick` to the hit object's components, bubbling up
-   * its ancestors (Unity/DOM-style). `onPointerUp` goes to the originally-pressed
-   * object; `onPointerClick` fires only when the release is over that same object.
-   * Inert in editor mode / without a camera. Cheap: only raycasts on a click edge.
-   */
-  private dispatchPointerEvents(): void {
-    if (this.editorMode || !this.mainCamera) return;
-    const down = this.input.getMouseButtonDown(0);
-    const up = this.input.getMouseButtonUp(0);
-
-    // Drag: pointer held + moving after a press, delivered to the pressed object.
-    // Delta-based — no raycast (the dragged object needn't stay under the cursor).
-    if (!down && this.pointerPressed && this.input.getMouseButton(0)) {
-      const delta = this.input.mouseDelta;
-      if (delta.x !== 0 || delta.y !== 0) this.emitPointer('onDrag', this.pointerPressed, undefined, delta);
-    }
-
-    if (!down && !up) return;
-    const hit = this.raycast()[0];
-    if (down) {
-      this.pointerPressed = hit?.object;
-      if (hit) this.emitPointer('onPointerDown', hit.object, hit);
-    }
-    if (up) {
-      const pressed = this.pointerPressed;
-      this.pointerPressed = undefined;
-      if (pressed) this.emitPointer('onPointerUp', pressed, hit);
-      if (hit && hit.object === pressed) this.emitPointer('onPointerClick', hit.object, hit);
-    }
-  }
-
-  /** Dispatch a pointer hook to a target's components, then bubble up to the scene root. */
-  private emitPointer(hook: PointerHook, target: Object3D, hit: Intersection | undefined, delta?: Vector2): void {
-    const event: PointerEventData = { object: target, point: hit?.point, distance: hit?.distance, button: 0 };
-    if (delta) event.delta = delta.clone();
-    for (let object: Object3D | null = target; object; object = object.parent) {
-      for (const component of this.getComponents(object)) {
-        if (component._destroyed) continue;
-        const fn = (component as unknown as Record<string, unknown>)[hook];
-        if (typeof fn === 'function') (fn as (e: PointerEventData) => void).call(component, event);
-      }
-      if (object === this.scene) break;
-    }
+    return this.raycasting.cast(
+      this.mainCamera,
+      options.ndc ?? this.input.mouseNdc,
+      options.objects ?? this.scene.children,
+      options.recursive ?? true,
+    );
   }
 
   /**
@@ -531,22 +489,17 @@ export class Engine {
    * Used by `@scenoco-three/audio`'s `Sound` component.
    */
   get audioListener(): AudioListener | undefined {
-    if (typeof AudioContext === 'undefined') return undefined; // headless / no Web Audio
-    if (!this._audioListener) this._audioListener = new AudioListener();
-    const host = this.mainCamera ?? this.scene;
-    if (this._audioListener.parent !== host) host.add(this._audioListener);
-    return this._audioListener;
+    return this.audio.listenerOn(this.mainCamera ?? this.scene);
   }
 
   /** The current RNG seed (the value the stream was last (re)seeded with). */
   get seed(): number {
-    return this._seed;
+    return this.rng.seed;
   }
 
   /** Restart the deterministic RNG from `seed` — for replays / reproducible runs. */
   reseed(seed: number): void {
-    this._seed = seed >>> 0;
-    this.rng = mulberry32(this._seed);
+    this.rng.reseed(seed);
   }
 
   /**
@@ -554,17 +507,17 @@ export class Engine {
    * use this instead of `Math.random()` so a run is reproducible from its seed.
    */
   random(): number {
-    return this.rng();
+    return this.rng.value();
   }
 
   /** Deterministic random float in `[min, max)`. */
   randomRange(min: number, max: number): number {
-    return min + this.rng() * (max - min);
+    return this.rng.range(min, max);
   }
 
   /** Deterministic random integer in `[min, max)` (max exclusive). */
   randomInt(min: number, max: number): number {
-    return min + Math.floor(this.rng() * (max - min));
+    return this.rng.int(min, max);
   }
 
   /**
@@ -627,9 +580,19 @@ export class Engine {
    *
    * If the scene defines a camera, it becomes `mainCamera`; with none, `mainCamera`
    * stays undefined and the loop skips rendering until one is set.
+   *
+   * Safe to call from inside a component hook: the swap is then **deferred to end
+   * of tick** (like `destroy()`; Unity `SceneManager.LoadScene` activates end-of-
+   * frame too). The rest of the current tick still runs on the old scene, and
+   * `engine.scene`/`getSceneGraph()` reflect the new one only after the tick.
    */
   loadScene(source: Bundle | CompiledScene): void {
-    this.applyScene(this.toScene(source));
+    const compiled = this.toScene(source);
+    if (this.ticking) {
+      this.pendingSceneOp = { compiled };
+      return;
+    }
+    this.applyScene(compiled);
   }
 
   /**
@@ -642,6 +605,12 @@ export class Engine {
   async loadSceneAsync(source: Bundle | CompiledScene): Promise<void> {
     const compiled = this.toScene(source);
     await this.preload(compiled);
+    // tick() is synchronous, so post-await code can't normally land mid-tick;
+    // the guard makes this airtight either way (same deferral as loadScene).
+    if (this.ticking) {
+      this.pendingSceneOp = { compiled };
+      return;
+    }
     this.applyScene(compiled);
   }
 
@@ -665,7 +634,7 @@ export class Engine {
     // Full swap: tear the current scene down, then make the compiled Scene the
     // active one. The <Scene> node builds a real Three.js Scene, with fog/background
     // already applied and the camera living in it as a child node.
-    this.disposeScene();
+    this.disposeSceneNow();
     const live = instantiateScene(compiled, this.instantiateContext());
     this.scene = live.root as Scene;
     this.sceneAttachments = live.attachments;
@@ -686,26 +655,15 @@ export class Engine {
       this.applyingScene = false;
     }
     this.sceneGraph = buildSceneGraph(compiled, live);
-    // Auto-run registered systems whose component type the scene contains — but
-    // not in editor mode (no physics/batch processing on a static scene).
-    this.sceneSystems = this.editorMode ? [] : this.runSceneSystems();
+    // Auto-run registered systems whose component type the scene contains — seeded
+    // once with the full loaded set. Not in editor mode (no physics/batch on a
+    // static scene).
+    if (!this.editorMode) this.systemManager.ensureForScene(this.components);
 
     // Cameras: render in `priority` order; the first found is the default main
     // camera (used for raycasting/pointer) unless overridden.
     this.cameras = collectCameras(this.scene);
     this.mainCamera = findCamera(this.scene);
-  }
-
-  /** Instantiate + run each registered @system whose component type is present. */
-  private runSceneSystems(): System[] {
-    const started: System[] = [];
-    for (const def of allSystemDefs()) {
-      const alreadyRunning = this.systems.some((s) => s instanceof def.ctor);
-      const present = this.components.some((c) => c instanceof (def.componentType as ComponentType));
-      if (alreadyRunning || !present) continue;
-      started.push(this.addSystem(new def.ctor() as System));
-    }
-    return started;
   }
 
   /**
@@ -790,25 +748,31 @@ export class Engine {
     while (ni < this.pendingNodes.length || ci < this.pendingComponents.length) {
       while (ni < this.pendingNodes.length) {
         const object = this.pendingNodes[ni++]!;
-        // Collect first: removeComponent mutates byNode as we go. Also forget any
+        // Skip entries already torn down as part of an earlier entry's subtree
+        // (parent and child both destroyed this tick) — teardown is idempotent
+        // but disposeObject would free geometry/materials twice.
+        if (this.flushVisited.has(object)) continue;
+        // Collect first: teardownComponent mutates byNode as we go. Also forget any
         // spawned root inside this subtree so dispose() won't try to free it twice.
         const components: Component[] = [];
         object.traverse((node) => {
+          this.flushVisited.add(node);
           const onNode = this.byNode.get(node);
           if (onNode) components.push(...onNode);
           this.instances.delete(node);
         });
-        for (const c of components) this.removeComponent(c);
+        for (const c of components) this.teardownComponent(c);
         this.indexObjects(object, false);
         object.removeFromParent();
         disposeObject(object);
       }
-      // Lone components whose node wasn't itself destroyed (removeComponent is a
+      // Lone components whose node wasn't itself destroyed (teardownComponent is a
       // harmless no-op for any already torn down by a node flush above).
-      while (ci < this.pendingComponents.length) this.removeComponent(this.pendingComponents[ci++]!);
+      while (ci < this.pendingComponents.length) this.teardownComponent(this.pendingComponents[ci++]!);
     }
     this.pendingNodes.length = 0;
     this.pendingComponents.length = 0;
+    this.flushVisited.clear();
   }
 
   /**
@@ -826,8 +790,12 @@ export class Engine {
   private initLive(live: InstantiatedScene): Component[] {
     const components = live.components.map(({ instance }) => instance);
     for (const { instance, node } of live.components) this.registerComponent(node, instance);
-    // onLoad in execution order (stable within equal orders).
-    const ordered = [...live.components].sort((a, b) => this.orderOf(a.instance) - this.orderOf(b.instance));
+    // onLoad in execution order (stable within equal orders). Skip the sorted
+    // copy for the common single-component prefab spawn.
+    const ordered =
+      live.components.length > 1
+        ? [...live.components].sort((a, b) => this.orderOf(a.instance) - this.orderOf(b.instance))
+        : live.components;
     for (const { instance } of ordered) this.initComponent(instance);
     return components;
   }
@@ -836,9 +804,19 @@ export class Engine {
    * Unload the active scene: destroy every component on it and free its GPU
    * resources, then leave a fresh empty `Scene` in place. Full swap — anything in
    * the previous scene goes with it (objects you want to keep live on a node that
-   * isn't part of the scene, or in a spawned instance).
+   * isn't part of the scene, or in a spawned instance). Called from inside a
+   * component hook, the unload is deferred to end of tick (see {@link loadScene}).
    */
   disposeScene(): void {
+    if (this.ticking) {
+      this.pendingSceneOp = {};
+      return;
+    }
+    this.disposeSceneNow();
+  }
+
+  /** Immediate scene teardown — the internal path behind {@link disposeScene}'s deferral guard. */
+  private disposeSceneNow(): void {
     // Flush any destruction still queued from the last tick before we swap, so a
     // pending subtree is torn down cleanly rather than stranded across the load.
     this.flushDestroyed();
@@ -850,9 +828,8 @@ export class Engine {
       if (onNode) components.push(...onNode);
       this.instances.delete(node);
     });
-    for (const c of components) this.removeComponent(c);
-    for (const s of this.sceneSystems) this.removeSystem(s);
-    this.sceneSystems = [];
+    for (const c of components) this.teardownComponent(c);
+    this.systemManager.clearScene();
     this.sceneAttachments = [];
     this.sceneGraph = undefined;
     this.indexObjects(this.scene, false);
@@ -861,18 +838,30 @@ export class Engine {
     this._overlay?.replaceChildren();
     // Start fresh: an empty scene with no camera (rendering pauses until one loads).
     this.scene = new Scene();
+    this.scene._engine = this; // keep the node API working on hand-built nodes (see constructor)
     this.mainCamera = undefined;
     this.cameras = [];
   }
 
   /**
    * Advance the simulation by dt seconds, then render if a renderer exists.
-   * Phases, in order: fixed steps (`fixedUpdate` + subsystem `fixedStep`,
-   * repeated to drain the accumulator) → `start`/`update` → `lateUpdate` →
-   * subsystem `step` → render. Variable `update` still runs exactly once per
-   * tick, so existing components are unaffected.
+   * Phases, in order (Unity/Cocos): pending `start`s → fixed steps (`fixedUpdate`
+   * + subsystem `fixedStep`, repeated to drain the accumulator) → subsystem `step`
+   * (physics interpolation, contact dispatch) → `update` → `lateUpdate` →
+   * destruction flush → deferred scene swap → render. All pending starts run
+   * before any update; a component spawned mid-tick doesn't run any phase until
+   * it starts at the top of the next tick.
    */
   tick(dt: number): void {
+    this.ticking = true;
+    try {
+      this.tickPhases(dt);
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private tickPhases(dt: number): void {
     // Sample input first so getKey/getKeyDown are consistent across every phase.
     this.input.beginFrame();
 
@@ -891,8 +880,22 @@ export class Engine {
       this.componentsDirty = false;
     }
 
-    // Deliver pointer press/release/click to components before gameplay runs.
-    this.dispatchPointerEvents();
+    // Start phase: drain every pending start before any other hook this frame
+    // (Unity runs all Starts before that frame's FixedUpdate/Update). The index
+    // loop re-reads length, so a component spawned inside another's start()
+    // still starts this pass — in registration order for that one frame, like
+    // Unity's start queue. A component spawned disabled starts on the first
+    // tick after it's enabled (the drain re-checks every tick; O(n) flag scan).
+    for (let i = 0; i < this.components.length; i++) {
+      const c = this.components[i]!;
+      if (c._started || !c.enabled || !c._loaded || c._destroyed) continue;
+      c._started = true;
+      c.start?.();
+    }
+
+    // Deliver pointer press/release/click to components before gameplay runs
+    // (play mode only — the editor doesn't dispatch gameplay input).
+    if (!this.editorMode) this.pointer.dispatch();
 
     // Fixed-timestep phase (deterministic; physics + fixedUpdate). The substep
     // cap prevents a "spiral of death" after a long pause.
@@ -907,27 +910,40 @@ export class Engine {
     // Fraction into the next fixed step — physics subsystems lerp poses by this.
     this.interpolationAlpha = this.fixedTimeStep > 0 ? this.fixedAccumulator / this.fixedTimeStep : 0;
 
-    // Variable-rate phase: start (once) then update.
+    // Systems' variable step runs *before* component update (Unity order): physics
+    // applies its render interpolation and collision systems dispatch enter/exit
+    // hooks here, so gameplay reads this frame's poses and contacts — not last
+    // frame's — and nothing overwrites what update/lateUpdate wrote before render.
+    if (!this.editorMode) this.systemManager.step(scaled);
+
+    // Variable-rate phase. `!c._started` skips components spawned mid-tick —
+    // they run nothing until they start at the top of the next tick.
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (!c.enabled || !c._loaded || c._destroyed) continue;
-      if (!c._started) {
-        c._started = true;
-        c.start?.();
-      }
+      if (!c._started || !c.enabled || !c._loaded || c._destroyed) continue;
       c.update?.(scaled);
     }
     // Late phase: after every update this frame.
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (c.enabled && c._loaded && !c._destroyed) c.lateUpdate?.(scaled);
+      if (c._started && c.enabled && c._loaded && !c._destroyed) c.lateUpdate?.(scaled);
     }
-    if (!this.editorMode) for (const s of this.systems) s.step?.(scaled);
 
     // Flush deferred destruction now — after all gameplay/systems ran, before
     // render — so a destroyed object neither draws a final frame nor lingers into
     // the next tick, and no phase above ever saw a spliced component array.
     this.flushDestroyed();
+
+    // Apply a scene swap requested mid-tick (loadScene/disposeScene from a hook).
+    // Taken *before* applying: a loadScene fired from the new scene's onLoad
+    // re-defers to the next tick (last-write-wins) instead of recursing. The new
+    // scene renders this frame in its authored pose; its components start next tick.
+    if (this.pendingSceneOp) {
+      const op = this.pendingSceneOp;
+      this.pendingSceneOp = undefined;
+      if (op.compiled) this.applyScene(op.compiled);
+      else this.disposeSceneNow();
+    }
 
     // Render only when there's both a target and at least one camera — the engine
     // never supplies a fallback camera, so a scene without one simply doesn't draw.
@@ -983,9 +999,9 @@ export class Engine {
   private fixedStep(fixedDt: number): void {
     for (let i = 0; i < this.components.length; i++) {
       const c = this.components[i]!;
-      if (c.enabled && c._loaded && !c._destroyed) c.fixedUpdate?.(fixedDt);
+      if (c._started && c.enabled && c._loaded && !c._destroyed) c.fixedUpdate?.(fixedDt);
     }
-    if (!this.editorMode) for (const s of this.systems) s.fixedStep?.(fixedDt);
+    if (!this.editorMode) this.systemManager.fixedStep(fixedDt);
   }
 
   /** Start the requestAnimationFrame loop (no-op when already running or headless). */
@@ -1012,10 +1028,11 @@ export class Engine {
   /** Stop the loop, destroy all components/instances/subsystems, free GPU resources. */
   dispose(): void {
     this.stop();
+    this.pendingSceneOp = undefined;
     for (const root of [...this.instances]) this.destroy(root);
     this.disposeScene();
-    for (const c of [...this.components]) this.removeComponent(c);
-    for (const s of [...this.systems]) this.removeSystem(s);
+    for (const c of [...this.components]) this.teardownComponent(c);
+    this.systemManager.removeAll();
     this.input.dispose();
     this.assets.dispose();
     this.renderer?.dispose();
@@ -1127,13 +1144,3 @@ function isTexture(value: unknown): value is { dispose(): void; userData?: Recor
   return typeof value === 'object' && value !== null && (value as { isTexture?: boolean }).isTexture === true;
 }
 
-/** mulberry32 — a tiny, fast, seedable PRNG for the engine's deterministic `random()`. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 0x1_0000_0000;
-  };
-}

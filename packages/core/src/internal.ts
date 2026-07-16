@@ -3,6 +3,7 @@
 
 export {
   Registry,
+  ValueType,
   isScalarType,
   isArrayType,
   elementType,
@@ -10,9 +11,9 @@ export {
   type PropertyMeta,
   type PropType,
   type PropertyType,
-} from './core/Registry.js';
+} from './registry/Registry.js';
 
-export { enumOf, isEnumType, getEnum, allEnums, unregisterEnum, type EnumDef } from './core/EnumRegistry.js';
+export { enumOf, isEnumType, getEnum, allEnums, unregisterEnum, type EnumDef } from './registry/EnumRegistry.js';
 
 export {
   getNodeDef,
@@ -37,10 +38,10 @@ export {
   type AttachClass,
   type AttachContext,
   type SystemDef,
-} from './dsl/nodes.js';
+} from './registry/NodeRegistry.js';
 
 export { builtinNodeModules, builtinNodeModule } from './nodes/manifest.js';
-export { getSrcCompiler, type ParsedElement, type SrcCompiler } from './dsl/srcCompiler.js';
+export { getSrcCompiler, type ParsedElement, type SrcCompiler } from './scene/src-compiler.js';
 
 export {
   BUNDLE_VERSION,
@@ -53,7 +54,7 @@ export {
   type BundleNode,
   type BundleTag,
   type BundleValue,
-} from './dsl/bundle-format.js';
+} from './scene/bundle-format.js';
 
 export {
   componentPropEntries,
@@ -61,7 +62,7 @@ export {
   attachmentAttrEntries,
   popcount,
   valueEquals,
-} from './dsl/bundle-shared.js';
+} from './scene/bundle-shared.js';
 
 export type {
   CompiledScene,
@@ -72,7 +73,7 @@ export type {
   CompiledRef,
   CompiledValue,
   CompiledTransform,
-} from './dsl/compiled.js';
-export { UNIFORM_TYPES, isUniformType, type UniformTypeName } from './dsl/uniforms.js';
+} from './scene/compiled.js';
+export { UNIFORM_TYPES, isUniformType, type UniformTypeName } from './scene/uniforms.js';
 
-export type { CompiledScalar, ScalarType } from './dsl/types.js';
+export type { CompiledScalar, ScalarType } from './scene/types.js';

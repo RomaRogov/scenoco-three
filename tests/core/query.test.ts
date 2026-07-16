@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Object3D } from 'three';
 import { Component, Engine, component, type Bundle } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
 import { Oscillator } from '../fixtures/components/Oscillator.js';
@@ -42,10 +43,55 @@ describe('engine.findObject / findComponent', () => {
     engine.loadScene(toBundle(NESTED));
     expect(engine.getComponentsOfType(Rotator).length).toBe(2);
     const root = engine.findComponent('rootRot', Rotator)!;
-    expect(root.getComponentsInChildren(Rotator).length).toBe(2); // self + child Rotator
-    expect(root.getComponentInChildren(Oscillator)).toBe(engine.findComponent('bob', Oscillator));
+    expect(root.node.getComponentsInChildren(Rotator).length).toBe(2); // self + child Rotator
+    expect(root.node.getComponentInChildren(Oscillator)).toBe(engine.findComponent('bob', Oscillator));
     engine.dispose();
     expect(engine.getComponentsOfType(Rotator)).toEqual([]); // empty after dispose
+  });
+});
+
+describe('node component API (Object3D augmentation)', () => {
+  it('queries and mutates components through the host node (Unity/Cocos style)', () => {
+    const engine = new Engine();
+    engine.loadScene(toBundle(NESTED));
+
+    const root = engine.findObject('root')!;
+    expect(root.getComponent(Rotator)).toBe(engine.findComponent('rootRot', Rotator));
+    expect(root.getComponentsInChildren(Rotator).length).toBe(2); // self + child Rotator
+    expect(root.getComponentInChildren(Oscillator)).toBe(engine.findComponent('bob', Oscillator));
+    expect(root.getComponents()).toContain(engine.findComponent('rootRot', Rotator));
+
+    // addComponent on the node attaches to that node and runs onLoad.
+    const added = root.addComponent(Oscillator);
+    expect(added).toBeInstanceOf(Oscillator);
+    expect(root.getComponent(Oscillator)).toBe(added);
+
+    // removeComponent is deferred — the component survives until the tick flushes.
+    root.removeComponent(added);
+    expect(added._destroyed).toBe(true);
+    engine.tick(1 / 60);
+    expect(root.getComponent(Oscillator)).toBeNull();
+
+    engine.dispose();
+  });
+
+  it('throws a clear error (never silent null) on a node outside any engine', () => {
+    const loose = new Object3D();
+    expect(loose.isSceneAttached).toBe(false);
+    expect(() => loose.getComponent(Rotator)).toThrow(/engine's scene/);
+    expect(() => loose.getComponents()).toThrow(/engine's scene/);
+    expect(() => loose.getComponentsInChildren(Rotator)).toThrow(/engine's scene/);
+    expect(() => loose.addComponent(Rotator)).toThrow(/engine's scene/);
+  });
+
+  it('resolves the engine through the scene tree — hand-built nodes use the node API directly', () => {
+    const engine = new Engine();
+    const cube = new Object3D();
+    engine.scene.add(cube); // hand-built, never indexed
+    expect(cube.isSceneAttached).toBe(true);
+    const rot = cube.addComponent(Rotator, { speed: 3 }); // works without engine.addComponent
+    expect(cube.getComponent(Rotator)).toBe(rot);
+    engine.dispose();
   });
 });
 

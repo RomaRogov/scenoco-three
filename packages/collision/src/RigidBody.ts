@@ -1,4 +1,4 @@
-import { Component, component, enumOf, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property, ValueType } from '@scenoco-three/core';
 
 /** How a body moves — mirrors rapier's `RigidBodyKind` (inert here). */
 export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed: 'fixed', kinematic: 'kinematic' });
@@ -14,11 +14,11 @@ export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed
 export class RigidBody extends Component {
   @property({ type: RigidBodyKind, default: 'dynamic', description: 'How the body moves (inert here)' })
   kind = 'dynamic';
-  @property({ type: 'float', default: 0, description: 'Damps linear velocity over time (inert here)' }) linearDamping = 0;
-  @property({ type: 'float', default: 0, description: 'Damps angular velocity over time (inert here)' }) angularDamping = 0;
-  @property({ type: 'float', default: 1, description: 'Multiplier on world gravity for this body (inert here)' })
+  @property({ type: ValueType.Float, default: 0, description: 'Damps linear velocity over time (inert here)' }) linearDamping = 0;
+  @property({ type: ValueType.Float, default: 0, description: 'Damps angular velocity over time (inert here)' }) angularDamping = 0;
+  @property({ type: ValueType.Float, default: 1, description: 'Multiplier on world gravity for this body (inert here)' })
   gravityScale = 1;
-  @property({ type: 'bool', default: false, description: 'Continuous collision detection (inert here)' }) ccd = false;
+  @property({ type: ValueType.Bool, default: false, description: 'Continuous collision detection (inert here)' }) ccd = false;
 
   /** No live simulation body in detection-only mode. */
   readonly body = undefined;

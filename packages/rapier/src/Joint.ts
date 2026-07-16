@@ -1,5 +1,5 @@
 import { Vector3, type Object3D } from 'three';
-import { Component, component, enumOf, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property, ValueType } from '@scenoco-three/core';
 
 /** The joint types this package supports (a useful subset of Rapier's). */
 export const JointKind = enumOf('JointKind', ['fixed', 'revolute', 'spherical', 'prismatic', 'spring']);
@@ -23,18 +23,18 @@ export const JointKind = enumOf('JointKind', ['fixed', 'revolute', 'spherical', 
 export class Joint extends Component {
   @property({ type: JointKind, default: 'fixed', description: 'Joint type' })
   kind = 'fixed';
-  @property({ type: 'node', description: 'The other body to connect to (a node with a RigidBody)' })
+  @property({ type: ValueType.Node, description: 'The other body to connect to (a node with a RigidBody)' })
   connectedBody: Object3D | null = null;
-  @property({ type: 'vec3', default: [0, 0, 0], description: 'Local anchor on this body' })
+  @property({ type: ValueType.Vec3, default: [0, 0, 0], description: 'Local anchor on this body' })
   anchor = new Vector3();
-  @property({ type: 'vec3', default: [0, 0, 0], description: 'Local anchor on the connected body' })
+  @property({ type: ValueType.Vec3, default: [0, 0, 0], description: 'Local anchor on the connected body' })
   connectedAnchor = new Vector3();
-  @property({ type: 'vec3', default: [0, 1, 0], description: 'Hinge/slide axis (revolute, prismatic)' })
+  @property({ type: ValueType.Vec3, default: [0, 1, 0], description: 'Hinge/slide axis (revolute, prismatic)' })
   axis = new Vector3(0, 1, 0);
-  @property({ type: 'float', default: 1, description: 'Spring stiffness (spring joint)' })
+  @property({ type: ValueType.Float, default: 1, description: 'Spring stiffness (spring joint)' })
   stiffness = 1;
-  @property({ type: 'float', default: 0.5, description: 'Spring damping (spring joint)' })
+  @property({ type: ValueType.Float, default: 0.5, description: 'Spring damping (spring joint)' })
   damping = 0.5;
-  @property({ type: 'float', default: 0, description: 'Spring rest length (spring joint)' })
+  @property({ type: ValueType.Float, default: 0, description: 'Spring rest length (spring joint)' })
   restLength = 0;
 }

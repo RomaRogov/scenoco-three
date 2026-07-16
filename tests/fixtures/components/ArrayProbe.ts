@@ -1,5 +1,5 @@
 import { Object3D, Vector3 } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
 import { Oscillator } from './Oscillator.js';
 
 /**
@@ -8,18 +8,18 @@ import { Oscillator } from './Oscillator.js';
  */
 @component({ name: 'ArrayProbe', description: 'Tests array-typed properties' })
 export class ArrayProbe extends Component {
-  @property({ type: ['float'], default: [], description: 'Float array' })
+  @property({ type: [ValueType.Float], default: [], description: 'Float array' })
   points: number[] = [];
 
-  @property({ type: ['vec3'], default: [], description: 'Vec3 array' })
+  @property({ type: [ValueType.Vec3], default: [], description: 'Vec3 array' })
   waypoints: Vector3[] = [];
 
-  @property({ type: ['node'], description: 'Node-reference array' })
+  @property({ type: [ValueType.Node], description: 'Node-reference array' })
   targets: Object3D[] = [];
 
   @property({ type: [Oscillator], description: 'Typed-component-reference array' })
   oscillators: Oscillator[] = [];
 
-  @property({ type: ['string'], description: 'String array' })
+  @property({ type: [ValueType.String], description: 'String array' })
   labels: string[] = [];
 }

@@ -97,6 +97,19 @@ describe('engine: raycasting + pointer events', () => {
     engine.dispose();
   });
 
+  it('stops delivering onDrag when the pressed object leaves the scene mid-press', () => {
+    const engine = load();
+    const clicker = engine.findComponent('target', Clicker)!;
+    engine.input.injectMouseButton(0, true);
+    engine.tick(1 / 60);
+    expect(clicker.down).toBe(1);
+    engine.findObject('target')!.removeFromParent(); // detached (e.g. destroyed + flushed) while still pressed
+    engine.input.injectMouseMove(0, 0, 6, -4);
+    engine.tick(1 / 60);
+    expect(clicker.drags).toBe(0); // pressed reference released, no drag to a detached subtree
+    engine.dispose();
+  });
+
   it('fires onPointerUp but not onPointerClick when released off the pressed object', () => {
     const engine = load();
     const clicker = engine.findComponent('target', Clicker)!;

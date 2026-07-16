@@ -4,6 +4,7 @@ import {
   elementType,
   getAttachmentDef,
   isArrayType,
+  isEnumType,
   type Component,
   type CompiledScene,
   type EnumDef,
@@ -11,8 +12,9 @@ import {
   type PropertyType,
   type SceneGraph,
 } from '@scenoco-three/core';
+import { ValueType } from '@scenoco-three/core';
 import type { NodeOrigin, SceneProvenance } from '@scenoco-three/compiler';
-import type { EditOp, EditTarget } from '../dist/protocol.js';
+import type { AgentEdit, EditOp, EditTarget } from '../src/protocol.js';
 import { UndoStack } from './commands.js';
 
 export type TransformChannel = 'position' | 'rotation' | 'scale';
@@ -172,7 +174,6 @@ export class SceneDocument {
     if ((this.provenance?.nodes[cc.node]?.kind ?? 'scene') !== 'scene') return; // prefab content read-only
     const meta = Registry.getComponent(cc.type)?.meta.properties.get(name);
     if (!meta) return;
-    const elem = elementType(meta.type);
 
     const field = component as unknown as Record<string, unknown>;
     const had = name in cc.props;
@@ -193,7 +194,6 @@ export class SceneDocument {
         field[name] = cloneRuntime(prevRuntime);
       },
     });
-    void elem; // reserved: array-element handling lands with array editing
   }
 
   // ── attachment edits (geometry / material / scene settings) ─────────────────────
@@ -281,8 +281,7 @@ export class SceneDocument {
   setNodeSrc(node: Object3D, src: string): void {
     const i = this.graph.nodeIndexOf.get(node);
     if (i === undefined || this.nodeOrigin(node).kind !== 'prefab-root') return;
-    const cnode = this.compiled.nodes[i]!;
-    this.recordSrcEdit(`node:${i}:src`, { kind: 'node', nodeIndex: i, ...(cnode.id ? { id: cnode.id } : {}) }, src);
+    this.recordSrcEdit(`node:${i}:src`, this.nodeTarget(i), src);
   }
 
   /** Edit a src-loaded attachment's `src` (save-only — reopen to see the swapped content). */
@@ -314,7 +313,7 @@ export class SceneDocument {
     const out: EditOp[] = [];
     this.compiled.nodes.forEach((node, i) => {
       const orig = this.original.nodes[i]!;
-      const target = (): EditTarget => ({ kind: 'node', nodeIndex: i, ...(node.id ? { id: node.id } : {}) });
+      const target = (): EditTarget => this.nodeTarget(i);
       if (!numbersEqual(node.transform.position, orig.transform.position))
         out.push({ target: target(), attr: 'position', value: node.transform.position.slice() });
       if (!numbersEqual(node.transform.rotation, orig.transform.rotation))
@@ -388,6 +387,84 @@ export class SceneDocument {
     }
   }
 
+  // ── agent edits (MCP `edit_scene`) ────────────────────────────────────────────
+
+  /**
+   * Apply agent-requested edits through the same undoable mutators the inspector
+   * uses, so they are undoable, dirty-flagging, and live in the viewport. A failed
+   * edit reports its reason without aborting the rest of the batch.
+   */
+  applyAgentEdits(edits: AgentEdit[]): { applied: number; failed: { edit: AgentEdit; reason: string }[] } {
+    let applied = 0;
+    const failed: { edit: AgentEdit; reason: string }[] = [];
+    for (const edit of edits) {
+      const reason = this.applyAgentEdit(edit);
+      if (reason) failed.push({ edit, reason });
+      else applied++;
+    }
+    return { applied, failed };
+  }
+
+  /** Apply one agent edit; returns a failure reason, or undefined on success. */
+  private applyAgentEdit(edit: AgentEdit): string | undefined {
+    const node = this.nodeById(edit.node);
+    if (!node) {
+      const ids = this.compiled.nodes.map((n) => n.id).filter((id): id is string => !!id);
+      return `no node with id "${edit.node}" — available ids: ${ids.join(', ') || '(none)'}`;
+    }
+    const ordinal = edit.ordinal ?? 0;
+
+    if (edit.component) {
+      if (!this.canEditComponents(node)) return `components on "${edit.node}" are read-only (prefab content)`;
+      const comp = this.componentByTarget(edit.node, edit.component, ordinal);
+      if (!comp) return `no <${edit.component}> (ordinal ${ordinal}) on "${edit.node}"`;
+      const meta = Registry.getComponent(edit.component)?.meta.properties.get(edit.attr);
+      if (!meta || isArrayType(meta.type)) {
+        const names = [...(Registry.getComponent(edit.component)?.meta.properties.keys() ?? [])];
+        return `<${edit.component}> has no editable property "${edit.attr}" — properties: ${names.join(', ') || '(none)'}`;
+      }
+      const value = coerceScalar(edit.value, elementType(meta.type));
+      if (value === undefined) return `value ${JSON.stringify(edit.value)} does not fit property "${edit.attr}"`;
+      this.setComponentProp(comp, edit.attr, value);
+      return undefined;
+    }
+
+    if (edit.attachment) {
+      const slot = this.attachmentSlot(node, edit.attachment, ordinal);
+      if (slot === undefined) return `no <${edit.attachment}> (ordinal ${ordinal}) on "${edit.node}"`;
+      if (edit.attr === 'src') {
+        this.setAttachmentSrc(node, slot, String(edit.value));
+        return undefined;
+      }
+      const meta = getAttachmentDef(edit.attachment)?.attrs[edit.attr];
+      if (!meta || isArrayType(meta.type)) return `<${edit.attachment}> has no editable attr "${edit.attr}"`;
+      const value = coerceScalar(edit.value, elementType(meta.type));
+      if (value === undefined) return `value ${JSON.stringify(edit.value)} does not fit attr "${edit.attr}"`;
+      this.setAttachmentProp(node, slot, edit.attr, value);
+      return undefined;
+    }
+
+    // Node-level: transform channels, visible, or a prefab instance's src.
+    if (edit.attr === 'src') {
+      if (this.nodeOrigin(node).kind !== 'prefab-root') return `"src" is only editable on a prefab instance`;
+      this.setNodeSrc(node, String(edit.value));
+      return undefined;
+    }
+    if (!this.canEditTransform(node)) return `transform of "${edit.node}" is read-only (prefab content)`;
+    if (edit.attr === 'visible') {
+      if (typeof edit.value !== 'boolean') return `"visible" takes a boolean`;
+      this.setVisible(node, edit.value);
+      return undefined;
+    }
+    if (edit.attr === 'position' || edit.attr === 'rotation' || edit.attr === 'scale') {
+      const value = coerceVec(edit.value, 3);
+      if (!value) return `"${edit.attr}" takes [x, y, z]`;
+      this.setTransform(node, edit.attr, value);
+      return undefined;
+    }
+    return `unknown node attr "${edit.attr}" — use position/rotation/scale/visible (or src on a prefab instance)`;
+  }
+
   private nodeById(id?: string): Object3D | undefined {
     if (!id) return undefined;
     const i = this.compiled.nodes.findIndex((n) => n.id === id);
@@ -415,6 +492,32 @@ export class SceneDocument {
     return undefined;
   }
 
+  /**
+   * A node's structural path: child ordinals (among node-kind elements only, which
+   * compiled `children` mirror 1:1 in document order) from the compiled root.
+   * `[]` = the root itself. The save fallback address for id-less nodes.
+   */
+  private nodePath(i: number): number[] {
+    const path: number[] = [];
+    let idx = i;
+    for (let node = this.compiled.nodes[idx]!; node.parent >= 0; node = this.compiled.nodes[idx]!) {
+      path.unshift(this.compiled.nodes[node.parent]!.children.indexOf(idx));
+      idx = node.parent;
+    }
+    return path;
+  }
+
+  private nodeTarget(i: number): EditTarget {
+    const node = this.compiled.nodes[i]!;
+    return {
+      kind: 'node',
+      nodeIndex: i,
+      ...(node.id ? { id: node.id } : {}),
+      path: this.nodePath(i),
+      tag: node.tag,
+    };
+  }
+
   private attachmentTarget(i: number, slot: number, tag: string): EditTarget {
     const node = this.compiled.nodes[i]!;
     const ordinal = node.attachments.slice(0, slot + 1).filter((idx) => this.compiled.attachments[idx]!.tag === tag).length - 1;
@@ -422,6 +525,7 @@ export class SceneDocument {
       kind: 'attachment',
       nodeIndex: i,
       ...(node.id ? { nodeId: node.id } : {}),
+      nodePath: this.nodePath(i),
       ...(i === this.compiled.root ? { root: true } : {}),
       tag,
       ordinal,
@@ -437,6 +541,7 @@ export class SceneDocument {
       componentIndex: ci,
       nodeIndex: cc.node,
       ...(node.id ? { nodeId: node.id } : {}),
+      nodePath: this.nodePath(cc.node),
       type: cc.type,
       ordinal: sameType.indexOf(ci),
     };
@@ -458,15 +563,15 @@ function toRuntime(type: PropertyType, value: number | boolean | string | number
 }
 function toRuntimeScalar(elem: PropType | { new (): unknown } | EnumDef, value: unknown): unknown {
   switch (elem) {
-    case 'vec2':
+    case ValueType.Vec2:
       return new Vector2().fromArray(value as number[]);
-    case 'vec3':
+    case ValueType.Vec3:
       return new Vector3().fromArray(value as number[]);
-    case 'euler': {
+    case ValueType.Euler: {
       const e = value as number[];
       return new Euler(e[0]!, e[1]!, e[2]!);
     }
-    case 'color':
+    case ValueType.Color:
       return new Color(value as number);
     default:
       return value;
@@ -483,6 +588,57 @@ function cloneRuntime(v: unknown): unknown {
     return new Euler(e.x, e.y, e.z, e.order);
   }
   return Array.isArray(v) ? v.map(cloneRuntime) : v;
+}
+
+/**
+ * Coerce an agent-supplied value into the compiled form the target's scalar type
+ * expects — accepts the native JSON form, plus the friendly string spellings an
+ * LLM tends to write ("3 1 0" for a vec, "#ff0000" for a color, "true" for a
+ * bool, an enum member's name). Returns undefined when the value doesn't fit.
+ */
+function coerceScalar(value: string | number | boolean | number[], elem: PropType | { new (): unknown } | EnumDef): number | boolean | string | number[] | undefined {
+  if (isEnumType(elem)) {
+    if (typeof value === 'string' && elem.byName.has(value)) return elem.byName.get(value)!;
+    if ((typeof value === 'string' || typeof value === 'number') && elem.byValue.has(value)) return value;
+    return undefined;
+  }
+  switch (elem) {
+    case ValueType.Float:
+    case ValueType.Int: {
+      const n = typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) : NaN;
+      return Number.isFinite(n) ? (elem === ValueType.Int ? Math.round(n) : n) : undefined;
+    }
+    case ValueType.Bool:
+      return typeof value === 'boolean' ? value : value === 'true' ? true : value === 'false' ? false : undefined;
+    case ValueType.String:
+      return typeof value === 'string' ? value : undefined;
+    case ValueType.Color: {
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') {
+        const n = parseInt(value.replace(/^#/, ''), 16);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    }
+    case ValueType.Vec2:
+      return coerceVec(value, 2);
+    case ValueType.Vec3:
+    case ValueType.Euler:
+      return coerceVec(value, 3);
+    default:
+      return undefined; // references/prefabs aren't editable over MCP
+  }
+}
+
+/** A numeric vector of `length`, from a number[] or an "x y z" string. */
+function coerceVec(value: string | number | boolean | number[], length: number): number[] | undefined {
+  const parts = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[ ,]+/).map(Number)
+      : undefined;
+  if (!parts || parts.length !== length || !parts.every((n) => typeof n === 'number' && Number.isFinite(n))) return undefined;
+  return parts;
 }
 
 const isSavableScalar = (v: unknown): boolean =>

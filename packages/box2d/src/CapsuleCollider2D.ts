@@ -1,5 +1,5 @@
 import { PolygonShape, Vec2, type Shape } from 'planck';
-import { component, enumOf, property } from '@scenoco-three/core';
+import { component, enumOf, property, ValueType } from '@scenoco-three/core';
 import { Collider2D } from './Collider2D.js';
 
 /** A 2D capsule's long axis (Unity `CapsuleDirection2D`). */
@@ -13,7 +13,7 @@ export const CapsuleDirection2D = enumOf('CapsuleDirection2D', { vertical: 'vert
  */
 @component({ name: 'CapsuleCollider2D', description: 'A 2D capsule collision shape (planck; convex-polygon stadium).' })
 export class CapsuleCollider2D extends Collider2D {
-  @property({ type: 'vec2', default: [0.5, 1], description: 'Size (width, height)' })
+  @property({ type: ValueType.Vec2, default: [0.5, 1], description: 'Size (width, height)' })
   size = [0.5, 1];
 
   @property({ type: CapsuleDirection2D, default: 'vertical', description: 'Long axis of the capsule' })

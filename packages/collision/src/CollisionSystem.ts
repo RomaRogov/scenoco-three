@@ -46,10 +46,13 @@ export class CollisionSystem extends System<Collider> {
     this.curUsed = 0;
     for (let i = 0; i < n; i++) {
       const a = list[i]!;
-      if (a._destroyed) continue; // enqueued for destruction this tick — treat as gone
+      // Destroyed-this-tick or disabled colliders are treated as gone: they form no
+      // pairs, so the prev/cur diff below emits their exits automatically (Unity:
+      // a disabled collider stops overlapping).
+      if (a._destroyed || !a.enabled) continue;
       for (let j = i + 1; j < n; j++) {
         const b = list[j]!;
-        if (b._destroyed) continue;
+        if (b._destroyed || !b.enabled) continue;
         if (a.node === b.node) continue; // colliders on the same node don't self-collide
         if (!overlaps(bounds[i]!, bounds[j]!)) continue;
         const key = this.pairKey(a, b);

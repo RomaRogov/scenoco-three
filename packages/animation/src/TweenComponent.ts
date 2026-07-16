@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
 import { Tween, type LoopMode } from './Tween.js';
 import { Easing, type EasingName, TweenLoop, TweenProperty } from './easing.js';
 
@@ -23,17 +23,17 @@ export class TweenComponent extends Component {
   @property({ type: TweenProperty, default: 'position', description: 'Which transform to animate' })
   property = 'position';
   // A component `vec3` prop is instantiated as a Vector3 (math type), not an array.
-  @property({ type: 'vec3', default: [0, 0, 0], description: 'Target value (animates from the current value)' })
+  @property({ type: ValueType.Vec3, default: [0, 0, 0], description: 'Target value (animates from the current value)' })
   to = new Vector3();
-  @property({ type: 'float', default: 1, description: 'Seconds for one pass' })
+  @property({ type: ValueType.Float, default: 1, description: 'Seconds for one pass' })
   duration = 1;
   @property({ type: Easing, default: 'quadInOut', description: 'Easing curve' })
   easing = 'quadInOut';
   @property({ type: TweenLoop, default: 'none', description: 'Loop mode (none, loop, or ping-pong)' })
   loop = 'none';
-  @property({ type: 'float', default: 0, description: 'Delay before starting, seconds' })
+  @property({ type: ValueType.Float, default: 0, description: 'Delay before starting, seconds' })
   delay = 0;
-  @property({ type: 'bool', default: true, description: 'Begin automatically on start' })
+  @property({ type: ValueType.Bool, default: true, description: 'Begin automatically on start' })
   playOnStart = true;
 
   private tween?: Tween;

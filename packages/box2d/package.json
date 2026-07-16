@@ -32,6 +32,7 @@
   "//sideEffects": "Importing the package registers its @component/@attachment tags (decorator side effects), so it must not be tree-shaken away when imported for registration.",
   "sideEffects": true,
   "scripts": {
+    "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },

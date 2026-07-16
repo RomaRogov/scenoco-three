@@ -1,5 +1,6 @@
-import { isScalarType, isArrayType, elementType, type PropertyType } from '../core/Registry.js';
-import { isEnumType } from '../core/EnumRegistry.js';
+import { isScalarType, isArrayType, elementType, type PropertyType } from '../registry/Registry.js';
+import { ValueType } from '../registry/Registry.js';
+import { isEnumType } from '../registry/EnumRegistry.js';
 import {
   ComponentFlag,
   NodeFlag,
@@ -10,7 +11,7 @@ import {
   type BundleTag,
   type BundleValue,
 } from './bundle-format.js';
-import type { NodeAttr } from './nodes.js';
+import type { NodeAttr } from '../registry/NodeRegistry.js';
 import { attachmentAttrEntries, componentPropEntries, nodeAttrEntries, popcount } from './bundle-shared.js';
 import type {
   CompiledAsset,
@@ -144,7 +145,7 @@ function decodeAttrValue(raw: BundleValue, type: NodeAttr['type'], strings: stri
     return (raw as BundleValue[]).map((el) => decodeAttrValue(el, type[0], strings) as CompiledScalar);
   }
   if (isEnumType(type)) return type.valueKind === 'string' ? strings[raw as number]! : (raw as CompiledScalar);
-  return type === 'string' ? strings[raw as number]! : (raw as CompiledScalar);
+  return type === ValueType.String ? strings[raw as number]! : (raw as CompiledScalar);
 }
 
 function decodePropValue(raw: BundleValue, type: PropertyType, strings: string[]): CompiledValue {
@@ -153,13 +154,13 @@ function decodePropValue(raw: BundleValue, type: PropertyType, strings: string[]
   }
   // A prefab prop stores a plain index into the scene's prefabs[] pool; the
   // registered type disambiguates it from node/component refs.
-  if (type === 'prefab') return { prefab: raw as number };
+  if (type === ValueType.Prefab) return { prefab: raw as number };
   if (isEnumType(type)) return type.valueKind === 'string' ? strings[raw as number]! : (raw as CompiledScalar);
   if (!isScalarType(type)) {
     const i = raw as number;
     return i < 0 ? { node: ~i } : { component: i };
   }
-  if (type === 'string') return strings[raw as number]!;
+  if (type === ValueType.String) return strings[raw as number]!;
   return raw as CompiledScalar;
 }
 

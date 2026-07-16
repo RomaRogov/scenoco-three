@@ -1,5 +1,6 @@
 import { Color } from 'three';
 import { isEnumType, type EnumDef } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 
 /**
  * Canonical wire formats for SceNoCo attribute values — the single place that
@@ -216,12 +217,12 @@ export function scalarCodec(type: ScalarType | EnumDef): TypeCodec {
  */
 export function uniformValue(type: string, raw: string): ParseResult<CompiledScalar> {
   switch (type) {
-    case 'float':
-    case 'int':
-    case 'bool':
-    case 'vec2':
-    case 'vec3':
-    case 'color':
+    case ValueType.Float:
+    case ValueType.Int:
+    case ValueType.Bool:
+    case ValueType.Vec2:
+    case ValueType.Vec3:
+    case ValueType.Color:
       return codecs[type].parse(raw);
     case 'vec4':
       return parseVec(raw, 4, 'a vec4');

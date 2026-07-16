@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { component, property } from '@scenoco-three/core';
+import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider } from './Collider.js';
 
 /**
@@ -8,7 +8,7 @@ import { Collider } from './Collider.js';
  */
 @component({ name: 'PlaneCollider', description: 'A flat Rapier ground plane (thin XZ cuboid); attaches to the node’s RigidBody.' })
 export class PlaneCollider extends Collider {
-  @property({ type: 'vec2', default: [5, 5], description: 'Half-extents in X and Z' })
+  @property({ type: ValueType.Vec2, default: [5, 5], description: 'Half-extents in X and Z' })
   halfExtents = [5, 5];
 
   shapeDesc(): RAPIER.ColliderDesc {

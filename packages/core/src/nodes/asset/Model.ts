@@ -1,8 +1,8 @@
 import { Object3D } from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { Attachment } from '../base.js';
-import { attachment, property } from '../../core/decorators.js';
-import type { AttachContext } from '../../core/NodeRegistry.js';
+import { attachment, property, ValueType } from '../../registry/decorators.js';
+import type { AttachContext } from '../../registry/NodeRegistry.js';
 
 /** The shape the glTF loader returns. */
 interface LoadedGltf {
@@ -32,7 +32,7 @@ interface LoadedGltf {
   description: 'A glTF/GLB model loaded as a child subtree of the node.',
 })
 export class ModelNode extends Attachment {
-  @property({ type: 'string', asset: 'model', default: '', description: 'glTF/GLB URL' })
+  @property({ type: ValueType.String, asset: 'model', default: '', description: 'glTF/GLB URL' })
   src = '';
 
   attach(ctx: AttachContext): void {

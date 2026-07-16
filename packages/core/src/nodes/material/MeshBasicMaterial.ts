@@ -1,7 +1,7 @@
 import { MeshBasicMaterial, type Mesh, type Texture } from 'three';
 import { Attachment } from '../base.js';
-import { attachment, property } from '../../core/decorators.js';
-import type { AttachContext } from '../../core/NodeRegistry.js';
+import { attachment, property, ValueType } from '../../registry/decorators.js';
+import type { AttachContext } from '../../registry/NodeRegistry.js';
 import { MATERIAL_TARGETS } from '../targets.js';
 
 @attachment({
@@ -11,12 +11,12 @@ import { MATERIAL_TARGETS } from '../targets.js';
   group: 'material',
 })
 export class MeshBasicMaterialNode extends Attachment<Mesh> {
-  @property({ type: 'color', default: 0xffffff, description: 'Material color' }) color = 0xffffff;
-  @property({ type: 'float', default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
-  @property({ type: 'bool', default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
-  @property({ type: 'bool', default: false, description: 'Render as wireframe' }) wireframe = false;
+  @property({ type: ValueType.Color, default: 0xffffff, description: 'Material color' }) color = 0xffffff;
+  @property({ type: ValueType.Float, default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: ValueType.Bool, default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: ValueType.Bool, default: false, description: 'Render as wireframe' }) wireframe = false;
   /** Image URL loaded into the engine's AssetCache (needs `loadSceneAsync`). */
-  @property({ type: 'string', asset: 'texture', default: '', description: 'Color texture URL' }) map = '';
+  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Color texture URL' }) map = '';
 
   private cached?: MeshBasicMaterial;
   attach(ctx: AttachContext<Mesh>): void {

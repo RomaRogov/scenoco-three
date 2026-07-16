@@ -1,8 +1,9 @@
 import type { Object3D } from 'three';
-import type { CompiledScalar, ScalarType } from '../dsl/types.js';
-import type { CompiledUniform } from '../dsl/compiled.js';
-import type { AssetCache, AssetKind } from './AssetCache.js';
+import type { CompiledScalar, ScalarType } from '../scene/types.js';
+import type { CompiledUniform } from '../scene/compiled.js';
+import type { AssetCache, AssetKind } from '../assets/AssetCache.js';
 import type { EnumDef } from './EnumRegistry.js';
+import { duplicateRegistrationError, ValueType } from './Registry.js';
 
 /**
  * The tag registry — the extensible counterpart to the component `Registry`.
@@ -108,10 +109,10 @@ export interface SystemDef {
 
 /** Transform attributes shared by every Object3D-family node (degrees for rotation). */
 export const TRANSFORM_ATTRS: Record<string, NodeAttr> = {
-  position: { type: 'vec3', default: [0, 0, 0], description: 'Local position x y z' },
-  rotation: { type: 'euler', default: [0, 0, 0], description: 'Local rotation in degrees x y z' },
-  scale: { type: 'vec3', default: [1, 1, 1], description: 'Local scale x y z' },
-  visible: { type: 'bool', default: true, description: 'Whether the object renders' },
+  position: { type: ValueType.Vec3, default: [0, 0, 0], description: 'Local position x y z' },
+  rotation: { type: ValueType.Euler, default: [0, 0, 0], description: 'Local rotation in degrees x y z' },
+  scale: { type: ValueType.Vec3, default: [1, 1, 1], description: 'Local scale x y z' },
+  visible: { type: ValueType.Bool, default: true, description: 'Whether the object renders' },
 };
 
 // ---- node registry ----------------------------------------------------------
@@ -119,7 +120,7 @@ export const TRANSFORM_ATTRS: Record<string, NodeAttr> = {
 const nodeDefs = new Map<string, NodeDef>();
 
 export function registerNode(def: NodeDef): void {
-  if (nodeDefs.has(def.tag)) throw new Error(`Node tag <${def.tag}> is already registered`);
+  if (nodeDefs.has(def.tag)) throw duplicateRegistrationError('Node tag', def.tag);
   nodeDefs.set(def.tag, def);
 }
 export function unregisterNode(tag: string): boolean {
@@ -144,7 +145,7 @@ export function isSpatial(tag: string): boolean {
 const attachmentDefs = new Map<string, AttachmentDef>();
 
 export function registerAttachment(def: AttachmentDef): void {
-  if (attachmentDefs.has(def.tag)) throw new Error(`Attachment tag <${def.tag}> is already registered`);
+  if (attachmentDefs.has(def.tag)) throw duplicateRegistrationError('Attachment tag', def.tag);
   attachmentDefs.set(def.tag, def);
 }
 export function unregisterAttachment(tag: string): boolean {

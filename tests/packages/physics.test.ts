@@ -62,6 +62,56 @@ describe('box2d (planck) — 2D physics', () => {
     engine.dispose();
   });
 
+  it('rb.enabled = false removes the body from simulation; re-enable resumes (Unity Rigidbody2D.simulated)', () => {
+    const engine = new Engine({ fixedTimeStep: 1 / 60 });
+    engine.addSystem(new Physics2DSystem());
+    const ball = new Mesh(new SphereGeometry(0.3));
+    ball.position.set(0, 4, 0);
+    engine.scene.add(ball);
+    const rb = engine.addComponent(ball, RigidBody2D);
+    engine.addComponent(ball, CircleCollider2D, { radius: 0.3 });
+
+    for (let i = 0; i < 30; i++) engine.tick(1 / 60);
+    expect(ball.position.y).toBeLessThan(4); // falling
+
+    rb.enabled = false;
+    engine.tick(1 / 60); // reconcile deactivates the body
+    const frozenY = ball.position.y;
+    for (let i = 0; i < 30; i++) engine.tick(1 / 60);
+    expect(ball.position.y).toBe(frozenY); // out of the simulation, node untouched
+
+    rb.enabled = true;
+    for (let i = 0; i < 30; i++) engine.tick(1 / 60);
+    expect(ball.position.y).toBeLessThan(frozenY); // falling again from where it froze
+    engine.dispose();
+  });
+
+  it('a Collider2D added after the body exists attaches its fixture; disabling it detaches', () => {
+    const engine = new Engine({ fixedTimeStep: 1 / 60 });
+    engine.addSystem(new Physics2DSystem());
+    const ball = new Mesh(new SphereGeometry(0.3));
+    ball.position.set(0, 2, 0);
+    engine.scene.add(ball);
+    engine.addComponent(ball, RigidBody2D, { bullet: true });
+    const rec = engine.addComponent(ball, Contact2DRecorder);
+
+    const floor = new Mesh();
+    engine.scene.add(floor);
+    engine.addComponent(floor, RigidBody2D, { kind: 'static' });
+    engine.addComponent(floor, BoxCollider2D, { halfExtents: [10, 0.2] });
+
+    engine.tick(1 / 60); // body created with no collider yet
+    const collider = engine.addComponent(ball, CircleCollider2D, { radius: 0.3 });
+    for (let i = 0; i < 240; i++) engine.tick(1 / 60);
+    expect(rec.collisions).toBeGreaterThan(0); // the late-added fixture collides
+    expect(ball.position.y).toBeGreaterThan(0); // resting on the floor, not fallen through
+
+    collider.enabled = false;
+    for (let i = 0; i < 120; i++) engine.tick(1 / 60);
+    expect(ball.position.y).toBeLessThan(-1); // fixture detached → falls through
+    engine.dispose();
+  });
+
   it('a declarative <Physics2D> scene simulates on load and the system is scene-scoped', () => {
     const r = compileSceneXml(`<Scene>
       <Physics2D gravity="0 -9.81" />

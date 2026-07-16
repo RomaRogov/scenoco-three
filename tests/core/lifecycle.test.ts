@@ -64,6 +64,41 @@ describe('component lifecycle', () => {
     expect(engine.scene.children).not.toContain(root);
     expect(() => engine.destroy(root)).not.toThrow(); // idempotent
   });
+  it('runs every pending start before any update (Unity Start semantics)', () => {
+    const engine = new Engine();
+    const log: string[] = [];
+    class A extends Component {
+      override start(): void { log.push('A.start'); }
+      override update(): void { log.push('A.update'); }
+    }
+    class B extends Component {
+      override start(): void { log.push('B.start'); }
+      override update(): void { log.push('B.update'); }
+    }
+    engine.addComponent(new Object3D(), A);
+    engine.addComponent(new Object3D(), B);
+    engine.tick(0.016);
+    expect(log).toEqual(['A.start', 'B.start', 'A.update', 'B.update']);
+    engine.dispose();
+  });
+
+  it('a component spawned during update runs no phase that tick; start + update come next tick', () => {
+    const engine = new Engine();
+    class Spawner extends Component {
+      spawned?: Probe;
+      override update(): void {
+        this.spawned ??= this.engine.addComponent(new Object3D(), Probe);
+      }
+    }
+    const spawner = engine.addComponent(new Object3D(), Spawner);
+    engine.tick(0.016);
+    const spawned = spawner.spawned!;
+    expect(spawned.events).toEqual(['onLoad', 'onEnable']); // loaded synchronously, but silent this tick
+    engine.tick(0.016);
+    expect(spawned.events).toEqual(['onLoad', 'onEnable', 'start', 'update:0.016']);
+    engine.dispose();
+  });
+
   it('a component destroyed during another component update is skipped that same tick', () => {
     const engine = new Engine();
     // A killer that destroys the victim on its own first update. Execution order is

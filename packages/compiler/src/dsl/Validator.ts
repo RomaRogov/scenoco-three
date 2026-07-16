@@ -23,6 +23,7 @@ import {
   type NodeDef,
   type AttachmentDef,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import { nearestName, type SncDiagnostic } from './diagnostics.js';
 import type { SncElement } from './SceneParser.js';
 import { parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } from './types.js';
@@ -327,7 +328,7 @@ class ValidationContext {
         this.validateArrayAttr(el, attr, raw, elementType(meta.type));
       } else if (isScalarType(meta.type) || isEnumType(meta.type)) {
         this.parseScalarAttr(el, attr, raw, meta.type);
-      } else if (meta.type === 'prefab') {
+      } else if (meta.type === ValueType.Prefab) {
         // A prefab prop is a `.prefab.xml` file path (no `#`); the file itself is
         // resolved, compiled, and checked at compile time (with its own diagnostics).
         this.validatePrefabAttr(el, attr, raw);
@@ -391,7 +392,7 @@ class ValidationContext {
       return;
     }
     literal.value.forEach((piece, i) => {
-      if (elem === 'prefab') this.validatePrefabAttr(el, `${attr}[${i}]`, piece);
+      if (elem === ValueType.Prefab) this.validatePrefabAttr(el, `${attr}[${i}]`, piece);
       else this.recordReference(el, `${attr}[${i}]`, piece, elem);
     });
   }
@@ -420,7 +421,7 @@ class ValidationContext {
         this.error(ref.element, 'unresolved-ref', `<${ref.element.tag}> "${ref.attr}" references "#${ref.value}", which has no matching id`);
         continue;
       }
-      if (ref.declared === 'node') {
+      if (ref.declared === ValueType.Node) {
         if (entry.kind !== 'node') {
           this.error(ref.element, 'ref-type-mismatch', `<${ref.element.tag}> "${ref.attr}" expects a node, but "#${ref.value}" is a component`);
         }

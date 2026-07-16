@@ -15,6 +15,7 @@ import {
   type NodeDef,
   type AttachmentDef,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import { codecs, type ScalarType } from '../dsl/types.js';
 
 /** Bump on any breaking change to the exported shape below. */
@@ -278,10 +279,10 @@ function propertyApi(name: string, meta: PropertyMeta): PropertyApi {
     const target = componentNameOf(elem) ?? elem.name;
     return { kind: 'reference', name, references: { entity: 'component', name: target }, ...array, required, ...description };
   }
-  if (elem === 'node') {
+  if (elem === ValueType.Node) {
     return { kind: 'reference', name, references: { entity: 'node' }, ...array, required, ...description };
   }
-  if (elem === 'prefab') {
+  if (elem === ValueType.Prefab) {
     return { kind: 'reference', name, references: { entity: 'prefab' }, ...array, required, ...description };
   }
   return {

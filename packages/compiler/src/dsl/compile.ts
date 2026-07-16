@@ -23,6 +23,7 @@ import {
   type CompiledTransform,
   type CompiledUniform,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import { parseScene, type SncElement } from './SceneParser.js';
 import { isNamespaceAttr, validatePrefab, validateScene } from './Validator.js';
 import { expandPrefabs } from './prefab.js';
@@ -499,7 +500,7 @@ function collectComponentProps(
       compileArrayProp(attr, raw, elementType(meta.type), componentIndex, compiled, pending, internPrefab, el);
     } else if (isScalarType(meta.type) || isEnumType(meta.type)) {
       compiled.props[attr] = codecParse(meta.type, raw);
-    } else if (meta.type === 'prefab') {
+    } else if (meta.type === ValueType.Prefab) {
       // A prefab prop value is a file path (like src=), not a `#id`. Resolve and
       // embed it at build time; the runtime hands the component a PrefabRef.
       const src = raw.trim();
@@ -531,7 +532,7 @@ function compileArrayProp(
   if (isScalarType(elem) || isEnumType(elem)) {
     const r = parseScalarArray(raw, elem);
     compiled.props[attr] = r.ok ? r.value : [];
-  } else if (elem === 'prefab') {
+  } else if (elem === ValueType.Prefab) {
     const out: CompiledRef[] = [];
     for (const piece of literal.value) {
       const src = piece.trim();
@@ -556,7 +557,7 @@ function resolveRef(
   componentIdToIndex: Map<string, number>,
   componentsOnNode: Map<number, RefTarget[]>,
 ): CompiledRef | undefined {
-  if (ref.declared === 'node') {
+  if (ref.declared === ValueType.Node) {
     const idx = nodeIdToIndex.get(ref.value);
     return idx === undefined ? undefined : { node: idx };
   }
@@ -608,14 +609,14 @@ function arrayValue(
 function zeroFor(type: ScalarType | EnumDef): CompiledScalar {
   if (isEnumType(type)) return type.defaultValue;
   switch (type) {
-    case 'bool':
+    case ValueType.Bool:
       return false;
-    case 'string':
+    case ValueType.String:
       return '';
-    case 'vec2':
+    case ValueType.Vec2:
       return [0, 0];
-    case 'vec3':
-    case 'euler':
+    case ValueType.Vec3:
+    case ValueType.Euler:
       return [0, 0, 0];
     default:
       return 0;

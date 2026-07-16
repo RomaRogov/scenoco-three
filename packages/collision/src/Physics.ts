@@ -1,4 +1,4 @@
-import { Attachment, attachment, property } from '@scenoco-three/core';
+import { Attachment, attachment, property, ValueType } from '@scenoco-three/core';
 
 /**
  * Scene-level physics config — **inert in this detection-only system**, provided
@@ -7,7 +7,7 @@ import { Attachment, attachment, property } from '@scenoco-three/core';
  */
 @attachment({ name: 'Physics', target: 'Scene', group: 'physics', description: 'Scene physics config — inert in detection-only mode (rapier-compatible tag)' })
 export class Physics extends Attachment {
-  @property({ type: 'vec3', default: [0, -9.81, 0], description: 'Gravity vector (inert here)' })
+  @property({ type: ValueType.Vec3, default: [0, -9.81, 0], description: 'Gravity vector (inert here)' })
   gravity = [0, -9.81, 0];
 
   attach(): void {}

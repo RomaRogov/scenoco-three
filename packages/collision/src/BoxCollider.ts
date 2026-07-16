@@ -1,11 +1,11 @@
 import { Vector3 } from 'three';
-import { component, property } from '@scenoco-three/core';
+import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider, type Bounds } from './Collider.js';
 
 /** A box collision shape (API-identical to rapier's `<BoxCollider>`). Axis-aligned (rotation ignored). */
 @component({ name: 'BoxCollider', description: 'A box (cuboid) collision shape (detection-only)' })
 export class BoxCollider extends Collider {
-  @property({ type: 'vec3', default: [0.5, 0.5, 0.5], description: 'Half-extents (x, y, z)' })
+  @property({ type: ValueType.Vec3, default: [0.5, 0.5, 0.5], description: 'Half-extents (x, y, z)' })
   halfExtents = new Vector3(0.5, 0.5, 0.5);
 
   private readonly _center = new Vector3();

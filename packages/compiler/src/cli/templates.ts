@@ -90,11 +90,11 @@ const engine = new Engine({ canvas });
 engine.loadScene(scene);
 `,
 
-    'assets/components/Spin.ts': `import { Component, component, property } from '@scenoco-three/core';
+    'assets/components/Spin.ts': `import { Component, component, property, ValueType } from '@scenoco-three/core';
 
 @component({ name: 'Spin', description: 'Spins the host node around its Y axis over time' })
 export class Spin extends Component {
-  @property({ type: 'float', default: 1, description: 'Rotation speed in radians per second' })
+  @property({ type: ValueType.Float, default: 1, description: 'Rotation speed in radians per second' })
   speed = 1;
 
   // \`this.node\` IS a THREE.Object3D — use Three.js directly.
@@ -133,13 +133,13 @@ function json(value: unknown): string {
 
 /** Generate a component file boilerplate. */
 export function componentFile(name: string): string {
-  return `import { Component, component, property } from '@scenoco-three/core';
+  return `import { Component, component, property, ValueType } from '@scenoco-three/core';
 
 // A one-line description is required on every @component and @property — it is
 // what people, the editor, and agents/RAG read to understand the API. Fill it in.
 @component({ name: '${name}', description: 'TODO: describe what this component does' })
 export class ${name} extends Component {
-  @property({ type: 'float', default: 1, description: 'TODO: describe this property' }) speed = 1;
+  @property({ type: ValueType.Float, default: 1, description: 'TODO: describe this property' }) speed = 1;
 
   override update(dt: number): void {
     // this.node is a THREE.Object3D — use Three.js methods directly.

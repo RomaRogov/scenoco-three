@@ -1,5 +1,5 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { Component, component, enumOf, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property, ValueType } from '@scenoco-three/core';
 
 /** How a body moves — the value matches the Rapier RigidBodyDesc factory. */
 export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed: 'fixed', kinematic: 'kinematic' });
@@ -14,12 +14,12 @@ export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed
 export class RigidBody extends Component {
   @property({ type: RigidBodyKind, default: 'dynamic', description: 'How the body moves' })
   kind = 'dynamic';
-  @property({ type: 'float', default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
-  @property({ type: 'float', default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
-  @property({ type: 'float', default: 1, description: 'Multiplier on world gravity for this body' })
+  @property({ type: ValueType.Float, default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
+  @property({ type: ValueType.Float, default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
+  @property({ type: ValueType.Float, default: 1, description: 'Multiplier on world gravity for this body' })
   gravityScale = 1;
   @property({
-    type: 'bool',
+    type: ValueType.Bool,
     default: false,
     description: 'Continuous collision detection — stops fast small bodies (bullets) tunnelling through thin colliders',
   })

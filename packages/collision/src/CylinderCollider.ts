@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three';
-import { component, property } from '@scenoco-three/core';
+import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider, type Bounds } from './Collider.js';
 
 /**
@@ -9,9 +9,9 @@ import { Collider, type Bounds } from './Collider.js';
  */
 @component({ name: 'CylinderCollider', description: 'A cylinder collision shape along Y (detection-only; approximated as a capsule)' })
 export class CylinderCollider extends Collider {
-  @property({ type: 'float', default: 0.5, description: 'Radius' })
+  @property({ type: ValueType.Float, default: 0.5, description: 'Radius' })
   radius = 0.5;
-  @property({ type: 'float', default: 0.5, description: 'Half-height (along Y)' })
+  @property({ type: ValueType.Float, default: 0.5, description: 'Half-height (along Y)' })
   halfHeight = 0.5;
 
   private readonly _a = new Vector3();

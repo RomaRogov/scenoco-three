@@ -8,17 +8,18 @@ export {
   type PreloadProvider,
   type RaycastOptions,
   type PointerEventData,
-} from './core/Engine.js';
-export { Component } from './core/Component.js';
-export { System } from './core/System.js';
+} from './runtime/Engine.js';
+export { Component } from './runtime/Component.js';
+export { System } from './runtime/System.js';
 export {
   InputManager,
   type KeyCode,
   type GamepadButton,
   type GamepadState,
-} from './core/Input.js';
+} from './subsystems/Input.js';
 export {
   Registry,
+  ValueType,
   isScalarType,
   isArrayType,
   elementType,
@@ -31,10 +32,10 @@ export {
   type ComponentMeta,
   type ComponentCtor,
   type RegisteredComponent,
-} from './core/Registry.js';
-export { enumOf, isEnumType, getEnum, allEnums, type EnumDef } from './core/EnumRegistry.js';
-export { AssetCache, type AssetKind, type AssetLoader } from './core/AssetCache.js';
-export { collectAssetRefs, type AssetRef } from './dsl/assets.js';
+} from './registry/Registry.js';
+export { enumOf, isEnumType, getEnum, allEnums, type EnumDef } from './registry/EnumRegistry.js';
+export { AssetCache, type AssetKind, type AssetLoader } from './assets/AssetCache.js';
+export { collectAssetRefs, type AssetRef } from './scene/asset-refs.js';
 
 // One authoring idiom: @property fields + a class decorator per role.
 export {
@@ -47,7 +48,7 @@ export {
   type ComponentOptions,
   type NodeOptions,
   type AttachmentOptions,
-} from './core/decorators.js';
+} from './registry/decorators.js';
 export { Object3DNode, Attachment } from './nodes/base.js';
 
 // Tag registry — built-in tags self-register on import; projects add their own
@@ -70,10 +71,10 @@ export {
   type AttachmentDef,
   type AttachTarget,
   type AttachContext,
-} from './dsl/nodes.js';
+} from './registry/NodeRegistry.js';
 
-// Stable runtime API: a `@property({ type: 'prefab' })` field receives a PrefabRef.
-export { PrefabRef, type SpawnOptions, type SpawnFn, type Vec3Input, type RotationInput } from './dsl/PrefabRef.js';
+// Stable runtime API: a `@property({ type: ValueType.Prefab })` field receives a PrefabRef.
+export { PrefabRef, type SpawnOptions, type SpawnFn, type Vec3Input, type RotationInput } from './scene/PrefabRef.js';
 
 // ── Advanced / tooling surface ──────────────────────────────────────────────
 // The compiled-bundle format and the low-level instantiate/deserialize entry
@@ -81,7 +82,7 @@ export { PrefabRef, type SpawnOptions, type SpawnFn, type Vec3Input, type Rotati
 // game code rarely touches these. Their shape tracks the compiler and may change
 // with the bundle wire format (see `BUNDLE_VERSION`) — treat as less stable than
 // the runtime API above.
-export { deserializeBundle } from './dsl/deserialize.js';
+export { deserializeBundle } from './scene/deserialize.js';
 export {
   registerSrcCompiler,
   getSrcCompiler,
@@ -89,15 +90,15 @@ export {
   type SrcCompiler,
   type SrcCompileResult,
   type SrcDiagnostic,
-} from './dsl/srcCompiler.js';
+} from './scene/src-compiler.js';
 export {
   BUNDLE_VERSION,
   bundleKind,
   type Bundle,
   type BundleAsset,
   type BundleKind,
-} from './dsl/bundle-format.js';
-export { instantiateScene, type InstantiatedScene } from './dsl/instantiate.js';
+} from './scene/bundle-format.js';
+export { instantiateScene, type InstantiatedScene } from './scene/instantiate.js';
 export type {
   CompiledScene,
   CompiledNode,
@@ -107,6 +108,6 @@ export type {
   CompiledRef,
   CompiledValue,
   CompiledTransform,
-} from './dsl/compiled.js';
-export { UNIFORM_TYPES, UniformType, isUniformType, type UniformTypeName } from './dsl/uniforms.js';
+} from './scene/compiled.js';
+export { UNIFORM_TYPES, UniformType, isUniformType, type UniformTypeName } from './scene/uniforms.js';
 

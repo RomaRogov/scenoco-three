@@ -1,6 +1,6 @@
 import { SkinnedMesh } from 'three';
 import { Object3DNode } from '../base.js';
-import { node } from '../../core/decorators.js';
+import { node } from '../../registry/decorators.js';
 
 // The skeleton is bound at runtime (a component calls `.bind(skeleton)`); the
 // tag carries the geometry/material like a Mesh.

@@ -1,6 +1,6 @@
 import { Color, Object3D, Vector2, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { Component, Engine, Registry, component, property } from '@scenoco-three/core';
+import { Component, Engine, Registry, component, property, ValueType } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
 import { Oscillator } from '../fixtures/components/Oscillator.js';
 import { Rotator } from '../fixtures/components/Rotator.js';
@@ -8,15 +8,15 @@ import { Rotator } from '../fixtures/components/Rotator.js';
 describe('@component / @property metadata', () => {
   @component({ name: 'TestSpinner', description: 'spins things in tests' })
   class TestSpinner extends Component {
-    @property({ type: 'float', default: 2, description: 'spin rate' }) rate = 2;
-    @property({ type: 'string', required: true, description: 'channel name' }) channel = '';
+    @property({ type: ValueType.Float, default: 2, description: 'spin rate' }) rate = 2;
+    @property({ type: ValueType.String, required: true, description: 'channel name' }) channel = '';
   }
 
   it('registers the class under its XML tag name and collects typed property metadata (incl. component refs)', () => {
     const entry = Registry.getComponent('TestSpinner')!;
     expect(entry.ctor).toBe(TestSpinner);
-    expect(entry.meta.properties.get('rate')).toEqual({ type: 'float', default: 2, description: 'spin rate' });
-    expect(entry.meta.properties.get('channel')).toEqual({ type: 'string', required: true, description: 'channel name' });
+    expect(entry.meta.properties.get('rate')).toEqual({ type: ValueType.Float, default: 2, description: 'spin rate' });
+    expect(entry.meta.properties.get('channel')).toEqual({ type: ValueType.String, required: true, description: 'channel name' });
 
     @component({ name: 'TestFollower', description: 'follows a spinner' })
     class TestFollower extends Component {
@@ -54,10 +54,10 @@ describe('built-in component behaviour', () => {
 class MathProbe extends Component {
   // Defaults declared as Vector3 / {x,y,z} / #hex (all normalize to the compiled
   // shape); the "wrong-shaped" field initializers must coerce to Three types.
-  @property({ type: 'vec3', default: new Vector3(1, 2, 3), description: 'vec3 from Vector3' }) fromVector = [1, 2, 3];
-  @property({ type: 'vec3', default: { x: 4, y: 5, z: 6 }, description: 'vec3 from {x,y,z}' }) fromObject = { x: 4, y: 5, z: 6 };
-  @property({ type: 'vec2', default: [7, 8], description: 'vec2 from array' }) two = [7, 8];
-  @property({ type: 'color', default: '#ff8800', description: 'color from #hex' }) tint = 0xff8800;
+  @property({ type: ValueType.Vec3, default: new Vector3(1, 2, 3), description: 'vec3 from Vector3' }) fromVector = [1, 2, 3];
+  @property({ type: ValueType.Vec3, default: { x: 4, y: 5, z: 6 }, description: 'vec3 from {x,y,z}' }) fromObject = { x: 4, y: 5, z: 6 };
+  @property({ type: ValueType.Vec2, default: [7, 8], description: 'vec2 from array' }) two = [7, 8];
+  @property({ type: ValueType.Color, default: '#ff8800', description: 'color from #hex' }) tint = 0xff8800;
 }
 
 describe('@property math defaults normalize, and coerce to Three types at runtime', () => {

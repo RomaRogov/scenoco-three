@@ -1,6 +1,7 @@
-import { Object3D } from 'three';
+import { BoxGeometry, Mesh, Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Component, Engine, System, system } from '@scenoco-three/core';
+import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
 
 describe('engine: deterministic RNG', () => {
   it('same seed yields the same stream; different seeds diverge', () => {
@@ -99,6 +100,23 @@ describe('engine: subsystems', () => {
     }
   }
 
+  it('steps systems before component update, so gameplay reads this frame\'s system output', () => {
+    const engine = new Engine();
+    let stepped = 0;
+    class Sys extends System {
+      override step(): void { stepped++; }
+    }
+    class Reader extends Component {
+      seen = -1;
+      override update(): void { this.seen = stepped; }
+    }
+    engine.addSystem(new Sys());
+    const reader = engine.addComponent(new Object3D(), Reader);
+    engine.tick(1 / 60);
+    expect(reader.seen).toBe(1); // the system had already stepped when update ran
+    engine.dispose();
+  });
+
   it('injects engine + onAttach, steps in both phases, and is retrievable by type', () => {
     const engine = new Engine({ fixedTimeStep: 0.02 });
     const sys = engine.addSystem(new FakePhysics());
@@ -111,6 +129,49 @@ describe('engine: subsystems', () => {
     engine.dispose();
     expect(sys.detached).toBe(true);
     expect(engine.getSystem(FakePhysics)).toBeUndefined();
+  });
+});
+
+describe('engine: deferred scene swap and destruction flush', () => {
+  it('loadScene from inside update defers the swap to end of tick; the old scene finishes the frame', () => {
+    const r = compileSceneXml('<Scene><Mesh id="newRoot"><BoxGeometry /></Mesh></Scene>');
+    if (!r.ok) throw new Error('compile failed');
+    const bundle = bundleScene(r.scene);
+    const engine = new Engine();
+    class Swapper extends Component {
+      override update(): void { this.engine.loadScene(bundle); }
+    }
+    class After extends Component {
+      sawNewSceneMidTick = false;
+      updates = 0;
+      override update(): void {
+        this.updates++;
+        this.sawNewSceneMidTick = this.engine.findObject('newRoot') !== undefined;
+      }
+    }
+    // Insertion order: Swapper requests the swap before After runs.
+    engine.addComponent(new Object3D(), Swapper);
+    const after = engine.addComponent(new Object3D(), After);
+    engine.tick(1 / 60);
+    expect(after.updates).toBe(1); // the rest of the tick still ran on the old scene
+    expect(after.sawNewSceneMidTick).toBe(false); // swap not applied mid-tick…
+    expect(engine.findObject('newRoot')).toBeDefined(); // …but live once the tick ends
+    engine.dispose();
+  });
+
+  it('destroying a parent and its child in the same tick disposes the child geometry exactly once', () => {
+    const engine = new Engine();
+    const parent = new Mesh(new BoxGeometry());
+    const child = new Mesh(new BoxGeometry());
+    parent.add(child);
+    engine.scene.add(parent);
+    let disposals = 0;
+    child.geometry.addEventListener('dispose', () => disposals++);
+    engine.destroy(parent);
+    engine.destroy(child);
+    engine.tick(1 / 60);
+    expect(disposals).toBe(1);
+    engine.dispose();
   });
 });
 

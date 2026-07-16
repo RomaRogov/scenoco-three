@@ -9,6 +9,8 @@ import { SceneDocument } from './document.js';
 import { Gizmo, type GizmoMode } from './gizmo.js';
 import { buildToolbar, type Toolbar } from './toolbar.js';
 import { showFilePicker } from './filePicker.js';
+import { isEditorOnly } from './meta.js';
+import type { AgentEdit } from '../src/protocol.js';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 // Right mouse drag is the fly-camera look control — suppress the native
@@ -91,7 +93,7 @@ const toolbarHandlers = {
     panels?.refresh();
     toolbar?.refresh();
   },
-  save: () => void doSave(),
+  save: () => void doSave().catch(() => undefined), // failures surface in the save banner
   state: () => ({
     mode: session.mode,
     playing: session.playing,
@@ -109,19 +111,60 @@ function setGizmoMode(mode: GizmoMode): void {
   toolbar?.refresh();
 }
 
-async function doSave(): Promise<void> {
-  if (!doc || saving || !doc.isDirty) return;
+async function doSave(): Promise<{ changed: number; unresolved: number }> {
+  if (!doc || saving || !doc.isDirty) return { changed: 0, unresolved: 0 };
   saving = true;
   toolbar?.refresh();
   try {
-    await session.save(doc.netEdits());
-    doc.markSaved();
+    const result = await session.save(doc.netEdits());
+    if (result.unresolved > 0) {
+      // Some edits couldn't be located in the file (it changed on disk, or a
+      // component type is unregistered) — keep the document dirty so nothing is
+      // silently lost, and say so.
+      setSaveError(`${result.unresolved} change(s) could not be written to the file — it may have changed on disk. Reload and re-apply, or fix the file.`);
+    } else {
+      doc.markSaved();
+      setSaveError(undefined);
+    }
+    return result;
   } catch (e) {
     console.error('[editor] save failed:', e);
+    setSaveError(e instanceof Error ? e.message : String(e));
+    throw e;
   } finally {
     saving = false;
     toolbar?.refresh();
   }
+}
+
+// What MCP scene-mutating tools (edit_scene / save_file) run against: the same
+// document funnel and save path as the human UI, so agent edits are undoable,
+// dirty-flagging, and visible in the viewport.
+const editorHost = {
+  edit: (edits: AgentEdit[]) => {
+    if (session.mode !== 'edit' || !doc) throw new Error('scene editing requires edit mode — stop playback first');
+    const result = doc.applyAgentEdits(edits);
+    panels?.refresh();
+    toolbar?.refresh();
+    return result;
+  },
+  save: () => {
+    if (!doc) throw new Error('no file open');
+    return doSave();
+  },
+};
+
+/** Save-failure banner: unlike open/runtime errors this is transient — dismiss or a clean save clears it. */
+let saveErrorBanner: HTMLElement | undefined;
+function setSaveError(message: string | undefined): void {
+  saveErrorBanner?.remove();
+  saveErrorBanner = undefined;
+  if (!message) return;
+  const bar = document.createElement('div');
+  bar.id = 'sc-save-error';
+  bar.append(textSpan(`Save failed: ${message}`), bannerButton('Dismiss', () => setSaveError(undefined)));
+  document.body.append(bar);
+  saveErrorBanner = bar;
 }
 
 function onSelect(node: Object3D | null): void {
@@ -184,12 +227,6 @@ function selectable(object: Object3D): Object3D {
     if (o.name) return o;
   }
   return object;
-}
-
-/** True if `object` (or any ancestor) is editor-internal — excluded from the tree + picking. */
-export function isEditorOnly(object: Object3D): boolean {
-  for (let o: Object3D | null = object; o; o = o.parent) if (o.userData.scenocoEditorOnly) return true;
-  return false;
 }
 
 // ── gizmo mode keys (W/A/S/D/Q/E drive the fly camera; use G/R/Y) ──────────────────
@@ -346,7 +383,7 @@ void (async () => {
     if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', () => location.reload());
   }
   rebind(); // builds the (empty) panels
-  connectEditor(session);
+  connectEditor(session, editorHost);
   const initial = new URLSearchParams(location.search).get('file');
   if (initial) await openFile(initial);
   else void showFilePicker(openFile); // no ?file= → let the user pick from assets/

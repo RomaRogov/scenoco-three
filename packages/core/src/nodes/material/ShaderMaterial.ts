@@ -16,11 +16,11 @@ import {
   type Side,
 } from 'three';
 import { Attachment } from '../base.js';
-import { attachment, property } from '../../core/decorators.js';
-import { enumOf } from '../../core/EnumRegistry.js';
-import type { AttachContext } from '../../core/NodeRegistry.js';
-import type { CompiledScalar } from '../../dsl/types.js';
-import type { CompiledUniform } from '../../dsl/compiled.js';
+import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { enumOf } from '../../registry/EnumRegistry.js';
+import type { AttachContext } from '../../registry/NodeRegistry.js';
+import type { CompiledScalar } from '../../scene/types.js';
+import type { CompiledUniform } from '../../scene/compiled.js';
 import { MATERIAL_TARGETS } from '../targets.js';
 
 /** Which faces render — the value is the native three constant. */
@@ -40,15 +40,15 @@ export const MaterialSide = enumOf('Side', { front: FrontSide, back: BackSide, d
   description: 'Custom GLSL shader material (vertex/fragment files + declared <Uniform>s).',
 })
 export class ShaderMaterialNode extends Attachment<Mesh> {
-  @property({ type: 'string', description: 'Vertex shader — a .vert/.glsl path (inlined at compile)' })
+  @property({ type: ValueType.String, description: 'Vertex shader — a .vert/.glsl path (inlined at compile)' })
   vertex = '';
-  @property({ type: 'string', description: 'Fragment shader — a .frag/.glsl path (inlined at compile)' })
+  @property({ type: ValueType.String, description: 'Fragment shader — a .frag/.glsl path (inlined at compile)' })
   fragment = '';
-  @property({ type: 'bool', default: false, description: 'Use RawShaderMaterial (no three preamble/built-ins)' })
+  @property({ type: ValueType.Bool, default: false, description: 'Use RawShaderMaterial (no three preamble/built-ins)' })
   raw = false;
-  @property({ type: 'bool', default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
-  @property({ type: 'float', default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
-  @property({ type: 'bool', default: false, description: 'Render as wireframe' }) wireframe = false;
+  @property({ type: ValueType.Bool, default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: ValueType.Float, default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: ValueType.Bool, default: false, description: 'Render as wireframe' }) wireframe = false;
   @property({ type: MaterialSide, default: 'front', description: 'Which faces render' })
   side: number = FrontSide;
 

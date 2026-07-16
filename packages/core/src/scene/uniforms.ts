@@ -1,4 +1,4 @@
-import { enumOf } from '../core/EnumRegistry.js';
+import { enumOf } from '../registry/EnumRegistry.js';
 
 /**
  * The uniform types a `<ShaderMaterial>` `<Uniform type="…">` may declare. Each

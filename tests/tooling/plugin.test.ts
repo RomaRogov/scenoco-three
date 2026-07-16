@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Component, Registry, attachmentTags, component, nodeTags, property } from '@scenoco-three/core';
+import { Component, Registry, attachmentTags, component, nodeTags, property, ValueType } from '@scenoco-three/core';
 import {
   builtinNodeModule,
   builtinNodeModules,
@@ -19,7 +19,7 @@ import {
 // hermetically — same shape `scenoco init` writes to assets/components.
 @component({ name: 'Spin', description: 'Spins the host node around its Y axis over time' })
 class Spin extends Component {
-  @property({ type: 'float', default: 1, description: 'Rotation speed in radians per second' }) speed = 1;
+  @property({ type: ValueType.Float, default: 1, description: 'Rotation speed in radians per second' }) speed = 1;
 }
 void Spin;
 
@@ -80,10 +80,10 @@ describe('component last-good fallback', () => {
   it('keeps the working set when a reload is broken, reports it, and recovers on fix', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'scenoco-lastgood-'));
     const file = join(dir, 'Widget.ts');
-    const good = `import { Component, component, property } from '@scenoco-three/core';
+    const good = `import { Component, component, property, ValueType } from '@scenoco-three/core';
 @component({ name: 'Widget', description: 'A test widget' })
 export class Widget extends Component {
-  @property({ type: 'float', default: 1, description: 'A number' }) n = 1;
+  @property({ type: ValueType.Float, default: 1, description: 'A number' }) n = 1;
 }`;
     const write = (contents: string, mtimeSecs: number): void => {
       writeFileSync(file, contents);

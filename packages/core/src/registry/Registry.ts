@@ -1,12 +1,12 @@
-import type { AssetKind } from './AssetCache.js';
-import type { Component } from './Component.js';
+import type { AssetKind } from '../assets/AssetCache.js';
+import type { Component } from '../runtime/Component.js';
 import type { EnumDef } from './EnumRegistry.js';
 
 export type ComponentCtor = new () => Component;
 
 /**
  * Primitive/math property wire types. Each maps to a canonical XML attribute
- * format (defined in dsl/types.ts) and an XSD encoding:
+ * format (defined in scene/types.ts) and an XSD encoding:
  *   float/int/bool/string — native XSD types
  *   vec2/vec3 — space-separated numbers, A-Frame/X3D style: "0 2.5 -5"
  *   euler     — degrees, space-separated: "0 90 0"
@@ -19,17 +19,30 @@ export type ComponentCtor = new () => Component;
  * typed reference); its XML value is a node path resolved to that node's
  * component of the declared type.
  */
-export type PropType =
-  | 'float'
-  | 'int'
-  | 'bool'
-  | 'string'
-  | 'vec2'
-  | 'vec3'
-  | 'euler'
-  | 'color'
-  | 'node'
-  | 'prefab';
+/**
+ * The built-in property value types (Cocos Creator `ValueType` flavor) — the one
+ * spelling you author with: `@property({ type: ValueType.Vec3 })`. Each member's
+ * value **is** the canonical wire kind (`ValueType.Float === 'float'`), so using
+ * the enum and switching on it in the compiler resolve to the exact strings the
+ * codecs / XSD / serializer already key on — the enum de-magic-strings the code
+ * without changing a single serialized byte. Component-class references and enums
+ * (`enumOf`) are authored directly, not through this.
+ */
+export const ValueType = {
+  Float: 'float',
+  Int: 'int',
+  Bool: 'bool',
+  String: 'string',
+  Vec2: 'vec2',
+  Vec3: 'vec3',
+  Euler: 'euler',
+  Color: 'color',
+  Node: 'node',
+  Prefab: 'prefab',
+} as const;
+
+/** The canonical wire kind of a built-in property type — the value side of {@link ValueType}. */
+export type PropType = (typeof ValueType)[keyof typeof ValueType];
 
 /**
  * A property's element type, or a one-element tuple wrapping it to mark an
@@ -113,12 +126,37 @@ export interface RegisteredComponent {
   ctor: ComponentCtor;
 }
 
+/**
+ * A uniform, explanatory error for a duplicate registration of any tag
+ * (component/node/attachment). Registration happens as an **import side effect**
+ * (the `@component`/`@node`/`@attachment` decorator runs when the module loads),
+ * and these registries are process-global — normally filled once, then read by
+ * the compiler and Vite plugin. A collision therefore almost always means one of
+ * two concrete things, and the message spells both out so the fix is obvious.
+ */
+export function duplicateRegistrationError(kind: string, name: string, cause?: string): Error {
+  return new Error(
+    `${kind} "${name}" is already registered.` +
+      (cause ? ` ${cause}` : '') +
+      ` Tags register once, as a decorator import side effect, into a process-global registry, so this` +
+      ` fires when either (a) two different classes claim the name "${name}" — rename one — or (b) the` +
+      ` same module is loaded twice, usually duplicate/mismatched copies of a @scenoco-three package in` +
+      ` the build (check for multiple installed versions) or a stale dist alongside src. Names must be` +
+      ` unique across all components, nodes, and attachments.`,
+  );
+}
+
 class EngineRegistry {
   private readonly components = new Map<string, RegisteredComponent>();
 
   registerComponent(meta: ComponentMeta, ctor: ComponentCtor): void {
-    if (this.components.has(meta.name)) {
-      throw new Error(`Component "${meta.name}" is already registered`);
+    const existing = this.components.get(meta.name);
+    if (existing) {
+      const cause =
+        existing.ctor === ctor
+          ? `The same component class was registered twice (duplicate import or a duplicated package copy).`
+          : `A different class (${existing.ctor.name || '<anonymous>'}) already uses this name.`;
+      throw duplicateRegistrationError('Component', meta.name, cause);
     }
     this.components.set(meta.name, { meta, ctor });
   }

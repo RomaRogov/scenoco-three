@@ -275,6 +275,8 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, 
             if (!file || !Array.isArray(edits)) throw new Error('expected { file, edits }');
             const abs = resolve(cwd, file);
             const { text, changed, unresolved } = patchSceneXml(readFileSync(abs, 'utf8'), edits);
+            if (unresolved.length > 0)
+              console.warn(`[scenoco] save: ${unresolved.length} edit(s) could not be located in ${file}:`, unresolved.map((u) => u.target));
             if (changed > 0) writeFileSync(abs, text);
             watcher.note(abs, text); // our own write — don't report it back as an external change
             res.setHeader('Content-Type', 'application/json');

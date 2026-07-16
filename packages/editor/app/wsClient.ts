@@ -1,12 +1,22 @@
-import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../dist/protocol.js';
+import { WS_PATH, type AgentEdit, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../src/protocol.js';
 import type { EditorSession } from './session.js';
+
+/**
+ * What the host page (main) exposes for scene-mutating commands — the live
+ * document's edit funnel and the save path, both shared with the human UI so an
+ * agent's changes are undoable and visible exactly like inspector edits.
+ */
+export interface EditorHost {
+  edit(edits: AgentEdit[]): { applied: number; failed: { edit: AgentEdit; reason: string }[] };
+  save(): Promise<{ changed: number; unresolved: number }>;
+}
 
 /**
  * Connect the editor page to the dev server's WebSocket bridge and execute the
  * commands the MCP server relays, replying with the result (id-correlated).
  * Auto-reconnects (e.g. across a dev-server restart).
  */
-export function connectEditor(session: EditorSession): void {
+export function connectEditor(session: EditorSession, host: EditorHost): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}${WS_PATH}`;
 
@@ -34,7 +44,7 @@ export function connectEditor(session: EditorSession): void {
       const cmd = msg;
       let response: EditorResponse;
       try {
-        response = { id: cmd.id, ok: true, result: await runCommand(session, cmd) };
+        response = { id: cmd.id, ok: true, result: await runCommand(session, cmd, host) };
       } catch (e) {
         response = { id: cmd.id, ok: false, error: e instanceof Error ? e.message : String(e) };
       }
@@ -69,7 +79,7 @@ function closeEditorTab(): void {
  * Execute one relayed command against the session. Exported so the command
  * dispatch (not just the WS plumbing) can be driven directly in tests.
  */
-export async function runCommand(session: EditorSession, cmd: EditorCommand): Promise<EditorResult> {
+export async function runCommand(session: EditorSession, cmd: EditorCommand, host: EditorHost): Promise<EditorResult> {
   switch (cmd.type) {
     case 'open':
       return { kind: 'json', data: await session.open(cmd.path) };
@@ -88,5 +98,9 @@ export async function runCommand(session: EditorSession, cmd: EditorCommand): Pr
       return { kind: 'json', data: session.telemetry(cmd.targetId) };
     case 'simulate':
       return { kind: 'multi', results: session.simulate(cmd.steps) };
+    case 'edit':
+      return { kind: 'json', data: host.edit(cmd.edits) };
+    case 'save':
+      return { kind: 'json', data: await host.save() };
   }
 }

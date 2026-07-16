@@ -1,6 +1,6 @@
 import { BatchedMesh } from 'three';
 import { Object3DNode } from '../base.js';
-import { node, property } from '../../core/decorators.js';
+import { node, property, ValueType } from '../../registry/decorators.js';
 
 // Geometries are added at runtime (`.addGeometry`/`.addInstance` from a
 // component); the tag pre-allocates the buffers via its max* attributes.
@@ -9,8 +9,8 @@ import { node, property } from '../../core/decorators.js';
   description: 'Many static geometries batched into one draw call; populated by a component',
 })
 export class BatchedMeshNode extends Object3DNode {
-  @property({ type: 'int', default: 256, description: 'Max number of batched instances to pre-allocate' }) maxInstanceCount = 256;
-  @property({ type: 'int', default: 8192, description: 'Max total vertices to pre-allocate' }) maxVertexCount = 8192;
+  @property({ type: ValueType.Int, default: 256, description: 'Max number of batched instances to pre-allocate' }) maxInstanceCount = 256;
+  @property({ type: ValueType.Int, default: 8192, description: 'Max total vertices to pre-allocate' }) maxVertexCount = 8192;
 
   build(): BatchedMesh {
     return new BatchedMesh(this.maxInstanceCount, this.maxVertexCount);

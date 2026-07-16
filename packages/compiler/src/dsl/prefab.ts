@@ -7,6 +7,7 @@ import {
   Registry,
   TRANSFORM_ATTRS,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import type { CompileOptions } from './compile.js';
 import type { SncDiagnostic } from './diagnostics.js';
 import { parseScene, type SncElement } from './SceneParser.js';
@@ -208,7 +209,7 @@ function applyRenames(root: SncElement, rename: Map<string, string>): void {
           if (!meta) continue;
           if (isArrayType(meta.type)) {
             const elem = elementType(meta.type);
-            if (isScalarType(elem) || elem === 'prefab') continue;
+            if (isScalarType(elem) || elem === ValueType.Prefab) continue;
             // Array of refs: rewrite each #id within [#a,#b]
             if (value.startsWith('[') && value.endsWith(']')) {
               const pieces = value.slice(1, -1).split(',');

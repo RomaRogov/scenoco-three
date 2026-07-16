@@ -77,8 +77,12 @@ export class PhysicsSystem extends System<RigidBody> {
   override fixedStep(dt: number): void {
     const world = this.world;
     if (!world) return;
-    // Reconcile bodies ↔ live components: create for new, remove for gone.
-    for (const rb of this.components) if (!this.bodies.has(rb)) this.createBody(world, rb);
+    // Reconcile bodies ↔ live components: create for new (deferred while disabled),
+    // remove for gone, and mirror `enabled` onto Rapier's enabled flag (Unity
+    // `Rigidbody2D.simulated` semantics): a disabled body leaves the simulation —
+    // contacts end, velocities are retained — and rejoins where its node is on
+    // re-enable.
+    for (const rb of this.components) if (rb.enabled && !this.bodies.has(rb)) this.createBody(world, rb);
     for (const [rb, body] of this.bodies) {
       if (!this.components.includes(rb)) {
         world.removeRigidBody(body);
@@ -87,14 +91,36 @@ export class PhysicsSystem extends System<RigidBody> {
         rb.body = undefined;
         for (const h of this.bodyColliders.get(rb) ?? []) this.colliderMeta.delete(h);
         this.bodyColliders.delete(rb);
+        continue;
+      }
+      if (body.isEnabled() !== rb.enabled) {
+        body.setEnabled(rb.enabled);
+        // Re-enable: rejoin at the node's current pose (a script may have moved it
+        // while disabled) and snap interpolation so the render doesn't blend across
+        // the disabled gap.
+        if (rb.enabled) {
+          rb.node.getWorldPosition(this.v);
+          rb.node.getWorldQuaternion(this.q);
+          body.setTranslation({ x: this.v.x, y: this.v.y, z: this.v.z }, true);
+          body.setRotation({ x: this.q.x, y: this.q.y, z: this.q.z, w: this.q.w }, true);
+          const s = this.interp.get(rb);
+          if (s) {
+            s.pPos.copy(this.v);
+            s.cPos.copy(this.v);
+            s.pQuat.copy(this.q);
+            s.cQuat.copy(this.q);
+          }
+        }
       }
     }
     world.timestep = dt;
     world.step(this.events);
     this.drainEvents();
     // World → scene graph. Dynamic bodies record prev/cur poses for the render
-    // interpolation in `step`; fixed/kinematic write straight through.
+    // interpolation in `step`; fixed/kinematic write straight through. A disabled
+    // body's node is script-owned — never overwritten.
     for (const [rb, body] of this.bodies) {
+      if (!rb.enabled) continue;
       const t = body.translation();
       const r = body.rotation();
       const s = this.interp.get(rb);
@@ -128,6 +154,7 @@ export class PhysicsSystem extends System<RigidBody> {
   override step(): void {
     const a = this.engine.interpolationAlpha;
     for (const [rb, s] of this.interp) {
+      if (!rb.enabled) continue; // a disabled body's node is script-owned — don't overwrite it
       rb.node.position.lerpVectors(s.pPos, s.cPos, a);
       rb.node.quaternion.slerpQuaternions(s.pQuat, s.cQuat, a);
     }

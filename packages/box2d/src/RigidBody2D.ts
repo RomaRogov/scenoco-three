@@ -1,5 +1,5 @@
 import type { Body } from 'planck';
-import { Component, component, enumOf, property } from '@scenoco-three/core';
+import { Component, component, enumOf, property, ValueType } from '@scenoco-three/core';
 
 /** How a 2D body moves — the value is the planck body-type string. */
 export const RigidBody2DKind = enumOf('RigidBody2DKind', { dynamic: 'dynamic', static: 'static', kinematic: 'kinematic' });
@@ -20,16 +20,16 @@ export class RigidBody2D extends Component {
   @property({ type: RigidBody2DKind, default: 'dynamic', description: 'How the body moves' })
   kind = 'dynamic';
 
-  @property({ type: 'float', default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
-  @property({ type: 'float', default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
+  @property({ type: ValueType.Float, default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
+  @property({ type: ValueType.Float, default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
 
-  @property({ type: 'bool', default: false, description: 'Lock rotation (common for characters)' })
+  @property({ type: ValueType.Bool, default: false, description: 'Lock rotation (common for characters)' })
   fixedRotation = false;
 
-  @property({ type: 'float', default: 1, description: 'Multiplier on world gravity for this body' })
+  @property({ type: ValueType.Float, default: 1, description: 'Multiplier on world gravity for this body' })
   gravityScale = 1;
 
-  @property({ type: 'bool', default: false, description: 'Continuous collision for fast bodies (e.g. a ball)' })
+  @property({ type: ValueType.Bool, default: false, description: 'Continuous collision for fast bodies (e.g. a ball)' })
   bullet = false;
 
   /** The live planck body, set by the Physics2DSystem after it builds it. */

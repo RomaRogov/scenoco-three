@@ -17,6 +17,7 @@ import {
   type CompiledValue,
   type NodeAttr,
 } from '@scenoco-three/core/internal';
+import { ValueType } from '@scenoco-three/core/internal';
 import { codecs, scalarCodec, serializeScalarArray, type ScalarType } from './types.js';
 
 /**
@@ -148,7 +149,7 @@ function componentTag(component: CompiledComponent, index: number, ids: SceneIds
       const elem = elementType(propMeta.type);
       if (isScalarType(elem) || isEnumType(elem)) {
         parts.push(attr(name, serializeScalarArray(value as CompiledScalar[], elem)));
-      } else if (elem !== 'prefab') {
+      } else if (elem !== ValueType.Prefab) {
         // Array of node/component refs → "[#a,#b]" (prefab arrays lose their file paths).
         parts.push(attr(name, `[${(value as CompiledRef[]).map((r) => refId(r, ids)).join(',')}]`));
       }

@@ -1,5 +1,5 @@
-import { Registry, type PropertyMeta } from '../core/Registry.js';
-import { getAttachmentDef, getNodeDef, type NodeAttr } from './nodes.js';
+import { Registry, type PropertyMeta } from '../registry/Registry.js';
+import { getAttachmentDef, getNodeDef, type NodeAttr } from '../registry/NodeRegistry.js';
 
 /**
  * Schema helpers shared by the bundle encoder and decoder, so both agree on the

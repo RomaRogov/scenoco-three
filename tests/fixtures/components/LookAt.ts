@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import type { Object3D } from 'three';
-import { Component, component, property } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
 
 /**
  * Orients the host so its -Z axis points at a target Object3D — a typed
@@ -8,7 +8,7 @@ import { Component, component, property } from '@scenoco-three/core';
  */
 @component({ name: 'LookAt', description: 'Rotates the host to face a target Object3D each frame' })
 export class LookAt extends Component {
-  @property({ type: 'node', description: 'Node to face' })
+  @property({ type: ValueType.Node, description: 'Node to face' })
   target: Object3D | null = null;
 
   private readonly worldPos = new Vector3();

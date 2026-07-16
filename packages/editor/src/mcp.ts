@@ -3,7 +3,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { commandId, type EditorCommand, type EditorResult, type SimStep } from './protocol.js';
+import { commandId, type AgentEdit, type EditorCommand, type EditorResult, type SimStep } from './protocol.js';
 import type { EditorBridge } from './server.js';
 
 export interface McpHandle {
@@ -60,6 +60,41 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     'get_telemetry',
     { description: 'Current property values (JSON) for the node/components at a scene id.', inputSchema: { id: z.string() } },
     ({ id }) => relay({ id: commandId(), type: 'telemetry', targetId: id }),
+  );
+
+  // One scene edit — addressed by scene id, applied through the editor's document
+  // (undoable, live in the viewport). See the protocol's AgentEdit.
+  const agentEdit = z.object({
+    node: z.string().describe('Scene id of the target node (the ids get_telemetry uses)'),
+    component: z.string().optional().describe('Component tag on that node, e.g. "Ball"'),
+    attachment: z.string().optional().describe('Attachment tag on that node, e.g. "MeshStandardMaterial"'),
+    ordinal: z.number().int().optional().describe('Among same-tag components/attachments on the node; default 0'),
+    attr: z.string().describe('The property/attr to set'),
+    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.number())]),
+  });
+  server.registerTool(
+    'edit_scene',
+    {
+      description:
+        'Edit the open scene (edit mode only — stop playback first). Changes are undoable and live in the ' +
+        'viewport; call save_file to persist. Each edit: {node} alone sets transform attrs (position/rotation/' +
+        'scale as [x,y,z], rotation in radians, visible as bool, or a prefab instance\'s src); {node, component} ' +
+        'sets a component @property; {node, attachment} sets a geometry/material attr. Values: vecs as [x,y,z] ' +
+        'or "x y z", colors as hex int or "#rrggbb", enums by member name. ' +
+        'Example: {edits: [{node: "ball", component: "Ball", attr: "launchSpeed", value: 20}]}. ' +
+        'Returns {applied, failed: [{edit, reason}]} — a failed edit does not abort the rest.',
+      inputSchema: { edits: z.array(agentEdit) },
+    },
+    ({ edits }) => relay({ id: commandId(), type: 'edit', edits: edits as AgentEdit[] }),
+  );
+  server.registerTool(
+    'save_file',
+    {
+      description:
+        'Write the editor\'s unsaved changes back to the open scene/prefab file (surgical, minimal diff). ' +
+        'Returns {changed, unresolved}; unresolved > 0 means some edits could not be located in the file (it changed on disk).',
+    },
+    () => relay({ id: commandId(), type: 'save' }),
   );
 
   // A simulation command — one entry in the `simulate` batch. Loose (all fields
