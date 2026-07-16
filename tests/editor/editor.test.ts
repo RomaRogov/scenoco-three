@@ -13,11 +13,11 @@ import type { EditorSession } from '../../packages/editor/app/session.js';
 
 describe('editor — CLI args + protocol', () => {
   it('parses positionals, value flags, and boolean flags; commandId is a short unique token', () => {
-    const { positionals, options } = parseArgs(['scene.xml', '--components', 'a,b', '--no-open', '--port', '3000']);
+    const { positionals, options } = parseArgs(['scene.xml', '--components', 'a,b', '--verbose', '--port', '3000']);
     expect(positionals).toEqual(['scene.xml']);
     expect(options.components).toBe('a,b');
     expect(options.port).toBe('3000');
-    expect('no-open' in options).toBe(true);
+    expect('verbose' in options).toBe(true);
     expect(parseList('a, b ,c')).toEqual(['a', 'b', 'c']);
     expect(commandId()).not.toBe(commandId());
   });

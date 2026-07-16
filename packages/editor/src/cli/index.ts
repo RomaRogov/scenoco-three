@@ -8,7 +8,7 @@ import { startMcpServer } from '../mcp.js';
 const USAGE = `scenoco-editor — open a scene/prefab and drive it from an MCP client
 
 Usage:
-  scenoco-editor [scene|prefab] [--port <n>] [--no-open]
+  scenoco-editor [scene|prefab] [--port <n>]
 
 With no file, the editor opens a picker listing the scenes/prefabs in the
 project's assets/ folder. Components are scanned from that assets/ folder and tag
@@ -18,7 +18,6 @@ Options:
   --port <n>   Fixed MCP server port — set this so the endpoint an MCP client
                connects to is stable across restarts (the editor's own HTTP
                server always takes a free port; it doesn't need to be fixed)
-  --no-open    Don't auto-open the editor in a browser
 
 Starts a local editor and an MCP server. The editor opens in your default
 browser; when you stop the server (Ctrl+C) it tells the page to close its own
@@ -63,7 +62,7 @@ async function main(argv: string[]): Promise<number> {
   console.log(`  mcp:     ${mcp.url}   ← add this to your MCP client (transport: http)`);
   console.log(`\n  press Ctrl+C to stop\n`);
 
-  if (!('no-open' in options)) openBrowser(appUrl);
+  openBrowser(appUrl);
 
   let closing = false;
   const shutdown = async (): Promise<void> => {
