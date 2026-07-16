@@ -3,6 +3,7 @@ import {
   Registry,
   ValueType,
   isArrayType,
+  isScalarType,
   elementType,
   type CompiledDefault,
   type PropertyInput,
@@ -63,18 +64,16 @@ export interface ComponentOptions {
  * Declares an XML-exposed property on a field (Cocos `@property` style). Used by
  * components, nodes, and attachments. A `description` is **mandatory** (it is the
  * primary signal for review/agents/RAG), so the object form is always required —
- * the type goes in `type`:
- *   @property({ type: ValueType.Float, default: 1, description: 'Radians per second' })
+ * the type goes in `type`. The default is **not** authored here: it is the
+ * field's own initializer, read automatically at registration time:
+ *   @property({ type: ValueType.Float, description: 'Radians per second' }) speed = 1;
  *   @property({ type: SomeComponent, description: 'The target to follow' })   — typed reference
  *   @property({ type: [ValueType.Float], description: 'Per-lane weights' })            — array property
  *   @property({ type: [SomeComponent], description: 'Bricks to track' })       — array of references
  */
 export function property(meta: PropertyInput) {
-  const input: PropertyInput = meta;
-  assertDescription('property', typeof input.type === 'string' ? input.type : 'reference', input.description);
-  normalizeDefault(input);
-  // `default` is now in compiled form (Vec3Like / color-string normalized away).
-  const normalized = input as PropertyMeta;
+  const normalized = meta as PropertyMeta;
+  assertDescription('property', typeof normalized.type === 'string' ? normalized.type : 'reference', normalized.description);
   return function (proto: object, key: string | symbol): void {
     if (typeof proto === 'function') {
       throw new Error(`@property cannot decorate static field "${String(key)}"`);
@@ -93,39 +92,38 @@ export function property(meta: PropertyInput) {
 }
 
 /**
- * Normalize a `@property` default into its compiled form (in place), so authors
- * can write whichever shape is natural and it just works:
+ * Compile a live field value into a `PropertyMeta.default`, accepting whatever
+ * natural shape the field holds:
  *   • vec2/vec3/euler — an array `[x,y,z]`, a `THREE.Vector3`/`Vector2`/`Euler`, or `{x,y,z}`
  *   • color — a number `0xRRGGBB`, a `"#rrggbb"` string, or a `THREE.Color`
- *   • enum — a member name string
- * Idempotent; array-typed props (`['float']`) are left untouched.
+ *   • enum — the field already holds the native compiled value (e.g. `side = FrontSide`)
+ *   • array-typed props (`['float']`) — echoed as-is, unnormalized
+ * `node`/`prefab`/component-typed properties never get a compiled default — the
+ * field there is JS-side unset/reference state, not a wire value.
  */
-function normalizeDefault(meta: PropertyInput): void {
-  const elem = elementType(meta.type);
-  const d = meta.default;
-  if (d === undefined) return;
-  if (isEnumType(elem)) {
-    if (typeof d === 'string' && elem.byName.has(d)) meta.default = elem.byName.get(d) as CompiledDefault;
-    return;
-  }
-  if (isArrayType(meta.type)) return;
-  if (elem === ValueType.Vec2) meta.default = toVecArray(d, 2);
-  else if (elem === ValueType.Vec3 || elem === ValueType.Euler) meta.default = toVecArray(d, 3);
-  else if (elem === ValueType.Color) meta.default = toColorNumber(d);
+function deriveDefault(type: PropertyType, value: unknown): CompiledDefault | undefined {
+  if (value === undefined) return undefined;
+  const elem = elementType(type);
+  if (!isEnumType(elem) && !isScalarType(elem)) return undefined;
+  if (isArrayType(type) || isEnumType(elem)) return value as CompiledDefault;
+  if (elem === ValueType.Vec2) return toVecArray(value, 2);
+  if (elem === ValueType.Vec3 || elem === ValueType.Euler) return toVecArray(value, 3);
+  if (elem === ValueType.Color) return toColorNumber(value);
+  return value as CompiledDefault;
 }
 
-/** A vec default in any accepted form → a number array of length `n`. */
-function toVecArray(d: PropertyInput['default'], n: number): CompiledDefault {
+/** A vec value in any accepted form → a number array of length `n`. */
+function toVecArray(d: unknown, n: number): CompiledDefault {
   if (Array.isArray(d)) return d;
   if (d !== null && typeof d === 'object') {
     const v = d as { x?: number; y?: number; z?: number };
     return n === 2 ? [v.x ?? 0, v.y ?? 0] : [v.x ?? 0, v.y ?? 0, v.z ?? 0];
   }
-  return d as CompiledDefault; // unexpected scalar — leave as authored
+  return d as CompiledDefault; // unexpected scalar — leave as-is
 }
 
-/** A color default (number | "#rrggbb" | THREE.Color) → a `0xRRGGBB` number. */
-function toColorNumber(d: PropertyInput['default']): CompiledDefault {
+/** A color value (number | "#rrggbb" | THREE.Color) → a `0xRRGGBB` number. */
+function toColorNumber(d: unknown): CompiledDefault {
   if (typeof d === 'number') return d;
   if (typeof d === 'string') {
     const n = parseInt(d.replace(/^#/, ''), 16);
@@ -135,11 +133,31 @@ function toColorNumber(d: PropertyInput['default']): CompiledDefault {
   return typeof c.getHex === 'function' ? c.getHex() : (d as CompiledDefault);
 }
 
-/** Collect every @property (own + inherited) declared on a class, in order. */
+/**
+ * Collect every @property (own + inherited) declared on a class, in order, with
+ * each entry's `default` derived from a fresh, zero-arg probe instance of
+ * `target` — the field's own initializer is the single source of truth. Safe:
+ * every @property-bearing class declares no constructor of its own, so
+ * `new target()` here — run once, at registration time, never per scene-instance
+ * — has no scene/engine/timer side effects (the same pattern `node()` already
+ * uses below to probe its produced Three.js class).
+ *
+ * Builds fresh `PropertyMeta` objects rather than mutating `bag[key]` in place:
+ * an inherited, non-redeclared property's `PropertyMeta` is shared by reference
+ * across a subclass hierarchy (`property()` prototype-chains a subclass's bag
+ * onto its parent's), so mutating it here would let one subclass's derived
+ * default leak into a sibling's registry metadata.
+ */
 function collectProperties(target: CtorWithProps): Map<string, PropertyMeta> {
   const bag = target[PROPS];
   const properties = new Map<string, PropertyMeta>();
-  for (const key in bag) properties.set(key, bag[key]!);
+  if (!bag) return properties;
+  const probe = new (target as unknown as new () => Record<string, unknown>)();
+  for (const key in bag) {
+    const meta = bag[key]!;
+    const compiled = deriveDefault(meta.type, probe[key]);
+    properties.set(key, compiled === undefined ? { ...meta } : { ...meta, default: compiled });
+  }
   return properties;
 }
 
@@ -301,7 +319,6 @@ function readAttrs(target: CtorWithProps, tag: string): { attrs: Record<string, 
         `<${tag}> @property "${name}" must use a scalar type (float/int/bool/string/vec2/vec3/euler/color), an enum, or an array of one ([float] …); references are for components only`,
       );
     }
-    normalizeDefault(meta);
     // Preserve array-ness: nodes/attachments may carry scalar/enum-array attrs.
     const attrType = (isArrayType(meta.type) ? [elem] : elem) as NodeAttr['type'];
     attrs[name] = {

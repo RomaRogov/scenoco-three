@@ -12,16 +12,16 @@ import { Component, property, ValueType } from '@scenoco-three/core';
  * shared fixture material/sensor properties.
  */
 export abstract class Collider2D extends Component {
-  @property({ type: ValueType.Float, default: 1, description: 'Density (kg/m²); 0 for static' })
+  @property({ type: ValueType.Float, description: 'Density (kg/m²); 0 for static' })
   density = 1;
 
-  @property({ type: ValueType.Float, default: 0.3, description: 'Friction 0..1' })
+  @property({ type: ValueType.Float, description: 'Friction 0..1' })
   friction = 0.3;
 
-  @property({ type: ValueType.Float, default: 0, description: 'Restitution (bounciness) 0..1' })
+  @property({ type: ValueType.Float, description: 'Restitution (bounciness) 0..1' })
   restitution = 0;
 
-  @property({ type: ValueType.Bool, default: false, description: 'A trigger: reports overlaps, no collision response' })
+  @property({ type: ValueType.Bool, description: 'A trigger: reports overlaps, no collision response' })
   isSensor = false;
 
   /** The planck shape for this collider. */

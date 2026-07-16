@@ -6,7 +6,7 @@
  * member) while XML/XSD/the editor work in readable member **names**.
  *
  *   const Side = enumOf('Side', { Front: THREE.FrontSide, Back: THREE.BackSide, Double: THREE.DoubleSide });
- *   @property({ type: Side, default: 'Front', description: 'Which faces render' }) side = THREE.FrontSide;
+ *   @property({ type: Side, description: 'Which faces render' }) side = THREE.FrontSide;
  *
  *   enum Kind { dynamic = 'dynamic', fixed = 'fixed' }   // a native TS enum works too
  *   const RigidBodyKind = enumOf('RigidBodyKind', Kind);

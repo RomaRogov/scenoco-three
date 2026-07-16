@@ -11,7 +11,7 @@ const THICKNESS = 0.001;
  */
 @component({ name: 'PlaneCollider', description: 'A flat XZ ground collision shape (thin cuboid; detection-only)' })
 export class PlaneCollider extends Collider {
-  @property({ type: ValueType.Vec2, default: [5, 5], description: 'Half-extents in X and Z' })
+  @property({ type: ValueType.Vec2, description: 'Half-extents in X and Z' })
   halfExtents = new Vector2(5, 5);
 
   private readonly _center = new Vector3();

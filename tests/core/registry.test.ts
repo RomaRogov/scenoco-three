@@ -8,7 +8,7 @@ import { Rotator } from '../fixtures/components/Rotator.js';
 describe('@component / @property metadata', () => {
   @component({ name: 'TestSpinner', description: 'spins things in tests' })
   class TestSpinner extends Component {
-    @property({ type: ValueType.Float, default: 2, description: 'spin rate' }) rate = 2;
+    @property({ type: ValueType.Float, description: 'spin rate' }) rate = 2;
     @property({ type: ValueType.String, required: true, description: 'channel name' }) channel = '';
   }
 
@@ -16,7 +16,12 @@ describe('@component / @property metadata', () => {
     const entry = Registry.getComponent('TestSpinner')!;
     expect(entry.ctor).toBe(TestSpinner);
     expect(entry.meta.properties.get('rate')).toEqual({ type: ValueType.Float, default: 2, description: 'spin rate' });
-    expect(entry.meta.properties.get('channel')).toEqual({ type: ValueType.String, required: true, description: 'channel name' });
+    expect(entry.meta.properties.get('channel')).toEqual({
+      type: ValueType.String,
+      default: '',
+      required: true,
+      description: 'channel name',
+    });
 
     @component({ name: 'TestFollower', description: 'follows a spinner' })
     class TestFollower extends Component {
@@ -48,24 +53,26 @@ describe('built-in component behaviour', () => {
   });
 });
 
-// Declares math defaults in every natural form; unset at runtime the fields must
-// still become Three math types matching the compiled shape.
-@component({ name: 'MathProbe', description: 'math default + coercion probe' })
+// Field initializers in every natural shape a math/color property accepts; the
+// compiled default is derived from each one, and at runtime the field must
+// still become a Three math type matching that compiled shape.
+@component({ name: 'MathProbe', description: 'math default derivation + coercion probe' })
 class MathProbe extends Component {
-  // Defaults declared as Vector3 / {x,y,z} / #hex (all normalize to the compiled
-  // shape); the "wrong-shaped" field initializers must coerce to Three types.
-  @property({ type: ValueType.Vec3, default: new Vector3(1, 2, 3), description: 'vec3 from Vector3' }) fromVector = [1, 2, 3];
-  @property({ type: ValueType.Vec3, default: { x: 4, y: 5, z: 6 }, description: 'vec3 from {x,y,z}' }) fromObject = { x: 4, y: 5, z: 6 };
-  @property({ type: ValueType.Vec2, default: [7, 8], description: 'vec2 from array' }) two = [7, 8];
-  @property({ type: ValueType.Color, default: '#ff8800', description: 'color from #hex' }) tint = 0xff8800;
+  @property({ type: ValueType.Vec3, description: 'vec3 from a real Vector3' }) fromVector = new Vector3(1, 2, 3);
+  @property({ type: ValueType.Vec3, description: 'vec3 from {x,y,z}' }) fromObject = { x: 4, y: 5, z: 6 };
+  @property({ type: ValueType.Vec2, description: 'vec2 from array' }) two = [7, 8];
+  @property({ type: ValueType.Color, description: 'color from a number' }) tint = 0xff8800;
+  @property({ type: ValueType.Color, description: 'color from a #hex string' }) tintHex = '#ff8800';
 }
 
-describe('@property math defaults normalize, and coerce to Three types at runtime', () => {
-  it('accepts Vector3 / {x,y,z} / array / #hex as defaults and delivers Three types to the live component', () => {
+describe('@property defaults derive from field initializers in every natural shape', () => {
+  it('normalizes Vector3 / {x,y,z} / array / number / #hex initializers and delivers Three types to the live component', () => {
     const props = Registry.getComponent('MathProbe')!.meta.properties;
     expect(props.get('fromVector')!.default).toEqual([1, 2, 3]);
     expect(props.get('fromObject')!.default).toEqual([4, 5, 6]);
+    expect(props.get('two')!.default).toEqual([7, 8]);
     expect(props.get('tint')!.default).toBe(0xff8800);
+    expect(props.get('tintHex')!.default).toBe(0xff8800);
 
     const r = compileSceneXml('<Scene><Group id="g"><Components><MathProbe /></Components></Group></Scene>');
     if (!r.ok) throw new Error('compile failed');
@@ -76,6 +83,7 @@ describe('@property math defaults normalize, and coerce to Three types at runtim
     expect((c.fromObject as Vector3).toArray()).toEqual([4, 5, 6]);
     expect((c.two as Vector2).toArray()).toEqual([7, 8]);
     expect((c.tint as Color).getHex()).toBe(0xff8800);
+    expect((c.tintHex as Color).getHex()).toBe(0xff8800);
     engine.dispose();
   });
 });

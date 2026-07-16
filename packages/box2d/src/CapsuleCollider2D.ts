@@ -13,10 +13,10 @@ export const CapsuleDirection2D = enumOf('CapsuleDirection2D', { vertical: 'vert
  */
 @component({ name: 'CapsuleCollider2D', description: 'A 2D capsule collision shape (planck; convex-polygon stadium).' })
 export class CapsuleCollider2D extends Collider2D {
-  @property({ type: ValueType.Vec2, default: [0.5, 1], description: 'Size (width, height)' })
+  @property({ type: ValueType.Vec2, description: 'Size (width, height)' })
   size = [0.5, 1];
 
-  @property({ type: CapsuleDirection2D, default: 'vertical', description: 'Long axis of the capsule' })
+  @property({ type: CapsuleDirection2D, description: 'Long axis of the capsule' })
   direction = 'vertical';
 
   toShape(): Shape {

@@ -8,7 +8,7 @@ import { Attachment, attachment, property, ValueType } from '@scenoco-three/core
  */
 @attachment({ name: 'Physics', target: 'Scene', group: 'physics', description: 'Scene physics config (gravity)' })
 export class Physics extends Attachment {
-  @property({ type: ValueType.Vec3, default: [0, -9.81, 0], description: 'Gravity vector' })
+  @property({ type: ValueType.Vec3, description: 'Gravity vector' })
   gravity = [0, -9.81, 0];
 
   // Config only: the value is read by PhysicsSystem.onAttach; nothing to apply.

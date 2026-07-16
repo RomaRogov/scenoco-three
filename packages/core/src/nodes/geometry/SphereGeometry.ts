@@ -12,9 +12,9 @@ import { GEOMETRY_TARGETS } from '../targets.js';
   required: true,
 })
 export class SphereGeometryNode extends Attachment<Mesh> {
-  @property({ type: ValueType.Float, default: 1, description: 'Sphere radius' }) radius = 1;
-  @property({ type: ValueType.Int, default: 32, description: 'Horizontal (longitude) segments' }) widthSegments = 32;
-  @property({ type: ValueType.Int, default: 16, description: 'Vertical (latitude) segments' }) heightSegments = 16;
+  @property({ type: ValueType.Float, description: 'Sphere radius' }) radius = 1;
+  @property({ type: ValueType.Int, description: 'Horizontal (longitude) segments' }) widthSegments = 32;
+  @property({ type: ValueType.Int, description: 'Vertical (latitude) segments' }) heightSegments = 16;
 
   private cached?: SphereGeometry;
   attach(ctx: AttachContext<Mesh>): void {

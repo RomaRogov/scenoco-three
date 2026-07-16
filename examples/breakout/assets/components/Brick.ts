@@ -11,7 +11,7 @@ import { Component, component, property, ValueType } from '@scenoco-three/core';
  */
 @component({ name: 'Brick', description: 'A Breakout brick: its score value' })
 export class Brick extends Component {
-  @property({ type: ValueType.Int, default: 10, description: 'Score awarded when this brick is destroyed' })
+  @property({ type: ValueType.Int, description: 'Score awarded when this brick is destroyed' })
   points = 10;
 
   /** Set true once the ball has hit it (the Ball then removes the node). */

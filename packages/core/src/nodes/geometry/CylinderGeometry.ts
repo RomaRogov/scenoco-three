@@ -12,10 +12,10 @@ import { GEOMETRY_TARGETS } from '../targets.js';
   required: true,
 })
 export class CylinderGeometryNode extends Attachment<Mesh> {
-  @property({ type: ValueType.Float, default: 1, description: 'Radius of the top cap' }) radiusTop = 1;
-  @property({ type: ValueType.Float, default: 1, description: 'Radius of the bottom cap' }) radiusBottom = 1;
-  @property({ type: ValueType.Float, default: 1, description: 'Height along Y' }) height = 1;
-  @property({ type: ValueType.Int, default: 32, description: 'Segments around the circumference' }) radialSegments = 32;
+  @property({ type: ValueType.Float, description: 'Radius of the top cap' }) radiusTop = 1;
+  @property({ type: ValueType.Float, description: 'Radius of the bottom cap' }) radiusBottom = 1;
+  @property({ type: ValueType.Float, description: 'Height along Y' }) height = 1;
+  @property({ type: ValueType.Int, description: 'Segments around the circumference' }) radialSegments = 32;
 
   private cached?: CylinderGeometry;
   attach(ctx: AttachContext<Mesh>): void {

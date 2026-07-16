@@ -5,10 +5,10 @@ import { Collider2D } from './Collider2D.js';
 /** A 2D edge (one-sided line segment) collision shape (planck) — handy for static ground. */
 @component({ name: 'EdgeCollider2D', description: 'A 2D edge (line segment) collision shape (planck).' })
 export class EdgeCollider2D extends Collider2D {
-  @property({ type: ValueType.Vec2, default: [-0.5, 0], description: 'Segment start (x, y)' })
+  @property({ type: ValueType.Vec2, description: 'Segment start (x, y)' })
   from = [-0.5, 0];
 
-  @property({ type: ValueType.Vec2, default: [0.5, 0], description: 'Segment end (x, y)' })
+  @property({ type: ValueType.Vec2, description: 'Segment end (x, y)' })
   to = [0.5, 0];
 
   toShape(): Shape {

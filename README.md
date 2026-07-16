@@ -40,7 +40,7 @@ import { Component, component, property } from '@scenoco-three/core';
 
 @component({ name: 'Rotator', description: 'Rotates the host node around its Y axis' })
 export class Rotator extends Component {
-  @property({ type: 'float', default: 1, description: 'Radians per second' })
+  @property({ type: 'float', description: 'Radians per second' })
   speed = 1;
 
   override update(dt: number): void {

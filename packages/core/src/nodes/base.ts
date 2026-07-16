@@ -12,7 +12,7 @@ import type { AttachContext } from '../registry/NodeRegistry.js';
  *
  *   @attachment({ name: 'BoxGeometry', description: 'Box geometry', target: Mesh, group: 'geometry', required: true })
  *   class BoxGeometry extends Attachment<Mesh> {
- *     @property({ type: ValueType.Float, default: 1, description: 'Size along X' }) width = 1;
+ *     @property({ type: ValueType.Float, description: 'Size along X' }) width = 1;
  *     attach(ctx) { ctx.node.geometry = new BoxGeometry(this.width); }
  *   }
  *

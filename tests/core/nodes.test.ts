@@ -44,7 +44,7 @@ describe('tag registry — custom node/attachment', () => {
   }
   @attachment({ name: 'Knot', description: 'torus-knot shape', target: 'Widget', group: 'shape', required: true })
   class KnotAttachment extends Attachment {
-    @property({ type: ValueType.Float, default: 1, description: 'knot radius' }) radius = 1;
+    @property({ type: ValueType.Float, description: 'knot radius' }) radius = 1;
     attach(ctx: AttachContext): void { ctx.node.add(new Mesh(new TorusKnotGeometry(this.radius))); }
   }
   void WidgetNode;

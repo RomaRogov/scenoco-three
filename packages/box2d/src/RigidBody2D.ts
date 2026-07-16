@@ -17,19 +17,19 @@ export const RigidBody2DKind = enumOf('RigidBody2DKind', { dynamic: 'dynamic', s
  */
 @component({ name: 'RigidBody2D', description: 'A 2D physics body (planck/Box2D); pair with <Collider2D>. Needs a <Physics2D> scene.' })
 export class RigidBody2D extends Component {
-  @property({ type: RigidBody2DKind, default: 'dynamic', description: 'How the body moves' })
+  @property({ type: RigidBody2DKind, description: 'How the body moves' })
   kind = 'dynamic';
 
-  @property({ type: ValueType.Float, default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
-  @property({ type: ValueType.Float, default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
+  @property({ type: ValueType.Float, description: 'Damps linear velocity over time' }) linearDamping = 0;
+  @property({ type: ValueType.Float, description: 'Damps angular velocity over time' }) angularDamping = 0;
 
-  @property({ type: ValueType.Bool, default: false, description: 'Lock rotation (common for characters)' })
+  @property({ type: ValueType.Bool, description: 'Lock rotation (common for characters)' })
   fixedRotation = false;
 
-  @property({ type: ValueType.Float, default: 1, description: 'Multiplier on world gravity for this body' })
+  @property({ type: ValueType.Float, description: 'Multiplier on world gravity for this body' })
   gravityScale = 1;
 
-  @property({ type: ValueType.Bool, default: false, description: 'Continuous collision for fast bodies (e.g. a ball)' })
+  @property({ type: ValueType.Bool, description: 'Continuous collision for fast bodies (e.g. a ball)' })
   bullet = false;
 
   /** The live planck body, set by the Physics2DSystem after it builds it. */

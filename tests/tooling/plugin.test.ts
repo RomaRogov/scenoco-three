@@ -19,7 +19,7 @@ import {
 // hermetically — same shape `scenoco init` writes to assets/components.
 @component({ name: 'Spin', description: 'Spins the host node around its Y axis over time' })
 class Spin extends Component {
-  @property({ type: ValueType.Float, default: 1, description: 'Rotation speed in radians per second' }) speed = 1;
+  @property({ type: ValueType.Float, description: 'Rotation speed in radians per second' }) speed = 1;
 }
 void Spin;
 
@@ -83,7 +83,7 @@ describe('component last-good fallback', () => {
     const good = `import { Component, component, property, ValueType } from '@scenoco-three/core';
 @component({ name: 'Widget', description: 'A test widget' })
 export class Widget extends Component {
-  @property({ type: ValueType.Float, default: 1, description: 'A number' }) n = 1;
+  @property({ type: ValueType.Float, description: 'A number' }) n = 1;
 }`;
     const write = (contents: string, mtimeSecs: number): void => {
       writeFileSync(file, contents);

@@ -27,7 +27,6 @@ export {
   type PropertyType,
   type PropertyMeta,
   type PropertyInput,
-  type Vec3Like,
   type CompiledDefault,
   type ComponentMeta,
   type ComponentCtor,

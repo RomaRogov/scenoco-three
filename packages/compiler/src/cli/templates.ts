@@ -94,7 +94,7 @@ engine.loadScene(scene);
 
 @component({ name: 'Spin', description: 'Spins the host node around its Y axis over time' })
 export class Spin extends Component {
-  @property({ type: ValueType.Float, default: 1, description: 'Rotation speed in radians per second' })
+  @property({ type: ValueType.Float, description: 'Rotation speed in radians per second' })
   speed = 1;
 
   // \`this.node\` IS a THREE.Object3D — use Three.js directly.
@@ -139,7 +139,7 @@ export function componentFile(name: string): string {
 // what people, the editor, and agents/RAG read to understand the API. Fill it in.
 @component({ name: '${name}', description: 'TODO: describe what this component does' })
 export class ${name} extends Component {
-  @property({ type: ValueType.Float, default: 1, description: 'TODO: describe this property' }) speed = 1;
+  @property({ type: ValueType.Float, description: 'TODO: describe this property' }) speed = 1;
 
   override update(dt: number): void {
     // this.node is a THREE.Object3D — use Three.js methods directly.

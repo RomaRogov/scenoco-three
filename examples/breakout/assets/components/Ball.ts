@@ -26,14 +26,14 @@ import { Scoreboard } from './Scoreboard.js';
 })
 export class Ball extends Component {
   /** Candidate speeds — one is chosen at random on every bounce. */
-  @property({ type: [ValueType.Float], default: [8, 12, 16], description: 'Bounce speeds; one is picked at random per bounce' })
+  @property({ type: [ValueType.Float], description: 'Bounce speeds; one is picked at random per bounce' })
   bounceSpeeds: number[] = [8, 12, 16];
 
   /** The brick instances placed in the scene, referenced as an array. */
   @property({ type: [Brick], description: 'Brick instances the ball can break' })
   bricks: Brick[] = [];
 
-  @property({ type: ValueType.Float, default: 12, description: 'Speed the ball is launched at' })
+  @property({ type: ValueType.Float, description: 'Speed the ball is launched at' })
   launchSpeed = 12;
 
   /** The paddle node — the ball resets above it after a miss. */
@@ -48,7 +48,7 @@ export class Ball extends Component {
   @property({ type: Scoreboard, description: 'HUD readout to update on score/lives changes' })
   scoreboard: Scoreboard | null = null;
 
-  @property({ type: ValueType.Int, default: 3, description: 'Starting lives' })
+  @property({ type: ValueType.Int, description: 'Starting lives' })
   lives = 3;
 
   private remaining = 0;

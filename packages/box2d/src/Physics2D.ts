@@ -12,13 +12,13 @@ import { Attachment, attachment, property, ValueType } from '@scenoco-three/core
  */
 @attachment({ name: 'Physics2D', target: 'Scene', group: 'physics2d', description: 'Scene 2D physics config (gravity, solver iterations)' })
 export class Physics2D extends Attachment {
-  @property({ type: ValueType.Vec2, default: [0, -9.81], description: 'Gravity vector (XY plane)' })
+  @property({ type: ValueType.Vec2, description: 'Gravity vector (XY plane)' })
   gravity = [0, -9.81];
 
-  @property({ type: ValueType.Int, default: 8, description: 'Velocity solver iterations per step' })
+  @property({ type: ValueType.Int, description: 'Velocity solver iterations per step' })
   velocityIterations = 8;
 
-  @property({ type: ValueType.Int, default: 3, description: 'Position solver iterations per step' })
+  @property({ type: ValueType.Int, description: 'Position solver iterations per step' })
   positionIterations = 3;
 
   // Config only: the values are read by Physics2DSystem; nothing to apply here.

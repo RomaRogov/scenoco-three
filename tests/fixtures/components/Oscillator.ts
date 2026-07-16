@@ -6,13 +6,13 @@ import { Component, component, property, ValueType } from '@scenoco-three/core';
   description: 'Moves the host node back and forth along an axis as a sine wave',
 })
 export class Oscillator extends Component {
-  @property({ type: ValueType.Vec3, default: '0 1 0', description: 'Movement axis in local space' })
+  @property({ type: ValueType.Vec3, description: 'Movement axis in local space' })
   axis = new Vector3(0, 1, 0);
 
-  @property({ type: ValueType.Float, default: 1, description: 'Peak offset distance from the start position' })
+  @property({ type: ValueType.Float, description: 'Peak offset distance from the start position' })
   amplitude = 1;
 
-  @property({ type: ValueType.Float, default: 1, description: 'Oscillations per second' })
+  @property({ type: ValueType.Float, description: 'Oscillations per second' })
   frequency = 1;
 
   /** Current offset along the axis — read this via a typed reference. */

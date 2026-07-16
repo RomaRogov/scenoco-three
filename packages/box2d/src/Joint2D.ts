@@ -20,18 +20,18 @@ export const Joint2DKind = enumOf('Joint2DKind', ['revolute', 'distance', 'prism
  */
 @component({ name: 'Joint2D', description: 'A 2D physics joint to another body (revolute/distance/prismatic/weld/wheel).' })
 export class Joint2D extends Component {
-  @property({ type: Joint2DKind, default: 'revolute', description: 'Joint type' })
+  @property({ type: Joint2DKind, description: 'Joint type' })
   kind = 'revolute';
   @property({ type: ValueType.Node, description: 'The other body to connect to (a node with a RigidBody2D)' })
   connectedBody: Object3D | null = null;
-  @property({ type: ValueType.Vec2, default: [0, 0], description: 'Local anchor on this body' })
+  @property({ type: ValueType.Vec2, description: 'Local anchor on this body' })
   anchor = new Vector2();
-  @property({ type: ValueType.Vec2, default: [0, 0], description: 'Local anchor on the connected body (distance joint)' })
+  @property({ type: ValueType.Vec2, description: 'Local anchor on the connected body (distance joint)' })
   connectedAnchor = new Vector2();
-  @property({ type: ValueType.Vec2, default: [1, 0], description: 'Slide/wheel axis (prismatic, wheel)' })
+  @property({ type: ValueType.Vec2, description: 'Slide/wheel axis (prismatic, wheel)' })
   axis = new Vector2(1, 0);
-  @property({ type: ValueType.Float, default: 0, description: 'Distance-joint spring frequency (Hz; 0 = rigid)' })
+  @property({ type: ValueType.Float, description: 'Distance-joint spring frequency (Hz; 0 = rigid)' })
   frequency = 0;
-  @property({ type: ValueType.Float, default: 0.7, description: 'Distance-joint damping ratio' })
+  @property({ type: ValueType.Float, description: 'Distance-joint damping ratio' })
   damping = 0.7;
 }

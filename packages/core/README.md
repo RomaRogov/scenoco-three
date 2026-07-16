@@ -37,7 +37,7 @@ import sceneBundle from './scene.bundle.json'; // built by @scenoco-three/compil
 
 @component({ name: 'Rotator', description: 'Spins the host around Y' })
 export class Rotator extends Component {
-  @property({ type: ValueType.Float, default: 1, description: 'Radians/sec' })
+  @property({ type: ValueType.Float, description: 'Radians/sec' })
   speed = 1;
 
   override update(dt: number) {
@@ -372,14 +372,14 @@ carries a `description`:
 import { ValueType } from '@scenoco-three/core';
 import { Vector3, FrontSide } from 'three';
 
-@property({ type: ValueType.Float, default: 1, description: 'Radians/sec' }) speed = 1;
-@property({ type: ValueType.Vec3, default: [0, 1, 0], description: 'Local offset' }) offset = new Vector3(0, 1, 0);
-@property({ type: ValueType.Color, default: '#ff8800', description: 'Tint' }) tint = 0xff8800;
+@property({ type: ValueType.Float, description: 'Radians/sec' }) speed = 1;
+@property({ type: ValueType.Vec3, description: 'Local offset' }) offset = new Vector3(0, 1, 0);
+@property({ type: ValueType.Color, description: 'Tint' }) tint = 0xff8800;
 @property({ type: [ValueType.Float], description: 'Lane weights' }) weights: number[] = [];   // array; written "1 2 3"
 @property({ type: ValueType.Node, description: 'Target to track' }) target: Object3D | null = null;  // node ref (#id)
 @property({ type: ValueType.Prefab, description: 'Brick to spawn' }) brick: PrefabRef | null = null;
 @property({ type: TargetComponent, description: 'Component to track' }) tracked!: TargetComponent;   // typed reference
-@property({ type: MySideEnum, default: 'front', description: 'Which faces render' }) side = FrontSide; // enum
+@property({ type: MySideEnum, description: 'Which faces render' }) side = FrontSide; // enum
 ```
 
 `ValueType` members: `Float` · `Int` · `Bool` · `String` · `Vec2` · `Vec3` · `Euler` · `Color` ·
@@ -387,10 +387,11 @@ import { Vector3, FrontSide } from 'three';
 so it's just a readable, refactor-safe stand-in for the string — the same value the compiler and
 serializer use.
 
-**Math props are forgiving and consistent** — a `Vec2`/`Vec3`/`Euler` default (or field initializer)
-may be an array `[x,y,z]`, a `THREE.Vector3`/`Vector2`/`Euler`, or `{x,y,z}`; a `Color` may be
-`0xRRGGBB`, a `"#rrggbb"` string, or a `THREE.Color`. At runtime the field is **always** the Three
-type, whether set in XML or left at its default — so `this.offset.x` always works.
+**Math props are forgiving and consistent** — a `Vec2`/`Vec3`/`Euler` field initializer may be an
+array `[x,y,z]`, a `THREE.Vector3`/`Vector2`/`Euler`, or `{x,y,z}`; a `Color` may be `0xRRGGBB`, a
+`"#rrggbb"` string, or a `THREE.Color` — the default is derived from whichever shape you write. At
+runtime the field is **always** the Three type, whether set in XML or left at its default — so
+`this.offset.x` always works.
 
 ### `enumOf`
 
