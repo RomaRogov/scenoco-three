@@ -11,10 +11,10 @@ export class Follow extends Component {
   @property({ type: Oscillator, description: 'The Oscillator this follows' })
   source: Oscillator | null = null;
 
-  @property({ type: ValueType.Vec3, default: '0 1 0', description: 'Direction the offset is applied along' })
+  @property({ type: ValueType.Vec3, description: 'Direction the offset is applied along' })
   axis = new Vector3(0, 1, 0);
 
-  @property({ type: ValueType.Float, default: 1, description: 'Multiplier on the source offset' })
+  @property({ type: ValueType.Float, description: 'Multiplier on the source offset' })
   scale = 1;
 
   private readonly origin = new Vector3();

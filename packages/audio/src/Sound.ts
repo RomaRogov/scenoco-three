@@ -16,15 +16,15 @@ import { Component, component, property, ValueType } from '@scenoco-three/core';
  */
 @component({ name: 'Sound', description: 'Plays an audio clip (2D, or positional 3D).' })
 export class Sound extends Component {
-  @property({ type: ValueType.String, asset: 'audio', default: '', description: 'Audio file URL' })
+  @property({ type: ValueType.String, asset: 'audio', description: 'Audio file URL' })
   src = '';
-  @property({ type: ValueType.Bool, default: true, description: 'Play as soon as the clip is loaded' })
+  @property({ type: ValueType.Bool, description: 'Play as soon as the clip is loaded' })
   autoplay = true;
-  @property({ type: ValueType.Bool, default: false, description: 'Loop the clip' }) loop = false;
-  @property({ type: ValueType.Float, default: 1, description: 'Volume 0..1' }) volume = 1;
-  @property({ type: ValueType.Bool, default: false, description: 'Positional (3D) audio that attenuates with distance' })
+  @property({ type: ValueType.Bool, description: 'Loop the clip' }) loop = false;
+  @property({ type: ValueType.Float, description: 'Volume 0..1' }) volume = 1;
+  @property({ type: ValueType.Bool, description: 'Positional (3D) audio that attenuates with distance' })
   positional = false;
-  @property({ type: ValueType.Float, default: 1, description: 'Reference distance for positional falloff' })
+  @property({ type: ValueType.Float, description: 'Reference distance for positional falloff' })
   refDistance = 1;
 
   /** The live three.js audio node (undefined before load / when headless). */

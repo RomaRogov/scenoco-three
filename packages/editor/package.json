@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/editor",
   "version": "0.4.0",
-  "description": "Local preview + headless frame render for SceNoCo scenes/prefabs (for multimodal LLMs)",
+  "description": "Local visual editor + MCP server for SceNoCo scenes/prefabs (for multimodal LLMs)",
   "type": "module",
   "license": "MIT",
   "bin": {

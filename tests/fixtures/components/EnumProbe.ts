@@ -16,17 +16,17 @@ export const BodyKind = enumOf('BodyKind', { Static: 'static', Dynamic: 'dynamic
 @component({ name: 'EnumProbe', description: 'Probe for enum properties (numeric + string).' })
 export class EnumProbe extends Component {
   // Defaults are authored as member NAMES; normalized to native values at registration.
-  @property({ type: SideEnum, default: 'Front', description: 'Numeric-enum property' })
+  @property({ type: SideEnum, description: 'Numeric-enum property' })
   side: number = Side.Front;
 
-  @property({ type: BodyKind, default: 'Dynamic', description: 'String-enum property' })
+  @property({ type: BodyKind, description: 'String-enum property' })
   kind: string = 'dynamic';
 }
 
 /** A node tag carrying an enum **attribute** (covers the node-attr path). */
 @node({ name: 'EnumNode', description: 'Probe for enum node attributes.' })
 export class EnumNode extends Object3DNode {
-  @property({ type: SideEnum, default: 'Back', description: 'Enum node attribute' })
+  @property({ type: SideEnum, description: 'Enum node attribute' })
   side: number = Side.Back;
 
   build(): Object3D {

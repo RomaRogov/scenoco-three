@@ -12,15 +12,14 @@ export const RigidBodyKind = enumOf('RigidBodyKind', { dynamic: 'dynamic', fixed
  */
 @component({ name: 'RigidBody', description: 'A physics body driven by the Rapier world (needs a <Physics> scene)' })
 export class RigidBody extends Component {
-  @property({ type: RigidBodyKind, default: 'dynamic', description: 'How the body moves' })
+  @property({ type: RigidBodyKind, description: 'How the body moves' })
   kind = 'dynamic';
-  @property({ type: ValueType.Float, default: 0, description: 'Damps linear velocity over time' }) linearDamping = 0;
-  @property({ type: ValueType.Float, default: 0, description: 'Damps angular velocity over time' }) angularDamping = 0;
-  @property({ type: ValueType.Float, default: 1, description: 'Multiplier on world gravity for this body' })
+  @property({ type: ValueType.Float, description: 'Damps linear velocity over time' }) linearDamping = 0;
+  @property({ type: ValueType.Float, description: 'Damps angular velocity over time' }) angularDamping = 0;
+  @property({ type: ValueType.Float, description: 'Multiplier on world gravity for this body' })
   gravityScale = 1;
   @property({
     type: ValueType.Bool,
-    default: false,
     description: 'Continuous collision detection — stops fast small bodies (bullets) tunnelling through thin colliders',
   })
   ccd = false;

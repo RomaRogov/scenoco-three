@@ -56,15 +56,12 @@ export type PropertyType =
   | EnumDef
   | [PropType | ComponentCtor | EnumDef];
 
-/** A vec2/vec3/euler-shaped default — a `THREE.Vector2`/`Vector3`/`Euler` or a plain `{x,y,z}`. */
-export type Vec3Like = { x: number; y: number; z?: number };
-
 /** A compiled default value (the normalized form stored in `PropertyMeta`). */
 export type CompiledDefault = number | boolean | string | number[] | (number | boolean | string | number[])[];
 
 export interface PropertyMeta {
   type: PropertyType;
-  /** Default in **compiled form** — normalized from whatever the author wrote (see `PropertyInput`). */
+  /** Default in **compiled form**, derived automatically from the field's own initializer (see `collectProperties` in decorators.ts). */
   default?: CompiledDefault;
   required?: boolean;
   /**
@@ -83,15 +80,12 @@ export interface PropertyMeta {
 }
 
 /**
- * What `@property({ … })` accepts from an author — like `PropertyMeta`, but the
- * `default` may use the natural shape and is normalized to the compiled form at
- * registration: a `vec2`/`vec3`/`euler` as an array, a `THREE.Vector3`/`Vector2`/
- * `Euler`, or `{x,y,z}`; a `color` as a number `0xRRGGBB`, a `"#rrggbb"` string,
- * or a `THREE.Color`.
+ * What `@property({ … })` accepts from an author: everything in `PropertyMeta`
+ * except `default` — a property's default is no longer authored in the
+ * decorator config; it is derived automatically from the class field's own
+ * initializer (see `collectProperties` in decorators.ts).
  */
-export interface PropertyInput extends Omit<PropertyMeta, 'default'> {
-  default?: CompiledDefault | Vec3Like;
-}
+export type PropertyInput = Omit<PropertyMeta, 'default'>;
 
 /** True for an array-marked property; `elementType` unwraps it. */
 export function isArrayType(t: PropertyType): t is [PropType | ComponentCtor | EnumDef] {

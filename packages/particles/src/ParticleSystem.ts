@@ -19,47 +19,47 @@ import { ParticleBlending, ParticleRenderMode, ParticleShape, SimulationSpace } 
 @component({ name: 'ParticleSystem', description: 'Unity-style particle system / VFX emitter (rendered by three.quarks)' })
 export class ParticleSystem extends Component {
   // ── Main module ────────────────────────────────────────────────────────────
-  @property({ type: ValueType.Float, default: 5, description: 'Length of one emission cycle, in seconds' })
+  @property({ type: ValueType.Float, description: 'Length of one emission cycle, in seconds' })
   duration = 5;
-  @property({ type: ValueType.Bool, default: true, description: 'Restart the cycle when it ends' })
+  @property({ type: ValueType.Bool, description: 'Restart the cycle when it ends' })
   looping = true;
-  @property({ type: ValueType.Bool, default: false, description: 'On the first cycle, start as if already run one full duration' })
+  @property({ type: ValueType.Bool, description: 'On the first cycle, start as if already run one full duration' })
   prewarm = false;
-  @property({ type: ValueType.Float, default: 5, description: 'Seconds each particle stays alive (Start Lifetime)' })
+  @property({ type: ValueType.Float, description: 'Seconds each particle stays alive (Start Lifetime)' })
   startLifetime = 5;
-  @property({ type: ValueType.Float, default: 5, description: 'Initial speed along the emission direction (Start Speed)' })
+  @property({ type: ValueType.Float, description: 'Initial speed along the emission direction (Start Speed)' })
   startSpeed = 5;
-  @property({ type: ValueType.Float, default: 1, description: 'Initial particle size (Start Size)' })
+  @property({ type: ValueType.Float, description: 'Initial particle size (Start Size)' })
   startSize = 1;
-  @property({ type: ValueType.Float, default: 0, description: 'Initial roll, in degrees (Start Rotation)' })
+  @property({ type: ValueType.Float, description: 'Initial roll, in degrees (Start Rotation)' })
   startRotation = 0;
-  @property({ type: ValueType.Color, default: 0xffffff, description: 'Initial particle color/tint (Start Color)' })
+  @property({ type: ValueType.Color, description: 'Initial particle color/tint (Start Color)' })
   startColor = 0xffffff;
-  @property({ type: ValueType.Float, default: 0, description: 'Downward gravity applied over life (Gravity Modifier)' })
+  @property({ type: ValueType.Float, description: 'Downward gravity applied over life (Gravity Modifier)' })
   gravityModifier = 0;
-  @property({ type: SimulationSpace, default: 'Local', description: 'Local: particles follow the emitter. World: they stay where born.' })
+  @property({ type: SimulationSpace, description: 'Local: particles follow the emitter. World: they stay where born.' })
   simulationSpace: string = 'Local';
 
   // ── Emission module (flattened; <Burst> lives in the .particle.xml tier) ─────
-  @property({ type: ValueType.Float, default: 10, description: 'Particles emitted per second (Rate over Time)' })
+  @property({ type: ValueType.Float, description: 'Particles emitted per second (Rate over Time)' })
   rateOverTime = 10;
 
   // ── Shape module ─────────────────────────────────────────────────────────────
-  @property({ type: ParticleShape, default: 'Cone', description: 'Emitter shape particles spawn from' })
+  @property({ type: ParticleShape, description: 'Emitter shape particles spawn from' })
   shapeType: string = 'Cone';
-  @property({ type: ValueType.Float, default: 1, description: 'Shape radius (Cone/Sphere/Circle/Donut/…)' })
+  @property({ type: ValueType.Float, description: 'Shape radius (Cone/Sphere/Circle/Donut/…)' })
   shapeRadius = 1;
-  @property({ type: ValueType.Float, default: 25, description: 'Cone half-angle in degrees (Shape: Cone)' })
+  @property({ type: ValueType.Float, description: 'Cone half-angle in degrees (Shape: Cone)' })
   shapeAngle = 25;
-  @property({ type: ValueType.Float, default: 360, description: 'Arc of the shape swept, in degrees' })
+  @property({ type: ValueType.Float, description: 'Arc of the shape swept, in degrees' })
   shapeArc = 360;
 
   // ── Renderer module ──────────────────────────────────────────────────────────
-  @property({ type: ParticleRenderMode, default: 'Billboard', description: 'How each particle is drawn' })
+  @property({ type: ParticleRenderMode, description: 'How each particle is drawn' })
   renderMode: string = 'Billboard';
-  @property({ type: ParticleBlending, default: 'Additive', description: 'Sprite blend mode (Additive glows; Alpha is normal)' })
+  @property({ type: ParticleBlending, description: 'Sprite blend mode (Additive glows; Alpha is normal)' })
   blending: string = 'Additive';
-  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Sprite texture URL; empty = a soft round default' })
+  @property({ type: ValueType.String, asset: 'texture', description: 'Sprite texture URL; empty = a soft round default' })
   texture = '';
 
   /** Set from a `src=` document (`.particle.xml` / `.quarks.json`) before onLoad; overrides the inline props. */

@@ -12,10 +12,10 @@ import { Component, property, ValueType } from '@scenoco-three/core';
  * shared material properties applied by `toDesc()`.
  */
 export abstract class Collider extends Component {
-  @property({ type: ValueType.Float, default: 0, description: 'Bounciness 0..1' }) restitution = 0;
-  @property({ type: ValueType.Float, default: 0.5, description: 'Friction 0..1' }) friction = 0.5;
-  @property({ type: ValueType.Float, default: 1, description: 'Density (kg/m³)' }) density = 1;
-  @property({ type: ValueType.Bool, default: false, description: 'A trigger: reports overlaps, no collision response' })
+  @property({ type: ValueType.Float, description: 'Bounciness 0..1' }) restitution = 0;
+  @property({ type: ValueType.Float, description: 'Friction 0..1' }) friction = 0.5;
+  @property({ type: ValueType.Float, description: 'Density (kg/m³)' }) density = 1;
+  @property({ type: ValueType.Bool, description: 'A trigger: reports overlaps, no collision response' })
   isSensor = false;
 
   /** The Rapier shape descriptor for this collider. */

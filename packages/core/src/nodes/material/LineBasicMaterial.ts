@@ -11,10 +11,10 @@ import { MATERIAL_TARGETS } from '../targets.js';
   group: 'material',
 })
 export class LineBasicMaterialNode extends Attachment<Mesh> {
-  @property({ type: ValueType.Color, default: 0xffffff, description: 'Line color' }) color = 0xffffff;
-  @property({ type: ValueType.Float, default: 1, description: 'Line width (most platforms render 1px regardless)' }) linewidth = 1;
-  @property({ type: ValueType.Float, default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
-  @property({ type: ValueType.Bool, default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: ValueType.Color, description: 'Line color' }) color = 0xffffff;
+  @property({ type: ValueType.Float, description: 'Line width (most platforms render 1px regardless)' }) linewidth = 1;
+  @property({ type: ValueType.Float, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: ValueType.Bool, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
 
   private cached?: LineBasicMaterial;
   attach(ctx: AttachContext<Mesh>): void {

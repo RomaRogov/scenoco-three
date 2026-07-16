@@ -11,12 +11,12 @@ import { MATERIAL_TARGETS } from '../targets.js';
   group: 'material',
 })
 export class MeshBasicMaterialNode extends Attachment<Mesh> {
-  @property({ type: ValueType.Color, default: 0xffffff, description: 'Material color' }) color = 0xffffff;
-  @property({ type: ValueType.Float, default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
-  @property({ type: ValueType.Bool, default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
-  @property({ type: ValueType.Bool, default: false, description: 'Render as wireframe' }) wireframe = false;
+  @property({ type: ValueType.Color, description: 'Material color' }) color = 0xffffff;
+  @property({ type: ValueType.Float, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: ValueType.Bool, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: ValueType.Bool, description: 'Render as wireframe' }) wireframe = false;
   /** Image URL loaded into the engine's AssetCache (needs `loadSceneAsync`). */
-  @property({ type: ValueType.String, asset: 'texture', default: '', description: 'Color texture URL' }) map = '';
+  @property({ type: ValueType.String, asset: 'texture', description: 'Color texture URL' }) map = '';
 
   private cached?: MeshBasicMaterial;
   attach(ctx: AttachContext<Mesh>): void {

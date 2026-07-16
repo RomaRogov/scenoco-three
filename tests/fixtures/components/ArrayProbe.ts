@@ -8,10 +8,10 @@ import { Oscillator } from './Oscillator.js';
  */
 @component({ name: 'ArrayProbe', description: 'Tests array-typed properties' })
 export class ArrayProbe extends Component {
-  @property({ type: [ValueType.Float], default: [], description: 'Float array' })
+  @property({ type: [ValueType.Float], description: 'Float array' })
   points: number[] = [];
 
-  @property({ type: [ValueType.Vec3], default: [], description: 'Vec3 array' })
+  @property({ type: [ValueType.Vec3], description: 'Vec3 array' })
   waypoints: Vector3[] = [];
 
   @property({ type: [ValueType.Node], description: 'Node-reference array' })

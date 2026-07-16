@@ -20,7 +20,7 @@ export function parseArgs(args: string[]): { positionals: string[]; options: Rec
     if (arg in VALUE_FLAGS) {
       options[VALUE_FLAGS[arg]!] = args[++i] ?? '';
     } else if (arg.startsWith('--')) {
-      options[arg.slice(2)] = ''; // boolean flag, e.g. --no-open
+      options[arg.slice(2)] = ''; // boolean flag, e.g. --verbose
     } else {
       positionals.push(arg);
     }

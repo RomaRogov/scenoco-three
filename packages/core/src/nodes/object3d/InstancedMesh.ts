@@ -10,7 +10,7 @@ import { node, property, ValueType } from '../../registry/decorators.js';
   description: 'A mesh drawn `count` times in one draw call; instance matrices set by a component',
 })
 export class InstancedMeshNode extends Object3DNode {
-  @property({ type: ValueType.Int, default: 1, description: 'Number of instances' }) count = 1;
+  @property({ type: ValueType.Int, description: 'Number of instances' }) count = 1;
 
   build(): InstancedMesh {
     return new InstancedMesh(undefined, undefined, this.count);

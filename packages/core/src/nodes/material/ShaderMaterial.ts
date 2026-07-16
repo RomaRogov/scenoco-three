@@ -44,12 +44,12 @@ export class ShaderMaterialNode extends Attachment<Mesh> {
   vertex = '';
   @property({ type: ValueType.String, description: 'Fragment shader — a .frag/.glsl path (inlined at compile)' })
   fragment = '';
-  @property({ type: ValueType.Bool, default: false, description: 'Use RawShaderMaterial (no three preamble/built-ins)' })
+  @property({ type: ValueType.Bool, description: 'Use RawShaderMaterial (no three preamble/built-ins)' })
   raw = false;
-  @property({ type: ValueType.Bool, default: false, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
-  @property({ type: ValueType.Float, default: 1, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
-  @property({ type: ValueType.Bool, default: false, description: 'Render as wireframe' }) wireframe = false;
-  @property({ type: MaterialSide, default: 'front', description: 'Which faces render' })
+  @property({ type: ValueType.Bool, description: 'Enable alpha blending (use with opacity)' }) transparent = false;
+  @property({ type: ValueType.Float, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
+  @property({ type: ValueType.Bool, description: 'Render as wireframe' }) wireframe = false;
+  @property({ type: MaterialSide, description: 'Which faces render' })
   side: number = FrontSide;
 
   private uniformDecls: CompiledUniform[] = [];

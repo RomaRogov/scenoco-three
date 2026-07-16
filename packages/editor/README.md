@@ -1,10 +1,10 @@
 # @scenoco-three/editor
 
-A local **visual editor + headless renderer** for [SceNoCo](https://github.com/) scenes and
-prefabs, with an **MCP server** so a (multimodal) LLM can open a scene, render frames, drive
-gameplay, and read back telemetry — the "eyes and hands" for an agent that authors scenes
-with `@scenoco-three/compiler`. Humans get a browser editor; agents get MCP tools, over **one
-shared live session**.
+A local **visual editor** for [SceNoCo](https://github.com/) scenes and prefabs, with an
+**MCP server** so a (multimodal) LLM can open a scene, render frames, drive gameplay, and
+read back telemetry — the "eyes and hands" for an agent that authors scenes with
+`@scenoco-three/compiler`. Humans and agents share the **same live browser tab**: the MCP
+tools drive it over a WebSocket bridge, there's no separate headless render path.
 
 ```bash
 npm i -D @scenoco-three/editor
@@ -19,7 +19,6 @@ scenoco-editor [scene|prefab] [options]     Omit the file to choose from a start
                         dependency in the project's package.json)
   --port <n>            Fixed MCP port — pin it so your MCP client survives restarts
                         (the HTTP editor server always takes a free port and prints its URL)
-  --no-open             Don't auto-open a browser
 ```
 
 ```bash

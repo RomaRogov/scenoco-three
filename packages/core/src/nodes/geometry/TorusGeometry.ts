@@ -12,10 +12,10 @@ import { GEOMETRY_TARGETS } from '../targets.js';
   required: true,
 })
 export class TorusGeometryNode extends Attachment<Mesh> {
-  @property({ type: ValueType.Float, default: 1, description: 'Radius from the center to the tube center' }) radius = 1;
-  @property({ type: ValueType.Float, default: 0.4, description: 'Radius of the tube' }) tube = 0.4;
-  @property({ type: ValueType.Int, default: 12, description: 'Segments across the tube cross-section' }) radialSegments = 12;
-  @property({ type: ValueType.Int, default: 48, description: 'Segments around the ring' }) tubularSegments = 48;
+  @property({ type: ValueType.Float, description: 'Radius from the center to the tube center' }) radius = 1;
+  @property({ type: ValueType.Float, description: 'Radius of the tube' }) tube = 0.4;
+  @property({ type: ValueType.Int, description: 'Segments across the tube cross-section' }) radialSegments = 12;
+  @property({ type: ValueType.Int, description: 'Segments around the ring' }) tubularSegments = 48;
 
   private cached?: TorusGeometry;
   attach(ctx: AttachContext<Mesh>): void {

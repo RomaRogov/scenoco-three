@@ -10,12 +10,11 @@ import { Component, component, property, ValueType } from '@scenoco-three/core';
   description: 'Moves the Breakout paddle left/right with arrow keys, WASD, or a gamepad',
 })
 export class PaddleController extends Component {
-  @property({ type: ValueType.Float, default: 10, description: 'Paddle speed in units per second' })
+  @property({ type: ValueType.Float, description: 'Paddle speed in units per second' })
   speed = 10;
 
   @property({
     type: ValueType.Float,
-    default: 6.0,
     description: 'Maximum X distance from the center before the paddle is clamped',
   })
   halfRange = 6.0;

@@ -21,20 +21,20 @@ export const JointKind = enumOf('JointKind', ['fixed', 'revolute', 'spherical', 
  */
 @component({ name: 'Joint', description: 'A physics joint to another body (fixed/revolute/spherical/prismatic/spring).' })
 export class Joint extends Component {
-  @property({ type: JointKind, default: 'fixed', description: 'Joint type' })
+  @property({ type: JointKind, description: 'Joint type' })
   kind = 'fixed';
   @property({ type: ValueType.Node, description: 'The other body to connect to (a node with a RigidBody)' })
   connectedBody: Object3D | null = null;
-  @property({ type: ValueType.Vec3, default: [0, 0, 0], description: 'Local anchor on this body' })
+  @property({ type: ValueType.Vec3, description: 'Local anchor on this body' })
   anchor = new Vector3();
-  @property({ type: ValueType.Vec3, default: [0, 0, 0], description: 'Local anchor on the connected body' })
+  @property({ type: ValueType.Vec3, description: 'Local anchor on the connected body' })
   connectedAnchor = new Vector3();
-  @property({ type: ValueType.Vec3, default: [0, 1, 0], description: 'Hinge/slide axis (revolute, prismatic)' })
+  @property({ type: ValueType.Vec3, description: 'Hinge/slide axis (revolute, prismatic)' })
   axis = new Vector3(0, 1, 0);
-  @property({ type: ValueType.Float, default: 1, description: 'Spring stiffness (spring joint)' })
+  @property({ type: ValueType.Float, description: 'Spring stiffness (spring joint)' })
   stiffness = 1;
-  @property({ type: ValueType.Float, default: 0.5, description: 'Spring damping (spring joint)' })
+  @property({ type: ValueType.Float, description: 'Spring damping (spring joint)' })
   damping = 0.5;
-  @property({ type: ValueType.Float, default: 0, description: 'Spring rest length (spring joint)' })
+  @property({ type: ValueType.Float, description: 'Spring rest length (spring joint)' })
   restLength = 0;
 }

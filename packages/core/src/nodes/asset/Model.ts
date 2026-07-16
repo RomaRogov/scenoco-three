@@ -32,7 +32,7 @@ interface LoadedGltf {
   description: 'A glTF/GLB model loaded as a child subtree of the node.',
 })
 export class ModelNode extends Attachment {
-  @property({ type: ValueType.String, asset: 'model', default: '', description: 'glTF/GLB URL' })
+  @property({ type: ValueType.String, asset: 'model', description: 'glTF/GLB URL' })
   src = '';
 
   attach(ctx: AttachContext): void {
