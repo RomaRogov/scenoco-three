@@ -67,6 +67,13 @@
       #hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
         border-radius: 8px; background: rgba(0,0,0,.55); color: #9fb5cf; font: 11px ui-monospace, monospace;
         pointer-events: none; }
+      /* LAN URL badge (bottom-left): open this scene on another device; click to copy */
+      #sc-net { position: fixed; bottom: 10px; left: 10px; z-index: 6; display: flex; align-items: center;
+        gap: 6px; max-width: 46vw; padding: 5px 10px; border-radius: 8px; background: rgba(0,0,0,.55);
+        border: 1px solid var(--line); color: #cfe0f2; font: 11px ui-monospace, monospace; cursor: pointer;
+        user-select: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #sc-net:hover { border-color: var(--accent); color: #eafdff; }
+      #sc-net .sc-net-label { color: #6f93b8; font-weight: 700; letter-spacing: 0.04em; flex: 0 0 auto; }
       /* floating toolbars (touch-reachable, top center): play panel + movement panel */
       .sc-toolbars { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6;
         display: flex; align-items: flex-start; gap: 8px; }

@@ -25,6 +25,12 @@ export function singleFile(): Plugin {
           assetsInlineLimit: Number.MAX_SAFE_INTEGER, // inline local assets as data URIs
           cssCodeSplit: false,
           modulePreload: { polyfill: false },
+          // Inline (data-URI) sourcemap, not a separate `.map` file: the whole
+          // point of this build is running from `file://`, where a sibling
+          // `.map` is unreachable — but a `//# sourceMappingURL=data:...` comment
+          // travels inside the inlined <script>, so a minified crash still maps
+          // back to real source. It's appended to the entry chunk's code below.
+          sourcemap: 'inline',
           // One self-executing IIFE chunk → runs as a classic script over file://.
           rollupOptions: { output: { format: 'iife', codeSplitting: false } as never },
         },

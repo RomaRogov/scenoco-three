@@ -4,7 +4,7 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
 import { createServer, type Plugin, type ViteDevServer } from 'vite';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import {
   bundlePrefab,
   bundleScene,
@@ -34,14 +34,29 @@ export interface ServerOptions {
   port?: number;
   /** Base directory `componentRoots` are resolved against (default: `process.cwd()`). */
   cwd?: string;
+  /**
+   * Called when no editor page has been connected for a while — either none ever
+   * connected within `initialGraceMs` (a browser that never opened), or the last
+   * open editor disconnected and none reconnected within `idleMs`. Opt-in: when
+   * omitted, the server never self-halts (embedders/tests stay long-lived). The
+   * CLI wires this to a graceful shutdown so no stale editor process is left
+   * running once every tab is closed.
+   */
+  onIdle?: () => void;
+  /** Idle window after the last editor disconnects before `onIdle` fires (default 5000ms). */
+  idleMs?: number;
+  /** Grace for the *first* editor to connect before `onIdle` fires (default 30000ms). */
+  initialGraceMs?: number;
 }
 
-/** Relays MCP tool commands to the connected editor page and awaits its reply. */
+/** Relays MCP tool commands to the connected editor page(s) and awaits a reply. */
 export interface EditorBridge {
   connected(): boolean;
   send(cmd: EditorCommand): Promise<EditorResponse>;
-  /** Send an unsolicited notification to the editor page (e.g. a file change). */
+  /** Send an unsolicited notification to every connected editor page (e.g. a file change). */
   push(msg: EditorPush): void;
+  /** Cancel the idle-shutdown timer (called on an intentional server close). */
+  dispose(): void;
 }
 
 /** Watches the open file + its `src=` deps and pushes change notifications. */
@@ -129,28 +144,49 @@ export async function startEditorServer(opts: ServerOptions = {}): Promise<Edito
   const port = opts.port ?? (await freePort());
 
   const watcher = createFileWatcher();
+  // Filled in after `listen()` (URLs aren't resolved until then) and served to the
+  // editor page over `/@scenoco/info`, so the app can show its own LAN URL for
+  // opening on another device on the network.
+  const netInfo: EditorNetInfo = {};
   const server = await createServer({
     configFile: false,
     root: appDir,
     logLevel: 'warn',
     server: { host: true, port, strictPort: true, fs: { strict: false } },
-    plugins: [allComponentsPlugin(componentRoots, packages, cwd), bundleEndpointPlugin(componentRoots, packages, cwd, watcher)],
+    plugins: [
+      allComponentsPlugin(componentRoots, packages, cwd),
+      bundleEndpointPlugin(componentRoots, packages, cwd, watcher),
+      infoEndpointPlugin(netInfo),
+    ],
   });
   await server.listen();
 
-  const bridge = attachBridge(server);
+  const bridge = attachBridge(server, {
+    ...(opts.onIdle ? { onIdle: opts.onIdle } : {}),
+    ...(opts.idleMs !== undefined ? { idleMs: opts.idleMs } : {}),
+    ...(opts.initialGraceMs !== undefined ? { initialGraceMs: opts.initialGraceMs } : {}),
+  });
   watcher.setPush((msg) => bridge.push(msg));
   const url = server.resolvedUrls?.local[0] ?? `http://localhost:${port}/`;
   const networkUrl = server.resolvedUrls?.network[0];
+  netInfo.local = url;
+  netInfo.network = networkUrl;
   return {
     url,
     ...(networkUrl ? { networkUrl } : {}),
     bridge,
     close: async () => {
+      bridge.dispose();
       await watcher.close();
       await server.close();
     },
   };
+}
+
+/** Resolved editor URLs, published to the page over `/@scenoco/info`. */
+interface EditorNetInfo {
+  local?: string;
+  network?: string;
 }
 
 /**
@@ -356,50 +392,185 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, 
   };
 }
 
-/** WebSocket bridge: one editor page ↔ the MCP server, with id-correlated replies. */
-function attachBridge(server: ViteDevServer): EditorBridge {
-  const wss = new WebSocketServer({ noServer: true });
-  let editor: WebSocket | undefined;
-  const pending = new Map<string, (r: EditorResponse) => void>();
+/**
+ * `GET /@scenoco/info` → the resolved editor URLs (`{ localUrl, networkUrl }`),
+ * so the running page can show its own LAN address for opening the same editor on
+ * another device on the network. `networkUrl` is `null` until the server has
+ * finished listening (and stays `null` if the host has no LAN interface).
+ */
+function infoEndpointPlugin(info: EditorNetInfo): Plugin {
+  return {
+    name: 'scenoco:info-endpoint',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith('/@scenoco/info')) return next();
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ localUrl: info.local ?? null, networkUrl: info.network ?? null }));
+      });
+    },
+  };
+}
 
+/** Options controlling the bridge's idle-shutdown behaviour (see ServerOptions). */
+interface BridgeOptions {
+  onIdle?: () => void;
+  idleMs?: number;
+  initialGraceMs?: number;
+}
+
+/**
+ * The subset of a `ws` WebSocket the bridge core needs. Kept minimal so the core
+ * is testable with a plain fake socket (no real server/network).
+ */
+export interface BridgeSocket {
+  readonly readyState: number;
+  readonly OPEN: number;
+  send(data: string): void;
+  on(event: 'message' | 'close', cb: (data: unknown) => void): void;
+}
+
+/** One in-flight command: how to settle it, and which socket it was routed to. */
+interface Pending {
+  cmd: EditorCommand;
+  resolve: (r: EditorResponse) => void;
+  reject: (e: Error) => void;
+  /** The editor socket this command is currently awaiting a reply from. */
+  socket: BridgeSocket;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** How long a relayed command waits for the editor's reply before giving up. */
+const COMMAND_TIMEOUT_MS = 15000;
+
+/**
+ * The transport-agnostic bridge core: id-correlated command relay over one or
+ * more connected editors, with failover and idle-shutdown. Split from the
+ * WebSocket wiring so it can be unit-tested with fake sockets.
+ *
+ * Multiple editors can be connected at once (e.g. the same scene open on a laptop
+ * and a phone):
+ *  - commands route to the most-recently-connected still-open editor, so opening
+ *    a new instance takes over control and closing it hands control back to an
+ *    older one that's still open;
+ *  - an in-flight command whose editor disconnects fails over to another open
+ *    editor instead of erroring, so closing a tab mid-call doesn't drop it;
+ *  - pushes broadcast to every open editor.
+ *
+ * It also self-halts an orphaned process: if no editor is connected for `idleMs`
+ * (or none ever connects within `initialGraceMs`), `onIdle` fires — the CLI wires
+ * this to a graceful shutdown so no stale editor process lingers after every tab
+ * is closed. `onIdle` is opt-in; without it the core never schedules a halt.
+ */
+export function createBridgeCore(opts: BridgeOptions = {}): { bridge: EditorBridge; register: (ws: BridgeSocket) => void } {
+  const editors = new Set<BridgeSocket>(); // every live editor, in connect order
+  const pending = new Map<string, Pending>();
+
+  const idleMs = opts.idleMs ?? 5000;
+  const initialGraceMs = opts.initialGraceMs ?? 30000; // generous: a cold-starting browser must connect in time
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false; // an intentional close — never (re-)arm a halt after this
+
+  const cancelIdle = (): void => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = undefined;
+  };
+  const armIdle = (ms: number): void => {
+    if (!opts.onIdle || disposed) return; // opt-in: only a process that wants to self-halt arms this
+    cancelIdle();
+    idleTimer = setTimeout(() => {
+      idleTimer = undefined;
+      opts.onIdle!();
+    }, ms);
+    idleTimer.unref?.(); // never keep the loop alive solely to halt it
+  };
+  // Wait for the first editor; reap a truly orphaned process (browser never opened).
+  armIdle(initialGraceMs);
+
+  // The control target is the most-recently-connected socket that's still open.
+  const active = (): BridgeSocket | undefined => {
+    let latest: BridgeSocket | undefined;
+    for (const ws of editors) if (ws.readyState === ws.OPEN) latest = ws;
+    return latest;
+  };
+
+  /** Remove a pending entry (clearing its timeout) and return it, if present. */
+  const take = (id: string): Pending | undefined => {
+    const p = pending.get(id);
+    if (p) {
+      clearTimeout(p.timer);
+      pending.delete(id);
+    }
+    return p;
+  };
+
+  const register = (ws: BridgeSocket): void => {
+    editors.add(ws);
+    cancelIdle();
+    ws.on('message', (data) => {
+      try {
+        const r = JSON.parse(String(data)) as EditorResponse;
+        take(r.id)?.resolve(r);
+      } catch {
+        /* ignore malformed */
+      }
+    });
+    ws.on('close', () => {
+      editors.delete(ws);
+      // Fail any command awaiting this socket over to another open editor, so an
+      // in-flight tool call survives closing the tab it was routed to; if none
+      // is left, reject it promptly rather than waiting for the timeout.
+      for (const [id, p] of pending) {
+        if (p.socket !== ws) continue;
+        const next = active();
+        if (next) {
+          p.socket = next;
+          next.send(JSON.stringify(p.cmd));
+        } else {
+          take(id)?.reject(new Error('editor disconnected before responding'));
+        }
+      }
+      if (editors.size === 0) armIdle(idleMs);
+    });
+  };
+
+  const bridge: EditorBridge = {
+    connected: () => !!active(),
+    send: (cmd) =>
+      new Promise<EditorResponse>((resolve, reject) => {
+        const ws = active();
+        if (!ws) {
+          reject(new Error('no editor connected — open the editor page in a browser first'));
+          return;
+        }
+        const timer = setTimeout(() => {
+          take(cmd.id)?.reject(new Error('editor did not respond in time'));
+        }, COMMAND_TIMEOUT_MS);
+        pending.set(cmd.id, { cmd, resolve, reject, socket: ws, timer });
+        ws.send(JSON.stringify(cmd));
+      }),
+    push: (msg) => {
+      const data = JSON.stringify(msg);
+      for (const ws of editors) if (ws.readyState === ws.OPEN) ws.send(data);
+    },
+    dispose: () => {
+      disposed = true;
+      cancelIdle();
+    },
+  };
+
+  return { bridge, register };
+}
+
+/** Wire the bridge core to the dev server's WebSocket upgrades (our path only). */
+function attachBridge(server: ViteDevServer, opts: BridgeOptions = {}): EditorBridge {
+  const wss = new WebSocketServer({ noServer: true });
+  const { bridge, register } = createBridgeCore(opts);
   server.httpServer?.on('upgrade', (req, socket, head) => {
     // Only our path; Vite's HMR upgrades (vite-hmr subprotocol) fall through to it.
     if (!req.url || !req.url.startsWith(WS_PATH)) return;
-    wss.handleUpgrade(req, socket as never, head, (ws) => {
-      editor = ws;
-      ws.on('message', (data) => {
-        try {
-          const r = JSON.parse(String(data)) as EditorResponse;
-          pending.get(r.id)?.(r);
-          pending.delete(r.id);
-        } catch {
-          /* ignore malformed */
-        }
-      });
-      ws.on('close', () => {
-        if (editor === ws) editor = undefined;
-      });
-    });
+    wss.handleUpgrade(req, socket as never, head, (ws) => register(ws as unknown as BridgeSocket));
   });
-
-  return {
-    connected: () => !!editor && editor.readyState === editor.OPEN,
-    send: (cmd) =>
-      new Promise<EditorResponse>((res, rej) => {
-        if (!editor || editor.readyState !== editor.OPEN) {
-          rej(new Error('no editor connected — open the editor page in a browser first'));
-          return;
-        }
-        pending.set(cmd.id, res);
-        editor.send(JSON.stringify(cmd));
-        setTimeout(() => {
-          if (pending.delete(cmd.id)) rej(new Error('editor did not respond in time'));
-        }, 15000);
-      }),
-    push: (msg) => {
-      if (editor && editor.readyState === editor.OPEN) editor.send(JSON.stringify(msg));
-    },
-  };
+  return bridge;
 }
 
 /** Read a request's JSON body (for the save endpoint). */

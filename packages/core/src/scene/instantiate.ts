@@ -83,7 +83,25 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
     };
     for (const [attr, value] of Object.entries(c.props)) {
       const meta = props.get(attr);
-      if (!meta || !isReferenceType(elementType(meta.type))) continue;
+      if (!meta || !isReferenceType(elementType(meta.type))) {
+        // A reference-shaped compiled value whose registered property type isn't a
+        // recognized reference type is never a valid end state: a scalar property
+        // never compiles to this shape. It almost always means the property's
+        // declared @property({ type }) class was `undefined` when the decorator
+        // ran — typically a circular import between this component and the one it
+        // references. Fail loudly instead of leaving the raw ref object in place.
+        if (hasReferenceShape(value)) {
+          throw new Error(
+            `Component "${c.type}" property "${attr}" has a reference-shaped compiled value ` +
+              `(${JSON.stringify(value)}) but its registered property type ` +
+              `${meta ? "isn't a recognized reference type" : 'is missing'}. This usually means ` +
+              `the property's declared @property({ type }) class reference was undefined when the ` +
+              `decorator ran — check for a circular import between "${c.type}" and the component ` +
+              `it references.`,
+          );
+        }
+        continue;
+      }
       const target = instances[i] as unknown as Record<string, unknown>;
       target[attr] = isArrayType(meta.type)
         ? (value as CompiledRef[]).map(resolveRef)
@@ -188,6 +206,20 @@ function toRuntimeValue(type: PropType | { new (): unknown } | EnumDef, value: C
     default:
       return value; // float/int/bool/string
   }
+}
+
+/**
+ * Whether a compiled value has the shape of a reference (a `{component}`,
+ * `{node}`, or `{prefab}` object). A scalar property never compiles to this
+ * shape, so seeing it against a non-reference property type signals a wiring bug.
+ */
+function hasReferenceShape(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    ('component' in value || 'node' in value || 'prefab' in value)
+  );
 }
 
 /** A reference element type — resolved against the scene, not parsed as a scalar/enum. */

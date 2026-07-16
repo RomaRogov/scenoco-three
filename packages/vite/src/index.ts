@@ -59,6 +59,14 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
   return {
     name: 'scenoco:bundle',
 
+    // Emit sourcemaps for production builds by default: a scene bug otherwise
+    // surfaces as a crash on a single minified line with two-letter names and no
+    // way back to source. This is a plugin default — a project's own vite.config
+    // (or the singlefile build, which sets `sourcemap: 'inline'`) overrides it.
+    config() {
+      return { build: { sourcemap: true } };
+    },
+
     configResolved(config) {
       isServe = config.command === 'serve';
     },

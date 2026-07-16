@@ -324,6 +324,40 @@ function setComponentError(message: string | undefined): void {
   document.body.append(bar);
   errorBanner = bar;
 }
+/**
+ * Show this editor's LAN URL in a corner badge so you can open the same scene on
+ * another device on the network (phone/tablet). The server resolves the address
+ * (`/@scenoco/info`); we append the current `?file=` so the device lands on the
+ * same file. Hidden when there's no LAN address, or when this page is already the
+ * network URL (you're on the device). Click copies it to the clipboard.
+ */
+async function showNetworkUrl(): Promise<void> {
+  let networkUrl: string | null;
+  try {
+    ({ networkUrl } = (await (await fetch('/@scenoco/info')).json()) as { networkUrl: string | null });
+  } catch {
+    return; // info endpoint unreachable — no badge, non-fatal
+  }
+  if (!networkUrl) return;
+  const target = networkUrl.replace(/\/$/, '') + location.search; // carry the open ?file= to the device
+  if (new URL(networkUrl).host === location.host) return; // already viewing via the LAN URL
+
+  const bar = document.createElement('div');
+  bar.id = 'sc-net';
+  bar.title = 'Open this scene on another device — click to copy';
+  const label = textSpan('LAN ');
+  label.className = 'sc-net-label';
+  const link = textSpan(target.replace(/^https?:\/\//, ''));
+  bar.append(label, link);
+  bar.onclick = () => {
+    void navigator.clipboard?.writeText(target).catch(() => {});
+    const prev = link.textContent;
+    link.textContent = 'copied';
+    setTimeout(() => (link.textContent = prev), 1200);
+  };
+  document.body.append(bar);
+}
+
 function textSpan(text: string): HTMLElement {
   const s = document.createElement('span');
   s.textContent = text;
@@ -384,6 +418,7 @@ void (async () => {
   }
   rebind(); // builds the (empty) panels
   connectEditor(session, editorHost);
+  void showNetworkUrl(); // corner badge with the LAN URL for opening on another device
   const initial = new URLSearchParams(location.search).get('file');
   if (initial) await openFile(initial);
   else void showFilePicker(openFile); // no ?file= → let the user pick from assets/

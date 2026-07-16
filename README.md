@@ -110,9 +110,16 @@ particles, …) is registered automatically by the CLI, the Vite plugin, and the
 npm install
 npm run examples:dev    # examples/breakout at :5173 (Box2D physics, DOM HUD, particles)
 npm test                # vitest — zone folders under tests/{core,compiler,tooling,packages,editor}
+npm run smoke:build     # real singlefile `vite build`; asserts prod-only runtime plumbing survives
 npm run build           # build every package in dependency order
 npm run typecheck       # cross-package tsc --noEmit
 ```
+
+> **Before tagging a release, run `npm run smoke:build`** (or a real `vite build` on each example
+> and open the output). Dev (`vite`) and the editor don't tree-shake or bundle the way a
+> production build does, so a class of bug — a side-effect module dropped by tree-shaking, a
+> module-evaluation-order hazard — is invisible until a real `vite build`. `smoke:build` guards
+> that gap automatically; it's cheap enough to run in CI.
 
 Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md) (repo map) and
 [`CONVENTIONS.md`](CONVENTIONS.md) (editing rules).

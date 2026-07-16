@@ -49,6 +49,13 @@ async function main(argv: string[]): Promise<number> {
     cwd,
     ...(parseList(options.components) ? { componentRoots: parseList(options.components) } : {}),
     ...(parseList(options.packages) ? { packages: parseList(options.packages) } : {}),
+    // Self-halt once every editor tab is closed (or none ever opens), so a
+    // spawned editor never lingers as a stale process holding its ports.
+    onIdle: () => {
+      if (closing) return; // an intentional Ctrl+C shutdown is already underway
+      console.error('\n  no editor connected — shutting down so no stale process is left behind\n');
+      void shutdown();
+    },
   });
   const mcp = await startMcpServer(editor.bridge, {
     ...(options.port ? { port: Number(options.port) } : {}),

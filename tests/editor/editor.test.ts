@@ -26,7 +26,7 @@ describe('editor — CLI args + protocol', () => {
 /** A bridge stub that records commands and returns canned replies. */
 function stubBridge(reply: (cmd: EditorCommand) => EditorResponse): { bridge: EditorBridge; sent: EditorCommand[] } {
   const sent: EditorCommand[] = [];
-  return { sent, bridge: { connected: () => true, send: async (cmd) => { sent.push(cmd); return reply(cmd); }, push: () => {} } };
+  return { sent, bridge: { connected: () => true, send: async (cmd) => { sent.push(cmd); return reply(cmd); }, push: () => {}, dispose: () => {} } };
 }
 async function connect(bridge: EditorBridge) {
   const server = buildMcpServer(bridge);
@@ -71,6 +71,7 @@ describe('editor — MCP tools', () => {
       connected: () => false,
       send: async () => { throw new Error('no editor connected — open the editor page in a browser first'); },
       push: () => {},
+      dispose: () => {},
     };
     const { client, close } = await connect(bridge);
     const res = await client.callTool({ name: 'playback', arguments: { state: 'play' } });

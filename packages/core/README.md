@@ -393,6 +393,17 @@ array `[x,y,z]`, a `THREE.Vector3`/`Vector2`/`Euler`, or `{x,y,z}`; a `Color` ma
 runtime the field is **always** the Three type, whether set in XML or left at its default — so
 `this.offset.x` always works.
 
+> **⚠️ Avoid a circular module import between two components that reference each other's classes.**
+> `@property({ type: OtherComponent })` captures the class reference **eagerly**, at
+> class-definition (module-evaluation) time. If component `A`'s module imports `B` and `B`'s module
+> imports `A`, a bundled production build can evaluate one class while the other is still
+> `undefined` — so the decorator captures `undefined` as the property type and the reference is
+> never wired (it silently stays a raw `{ component: N }` object). Prefer having only **one**
+> direction import the other's class, and move the reverse-direction usage into a **method body**
+> (evaluated lazily, so it's safe regardless of import order — e.g. `other.getComponent(A)` inside
+> `onTriggerEnter`). Since v0.4.x the runtime detects this exact mismatch and **throws a pointed
+> error** naming the component and property instead of crashing cryptically later.
+
 ### `enumOf`
 
 Register a set of named choices as a `@property` type. The field holds the **native value**;

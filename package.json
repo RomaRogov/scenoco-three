@@ -36,7 +36,8 @@
     "typecheck:particles": "npm --prefix packages/particles run typecheck",
     "typecheck:editor": "npm --prefix packages/editor run typecheck",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke:build": "node scripts/build-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
