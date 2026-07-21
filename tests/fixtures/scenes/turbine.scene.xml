@@ -1,6 +1,8 @@
 <Scene>
-  <Background color="#0a0e16" />
-  <Fog color="#0a0e16" near="8" far="28" />
+  <Attachments>
+    <Background color="#0a0e16" />
+    <Fog color="#0a0e16" near="8" far="28" />
+  </Attachments>
 
   <AmbientLight intensity="0.3" />
   <DirectionalLight intensity="2.5" position="3 5 2" />
@@ -10,14 +12,16 @@
   <PrefabInstance src="turbine.prefab.xml" id="Turbine_01" position="0 1 0" />
   <PrefabInstance src="turbine.prefab.xml" id="Turbine_02" position="3 1 0">
     <Override target="#osc" amplitude="1.0" frequency="1.0" />
-    <Override target="#body" rotation="0 0 15" />
+    <Override target="#body" eulerAngles="0 0 15" />
   </PrefabInstance>
 
   <!-- Reaches into the instances by scoped id: a component in Turbine_02,
        and the Turbine_01 instance node. -->
   <Mesh id="Indicator" position="6 1 0">
-    <SphereGeometry radius="0.3" />
-    <MeshStandardMaterial color="#ffcc00" emissive="#ff8800" roughness="0.4" />
+    <Attachments>
+      <SphereGeometry radius="0.3" />
+      <MeshStandardMaterial color="#ffcc00" emissive="#ff8800" roughness="0.4" />
+    </Attachments>
     <Components>
       <Follow source="#Turbine_02/osc" axis="0 1 0" scale="2" />
       <LookAt target="#Turbine_01" />

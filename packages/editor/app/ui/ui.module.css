@@ -1,0 +1,142 @@
+/* Editor chrome styles (CSS Module — class names are scoped/hashed, referenced as
+   `styles.x` from the TSX). Shares the dark theme vars from index.html. */
+
+/* ── top bar ─────────────────────────────────────────────────────────────── */
+.topbar {
+  position: fixed; top: 8px; left: 8px; right: 8px; margin: 0 auto;
+  width: max-content; max-width: calc(100% - 16px);
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  backdrop-filter: blur(6px); pointer-events: auto;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.topbar::-webkit-scrollbar { height: 0; }
+
+.tbtn {
+  position: relative; flex: 0 0 auto;
+  width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: #cfe0f2; cursor: pointer;
+}
+.tbtn svg { width: 21px; height: 21px; display: block; }
+.tbtn:hover:not(:disabled) { background: rgba(74, 240, 224, 0.12); color: #eafdff; }
+.tbtn.active { background: rgba(74, 240, 224, 0.2); border-color: var(--accent); color: #eafdff; }
+.tbtn:disabled { opacity: 0.3; cursor: default; }
+.tbtn.save.dirty { color: var(--accent); }
+.tbtn.save.dirty::after {
+  content: ''; position: absolute; top: 7px; right: 7px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+}
+.tbtn.save.saving { opacity: 0.5; }
+.sep { flex: 0 0 auto; width: 1px; height: 24px; background: var(--line); margin: 0 3px; }
+
+/* ── bottom launcher ─────────────────────────────────────────────────────── */
+.launcher {
+  position: fixed; left: 12px; bottom: 12px; z-index: 6;
+  width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  padding: 0; border-radius: 14px; cursor: pointer; pointer-events: auto;
+  background: var(--panel); border: 1px solid var(--line); color: #cfe0f2;
+  backdrop-filter: blur(6px); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+.launcher:hover { color: #eafdff; border-color: var(--accent); }
+.launcher svg { width: 24px; height: 24px; }
+
+/* ── bottom sheets (node list + inspector) ───────────────────────────────── */
+.sheet {
+  position: fixed; z-index: 7; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line);
+  backdrop-filter: blur(10px); pointer-events: auto;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+  animation: sheet-in 0.18s ease;
+}
+@keyframes sheet-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Portrait / narrow: a bottom-docked sheet that sits a bit lower (leaves more of
+   the viewport visible above it); one at a time. */
+.sheet {
+  left: 0; right: 0; bottom: 0;
+  height: min(50vh, 460px);
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+/* Landscape: full-height side columns (top→bottom) — node list left, inspector
+   right, both may coexist. */
+@media (orientation: landscape) {
+  .sheet { top: 12px; bottom: 12px; height: auto; border-radius: 16px; width: min(400px, 44vw); }
+  .sheetNodes { left: 12px; right: auto; }
+  .sheetInspector { right: 12px; left: auto; }
+}
+
+.head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px 9px 14px; border-bottom: 1px solid var(--line);
+}
+.title {
+  flex: 1 1 auto; font: 700 11px/1 ui-monospace, monospace; color: #9fe7ff;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.actions { display: flex; align-items: center; gap: 2px; }
+.headBtn {
+  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: #cfe0f2; cursor: pointer;
+}
+.headBtn svg { width: 18px; height: 18px; }
+.headBtn:hover:not(:disabled) { background: rgba(74, 240, 224, 0.12); color: #eafdff; }
+.headBtn:disabled { opacity: 0.32; cursor: default; }
+.body { flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; }
+
+/* ── tree (react-arborist rows) ──────────────────────────────────────────── */
+.tree { padding: 4px 0; }
+.node {
+  display: flex; align-items: center; gap: 4px; height: 100%;
+  padding-right: 8px; cursor: pointer; white-space: nowrap;
+  font: 12px/1.4 ui-monospace, monospace; color: #d6e2f0; border-radius: 6px;
+}
+.node:hover { background: rgba(74, 240, 224, 0.08); }
+.node.sel { background: rgba(74, 240, 224, 0.18); color: #eafdff; }
+.node.drop { background: rgba(74, 240, 224, 0.14); box-shadow: inset 0 0 0 1px var(--accent); }
+.caret {
+  flex: 0 0 18px; width: 18px; height: 100%; display: flex; align-items: center; justify-content: center;
+  color: #6f93b8; user-select: none;
+}
+.caret svg { width: 14px; height: 14px; }
+.nodeName { overflow: hidden; text-overflow: ellipsis; }
+.nodeType { color: #6f93b8; margin-left: 6px; }
+
+/* ── inspector rows + sections ───────────────────────────────────────────── */
+.inspector { padding: 6px 12px 16px; font: 12px/1.5 ui-monospace, monospace; }
+.section { margin-top: 4px; }
+.secHead {
+  display: flex; align-items: center; gap: 4px; margin: 10px 0 4px;
+  color: #9fe7ff; font-weight: 700; border-bottom: 1px solid var(--line);
+  padding-bottom: 3px; cursor: pointer; user-select: none;
+  text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px;
+}
+.secHeadPlain { cursor: default; }
+.secCaret { flex: 0 0 14px; width: 14px; display: inline-flex; align-items: center; color: #6f93b8; }
+.secCaret svg { width: 13px; height: 13px; }
+.secBody { padding: 1px 0 2px; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 30px; padding: 2px 0; }
+.k { color: #8fa6c4; flex: 0 0 auto; }
+.v { color: #e7f0fb; text-align: right; word-break: break-word; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.empty { color: #6f8099; padding: 16px 4px; }
+
+/* ── editable field widgets (16px font avoids iOS tap-zoom; roomy touch targets) ── */
+.input {
+  background: #0e1219; color: #e7f0fb; border: 1px solid var(--line); border-radius: 5px;
+  padding: 4px 6px; font: 16px ui-monospace, monospace; min-height: 28px;
+}
+.input:focus { outline: none; border-color: var(--accent); }
+.num { width: 64px; text-align: right; }
+.axes { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.axis { display: flex; align-items: center; gap: 2px; }
+.axisK { color: #6f93b8; font-size: 11px; width: 12px; text-align: center; }
+.scrub { cursor: ew-resize; touch-action: none; }
+.toggle { width: 22px; height: 22px; accent-color: var(--accent); }
+.color { display: flex; align-items: center; gap: 5px; }
+.swatch { width: 30px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
+.hex { width: 78px; }
+.select { min-width: 96px; cursor: pointer; }

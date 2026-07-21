@@ -16,6 +16,7 @@ export default defineConfig({
       '@scenoco-three/audio': fileURLToPath(new URL('./packages/audio/src/index.ts', import.meta.url)),
       '@scenoco-three/animation': fileURLToPath(new URL('./packages/animation/src/index.ts', import.meta.url)),
       '@scenoco-three/particles': fileURLToPath(new URL('./packages/particles/src/index.ts', import.meta.url)),
+      '@scenoco-three/ui': fileURLToPath(new URL('./packages/ui/src/index.ts', import.meta.url)),
     },
   },
   test: {

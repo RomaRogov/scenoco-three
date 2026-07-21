@@ -1,10 +1,11 @@
 import {
   AmbientLight, Box3, Color, DirectionalLight, PerspectiveCamera, Sphere, Vector3, type Object3D,
 } from 'three';
-import { Engine, PrefabRef, Registry, bundleKind, type Bundle, type Component } from '@scenoco-three/core';
+import { Engine, PrefabAsset, Registry, bundleKind, type Bundle, type Component } from '@scenoco-three/core';
 import type { SceneProvenance } from '@scenoco-three/compiler';
-import type { EditOp, EditorResult, SimStep } from '../src/protocol.js';
-import { componentName, registeredMeta, round, toDeg } from './meta.js';
+import type { EditOp, EditorResult, NodeRef, SimStep, StructuralOp } from '../src/protocol.js';
+import { SceneDocument } from './document.js';
+import { componentName, isEditorOnly, registeredMeta, round, toDeg } from './meta.js';
 
 export type EditorMode = 'edit' | 'play';
 
@@ -35,6 +36,15 @@ export class EditorSession {
   onRuntimeError?: (message: string) => void;
 
   private bundle?: Bundle;
+  /**
+   * The unsaved inspector edits, overlaid onto freshly-instantiated **play/preview**
+   * engines so gameplay reflects them even before a save (edit mode already shows
+   * them via the live SceneDocument). The host keeps this in sync with the document's
+   * net edits, and re-applies it after a stop to restore the edit view.
+   */
+  private edits: EditOp[] = [];
+  /** Structural op-log (reparent/remove) overlaid onto play/preview engines, like `edits`. */
+  private structural: StructuralOp[] = [];
   /** Source path of the open scene/prefab — the target of `save`. */
   filePath?: string;
   /** Editor provenance for the open file (prefab/material origins), for the document. */
@@ -48,8 +58,27 @@ export class EditorSession {
     return new Engine({ canvas: this.canvas, autoStart: false, editor, preserveDrawingBuffer: true });
   }
 
+  /** The current unsaved edit overlay — the host re-applies it after a stop to restore the edit view. */
+  get pendingEdits(): EditOp[] {
+    return this.edits;
+  }
+  /** Keep the play/preview overlay in sync with the document's net edits. */
+  setEdits(edits: EditOp[]): void {
+    this.edits = edits;
+  }
+  /** Keep the play/preview structural overlay in sync with the document's op-log. */
+  setStructural(ops: StructuralOp[]): void {
+    this.structural = ops;
+  }
+  /** The current structural op-log — the host replays it onto the edit engine after a stop. */
+  get pendingStructural(): StructuralOp[] {
+    return this.structural;
+  }
+
   /** Fetch + load a scene/prefab (edit mode). Returns a small summary. */
   async open(path: string): Promise<{ file: string; kind: 'scene' | 'prefab'; nodes: number; componentError?: string }> {
+    this.edits = []; // a freshly loaded file starts with no overlay (the doc is rebuilt clean)
+    this.structural = [];
     const res = await fetch(`/@scenoco/bundle?file=${encodeURIComponent(path)}`);
     const data = (await res.json()) as
       | { bundle: Bundle; provenance: SceneProvenance; componentError?: string }
@@ -67,17 +96,33 @@ export class EditorSession {
     return data.componentError ? { ...summary, componentError: data.componentError } : summary;
   }
 
-  /** Write a set of attribute edits back to the source file (surgical diff). */
-  async save(edits: EditOp[]): Promise<{ changed: number; unresolved: number }> {
+  /** Write attribute edits + structural ops back to the source file (comment-preserving). */
+  async save(edits: EditOp[], structuralOps: StructuralOp[] = []): Promise<{ changed: number; unresolved: number }> {
     if (!this.filePath) throw new Error('no file open to save');
     const res = await fetch('/@scenoco/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file: this.filePath, edits }),
+      body: JSON.stringify({ file: this.filePath, edits, structuralOps }),
     });
     const data = (await res.json()) as { changed: number; unresolved: number; error?: string };
     if (!res.ok) throw new Error(data.error ?? 'save failed');
+    // Pick up the recompiled bundle from the just-saved XML so play/stop run the
+    // saved scene — without re-instantiating the live edit engine (no camera/
+    // selection reset). The doc is marked saved by the host, clearing the overlay.
+    await this.refreshBundle();
     return data;
+  }
+
+  /** Re-fetch the compiled bundle for the open file (after a save), updating the play baseline. */
+  private async refreshBundle(): Promise<void> {
+    if (!this.filePath) return;
+    try {
+      const res = await fetch(`/@scenoco/bundle?file=${encodeURIComponent(this.filePath)}`);
+      const data = (await res.json()) as { bundle?: Bundle };
+      if (res.ok && Array.isArray(data.bundle)) this.bundle = data.bundle;
+    } catch {
+      /* keep the current baseline — worst case play uses the pre-save bundle until next open */
+    }
   }
 
   /** Start (or resume) gameplay. */
@@ -160,7 +205,7 @@ export class EditorSession {
       type: node.type,
       transform: {
         position: arr(node.position),
-        rotation: degArr(node.rotation),
+        eulerAngles: node.eulerAngles.toArray(),
         scale: arr(node.scale),
         visible: node.visible,
       },
@@ -254,7 +299,39 @@ export class EditorSession {
   }
 
   private applyBundle(): void {
-    if (this.bundle) applyBundleToEngine(this.engine, this.bundle);
+    if (!this.bundle) return;
+    applyBundleToEngine(this.engine, this.bundle);
+    // Play/preview run the *edited* scene: overlay the current unsaved edits onto the
+    // fresh instances. Edit mode is skipped — its live SceneDocument applies edits
+    // through the real document instead, so undo/dirty state stays correct.
+    if (this.mode !== 'edit') {
+      this.applyStructuralOverlay(this.engine);
+      this.applyEditOverlay(this.engine);
+    }
+  }
+
+  /** Re-apply the unsaved edit overlay onto a freshly-instantiated engine (play/preview). */
+  private applyEditOverlay(engine: Engine): void {
+    if (this.edits.length === 0) return;
+    const graph = engine.getSceneGraph();
+    if (graph) new SceneDocument(graph, this.provenance).applyEdits(this.edits);
+  }
+
+  /**
+   * Reparent/remove nodes on a fresh engine to match the structural op-log, so
+   * play/preview reflect unsaved reparents. `insertNode` needs the compiler, so it
+   * only shows after a save (recompile) — see the docs. Resolves nodes by id/path.
+   */
+  private applyStructuralOverlay(engine: Engine): void {
+    for (const op of this.structural) {
+      if (op.op === 'moveNode') {
+        const node = resolveInEngine(engine, op.target);
+        const parent = op.parent.path?.length === 0 ? engine.scene : resolveInEngine(engine, op.parent);
+        if (node && parent) parent.add(node);
+      } else if (op.op === 'removeNode') {
+        resolveInEngine(engine, op.target)?.removeFromParent();
+      }
+    }
   }
 
   /** Editor camera framing the scene from a 3/4 angle. */
@@ -302,6 +379,7 @@ export class EditorSession {
     const engine = new Engine({ canvas: this.canvas, autoStart: false, editor: false, preserveDrawingBuffer: true });
     try {
       if (this.bundle) applyBundleToEngine(engine, this.bundle);
+      this.applyEditOverlay(engine); // preview unsaved edits too
       const cam = new PerspectiveCamera(50, this.canvas.clientWidth / this.canvas.clientHeight || 1, 0.01, 50000);
       const center = frameCameraTo(cam, engine.scene);
       const camPos = vec3(opts.camera);
@@ -316,6 +394,19 @@ export class EditorSession {
       engine.dispose();
     }
   }
+}
+
+/** Resolve a NodeRef to a live object in `engine`: by `id`, else by structural path. */
+export function resolveInEngine(engine: Engine, ref: NodeRef): Object3D | undefined {
+  if (ref.id !== undefined) return engine.findObject(ref.id) ?? undefined;
+  if (!ref.path) return undefined;
+  let cur: Object3D = engine.scene;
+  for (const ordinal of ref.path) {
+    const next = cur.children.filter((c) => !isEditorOnly(c))[ordinal];
+    if (!next) return undefined;
+    cur = next;
+  }
+  return cur;
 }
 
 /** Frames to advance a particle preview so the effect has visibly emitted. */
@@ -362,13 +453,13 @@ function propValues(component: Component): Record<string, unknown> {
 function jsonValue(v: unknown): unknown {
   if (v == null || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return v ?? null;
   if (Array.isArray(v)) return v.map(jsonValue);
-  if (v instanceof PrefabRef) return v.describe(); // a `prefab` prop → its label, not "[object Object]"
-  const o = v as { isVector3?: boolean; isVector2?: boolean; isColor?: boolean; isEuler?: boolean; isObject3D?: boolean; x?: number; y?: number; z?: number; name?: string; getHexString?: () => string };
+  if (v instanceof PrefabAsset) return v.describe(); // a `prefab` prop → its label, not "[object Object]"
+  const o = v as { isVector3?: boolean; isVector2?: boolean; isColor?: boolean; isEuler?: boolean; isObject3D?: boolean; x?: number; y?: number; z?: number; sceneId?: string; getHexString?: () => string };
   if (o.isVector3) return [o.x, o.y, o.z];
   if (o.isVector2) return [o.x, o.y];
   if (o.isEuler) return [toDeg(o.x!), toDeg(o.y!), toDeg(o.z!)];
   if (o.isColor) return `#${o.getHexString!()}`;
-  if (o.isObject3D) return o.name || '(node)';
+  if (o.isObject3D) return o.sceneId || '(node)';
   // A component reference → its scene #id (what the agent correlates on), falling
   // back to the class name only when the target has no id.
   if ('node' in (o as object) && 'engine' in (o as object)) {
@@ -378,7 +469,6 @@ function jsonValue(v: unknown): unknown {
   return String(v);
 }
 const arr = (v: { x: number; y: number; z: number }) => [round(v.x), round(v.y), round(v.z)];
-const degArr = (v: { x: number; y: number; z: number }) => [toDeg(v.x), toDeg(v.y), toDeg(v.z)];
 
 function vec3(s?: string): Vector3 | undefined {
   if (!s) return undefined;

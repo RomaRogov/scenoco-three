@@ -13,7 +13,7 @@ export type ComponentCtor = new () => Component;
  *   color     — "#rrggbb" or a CSS color name
  *   node      — Object3D reference by scene path: "Turbine_01/Blade"
  *   prefab    — a `.prefab.xml` file reference, resolved at build time to an
- *               embedded prefab bundle; the field receives a spawnable PrefabRef
+ *               embedded prefab bundle; the field receives a spawnable PrefabAsset
  *
  * A property may instead be typed with a Component class (Unity/Cocos-style
  * typed reference); its XML value is a node path resolved to that node's

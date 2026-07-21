@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { parseArgs, parseList } from '../../packages/editor/src/args.js';
 import { commandId, type AgentEdit, type EditorCommand, type EditorResponse } from '../../packages/editor/src/protocol.js';
 import { buildMcpServer } from '../../packages/editor/src/mcp.js';
-import { listSceneFiles, type EditorBridge } from '../../packages/editor/src/server.js';
+import { listSceneFiles, readPort, rememberPort, type EditorBridge } from '../../packages/editor/src/server.js';
 import { runCommand, type EditorHost } from '../../packages/editor/app/wsClient.js';
 import type { EditorSession } from '../../packages/editor/app/session.js';
 
@@ -26,7 +26,7 @@ describe('editor — CLI args + protocol', () => {
 /** A bridge stub that records commands and returns canned replies. */
 function stubBridge(reply: (cmd: EditorCommand) => EditorResponse): { bridge: EditorBridge; sent: EditorCommand[] } {
   const sent: EditorCommand[] = [];
-  return { sent, bridge: { connected: () => true, send: async (cmd) => { sent.push(cmd); return reply(cmd); }, push: () => {}, dispose: () => {} } };
+  return { sent, bridge: { connected: () => true, send: async (cmd) => { sent.push(cmd); return reply(cmd); }, push: () => {}, waitForConnection: async () => true, dispose: () => {} } };
 }
 async function connect(bridge: EditorBridge) {
   const server = buildMcpServer(bridge);
@@ -71,6 +71,7 @@ describe('editor — MCP tools', () => {
       connected: () => false,
       send: async () => { throw new Error('no editor connected — open the editor page in a browser first'); },
       push: () => {},
+      waitForConnection: async () => false,
       dispose: () => {},
     };
     const { client, close } = await connect(bridge);
@@ -99,5 +100,16 @@ describe('listSceneFiles (start-up file picker)', () => {
       { file: 'assets/scenes/level.scene.xml', kind: 'scene' },
     ]);
     expect(listSceneFiles(['assets'], mkdtempSync(join(tmpdir(), 'scenoco-empty-')))).toEqual([]); // missing root
+  });
+});
+
+describe('sticky editor port (.scenoco/editor-port)', () => {
+  it('remembers the bound port and reads it back; rejects a missing or malformed file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'scenoco-port-'));
+    expect(readPort(dir)).toBeUndefined(); // nothing remembered yet → fresh port
+    rememberPort(dir, 51234);
+    expect(readPort(dir)).toBe(51234); // reclaimed on the next launch
+    writeFileSync(join(dir, '.scenoco', 'editor-port'), 'not-a-port');
+    expect(readPort(dir)).toBeUndefined(); // garbage is ignored, not reused
   });
 });

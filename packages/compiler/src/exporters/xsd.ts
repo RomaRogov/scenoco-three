@@ -102,9 +102,22 @@ function emitSchema(opts: { sceneRoot: boolean; prefabRoot: boolean }): string {
   out.push(`  </xs:attributeGroup>`);
   out.push('');
 
-  // --- Attachment elements (geometry/material/fog/…) -----------------------
-  out.push(`  <!-- Attachments: leaves that configure a node (per-node allowed set below) -->`);
+  // --- Attachments ----------------------------------------------------------
+  // Attachment elements + one <Attachments> block wrapping them — the direct
+  // parallel of <Components>: a single element with the whole attachment set, so
+  // a node's content model is just Attachments? / object3dNodes / Components.
+  // (Which attachment fits which node is the compiler's target check, exactly as
+  // <Components> defers per-node rules to the compiler.)
+  out.push(`  <!-- Attachments (children of <Attachments>): geometry/material/fog/… -->`);
   for (const def of allAttachmentDefs()) out.push(attachmentElement(def));
+  out.push('');
+  out.push(`  <xs:element name="Attachments">`);
+  out.push(`    <xs:complexType>`);
+  out.push(`      <xs:choice minOccurs="0" maxOccurs="unbounded">`);
+  for (const def of allAttachmentDefs()) out.push(`        <xs:element ref="${def.tag}"/>`);
+  out.push(`      </xs:choice>`);
+  out.push(`    </xs:complexType>`);
+  out.push(`  </xs:element>`);
   out.push('');
 
   // --- Components -----------------------------------------------------------
@@ -147,12 +160,12 @@ function emitSchema(opts: { sceneRoot: boolean; prefabRoot: boolean }): string {
   return out.join('\n');
 }
 
-/** The `<Prefab>` wrapper: exactly one node, no attributes (matches the validator). */
+/** The `<Prefab>` wrapper: one *or several* nodes, no attributes (matches the validator). */
 function prefabRootElement(): string {
   return [
     `  <xs:element name="Prefab"> <!-- &lt;Prefab&gt;&lt;Mesh/&gt;&lt;/Prefab&gt; -->`,
     `    <xs:complexType>`,
-    `      <xs:group ref="object3dNodes"/>`,
+    `      <xs:group ref="object3dNodes" minOccurs="0" maxOccurs="unbounded"/>`,
     `    </xs:complexType>`,
     `  </xs:element>`,
   ].join('\n');
@@ -193,8 +206,9 @@ function spatialElement(def: NodeDef): string {
   lines.push(`    <xs:complexType>`);
 
   const childRefs: string[] = [];
-  // Attachments this node accepts (geometry/material/fog/…).
-  for (const att of attachmentsForNode(def)) childRefs.push(`<xs:element ref="${att.tag}"/>`);
+  // Attachments (geometry/material/fog/…) go in the shared <Attachments> block;
+  // object3d children and the <Components> block are the other two areas.
+  if (attachmentsForNode(def).length > 0) childRefs.push(`<xs:element ref="Attachments"/>`);
   if (def.children.object3d) childRefs.push(`<xs:group ref="object3dNodes"/>`);
   if (def.children.components) childRefs.push(`<xs:element ref="Components"/>`);
 

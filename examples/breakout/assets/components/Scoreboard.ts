@@ -1,42 +1,45 @@
-import { Component, component } from '@scenoco-three/core';
+import { Component, component, property, ValueType } from '@scenoco-three/core';
+import type { Container, Text } from '@scenoco-three/ui';
 
 /**
- * Drives the Breakout HUD — the DOM overlay declared in `breakout.ui.html`.
+ * Drives the Breakout HUD — the in-canvas `<Fullscreen>` UI declared in the
+ * scene itself.
  *
- * This is the whole pattern for HTML/CSS UI in SceNoCo: a normal component that
- * grabs its elements from `this.engine.overlay` (the `<div>` layered over the
- * canvas) with plain `querySelector`, and updates them with plain DOM. No
- * UI-specific API, no wrapper tags — the HTML is the view, this is the controller.
- * The `Ball` holds a reference to this component (`scoreboard="#ui"`) and calls
- * its methods as the game progresses, exactly like any other component reference.
+ * This is the whole pattern for UI in SceNoCo: the elements are ordinary scene
+ * nodes (`<Text id="score">`), a normal component references them with node
+ * properties, and updates them with the plain pmndrs-uikit API
+ * (`setProperties`). The `Ball` holds a reference to this component
+ * (`scoreboard="#hud"`) and calls its methods as the game progresses, exactly
+ * like any other component reference.
  */
-@component({ name: 'Scoreboard', description: 'Updates the DOM HUD (score, lives, win/lose banner)' })
+@component({ name: 'Scoreboard', description: 'Updates the in-canvas HUD (score, lives, win/lose banner)' })
 export class Scoreboard extends Component {
-  private scoreEl: HTMLElement | null = null;
-  private livesEl: HTMLElement | null = null;
-  private bannerEl: HTMLElement | null = null;
-  private score = 0;
+  @property({ type: ValueType.Node, description: 'Text element showing the score value' })
+  scoreLabel: Text | null = null;
 
-  override onLoad(): void {
-    const ui = this.engine.overlay;
-    this.scoreEl = ui.querySelector('#score');
-    this.livesEl = ui.querySelector('#lives');
-    this.bannerEl = ui.querySelector('#banner');
-  }
+  @property({ type: ValueType.Node, description: 'Text element showing the lives value' })
+  livesLabel: Text | null = null;
+
+  @property({ type: ValueType.Node, description: 'Centered banner container (win/lose message)' })
+  bannerBox: Container | null = null;
+
+  @property({ type: ValueType.Node, description: 'Text element inside the banner' })
+  bannerLabel: Text | null = null;
+
+  private score = 0;
 
   addPoints(points: number): void {
     this.score += points;
-    if (this.scoreEl) this.scoreEl.textContent = String(this.score);
+    this.scoreLabel?.setProperties({ text: String(this.score) });
   }
 
   setLives(lives: number): void {
-    if (this.livesEl) this.livesEl.textContent = String(Math.max(0, lives));
+    this.livesLabel?.setProperties({ text: String(Math.max(0, lives)) });
   }
 
   /** Show a centered message (win/lose); empty string hides it. */
   banner(text: string): void {
-    if (!this.bannerEl) return;
-    this.bannerEl.textContent = text;
-    this.bannerEl.style.display = text ? 'flex' : 'none';
+    this.bannerLabel?.setProperties({ text });
+    this.bannerBox?.setProperties({ display: text ? 'flex' : 'none' });
   }
 }

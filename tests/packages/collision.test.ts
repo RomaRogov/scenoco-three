@@ -119,8 +119,10 @@ describe('@scenoco-three/collision — CollisionSystem (rapier-aligned)', () => 
 
   it('accepts a rapier-shaped scene (<Physics>/<RigidBody>/<*Collider>) as a drop-in', () => {
     const r = compileSceneXml(`<Scene>
-      <Physics gravity="0 -9.81 0" />
-      <Mesh><BoxGeometry /><Components><RigidBody kind="dynamic" /><BoxCollider halfExtents="1 1 1" isSensor="true" /></Components></Mesh>
+      <Attachments>
+        <Physics gravity="0 -9.81 0" />
+      </Attachments>
+      <Mesh><Attachments><BoxGeometry /></Attachments><Components><RigidBody kind="dynamic" /><BoxCollider halfExtents="1 1 1" isSensor="true" /></Components></Mesh>
     </Scene>`);
     expect(r.ok).toBe(true); // the same XML rapier authors validates under collision too
   });

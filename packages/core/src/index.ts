@@ -47,6 +47,7 @@ export {
   type ComponentOptions,
   type NodeOptions,
   type AttachmentOptions,
+  type SystemOptions,
 } from './registry/decorators.js';
 export { Object3DNode, Attachment } from './nodes/base.js';
 
@@ -72,8 +73,10 @@ export {
   type AttachContext,
 } from './registry/NodeRegistry.js';
 
-// Stable runtime API: a `@property({ type: ValueType.Prefab })` field receives a PrefabRef.
-export { PrefabRef, type SpawnOptions, type SpawnFn, type Vec3Input, type RotationInput } from './scene/PrefabRef.js';
+// Stable runtime API: a `@property({ type: ValueType.Prefab })` field receives a PrefabAsset;
+// spawning it (or engine.instantiate) yields a PrefabInstance root.
+export { PrefabAsset, type SpawnOptions, type SpawnFn, type Vec3Input, type RotationInput } from './scene/PrefabAsset.js';
+export { PrefabInstance } from './scene/PrefabInstance.js';
 
 // ── Advanced / tooling surface ──────────────────────────────────────────────
 // The compiled-bundle format and the low-level instantiate/deserialize entry

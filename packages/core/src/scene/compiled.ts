@@ -20,15 +20,9 @@ export interface CompiledScene {
    * Embedded prefab subtrees referenced by `@property({ type: ValueType.Prefab })`
    * props, one self-contained CompiledScene each (resolved + compiled at build
    * time). A prefab prop stores `{ prefab: i }`; the runtime hands the component
-   * a PrefabRef bound to `prefabs[i]`. Present only when the scene uses one.
+   * a PrefabAsset bound to `prefabs[i]`. Present only when the scene uses one.
    */
   prefabs?: CompiledScene[];
-  /**
-   * Raw HTML of the scene's sibling `*.ui.html`, mounted over the canvas as a
-   * DOM UI overlay on load (see `Engine.overlay`). Present only when the scene
-   * declares one; prefabs never carry it.
-   */
-  ui?: string;
 }
 
 /** A resolved reference: an index into nodes[], components[], or prefabs[]. */
@@ -39,14 +33,14 @@ export type CompiledValue = CompiledScalar | CompiledRef | CompiledArray;
 
 export interface CompiledTransform {
   position: number[];
-  rotation: number[]; // radians
+  eulerAngles: number[]; // degrees (converted to the node's radian `rotation` at instantiate)
   scale: number[];
   visible: boolean;
 }
 
 export interface CompiledNode {
   tag: string;
-  /** Author-assigned id (maps to Object3D.name at runtime). */
+  /** Author-assigned id (maps to Object3D.sceneId at runtime). */
   id?: string;
   parent: number; // -1 for root
   children: number[];

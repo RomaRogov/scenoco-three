@@ -43,10 +43,41 @@ export function componentPropEntries(type: string): [string, PropertyMeta][] {
   return [...entry.meta.properties];
 }
 
+/**
+ * A presence bitmask over a tag's schema entries. Bitwise ops are 32-bit in JS,
+ * so a tag with more than 32 attributes/properties (UI elements) encodes its
+ * mask as an array of 32-bit words instead of one number; entry `i` lives at
+ * bit `i & 31` of word `i >>> 5`. Both sides derive the shape from the same
+ * registry schema, so a single number stays valid (and byte-identical) for
+ * every ≤32-entry tag.
+ */
+export type BundleMask = number | number[];
+
+/** Whether schema entry `bit` is present in the mask. */
+export function maskHas(mask: BundleMask, bit: number): boolean {
+  const word = typeof mask === 'number' ? (bit < 32 ? mask : 0) : (mask[bit >>> 5] ?? 0);
+  return (word & (1 << (bit & 31))) !== 0;
+}
+
+/** Build a mask from set bits: one number for ≤32 schema entries, else word array. */
+export function buildMask(bits: number[], entryCount: number): BundleMask {
+  if (entryCount <= 32) {
+    let mask = 0;
+    for (const bit of bits) mask |= 1 << bit;
+    return mask;
+  }
+  const words = new Array<number>(Math.ceil(entryCount / 32)).fill(0);
+  for (const bit of bits) words[bit >>> 5]! |= 1 << (bit & 31);
+  return words;
+}
+
 /** Number of set bits — how many values a mask selects. */
-export function popcount(n: number): number {
+export function popcount(mask: BundleMask): number {
   let count = 0;
-  for (let v = n >>> 0; v !== 0; v >>= 1) count += v & 1;
+  for (const word of typeof mask === 'number' ? [mask] : mask) {
+    // Unsigned shift: a word with bit 31 set must still terminate.
+    for (let v = word >>> 0; v !== 0; v >>>= 1) count += v & 1;
+  }
   return count;
 }
 

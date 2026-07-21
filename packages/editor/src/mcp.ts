@@ -77,8 +77,8 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     {
       description:
         'Edit the open scene (edit mode only — stop playback first). Changes are undoable and live in the ' +
-        'viewport; call save_file to persist. Each edit: {node} alone sets transform attrs (position/rotation/' +
-        'scale as [x,y,z], rotation in radians, visible as bool, or a prefab instance\'s src); {node, component} ' +
+        'viewport; call save_file to persist. Each edit: {node} alone sets transform attrs (position/eulerAngles/' +
+        'scale as [x,y,z], eulerAngles in degrees, visible as bool, or a prefab instance\'s src); {node, component} ' +
         'sets a component @property; {node, attachment} sets a geometry/material attr. Values: vecs as [x,y,z] ' +
         'or "x y z", colors as hex int or "#rrggbb", enums by member name. ' +
         'Example: {edits: [{node: "ball", component: "Ball", attr: "launchSpeed", value: 20}]}. ' +

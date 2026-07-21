@@ -9,8 +9,10 @@
     the Physics2DSystem report the contact (Ball.onCollisionEnter2D).
   -->
   <Mesh>
-    <BoxGeometry width="1.2" height="0.4" depth="0.5" />
-    <MeshStandardMaterial color="#e9c46a" emissive="#3a2f10" roughness="0.5" metalness="0.1" />
+    <Attachments>
+      <BoxGeometry width="1.2" height="0.4" depth="0.5" />
+      <MeshStandardMaterial color="#e9c46a" emissive="#3a2f10" roughness="0.5" metalness="0.1" />
+    </Attachments>
     <Components>
       <Brick points="10" />
       <RigidBody2D kind="static" />

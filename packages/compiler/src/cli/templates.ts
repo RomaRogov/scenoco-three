@@ -110,8 +110,10 @@ export class Spin extends Component {
   <DirectionalLight intensity="2" position="2 4 3" />
 
   <Mesh id="cube" position="0 0 0">
-    <BoxGeometry width="1.5" height="1.5" depth="1.5" />
-    <MeshStandardMaterial color="#4f8ef7" roughness="0.3" metalness="0.6" />
+    <Attachments>
+      <BoxGeometry width="1.5" height="1.5" depth="1.5" />
+      <MeshStandardMaterial color="#4f8ef7" roughness="0.3" metalness="0.6" />
+    </Attachments>
     <Components>
       <Spin speed="1.2" />
     </Components>

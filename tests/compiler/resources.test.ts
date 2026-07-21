@@ -13,7 +13,7 @@ const materials = (scene: { attachments: Asset[] }): Asset[] => scene.attachment
 describe('material src= resources', () => {
   it('pulls material attributes from a resource file, with inline attributes overriding it', () => {
     const r = compileSceneXml(
-      `<Scene><Mesh id="M"><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" roughness="0.05" /></Mesh></Scene>`,
+      `<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" roughness="0.05" /></Attachments></Mesh></Scene>`,
       { resolve: memoryResolver({ 'steel.material.xml': steel }) },
     );
     expect(r.ok).toBe(true);
@@ -25,8 +25,8 @@ describe('material src= resources', () => {
 
   it('shares (dedups) identical materials across meshes', () => {
     const r = compileSceneXml(
-      `<Scene><Mesh id="A"><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Mesh>
-        <Mesh id="B"><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Mesh></Scene>`,
+      `<Scene><Mesh id="A"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Attachments></Mesh>
+        <Mesh id="B"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Attachments></Mesh></Scene>`,
       { resolve: memoryResolver({ 'steel.material.xml': steel }) },
     );
     expect(r.ok).toBe(true);
@@ -34,19 +34,19 @@ describe('material src= resources', () => {
   });
 
   it('reports resource diagnostics: not-found, tag-mismatch, and src without a resolver', () => {
-    const missing = compileSceneXml(`<Scene><Mesh id="M"><BoxGeometry /><MeshStandardMaterial src="ghost.material.xml" /></Mesh></Scene>`, {
+    const missing = compileSceneXml(`<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="ghost.material.xml" /></Attachments></Mesh></Scene>`, {
       resolve: memoryResolver({}),
     });
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.diagnostics[0]!.code).toBe('resource-not-found');
 
-    const mismatch = compileSceneXml(`<Scene><Mesh id="M"><BoxGeometry /><MeshStandardMaterial src="x.xml" /></Mesh></Scene>`, {
+    const mismatch = compileSceneXml(`<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="x.xml" /></Attachments></Mesh></Scene>`, {
       resolve: memoryResolver({ 'x.xml': '<MeshBasicMaterial color="#fff" />' }),
     });
     expect(mismatch.ok).toBe(false);
     if (!mismatch.ok) expect(mismatch.diagnostics[0]!.code).toBe('resource-tag-mismatch');
 
-    const noResolver = compileSceneXml(`<Scene><Mesh id="M"><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Mesh></Scene>`);
+    const noResolver = compileSceneXml(`<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Attachments></Mesh></Scene>`);
     expect(noResolver.ok).toBe(false);
     if (!noResolver.ok) expect(noResolver.diagnostics[0]!.code).toBe('no-resolver');
   });
@@ -58,7 +58,7 @@ const FRAG = `uniform vec3 uColor; uniform float uTime; uniform vec2 uScale; uni
 const shaderResolve: ResourceResolver = (req) =>
   req === 'wave.vert' ? { path: req, contents: VERT } : req === 'wave.frag' ? { path: req, contents: FRAG } : null;
 const shaderScene = (uniforms: string, extra = '') =>
-  `<Scene><Mesh id="m"><BoxGeometry /><ShaderMaterial vertex="wave.vert" fragment="wave.frag"${extra}>${uniforms}</ShaderMaterial></Mesh></Scene>`;
+  `<Scene><Mesh id="m"><Attachments><BoxGeometry /><ShaderMaterial vertex="wave.vert" fragment="wave.frag"${extra}>${uniforms}</ShaderMaterial></Attachments></Mesh></Scene>`;
 const compileShader = (xml: string) => compileSceneXml(xml, { path: 's.xml', resolve: shaderResolve });
 
 describe('shader materials', () => {

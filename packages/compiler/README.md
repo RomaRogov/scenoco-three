@@ -158,7 +158,7 @@ id-scoping, so a scene id passes through unchanged and resolves in the normal sc
 ```
 
 This connects the spawned player's `controller.gameManager` to the scene's `<GameManager>`.
-For a prefab spawned at **runtime** (`engine.instantiate` / `PrefabRef.spawn`, no scene context
+For a prefab spawned at **runtime** (`engine.instantiate` / `PrefabAsset.spawn`, no scene context
 at author time), wire it in code instead — see the
 [`@scenoco-three/core`](../core/README.md#prefabref) README (spawn → `getComponent` → set field,
 or the prefab's script resolving the scene object via `getComponentsOfType` / `findComponent`).

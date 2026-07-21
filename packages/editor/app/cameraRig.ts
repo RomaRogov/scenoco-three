@@ -34,6 +34,23 @@ export class CameraRig {
     this.focusDistance = Math.max(0.1, this.camera.position.distanceTo(point));
   }
 
+  /**
+   * Turn to face a world point without moving — e.g. a just-selected node the
+   * current view doesn't happen to be pointed at (a `<Fullscreen>` HUD sitting
+   * right at its camera's near plane is the case this exists for: it's easy to
+   * select in the Hierarchy yet completely outside whatever direction the free
+   * edit camera currently faces). A no-op reorientation "F to frame" would be a
+   * bigger, more surprising jump (repositioning too); this keeps the camera
+   * where it is and only changes which way it looks, like turning your head.
+   */
+  lookAt(point: Vector3): void {
+    const distance = this.camera.position.distanceTo(point);
+    if (distance < 1e-4) return; // degenerate — camera is already at the point
+    this.camera.lookAt(point);
+    this.euler.setFromQuaternion(this.camera.quaternion);
+    this.focusDistance = Math.max(0.1, distance);
+  }
+
   /** Add yaw/pitch in radians (pitch clamped to avoid flipping). */
   rotate(dYaw: number, dPitch: number): void {
     this.euler.y += dYaw;

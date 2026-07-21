@@ -51,7 +51,9 @@ describe('patchSceneXml — surgical, minimal-diff editing', () => {
   <PerspectiveCamera position="0 1 5" />
   <DirectionalLight intensity="2" />
   <Mesh>
-    <BoxGeometry />
+    <Attachments>
+      <BoxGeometry />
+    </Attachments>
     <Components><Ball /></Components>
   </Mesh>
 </Scene>`;
@@ -69,7 +71,9 @@ describe('patchSceneXml — surgical, minimal-diff editing', () => {
   <PerspectiveCamera position="0 1 5" />
   <DirectionalLight intensity="2" />
   <Mesh>
-    <BoxGeometry />
+    <Attachments>
+      <BoxGeometry />
+    </Attachments>
     <Components><Ball /></Components>
   </Mesh>
 </Scene>`;

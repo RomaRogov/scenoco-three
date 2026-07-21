@@ -86,6 +86,33 @@ describe('bridge core — multi-editor routing + failover', () => {
   });
 });
 
+describe('bridge core — waitForConnection (stale-tab reattach probe)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('resolves true immediately when an editor is already connected', async () => {
+    const { bridge, register } = createBridgeCore();
+    register(fakeSocket().sock);
+    await expect(bridge.waitForConnection(1000)).resolves.toBe(true);
+  });
+
+  it('resolves true as soon as a tab reattaches within the window', async () => {
+    vi.useFakeTimers();
+    const { bridge, register } = createBridgeCore();
+    const p = bridge.waitForConnection(1500);
+    vi.advanceTimersByTime(900);
+    register(fakeSocket().sock); // a stranded tab's retry lands
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('resolves false when nothing reattaches before the window elapses', async () => {
+    vi.useFakeTimers();
+    const { bridge } = createBridgeCore();
+    const p = bridge.waitForConnection(1500);
+    vi.advanceTimersByTime(1500);
+    await expect(p).resolves.toBe(false);
+  });
+});
+
 describe('bridge core — idle shutdown', () => {
   afterEach(() => vi.useRealTimers());
 

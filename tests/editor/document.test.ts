@@ -2,6 +2,7 @@ import { Mesh, Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { getAttachmentDef, type Component, type CompiledScene, type SceneGraph } from '@scenoco-three/core';
 import type { SceneProvenance } from '@scenoco-three/compiler';
+import { applyStructuralOps } from '@scenoco-three/compiler';
 import { SceneDocument } from '../../packages/editor/app/document.js';
 import { Rotator } from '../fixtures/components/Rotator.js';
 
@@ -18,7 +19,7 @@ function makeGraph(): { graph: SceneGraph; node: Object3D; rotator: Component } 
     root: 0,
     nodes: [{
       tag: 'Object3D', parent: -1, children: [],
-      transform: { position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true },
+      transform: { position: [0, 1, 0], eulerAngles: [0, 0, 0], scale: [1, 1, 1], visible: true },
       attrs: {}, attachments: [], components: [0],
     }],
     attachments: [],
@@ -70,12 +71,12 @@ describe('SceneDocument — stateful edits', () => {
       nodes: [
         {
           tag: 'Scene', parent: -1, children: [1],
-          transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true },
+          transform: { position: [0, 0, 0], eulerAngles: [0, 0, 0], scale: [1, 1, 1], visible: true },
           attrs: {}, attachments: [], components: [],
         },
         {
           tag: 'Mesh', parent: 0, children: [],
-          transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true },
+          transform: { position: [0, 0, 0], eulerAngles: [0, 0, 0], scale: [1, 1, 1], visible: true },
           attrs: {}, attachments: [], components: [],
         },
       ],
@@ -117,7 +118,7 @@ function makeSharedMaterialGraph(): { graph: SceneGraph; provenance: SceneProven
   inst.attach({ node: b });
   const meshNode = (): CompiledScene['nodes'][number] => ({
     tag: 'Mesh', parent: -1, children: [],
-    transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true },
+    transform: { position: [0, 0, 0], eulerAngles: [0, 0, 0], scale: [1, 1, 1], visible: true },
     attrs: {}, attachments: [0], components: [],
   });
   const compiled: CompiledScene = {
@@ -173,5 +174,41 @@ describe('SceneDocument — attachment editing', () => {
     doc.setTransform(node, 'position', [9, 9, 9]);
     expect(node.position.toArray()).toEqual([0, 1, 0]); // unchanged
     expect(doc.canUndo).toBe(false);
+  });
+
+  it('records a reparent as an undoable moveNode op the XML applier resolves', () => {
+    // A small live tree: scene → { a → child, b }.
+    const scene = new Object3D();
+    const a = new Object3D();
+    const b = new Object3D();
+    const child = new Object3D();
+    a.sceneId = 'a';
+    b.sceneId = 'b';
+    child.sceneId = 'child';
+    scene.add(a, b);
+    a.add(child);
+    const compiled: CompiledScene = {
+      root: 0,
+      nodes: [{ tag: 'Object3D', parent: -1, children: [], transform: { position: [0, 0, 0], eulerAngles: [0, 0, 0], scale: [1, 1, 1], visible: true }, attrs: {}, attachments: [], components: [] }],
+      attachments: [],
+      components: [],
+    };
+    const graph: SceneGraph = { compiled, nodeByIndex: [scene], nodeIndexOf: new Map([[scene, 0]]), componentIndexOf: new Map() };
+    const doc = new SceneDocument(graph);
+
+    doc.moveNode(child, b); // reparent child from a → b
+    expect(child.parent).toBe(b); // live scene updated
+    expect(doc.isDirty).toBe(true);
+    expect(doc.structuralOps()).toEqual([{ op: 'moveNode', target: { id: 'child' }, parent: { id: 'b' } }]);
+
+    // The op-log drives the comment-preserving XML applier end-to-end.
+    const xml = `<Scene>\n  <Group id="a">\n    <Group id="child" />\n  </Group>\n  <Group id="b" />\n</Scene>\n`;
+    const { text, applied } = applyStructuralOps(xml, doc.structuralOps());
+    expect(applied).toBe(1);
+    expect(text).toMatch(/<Group id="b">\s*\n {4}<Group id="child" \/>\s*\n {2}<\/Group>/);
+
+    doc.undoLast();
+    expect(child.parent).toBe(a); // reparent reverted
+    expect(doc.structuralOps()).toEqual([]);
   });
 });

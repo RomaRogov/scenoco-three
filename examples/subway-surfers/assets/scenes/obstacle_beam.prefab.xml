@@ -1,0 +1,13 @@
+<!-- Overhead beam — slide under it. No wrapper node; the spawned PrefabInstance root is placed, this Mesh keeps its y=1.65 offset. -->
+<Prefab>
+  <Mesh position="0 1.65 0">
+    <Attachments>
+      <BoxGeometry width="1.7" height="0.5" depth="0.4" />
+      <MeshStandardMaterial color="#f59e0b" emissive="#3a2400" roughness="0.5" metalness="0.1" />
+    </Attachments>
+    <Components>
+      <Obstacle kind="duck" />
+      <BoxCollider halfExtents="0.85 0.25 0.2" isSensor="true" />
+    </Components>
+  </Mesh>
+</Prefab>

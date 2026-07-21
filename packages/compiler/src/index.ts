@@ -21,6 +21,7 @@ export {
 export { bundleScene, bundlePrefab } from './dsl/bundle.js';
 export { serializeScene } from './dsl/serialize.js';
 export { patchSceneXml, type PatchEdit, type PatchTarget, type PatchResult } from './dsl/patch.js';
+export { applyStructuralOps, type StructuralOp, type NodeRef, type ApplyResult } from './dsl/apply.js';
 export { parseUniforms, glslMatches } from './dsl/shader.js';
 export type { NodeOrigin, SceneProvenance } from './dsl/provenance.js';
 export {

@@ -87,8 +87,6 @@ function parseVec(raw: string, n: number, label: string): ParseResult<number[]> 
 }
 
 const vecExample = (n: number) => (n === 2 ? '0 1' : '0 1.5 -3');
-const DEG2RAD = Math.PI / 180;
-const RAD2DEG = 180 / Math.PI;
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -151,14 +149,13 @@ export const codecs: Record<ScalarType, TypeCodec> = {
   },
 
   euler: {
-    // XML carries degrees (Unity/Blender/A-Frame convention); compiled is radians.
+    // Degrees, end to end (Unity/Blender/A-Frame convention). The compiled form
+    // stays degrees too — no build-time deg→rad conversion; the radian conversion
+    // happens once at instantiate, via Object3D.eulerAngles (see instantiate.ts).
     label: 'an euler (degrees)',
     example: '0 90 0',
-    parse: (raw) => {
-      const r = parseVec(raw, 3, 'an euler (degrees)');
-      return r.ok ? ok(r.value.map((d) => d * DEG2RAD)) : r;
-    },
-    serialize: (v) => (v as number[]).map((rad) => round(rad * RAD2DEG)).join(' '),
+    parse: (raw) => parseVec(raw, 3, 'an euler (degrees)'),
+    serialize: (v) => (v as number[]).map((d) => round(d)).join(' '),
     xsd: { base: 'xs:string', pattern: xsdVecPattern(3) },
   },
 

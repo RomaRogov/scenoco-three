@@ -110,8 +110,7 @@ function expandInstance(
     return null;
   }
 
-  const prefabRoot = parsed.root.children.find((c) => isSpatial(c.tag))!;
-  const clone = cloneSubtree(prefabRoot, file.path, null);
+  const clone = cloneSubtree(prefabContentRoot(parsed.root), file.path, null);
   // Mark scene-level instance roots with their src so the editor can edit it;
   // nested instances (inside another prefab) stay read-only prefab content.
   if (stack.length === 0) clone.prefabSrc = src;
@@ -156,6 +155,29 @@ function expandInstance(
   }
 
   return clone;
+}
+
+/**
+ * The single root element of a prefab's content. A prefab that declares exactly
+ * one top-level node uses it directly; **zero or several** top-level nodes are
+ * wrapped in a synthetic `<Group>` so the prefab still has one root — the author
+ * no longer needs to add a wrapper by hand (the container role a spawned prefab's
+ * `PrefabInstance` root fills at runtime). Placement/overrides then target this
+ * root, and its children keep their authored transforms.
+ */
+export function prefabContentRoot(parsedRoot: SncElement): SncElement {
+  const spatial = parsedRoot.children.filter((c) => isSpatial(c.tag));
+  if (spatial.length === 1) return spatial[0]!;
+  const group: SncElement = {
+    tag: 'Group',
+    attributes: new Map(),
+    children: spatial,
+    parent: null,
+    line: parsedRoot.line,
+    column: parsedRoot.column,
+  };
+  for (const child of spatial) child.parent = group;
+  return group;
 }
 
 // ---- subtree mechanics ------------------------------------------------------

@@ -1,15 +1,19 @@
 <Scene>
-  <Background color="#0a0e16" />
+  <Attachments>
+    <Background color="#0a0e16" />
+  </Attachments>
   <PerspectiveCamera id="cam" position="0 0 4" />
 
   <!-- A rippling plane driven by a custom GLSL shader. `uColor` is declared and
        given a value here; `uTime` is declared in the shader and animated at
        runtime (e.g. by a component: this.node.material.uniforms.uTime.value = t). -->
   <Mesh id="quad">
-    <PlaneGeometry width="3" height="3" widthSegments="64" heightSegments="64" />
-    <ShaderMaterial vertex="wave.vert" fragment="wave.frag" side="double">
-      <Uniform name="uColor" type="color" value="#ff8800" />
-      <Uniform name="uTime"  type="float" value="0" />
-    </ShaderMaterial>
+    <Attachments>
+      <PlaneGeometry width="3" height="3" widthSegments="64" heightSegments="64" />
+      <ShaderMaterial vertex="wave.vert" fragment="wave.frag" side="double">
+        <Uniform name="uColor" type="color" value="#ff8800" />
+        <Uniform name="uTime"  type="float" value="0" />
+      </ShaderMaterial>
+    </Attachments>
   </Mesh>
 </Scene>

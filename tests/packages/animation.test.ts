@@ -61,7 +61,7 @@ describe('<Tween> component', () => {
 const clip = new AnimationClip('bob', 1, [new VectorKeyframeTrack('.position', [0, 1], [0, 0, 0, 0, 2, 0])]);
 const fakeModel = () => ({ scene: new Group(), animations: [clip] });
 const heroScene = (attrs = 'clip="bob" loop="false"') =>
-  compile(`<Scene><Group id="hero"><Model src="hero.glb" /><Components><Animator ${attrs} /></Components></Group></Scene>`);
+  compile(`<Scene><Group id="hero"><Attachments><Model src="hero.glb" /></Attachments><Components><Animator ${attrs} /></Components></Group></Scene>`);
 
 describe('<Animator> — glTF clip playback', () => {
   it('plays the model clip on start, advancing the mixer (drives the clone transform)', async () => {

@@ -4,7 +4,7 @@ import {
   AssetCache,
   Component,
   Engine,
-  PrefabRef,
+  PrefabAsset,
   component,
   deserializeBundle,
   property,
@@ -40,7 +40,7 @@ describe('assets: textures + models on the engine', () => {
     const tex = fakeTexture();
     engine.assets.registerLoader(['tex'], async () => tex);
     await engine.loadSceneAsync(
-      bundleScene(compile('<Scene><Mesh id="m"><BoxGeometry /><MeshStandardMaterial map="brick.tex" /></Mesh></Scene>')),
+      bundleScene(compile('<Scene><Mesh id="m"><Attachments><BoxGeometry /><MeshStandardMaterial map="brick.tex" /></Attachments></Mesh></Scene>')),
     );
     const mesh = engine.findObject('m') as unknown as { material: { map: Texture | null } };
     expect(mesh.material.map).toBe(tex);
@@ -54,7 +54,7 @@ describe('assets: textures + models on the engine', () => {
     const geomSpy = vi.spyOn(model.geometry, 'dispose');
     const matSpy = vi.spyOn(model.material, 'dispose');
 
-    await engine.loadSceneAsync(bundleScene(compile('<Scene><Group id="host"><Model src="hero.glb" /></Group></Scene>')));
+    await engine.loadSceneAsync(bundleScene(compile('<Scene><Group id="host"><Attachments><Model src="hero.glb" /></Attachments></Group></Scene>')));
     const host = engine.findObject('host')!;
     let meshes = 0;
     host.traverse((o) => { if ((o as Mesh).isMesh) meshes++; });
@@ -99,12 +99,12 @@ describe('engine: asynchronous scene loading', () => {
 });
 
 /**
- * A `@property({ type: ValueType.Prefab })` field receives a PrefabRef whose `.spawn()`
+ * A `@property({ type: ValueType.Prefab })` field receives a PrefabAsset whose `.spawn()`
  * instantiates a build-time-embedded prefab — the primitive behind spawners.
  */
 @component({ name: 'PrefabSpawner', description: 'Spawns N copies of a prefab on load' })
 class PrefabSpawner extends Component {
-  @property({ type: ValueType.Prefab, description: 'prefab to spawn' }) prefab: PrefabRef | null = null;
+  @property({ type: ValueType.Prefab, description: 'prefab to spawn' }) prefab: PrefabAsset | null = null;
   @property({ type: ValueType.Int, description: 'how many to spawn' }) count = 3;
   readonly spawned: Object3D[] = [];
   override onLoad(): void {
@@ -116,7 +116,7 @@ class PrefabSpawner extends Component {
   }
 }
 
-const cube = '<Prefab><Mesh><BoxGeometry /><MeshStandardMaterial color="#888" /></Mesh></Prefab>';
+const cube = '<Prefab><Mesh><Attachments><BoxGeometry /><MeshStandardMaterial color="#888" /></Attachments></Mesh></Prefab>';
 const resolver: ResourceResolver = (request) => (request === 'cube.prefab.xml' ? { path: request, contents: cube } : null);
 const compileSpawner = (): CompileResult =>
   compileSceneXml(
@@ -125,7 +125,7 @@ const compileSpawner = (): CompileResult =>
   );
 
 describe('prefab property kind', () => {
-  it('embeds the referenced prefab (round-trip safe) and hands the component a PrefabRef whose spawn() builds a live subtree', () => {
+  it('embeds the referenced prefab (round-trip safe) and hands the component a PrefabAsset whose spawn() builds a live subtree', () => {
     const r = compileSpawner();
     if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
     expect(r.scene.prefabs).toHaveLength(1);
@@ -135,7 +135,7 @@ describe('prefab property kind', () => {
     const engine = new Engine();
     engine.loadScene(round);
     const spawner = engine.findComponent('spawner') as PrefabSpawner;
-    expect(spawner.prefab).toBeInstanceOf(PrefabRef);
+    expect(spawner.prefab).toBeInstanceOf(PrefabAsset);
     expect(spawner.spawned).toHaveLength(3);
     let meshes = 0;
     engine.scene.traverse((o) => { if (o.type === 'Mesh') meshes++; });

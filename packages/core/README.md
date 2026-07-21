@@ -127,7 +127,7 @@ Queries never return a component that's been destroyed this tick.
 | **System** | A batch processor for all components of one type (physics, etc.), on a public seam. |
 | **Attachment** | Leaf config on a node: geometry, material, or a `<Scene>` setting (fog/background). |
 | **Bundle** | The compiled, indexed scene the runtime loads. The runtime never sees XML. |
-| **Prefab** | A reusable subtree spawned at runtime via `engine.instantiate()` or a `PrefabRef`. |
+| **Prefab** | A reusable subtree spawned at runtime via `engine.instantiate()` or a `PrefabAsset`. |
 
 The registry decorators (`@component`/`@node`/`@attachment`/`@system`/`@property`) are the single
 source of truth — the compiler, validator, and exporters are generated views of the same metadata,
@@ -144,7 +144,7 @@ despawning on hit — never corrupts a loop that's mid-iteration.
 
 - [`Engine`](#engine) · [`Component`](#component) · [Node API](#node-api-object3d) · [`System`](#system) ·
   [`InputManager`](#inputmanager) · [decorators](#decorators) · [`@property` & `ValueType`](#property--valuetype) ·
-  [`enumOf`](#enumof) · [assets](#assets) · [registry](#registry) · [`PrefabRef`](#prefabref) · [bundle](#bundle)
+  [`enumOf`](#enumof) · [assets](#assets) · [registry](#registry) · [`PrefabAsset`](#prefabasset) · [bundle](#bundle)
 
 ### `Engine`
 
@@ -377,7 +377,7 @@ import { Vector3, FrontSide } from 'three';
 @property({ type: ValueType.Color, description: 'Tint' }) tint = 0xff8800;
 @property({ type: [ValueType.Float], description: 'Lane weights' }) weights: number[] = [];   // array; written "1 2 3"
 @property({ type: ValueType.Node, description: 'Target to track' }) target: Object3D | null = null;  // node ref (#id)
-@property({ type: ValueType.Prefab, description: 'Brick to spawn' }) brick: PrefabRef | null = null;
+@property({ type: ValueType.Prefab, description: 'Brick to spawn' }) brick: PrefabAsset | null = null;
 @property({ type: TargetComponent, description: 'Component to track' }) tracked!: TargetComponent;   // typed reference
 @property({ type: MySideEnum, description: 'Which faces render' }) side = FrontSide; // enum
 ```
@@ -455,14 +455,14 @@ Registry.getComponent('Rotator'); Registry.componentNames();
 nodeTags(); getNodeDef('Mesh'); attachmentTags(); getAttachmentDef('BoxGeometry');
 ```
 
-### `PrefabRef`
+### `PrefabAsset`
 
 What a `@property({ type: ValueType.Prefab })` field receives — a handle that spawns a
 build-time-embedded prefab. `spawn(options)` mirrors Unity `Instantiate(prefab, position, rotation,
 parent)` — **placement only**:
 
 ```ts
-@property({ type: ValueType.Prefab, description: 'Brick to spawn' }) brick: PrefabRef | null = null;
+@property({ type: ValueType.Prefab, description: 'Brick to spawn' }) brick: PrefabAsset | null = null;
 // …
 const root = this.brick!.spawn({ position: [x, y, 0] }); // parent defaults to this.node
 // later: this.engine.destroy(root);                     // you own spawned subtrees

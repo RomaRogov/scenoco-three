@@ -20,10 +20,11 @@ Options:
                server always takes a free port; it doesn't need to be fixed)
 
 Starts a local editor and an MCP server. The editor opens in your default
-browser; when you stop the server (Ctrl+C) it tells the page to close its own
-tab, so no stale tab is left behind. Point an MCP client at the printed
-endpoint; its tools — open_file, get_preview, playback, simulate, get_telemetry,
-edit_scene, save_file — drive the live editor.`;
+browser; on Ctrl+C the page closes its own tab when the browser allows,
+otherwise it waits and reattaches on the next start (the editor reuses its
+previous port, so a restart reclaims the open tab instead of piling up new ones).
+Point an MCP client at the printed endpoint; its tools — open_file, get_preview,
+playback, simulate, get_telemetry, edit_scene, save_file — drive the live editor.`;
 
 async function main(argv: string[]): Promise<number> {
   const { positionals, options } = parseArgs(argv);
@@ -69,8 +70,6 @@ async function main(argv: string[]): Promise<number> {
   console.log(`  mcp:     ${mcp.url}   ← add this to your MCP client (transport: http)`);
   console.log(`\n  press Ctrl+C to stop\n`);
 
-  openBrowser(appUrl);
-
   let closing = false;
   const shutdown = async (): Promise<void> => {
     if (closing) return;
@@ -89,6 +88,16 @@ async function main(argv: string[]): Promise<number> {
   };
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
+
+  // When we reclaimed the previous session's port, a tab left behind by an
+  // ungraceful exit is likely still retrying its WebSocket every second — give it
+  // a moment to reattach on its own before opening a fresh tab, so a restart
+  // reuses the existing tab (like Vite's dev-server reconnect) instead of piling
+  // up new ones. On a fresh port there's nothing waiting, so open immediately.
+  const reattached = editor.reusedPort && (await editor.bridge.waitForConnection(1500));
+  if (reattached) console.log('  reattached the editor tab already open — no new tab\n');
+  else openBrowser(appUrl);
+
   await new Promise(() => {}); // keep alive
   return 0;
 }

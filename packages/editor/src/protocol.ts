@@ -22,8 +22,8 @@ export type EditorCommand =
  * `get_telemetry` uses). Applied through the editor's document, so it is undoable,
  * dirty-flagging, and live in the viewport — exactly as if typed in the inspector.
  *
- * - `node` only: a transform attr (`position`/`rotation`/`scale` as `[x,y,z]`,
- *   `visible` as bool) or a prefab instance's `src`.
+ * - `node` only: a transform attr (`position`/`eulerAngles`/`scale` as `[x,y,z]`,
+ *   `eulerAngles` in degrees, `visible` as bool) or a prefab instance's `src`.
  * - `node` + `component`: a `@property` of the Nth `<component>` on that node.
  * - `node` + `attachment`: an attr of the Nth `<attachment>` (geometry/material)
  *   on that node.
@@ -147,3 +147,22 @@ export interface EditOp {
   attr: string;
   value: number | boolean | string | number[];
 }
+
+// ── structural edits: an ordered op-log the server applies via the CST splicer ──────
+
+/** Addresses a node element by `id` first, else structural `path` (`[]` = the root). */
+export interface NodeRef {
+  id?: string;
+  path?: number[];
+  tag?: string;
+}
+
+/**
+ * A structural change to the scene tree (reparent / remove / insert a node),
+ * applied to the source XML by `applyStructuralOps` (comment-preserving splice).
+ * Mirrors the compiler's `StructuralOp`; sent alongside attribute `EditOp`s on save.
+ */
+export type StructuralOp =
+  | { op: 'moveNode'; target: NodeRef; parent: NodeRef; index?: number }
+  | { op: 'removeNode'; target: NodeRef }
+  | { op: 'insertNode'; parent: NodeRef; index?: number; xml: string };

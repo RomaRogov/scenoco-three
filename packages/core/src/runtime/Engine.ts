@@ -1,4 +1,5 @@
-import { type Camera, PerspectiveCamera, Scene, Vector2, WebGLRenderer } from 'three';
+import { type Camera, OrthographicCamera, PerspectiveCamera, Scene, Vector2, WebGLRenderer } from 'three';
+import { applyCameraFit } from './cameraFit.js';
 import type { AudioListener, Intersection, Object3D } from 'three';
 import type { Component } from './Component.js';
 import { AssetCache } from '../assets/AssetCache.js';
@@ -22,6 +23,8 @@ import type { CompiledScene } from '../scene/compiled.js';
 import { deserializeBundle } from '../scene/deserialize.js';
 import type { AttachmentInstance } from '../registry/NodeRegistry.js';
 import { instantiateScene, type InstantiateContext, type InstantiatedScene } from '../scene/instantiate.js';
+import { PrefabAsset } from '../scene/PrefabAsset.js';
+import { PrefabInstance, buildScope } from '../scene/PrefabInstance.js';
 // Side-effect: augments Object3D with getComponent/addComponent/removeComponent, etc.
 import './node-augment.js';
 
@@ -208,8 +211,6 @@ export class Engine {
   private readonly pointer: PointerInput = new PointerInput(this);
   /** Web Audio listener owner (lazy); exposed via `engine.audioListener`. */
   private readonly audio = new EngineAudio();
-  /** DOM UI overlay layered over the canvas; created on first `overlay` access. */
-  private _overlay?: HTMLElement;
 
   constructor(options: EngineOptions = {}) {
     this.fixedTimeStep = options.fixedTimeStep ?? 1 / 60;
@@ -232,34 +233,6 @@ export class Engine {
       this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
       if (options.autoStart !== false) this.start();
     }
-  }
-
-  /**
-   * The DOM UI overlay — a `<div>` layered over the canvas for HTML/CSS UI (a
-   * HUD, menus). Created on first access and positioned to cover the canvas. Its
-   * root ignores pointer events so gameplay clicks still reach the canvas;
-   * interactive widgets opt back in with `pointer-events:auto`.
-   *
-   * A component reaches it with plain DOM — `this.engine.overlay.querySelector(...)`,
-   * `.textContent = ...`, `.addEventListener(...)` — no UI-specific API. A scene's
-   * sibling `*.ui.html` is mounted here automatically on load; components just
-   * drive the elements it declares.
-   */
-  get overlay(): HTMLElement {
-    if (this._overlay) return this._overlay;
-    const el = document.createElement('div');
-    el.className = 'scenoco-ui';
-    Object.assign(el.style, { position: 'absolute', inset: '0', overflow: 'hidden', pointerEvents: 'none' });
-    // Sit inside the canvas's box: make the canvas's parent a positioning context
-    // (only if it isn't one already) and overlay-fill it. Detached canvas (headless
-    // tests) → the div stays unattached, which is harmless.
-    const parent = this.renderer?.domElement.parentElement;
-    if (parent) {
-      if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
-      parent.appendChild(el);
-    }
-    this._overlay = el;
-    return el;
   }
 
   /**
@@ -315,8 +288,8 @@ export class Engine {
     // otherwise a spawn-only scene (all bodies from prefabs, none at load) gets
     // silently dead physics. During the initial scene-load batch this is deferred
     // to `applyScene` (ensureForScene), which seeds each system with the full set.
-    // Editor mode never auto-runs systems.
-    if (!this.applyingScene && !this.editorMode) this.systemManager.ensureFor(instance);
+    // In editor mode only `executeInEditor` systems auto-run.
+    if (!this.applyingScene) this.systemManager.ensureFor(instance, this.editorMode);
   }
 
   /**
@@ -420,9 +393,25 @@ export class Engine {
    * loaded scene and any spawned instances; returns the first match.
    */
   findObject(id: string): Object3D | undefined {
-    // Indexed lookup for scene/instance objects; fall back to a traversal for
-    // anything added to the scene outside the engine's load/instantiate paths.
-    return this.objectsById.get(id) ?? this.scene.getObjectByName(id);
+    // Indexed lookup for scene/instance objects (author-time prefab internals are
+    // already flat-scoped here, e.g. "t1/osc").
+    const indexed = this.objectsById.get(id);
+    if (indexed) return indexed;
+    // A slash-scoped id into a *runtime* PrefabInstance: resolve the head to the
+    // named instance, then the rest within its dynamic scope (nesting composes).
+    const slash = id.indexOf('/');
+    if (slash !== -1) {
+      const instance = this.findObject(id.slice(0, slash));
+      if (instance instanceof PrefabInstance) return instance.find(id.slice(slash + 1));
+    }
+    // Fall back to a traversal by sceneId for anything added to the scene outside
+    // the engine's load/instantiate paths (Three's getObjectByName no longer
+    // applies — the DSL id lives on `sceneId`, not `name`).
+    let found: Object3D | undefined;
+    this.scene.traverse((object) => {
+      if (!found && object.sceneId === id) found = object;
+    });
+    return found;
   }
 
   /**
@@ -436,13 +425,23 @@ export class Engine {
       // so `node.getComponent(...)` and friends can reach this engine's byNode map.
       if (add) object._engine = this;
       else if (object._engine === this) object._engine = undefined;
-      if (!object.name) return;
+      // Keep running node-query systems' `nodes` live (the object-side mirror of
+      // onComponentAdded/Removed).
+      if (add) this.systemManager.onObjectAdded(object);
+      else this.systemManager.onObjectRemoved(object);
+      const sceneId = object.sceneId;
+      if (!sceneId) return;
       if (add) {
-        if (!this.objectsById.has(object.name)) this.objectsById.set(object.name, object);
-      } else if (this.objectsById.get(object.name) === object) {
-        this.objectsById.delete(object.name);
+        if (!this.objectsById.has(sceneId)) this.objectsById.set(sceneId, object);
+      } else if (this.objectsById.get(sceneId) === object) {
+        this.objectsById.delete(sceneId);
       }
     });
+    // An object subtree appearing at RUNTIME (instantiate) must start any
+    // node-query `@system` that isn't running yet — the object-side counterpart
+    // of registerComponent's ensureFor. During scene load this is deferred to
+    // `applyScene` (ensureForScene), which seeds each system with the full tree.
+    if (add && !this.applyingScene) this.systemManager.ensureForSubtree(root, this.editorMode);
   }
 
   /** A component's execution order (static stamped by `@component({ order })`); default 0. */
@@ -635,30 +634,27 @@ export class Engine {
     // active one. The <Scene> node builds a real Three.js Scene, with fog/background
     // already applied and the camera living in it as a child node.
     this.disposeSceneNow();
-    const live = instantiateScene(compiled, this.instantiateContext());
-    this.scene = live.root as Scene;
-    this.sceneAttachments = live.attachments;
-    this.indexObjects(this.scene, true);
-    // Mount the scene's DOM UI overlay (its sibling *.ui.html) *before* onLoad,
-    // so a component's onLoad can query its elements (engine.overlay). The static
-    // HTML shows even in editor edit mode (components that drive it only run in
-    // play mode); headless engines skip it (no document).
-    if (compiled.ui && typeof document !== 'undefined') this.overlay.innerHTML = compiled.ui;
-    // Defer system attach to runSceneSystems below, so each system starts once
-    // with the full component set (not incrementally as the batch registers).
-    // try/finally so a throwing onLoad can't wedge the flag on and disable
-    // runtime system attach for the rest of the engine's life.
+    // Defer system attach to ensureForScene below, so each system starts once
+    // with the full component/node set (not incrementally as the batch registers
+    // and the tree is indexed). try/finally so a throwing onLoad can't wedge the
+    // flag on and disable runtime system attach for the rest of the engine's life.
     this.applyingScene = true;
+    let live: ReturnType<typeof instantiateScene>;
     try {
+      live = instantiateScene(compiled, this.instantiateContext());
+      this.scene = live.root as Scene;
+      this.sceneAttachments = live.attachments;
+      this.indexObjects(this.scene, true);
       this.initLive(live);
     } finally {
       this.applyingScene = false;
     }
     this.sceneGraph = buildSceneGraph(compiled, live);
-    // Auto-run registered systems whose component type the scene contains — seeded
-    // once with the full loaded set. Not in editor mode (no physics/batch on a
-    // static scene).
-    if (!this.editorMode) this.systemManager.ensureForScene(this.components);
+    // Auto-run registered systems whose query type the scene contains (component
+    // types against the loaded batch, node classes against the scene tree) —
+    // seeded once with the full loaded set. In editor mode only `executeInEditor`
+    // systems run (no physics/batch on a static scene, but e.g. UI layout must).
+    this.systemManager.ensureForScene(this.components, this.editorMode);
 
     // Cameras: render in `priority` order; the first found is the default main
     // camera (used for raycasting/pointer) unless overridden.
@@ -674,14 +670,21 @@ export class Engine {
    * untouched). References inside the prefab are already wired by index, so
    * spawning the same prefab many times is safe.
    */
-  instantiate(source: Bundle | CompiledScene, parent: Object3D = this.scene): Object3D {
+  instantiate(source: Bundle | CompiledScene, parent: Object3D = this.scene): PrefabInstance {
     const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
     const live = instantiateScene(compiled, this.instantiateContext());
-    parent.add(live.root);
-    this.indexObjects(live.root, true);
+    // Wrap the content in a PrefabInstance root — the instance *is* one Object3D
+    // you place/parent/destroy as a unit, its `prefabAsset` re-spawns it later, and
+    // its `scope` keeps the prefab's internals reachable by a slash-scoped id.
+    const instance = new PrefabInstance();
+    instance.add(live.root);
+    instance.prefabAsset = new PrefabAsset(compiled, (c, p) => this.instantiate(c, p));
+    buildScope(instance, live.root);
+    parent.add(instance);
+    this.indexObjects(instance, true);
     this.initLive(live);
-    this.instances.add(live.root);
-    return live.root;
+    this.instances.add(instance);
+    return instance;
   }
 
   /**
@@ -703,7 +706,7 @@ export class Engine {
    * onDestroy, scene-graph detach, GPU free — runs when the engine flushes at end
    * of tick. Destroying inside a hook (a bullet despawning on hit) is therefore
    * safe: no system's live component array is spliced mid-step. Works on any
-   * Object3D — an `instantiate`/`PrefabRef.spawn` root, a single node, or a
+   * Object3D — an `instantiate`/`PrefabAsset.spawn` root, a single node, or a
    * hand-built subtree. Calling it again is a harmless no-op.
    */
   destroy(object: Object3D): void {
@@ -834,8 +837,6 @@ export class Engine {
     this.sceneGraph = undefined;
     this.indexObjects(this.scene, false);
     disposeObject(this.scene);
-    // Clear the DOM UI overlay; applyScene re-mounts the next scene's, if any.
-    this._overlay?.replaceChildren();
     // Start fresh: an empty scene with no camera (rendering pauses until one loads).
     this.scene = new Scene();
     this.scene._engine = this; // keep the node API working on hand-built nodes (see constructor)
@@ -914,7 +915,8 @@ export class Engine {
     // applies its render interpolation and collision systems dispatch enter/exit
     // hooks here, so gameplay reads this frame's poses and contacts — not last
     // frame's — and nothing overwrites what update/lateUpdate wrote before render.
-    if (!this.editorMode) this.systemManager.step(scaled);
+    // In editor mode only `executeInEditor` systems step (UI layout, …).
+    this.systemManager.step(scaled, this.editorMode);
 
     // Variable-rate phase. `!c._started` skips components spawned mid-tick —
     // they run nothing until they start at the top of the next tick.
@@ -1036,8 +1038,6 @@ export class Engine {
     this.input.dispose();
     this.assets.dispose();
     this.renderer?.dispose();
-    this._overlay?.remove();
-    this._overlay = undefined;
   }
 
   private resizeToCanvas(): void {
@@ -1049,12 +1049,24 @@ export class Engine {
     renderer.getSize(this.rendererSize);
     if (this.rendererSize.x !== width || this.rendererSize.y !== height) {
       renderer.setSize(width, height, false);
-      // Keep every perspective camera's aspect current.
-      for (const camera of this.renderList()) {
-        if (camera instanceof PerspectiveCamera) {
-          camera.aspect = width / height;
+    }
+    // Keep every camera's aspect (perspective) / `fit` frustum (either camera
+    // type) current. Runs every tick, not just when the canvas just resized:
+    // `applyCameraFit` and the aspect check below are both cheap no-ops once
+    // already applied for the current aspect, and this is what makes a
+    // freshly-loaded scene's camera correctly fitted on its very first frame —
+    // not only after a *subsequent* resize (the renderer may already have been
+    // sized to match the canvas before this ever ran).
+    const aspect = width / height;
+    for (const camera of this.renderList()) {
+      if (camera instanceof PerspectiveCamera) {
+        if (camera.aspect !== aspect) {
+          camera.aspect = aspect;
           camera.updateProjectionMatrix();
         }
+        applyCameraFit(camera, aspect);
+      } else if (camera instanceof OrthographicCamera) {
+        applyCameraFit(camera, aspect);
       }
     }
   }

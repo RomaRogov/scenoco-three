@@ -107,7 +107,13 @@ function deriveDefault(type: PropertyType, value: unknown): CompiledDefault | un
   if (!isEnumType(elem) && !isScalarType(elem)) return undefined;
   if (isArrayType(type) || isEnumType(elem)) return value as CompiledDefault;
   if (elem === ValueType.Vec2) return toVecArray(value, 2);
-  if (elem === ValueType.Vec3 || elem === ValueType.Euler) return toVecArray(value, 3);
+  if (elem === ValueType.Vec3) return toVecArray(value, 3);
+  // Euler compiles to degrees. A THREE.Euler initializer is radians (convert);
+  // an array/`{x,y,z}` initializer is authored as degrees (leave as-is).
+  if (elem === ValueType.Euler) {
+    const a = toVecArray(value, 3) as number[];
+    return (value as { isEuler?: boolean }).isEuler ? a.map((rad) => (rad * 180) / Math.PI) : a;
+  }
   if (elem === ValueType.Color) return toColorNumber(value);
   return value as CompiledDefault;
 }
@@ -298,10 +304,40 @@ export function attachment(options: AttachmentOptions) {
 
 // ---- systems ----------------------------------------------------------------
 
-/** Registers an ECS-hybrid system that processes all components of `componentType`. */
-export function system(componentType: abstract new (...args: never[]) => object) {
+/** A class a system's query is tested against (component or Object3D family). */
+type SystemQueryType = abstract new (...args: never[]) => object;
+
+export interface SystemOptions {
+  /** Component type whose presence auto-starts the system; feeds `system.components`. */
+  components?: SystemQueryType;
+  /** Object3D class whose presence in the scene auto-starts the system; feeds `system.nodes`. */
+  nodes?: AttachClass;
+  /**
+   * Step this system in editor mode too (the system-side `@executeInEditor`):
+   * for systems whose effect must be visible while editing (UI layout, …).
+   * Default false — a system normally steps only in play mode.
+   */
+  executeInEditor?: boolean;
+}
+
+/**
+ * Registers an ECS-hybrid system. Two query forms:
+ *   @system(SomeComponent)                                — component query (shorthand)
+ *   @system({ nodes: SomeObject3D, executeInEditor: true }) — node query
+ * The engine auto-runs the system while its query type is present in the scene.
+ */
+export function system(query: SystemQueryType | SystemOptions) {
   return function (target: new () => unknown): void {
-    registerSystem({ ctor: target, componentType });
+    const opts: SystemOptions = typeof query === 'function' ? { components: query } : query;
+    if (!opts.components && !opts.nodes) {
+      throw new Error(`@system on "${target.name}" needs a query — pass a component class or { nodes: SomeObject3DClass }`);
+    }
+    registerSystem({
+      ctor: target,
+      ...(opts.components ? { componentType: opts.components } : {}),
+      ...(opts.nodes ? { nodeType: opts.nodes } : {}),
+      ...(opts.executeInEditor ? { executeInEditor: true } : {}),
+    });
   };
 }
 

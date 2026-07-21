@@ -26,7 +26,7 @@ import {
 import { ValueType } from '@scenoco-three/core/internal';
 import { parseScene, type SncElement } from './SceneParser.js';
 import { isNamespaceAttr, validatePrefab, validateScene } from './Validator.js';
-import { expandPrefabs } from './prefab.js';
+import { expandPrefabs, prefabContentRoot } from './prefab.js';
 import { parseArrayLiteral, parseScalarArray, scalarCodec, uniformValue, type CompiledScalar, type ScalarType } from './types.js';
 import { glslMatches, parseUniforms } from './shader.js';
 import type { NodeOrigin, SceneProvenance } from './provenance.js';
@@ -103,8 +103,7 @@ export function compilePrefabXml(xml: string, options: CompileOptions = {}): Com
   const diagnostics = validatePrefab(parsed.root);
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
-  const prefabRoot = parsed.root.children.find((c) => isSpatial(c.tag))!;
-  const result = compileTree(prefabRoot, options);
+  const result = compileTree(prefabContentRoot(parsed.root), options);
   if (result.diagnostics.length > 0) return { ok: false, diagnostics: result.diagnostics };
   return { ok: true, scene: result.scene, provenance: result.provenance };
 }
@@ -217,13 +216,18 @@ function compileTree(
           : { kind: 'scene' };
 
     for (const child of el.children) {
-      const attDef = getAttachmentDef(child.tag);
-      if (attDef) {
-        const attrs = resolveAttachmentAttrs(child, attDef.attrs, options, diagnostics);
-        const asset: CompiledAsset = { tag: child.tag, attrs };
-        // Shader attachments resolve their .vert/.frag and validate their <Uniform>s.
-        if (attDef.children?.includes('Uniform')) compileShader(child, asset, options, diagnostics);
-        node.attachments.push(internAttachment(asset, child.attributes.get('src')));
+      if (child.tag === 'Attachments') {
+        // Attachments live in an <Attachments> block (the geometry/material/setting
+        // sibling of the <Components> block); flatten them into node.attachments[].
+        for (const att of child.children) {
+          const attDef = getAttachmentDef(att.tag);
+          if (!attDef) continue; // validated upstream
+          const attrs = resolveAttachmentAttrs(att, attDef.attrs, options, diagnostics);
+          const asset: CompiledAsset = { tag: att.tag, attrs };
+          // Shader attachments resolve their .vert/.frag and validate their <Uniform>s.
+          if (attDef.children?.includes('Uniform')) compileShader(att, asset, options, diagnostics);
+          node.attachments.push(internAttachment(asset, att.attributes.get('src')));
+        }
       } else if (child.tag === 'Components') {
         buildComponents(child, index, node);
       } else if (getNodeDef(child.tag)) {
@@ -336,7 +340,9 @@ function resolveAttachmentAttrs(
   }
   const out: Record<string, CompiledScalar | CompiledScalar[]> = {};
   for (const [key, meta] of Object.entries(attrs)) {
-    out[key] = attrValue(meta, merged.get(key));
+    const raw = merged.get(key);
+    if (raw === undefined && meta.default === undefined) continue; // absent stays absent (see compileAttrs)
+    out[key] = attrValue(meta, raw);
   }
   return out;
 }
@@ -414,7 +420,7 @@ function compileTransform(el: SncElement): CompiledTransform {
   };
   return {
     position: t('position') as number[],
-    rotation: t('rotation') as number[],
+    eulerAngles: t('eulerAngles') as number[],
     scale: t('scale') as number[],
     visible: t('visible') as boolean,
   };
@@ -423,7 +429,12 @@ function compileTransform(el: SncElement): CompiledTransform {
 function compileAttrs(el: SncElement, attrs: Record<string, NodeAttr>): Record<string, CompiledScalar | CompiledScalar[]> {
   const out: Record<string, CompiledScalar | CompiledScalar[]> = {};
   for (const [key, meta] of Object.entries(attrs)) {
-    out[key] = attrValue(meta, el.attributes.get(key));
+    const raw = el.attributes.get(key);
+    // An unauthored attr with no registered default stays absent — the builder's
+    // field keeps its own initializer (for UI tags: the uikit default), instead
+    // of a materialized zero value ('' / 0 / first enum member).
+    if (raw === undefined && meta.default === undefined) continue;
+    out[key] = attrValue(meta, raw);
   }
   return out;
 }
@@ -502,7 +513,7 @@ function collectComponentProps(
       compiled.props[attr] = codecParse(meta.type, raw);
     } else if (meta.type === ValueType.Prefab) {
       // A prefab prop value is a file path (like src=), not a `#id`. Resolve and
-      // embed it at build time; the runtime hands the component a PrefabRef.
+      // embed it at build time; the runtime hands the component a PrefabAsset.
       const src = raw.trim();
       if (src !== '') {
         const index = internPrefab(src, el);

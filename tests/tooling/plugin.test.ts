@@ -28,7 +28,7 @@ describe('built-in node manifest (tree-shaking)', () => {
     // tests/setup.ts imports the barrel, so every built-in is registered here.
     expect(new Set(Object.keys(builtinNodeModules))).toEqual(new Set([...nodeTags(), ...attachmentTags()]));
 
-    const r = compileSceneXml(`<Scene><Fog /><Mesh id="m"><BoxGeometry /><MeshStandardMaterial /></Mesh><SpotLight id="s" /></Scene>`);
+    const r = compileSceneXml(`<Scene><Attachments><Fog /></Attachments><Mesh id="m"><Attachments><BoxGeometry /><MeshStandardMaterial /></Attachments></Mesh><SpotLight id="s" /></Scene>`);
     if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
     const specs = new Set<string>();
     for (const n of r.scene.nodes) { const s = builtinNodeModule(n.tag); if (s) specs.add(s); }

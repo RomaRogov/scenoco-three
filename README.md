@@ -153,8 +153,9 @@ animation add-ons), 0.3.0 adds: a **zero-config project convention** (components
 `assets/`; tag packages auto-registered from `package.json` by the CLI, Vite plugin, and
 editor); two new add-on packages — **`@scenoco-three/collision`** (detection-only, rapier's
 exact API) and **`@scenoco-three/particles`** (three.quarks VFX with a validated
-`.particle.xml` format); **UI as a DOM/CSS overlay** (`engine.overlay` + a scene's sibling
-`*.ui.html`, embedded in the bundle — no UI tags, no wrapper API); the **`src=` sub-document
+`.particle.xml` format); **in-canvas UI** (**`@scenoco-three/ui`**: flexbox
+`<Fullscreen>`/`<Container>`/`<Text>`/`<Image>` scene tags rendered by pmndrs uikit,
+attributes = uikit properties verbatim); the **`src=` sub-document
 seam** (`registerSrcCompiler` + `Component.applyConfig`, letting a package own its own
 validated file format); runtime `@system` attachment for spawn-only scenes; Unity-shaped
 `PrefabRef.spawn` placement and type-only component queries; `scenoco export` publishing

@@ -50,7 +50,7 @@ interface El {
 /** Transform attributes the editor sets directly on a node, with their codec + default. */
 const TRANSFORM: Record<string, { type: ScalarType; default: number | boolean | number[] }> = {
   position: { type: ValueType.Vec3, default: [0, 0, 0] },
-  rotation: { type: ValueType.Euler, default: [0, 0, 0] },
+  eulerAngles: { type: ValueType.Euler, default: [0, 0, 0] },
   scale: { type: ValueType.Vec3, default: [1, 1, 1] },
   visible: { type: ValueType.Bool, default: true },
 };
@@ -138,9 +138,10 @@ function startTagEnd(xml: string, from: number): number {
 function locate(all: El[], roots: El[], target: PatchTarget): El | undefined {
   if (target.kind === 'node') return locateNode(all, roots, target.id, target.path, target.tag);
   if (target.kind === 'attachment') {
-    // Attachments are direct children of their node (the scene root when `root`).
+    // Attachments live in the node's <Attachments> block (the scene root when `root`).
     const owner = target.root ? roots[0] : locateNode(all, roots, target.nodeId, target.nodePath);
-    const matches = owner?.children.filter((c) => c.tag === target.tag) ?? [];
+    const block = owner?.children.find((c) => c.tag === 'Attachments');
+    const matches = block?.children.filter((c) => c.tag === target.tag) ?? [];
     return matches[target.ordinal];
   }
   const node = locateNode(all, roots, target.nodeId, target.nodePath);

@@ -114,9 +114,11 @@ describe('box2d (planck) — 2D physics', () => {
 
   it('a declarative <Physics2D> scene simulates on load and the system is scene-scoped', () => {
     const r = compileSceneXml(`<Scene>
-      <Physics2D gravity="0 -9.81" />
-      <Mesh id="ball" position="0 4 0"><SphereGeometry radius="0.3" /><Components><RigidBody2D bullet="true" /><CircleCollider2D radius="0.3" /></Components></Mesh>
-      <Mesh id="floor" position="0 0 0"><BoxGeometry width="20" height="0.4" /><Components><RigidBody2D kind="static" /><BoxCollider2D halfExtents="10 0.2" /></Components></Mesh>
+      <Attachments>
+        <Physics2D gravity="0 -9.81" />
+      </Attachments>
+      <Mesh id="ball" position="0 4 0"><Attachments><SphereGeometry radius="0.3" /></Attachments><Components><RigidBody2D bullet="true" /><CircleCollider2D radius="0.3" /></Components></Mesh>
+      <Mesh id="floor" position="0 0 0"><Attachments><BoxGeometry width="20" height="0.4" /></Attachments><Components><RigidBody2D kind="static" /><BoxCollider2D halfExtents="10 0.2" /></Components></Mesh>
     </Scene>`);
     if (!r.ok) throw new Error('compile failed');
     const engine = new Engine({ fixedTimeStep: 1 / 60 });
@@ -132,9 +134,11 @@ describe('box2d (planck) — 2D physics', () => {
 
   it('a distance joint holds a body against gravity (Joint2DSystem is scene-scoped)', () => {
     const r = compileSceneXml(`<Scene>
-      <Physics2D gravity="0 -9.81" />
-      <Mesh id="anchor" position="0 5 0"><BoxGeometry /><Components><RigidBody2D kind="static" /><BoxCollider2D /></Components></Mesh>
-      <Mesh id="bob" position="0 3 0"><SphereGeometry radius="0.5" /><Components>
+      <Attachments>
+        <Physics2D gravity="0 -9.81" />
+      </Attachments>
+      <Mesh id="anchor" position="0 5 0"><Attachments><BoxGeometry /></Attachments><Components><RigidBody2D kind="static" /><BoxCollider2D /></Components></Mesh>
+      <Mesh id="bob" position="0 3 0"><Attachments><SphereGeometry radius="0.5" /></Attachments><Components>
         <RigidBody2D /><CircleCollider2D radius="0.5" /><Joint2D kind="distance" connectedBody="#anchor" anchor="0 0" connectedAnchor="0 0" />
       </Components></Mesh>
     </Scene>`);
@@ -178,9 +182,11 @@ describe('rapier — 3D physics', () => {
 
   it('a declarative <Physics> scene drops the ball onto the floor; the system is scene-scoped', () => {
     const r = compileSceneXml(`<Scene>
-      <Physics gravity="0 -9.81 0" />
-      <Mesh id="ball" position="0 5 0"><SphereGeometry radius="0.5" /><Components><RigidBody /><SphereCollider radius="0.5" restitution="0" /></Components></Mesh>
-      <Mesh id="floor" position="0 0 0"><BoxGeometry width="20" height="0.2" depth="20" /><Components><RigidBody kind="fixed" /><BoxCollider halfExtents="10 0.1 10" /></Components></Mesh>
+      <Attachments>
+        <Physics gravity="0 -9.81 0" />
+      </Attachments>
+      <Mesh id="ball" position="0 5 0"><Attachments><SphereGeometry radius="0.5" /></Attachments><Components><RigidBody /><SphereCollider radius="0.5" restitution="0" /></Components></Mesh>
+      <Mesh id="floor" position="0 0 0"><Attachments><BoxGeometry width="20" height="0.2" depth="20" /></Attachments><Components><RigidBody kind="fixed" /><BoxCollider halfExtents="10 0.1 10" /></Components></Mesh>
     </Scene>`);
     if (!r.ok) throw new Error('compile failed');
     const engine = new Engine({ fixedTimeStep: 1 / 60 });

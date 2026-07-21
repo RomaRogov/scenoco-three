@@ -103,14 +103,24 @@ export interface AttachmentDef {
 
 export interface SystemDef {
   ctor: new () => unknown;
-  /** The component type the engine feeds this system (single-type query, v1). */
-  componentType: abstract new (...args: never[]) => object;
+  /** The component type the engine feeds this system's `components` query (single-type query, v1). */
+  componentType?: abstract new (...args: never[]) => object;
+  /** The Object3D class the engine feeds this system's `nodes` query — for systems driven by scene objects rather than components (e.g. UI layout). */
+  nodeType?: AttachClass;
+  /** Step this system in editor mode too — for systems whose effect must be visible while editing (UI layout, …). Default false. */
+  executeInEditor?: boolean;
 }
 
-/** Transform attributes shared by every Object3D-family node (degrees for rotation). */
+/**
+ * Transform attributes shared by every Object3D-family node. Rotation is authored
+ * as `eulerAngles` in **degrees** (Unity/Blender/A-Frame convention); the runtime
+ * exposes both `Object3D.eulerAngles` (degrees) and `Object3D.rotation` (radians).
+ * There is deliberately no `rotation` DSL attribute — a single, unit-unambiguous
+ * authoring name.
+ */
 export const TRANSFORM_ATTRS: Record<string, NodeAttr> = {
   position: { type: ValueType.Vec3, default: [0, 0, 0], description: 'Local position x y z' },
-  rotation: { type: ValueType.Euler, default: [0, 0, 0], description: 'Local rotation in degrees x y z' },
+  eulerAngles: { type: ValueType.Euler, default: [0, 0, 0], description: 'Local rotation in degrees x y z' },
   scale: { type: ValueType.Vec3, default: [1, 1, 1], description: 'Local scale x y z' },
   visible: { type: ValueType.Bool, default: true, description: 'Whether the object renders' },
 };

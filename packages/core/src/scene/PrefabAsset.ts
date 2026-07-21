@@ -1,5 +1,6 @@
 import type { Euler, Object3D, Quaternion, Vector3 } from 'three';
 import type { CompiledScene } from './compiled.js';
+import { PrefabInstance } from './PrefabInstance.js';
 
 /** How a prefab is instantiated — the Engine supplies this when wiring props. */
 export type SpawnFn = (compiled: CompiledScene, parent?: Object3D) => Object3D;
@@ -10,7 +11,7 @@ export type Vec3Input = Vector3 | [number, number, number];
 export type RotationInput = Euler | Quaternion | [number, number, number];
 
 /**
- * Options for {@link PrefabRef.spawn} — the Unity `Instantiate(prefab, position,
+ * Options for {@link PrefabAsset.spawn} — the Unity `Instantiate(prefab, position,
  * rotation, parent)` shape. Just placement: everything else (component fields,
  * references) is wired the Unity/Cocos way — on the returned root via
  * `engine.getComponents`, or by the prefab's own script resolving scene objects
@@ -30,7 +31,7 @@ export interface SpawnOptions {
  * spawns the build-time-embedded prefab at runtime — Unity/Cocos `Instantiate`,
  * without the component touching the bundle/instantiate machinery.
  *
- *   @property({ type: ValueType.Prefab, description: 'Brick prefab to spawn' }) brick: PrefabRef | null = null;
+ *   @property({ type: ValueType.Prefab, description: 'Brick prefab to spawn' }) brick: PrefabAsset | null = null;
  *   // …
  *   const root = this.brick!.spawn({ position: [x, y, 0] });
  *   // wire fields/references on the fresh instance, GetComponent-style:
@@ -43,7 +44,7 @@ export interface SpawnOptions {
  * — they are *not* torn down by the scene unload that removes the spawning
  * component's subtree.
  */
-export class PrefabRef {
+export class PrefabAsset {
   constructor(
     private readonly compiled: CompiledScene,
     private readonly spawnFn: SpawnFn,
@@ -51,9 +52,15 @@ export class PrefabRef {
     private readonly defaultParent?: Object3D,
   ) {}
 
-  /** Spawn one instance of the prefab. Returns its root Object3D (pass it to `engine.destroy` to remove). */
-  spawn(options: SpawnOptions = {}): Object3D {
-    const root = this.spawnFn(this.compiled, options.parent ?? this.defaultParent);
+  /**
+   * Spawn one instance of the prefab. Returns its {@link PrefabInstance} root — a
+   * single Object3D you place (via `position`/`rotation`, applied to the instance
+   * root, leaving the prefab's own baked child offsets intact) and later pass to
+   * `engine.destroy`.
+   */
+  spawn(options: SpawnOptions = {}): PrefabInstance {
+    const root = this.spawnFn(this.compiled, options.parent ?? this.defaultParent) as PrefabInstance;
+    root.prefabAsset = this; // re-instantiation handle points back at the true asset
     if (options.position) setVec3(root.position, options.position);
     if (options.rotation) setRotation(root, options.rotation);
     return root;

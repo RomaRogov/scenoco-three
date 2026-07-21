@@ -34,6 +34,9 @@ export default defineConfig({
       '@scenoco-three/particles': fileURLToPath(
         new URL('../../packages/particles/src/index.ts', import.meta.url),
       ),
+      '@scenoco-three/ui': fileURLToPath(
+        new URL('../../packages/ui/src/index.ts', import.meta.url),
+      ),
     },
   },
   build: {
@@ -41,8 +44,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   // Zero-config: components are scanned from this project's assets/ folder and the
-  // tag packages (box2d, particles) are read from its package.json — no arguments
-  // needed. The HUD is a DOM overlay (assets/scenes/breakout.ui.html), not a tag package.
-  // `npm run build` packages everything into one self-contained demo/breakout/index.html.
+  // tag packages (box2d, particles, ui) are read from its package.json — no arguments
+  // needed. `npm run build` packages everything into one self-contained demo/breakout/index.html.
   plugins: [bundlePlugin(), singleFile()],
 });

@@ -2,24 +2,42 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Breakout — SceNoCo</title>
     <style>
       html,
       body {
         margin: 0;
+        /* `100dvh` tracks the *visible* viewport as the mobile browser's address
+           bar shows/hides; plain `100%`/`100vh` size against the tallest state,
+           so a canvas anchored to it can end up with its bottom half hidden
+           behind the browser chrome. `100%` stays as a fallback for browsers
+           without dvh support. */
         height: 100%;
+        height: 100dvh;
         background: #0a0e16;
         overflow: hidden;
+        overscroll-behavior: none; /* no pull-to-refresh / rubber-band scroll */
+        touch-action: none; /* the engine's InputManager asks for this: stops the
+                                page scrolling/zooming so single-touch drives play
+                                (drag the paddle, tap to launch) instead of the
+                                browser's own gestures */
+        position: fixed;
+        inset: 0;
+        -webkit-user-select: none;
+        user-select: none;
       }
       canvas {
         display: block;
         width: 100%;
         height: 100%;
+        touch-action: none;
       }
       #hud {
         position: fixed;
-        top: 14px;
+        /* env(safe-area-inset-top) clears the notch/status-bar area on phones
+           that have one; 0px on everything else. */
+        top: calc(14px + env(safe-area-inset-top, 0px));
         left: 50%;
         transform: translateX(-50%);
         padding: 8px 24px;
@@ -53,7 +71,7 @@
   </head>
   <body>
     <canvas id="app"></canvas>
-    <div id="hud">SPACE launch · ← → / A D move · brick hits logged to console</div>
+    <div id="hud">SPACE/tap launch · ←→ / A D / drag move</div>
     <script type="module" src="/main.ts"></script>
   </body>
 </html>

@@ -29,6 +29,13 @@ import {
 } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
 
+/** Find a node by its DSL scene id (Object3D.sceneId) — replaces the old name-based getObjectByName. */
+function bySceneId(root: import('three').Object3D, id: string): import('three').Object3D | undefined {
+  let found: import('three').Object3D | undefined;
+  root.traverse((o) => { if (!found && o.sceneId === id) found = o; });
+  return found;
+}
+
 function compile(xml: string) {
   const result = compileSceneXml(xml);
   if (!result.ok) throw new Error(`unexpected diagnostics: ${JSON.stringify(result.diagnostics)}`);
@@ -52,15 +59,15 @@ describe('tag registry — custom node/attachment', () => {
   afterAll(() => { unregisterNode('Widget'); unregisterAttachment('Knot'); });
 
   it('validates a custom attachment only on its target node, enforces required groups, and instantiates', () => {
-    expect(compileSceneXml(`<Scene><Widget id="w"><Knot radius="2" /></Widget></Scene>`).ok).toBe(true);
-    const wrong = compileSceneXml(`<Scene><Mesh id="m"><BoxGeometry /><Knot /></Mesh></Scene>`);
+    expect(compileSceneXml(`<Scene><Widget id="w"><Attachments><Knot radius="2" /></Attachments></Widget></Scene>`).ok).toBe(true);
+    const wrong = compileSceneXml(`<Scene><Mesh id="m"><Attachments><BoxGeometry /><Knot /></Attachments></Mesh></Scene>`);
     expect(wrong.ok).toBe(false);
     if (!wrong.ok) expect(wrong.diagnostics.some((d) => d.code === 'attachment-wrong-target')).toBe(true);
     const missing = compileSceneXml(`<Scene><Widget id="w" /></Scene>`);
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.diagnostics[0]!.code).toBe('missing-required-attachment');
 
-    const widget = instantiateScene(compile(`<Scene><Widget id="w"><Knot radius="2" /></Widget></Scene>`)).root.getObjectByName('w')!;
+    const widget = bySceneId(instantiateScene(compile(`<Scene><Widget id="w"><Attachments><Knot radius="2" /></Attachments></Widget></Scene>`)).root, 'w')!;
     expect(widget).toBeInstanceOf(Group);
     expect(widget.children.length).toBe(1); // the knot mesh ran
   });
@@ -72,17 +79,17 @@ describe('built-in nodes', () => {
       compile(`<Scene>
         <SpotLight id="spot" intensity="4" />
         <OrthographicCamera id="ortho" />
-        <Line id="line"><BoxGeometry /><LineBasicMaterial color="#ff0000" /></Line>
-        <Points id="pts"><SphereGeometry /><PointsMaterial size="3" /></Points>
-        <Sprite id="spr"><SpriteMaterial color="#00ff00" /></Sprite>
+        <Line id="line"><Attachments><BoxGeometry /><LineBasicMaterial color="#ff0000" /></Attachments></Line>
+        <Points id="pts"><Attachments><SphereGeometry /><PointsMaterial size="3" /></Attachments></Points>
+        <Sprite id="spr"><Attachments><SpriteMaterial color="#00ff00" /></Attachments></Sprite>
       </Scene>`),
     );
-    expect(live.root.getObjectByName('spot')).toBeInstanceOf(SpotLight);
-    expect((live.root.getObjectByName('spot') as SpotLight).intensity).toBe(4);
-    expect(live.root.getObjectByName('ortho')).toBeInstanceOf(OrthographicCamera);
-    expect(live.root.getObjectByName('line')).toBeInstanceOf(Line);
-    expect((live.root.getObjectByName('pts') as Points).material).toBeInstanceOf(PointsMaterial);
-    expect((live.root.getObjectByName('spr') as Sprite).material).toBeInstanceOf(SpriteMaterial);
+    expect(bySceneId(live.root, 'spot')).toBeInstanceOf(SpotLight);
+    expect((bySceneId(live.root, 'spot') as SpotLight).intensity).toBe(4);
+    expect(bySceneId(live.root, 'ortho')).toBeInstanceOf(OrthographicCamera);
+    expect(bySceneId(live.root, 'line')).toBeInstanceOf(Line);
+    expect((bySceneId(live.root, 'pts') as Points).material).toBeInstanceOf(PointsMaterial);
+    expect((bySceneId(live.root, 'spr') as Sprite).material).toBeInstanceOf(SpriteMaterial);
 
     const engine = new Engine();
     engine.loadScene(bundleScene(compile(`<Scene><PerspectiveCamera id="Main" fov="42" /></Scene>`)));
@@ -95,12 +102,37 @@ describe('built-in nodes', () => {
 
   it('applies fog and background to the live THREE.Scene on load, clearing them on the next scene', () => {
     const engine = new Engine();
-    engine.loadScene(compile(`<Scene><Fog color="#112233" near="1" far="20" /><Background color="#445566" /></Scene>`));
+    engine.loadScene(compile(`<Scene><Attachments><Fog color="#112233" near="1" far="20" /><Background color="#445566" /></Attachments></Scene>`));
     expect((engine.scene.fog as Fog).far).toBe(20);
     expect((engine.scene.background as Color).getHex()).toBe(0x445566);
-    engine.loadScene(compile(`<Scene><Mesh id="m"><BoxGeometry /></Mesh></Scene>`));
+    engine.loadScene(compile(`<Scene><Mesh id="m"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>`));
     expect(engine.scene.fog).toBeNull();
     expect(engine.scene.background).toBeNull();
+    engine.dispose();
+  });
+
+  it('maps the DSL id to sceneId (not Object3D.name), and findObject/index resolve by it', () => {
+    const engine = new Engine();
+    engine.loadScene(compile(`<Scene><Mesh id="hero"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>`));
+    const hero = engine.findObject('hero')!;
+    expect(hero).toBeInstanceOf(Mesh);
+    expect(hero.sceneId).toBe('hero'); // dedicated field carries the id
+    expect(hero.name).toBe(''); // Three's `name` is left free, not overloaded
+    engine.dispose();
+  });
+
+  it('authors eulerAngles in degrees (no build-time conversion) and exposes a live degrees ⇄ radians view', () => {
+    const engine = new Engine();
+    engine.loadScene(compile(`<Scene><Mesh id="m" eulerAngles="0 90 0"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>`));
+    const m = engine.findObject('m')!;
+    // Runtime `rotation` is radians; the `eulerAngles` view reports degrees.
+    expect(m.rotation.y).toBeCloseTo(Math.PI / 2);
+    expect(m.eulerAngles.y).toBeCloseTo(90);
+    // Writing through either representation is visible in the other (no drift).
+    m.eulerAngles.x = 45;
+    expect(m.rotation.x).toBeCloseTo(Math.PI / 4);
+    m.rotation.z = Math.PI;
+    expect(m.eulerAngles.z).toBeCloseTo(180);
     engine.dispose();
   });
 });

@@ -1,6 +1,57 @@
-import { Object3D } from 'three';
+import { MathUtils, Object3D } from 'three';
 import type { Component } from './Component.js';
 import type { Engine } from './Engine.js';
+
+const { RAD2DEG, DEG2RAD } = MathUtils;
+
+/**
+ * A live **degrees** view over a node's `rotation` Euler (which is radians). Holds
+ * no state of its own — every read/write converts against the node's `rotation`,
+ * so `node.eulerAngles` and `node.rotation` are always two units of the same value
+ * and can't drift. Unlike Unity's `Transform.eulerAngles` (a fresh struct each get,
+ * where mutating the returned value silently no-ops), this is a persistent view:
+ * `node.eulerAngles.y = 90` writes straight through.
+ */
+export class EulerAngles {
+  constructor(private readonly node: Object3D) {}
+
+  get x(): number {
+    return this.node.rotation.x * RAD2DEG;
+  }
+  set x(deg: number) {
+    this.node.rotation.x = deg * DEG2RAD;
+  }
+  get y(): number {
+    return this.node.rotation.y * RAD2DEG;
+  }
+  set y(deg: number) {
+    this.node.rotation.y = deg * DEG2RAD;
+  }
+  get z(): number {
+    return this.node.rotation.z * RAD2DEG;
+  }
+  set z(deg: number) {
+    this.node.rotation.z = deg * DEG2RAD;
+  }
+
+  /** Set all three angles at once, in degrees. Chainable. */
+  set(x: number, y: number, z: number): this {
+    this.node.rotation.set(x * DEG2RAD, y * DEG2RAD, z * DEG2RAD);
+    return this;
+  }
+  /** Set from a degrees array/`Vector3`/`{x,y,z}`. Chainable. */
+  fromArray(a: ArrayLike<number>): this {
+    return this.set(a[0] ?? 0, a[1] ?? 0, a[2] ?? 0);
+  }
+  /** `[x, y, z]` in degrees. */
+  toArray(): [number, number, number] {
+    return [this.x, this.y, this.z];
+  }
+}
+
+// One view per node, created on first access (a node's `rotation` Euler identity
+// is stable, and the view reads it live, so a single cached view stays correct).
+const eulerViews = new WeakMap<Object3D, EulerAngles>();
 
 /**
  * Module augmentation that gives every Three.js node the component-manipulation
@@ -31,6 +82,37 @@ declare module 'three' {
      * {@link Object3D.isSceneAttached} to test attachment.
      */
     _engine?: Engine;
+
+    /**
+     * The scene id authored as `id="…"` in the DSL — the handle
+     * {@link Engine.findObject}, MCP telemetry/edits, and prefab-scoped
+     * (`instanceId/innerId`) lookups address a node by. A dedicated field, not an
+     * overload of Three.js's `name`, so `name` stays free for its own meaning
+     * (e.g. a loaded glTF's mesh names). `undefined` on a node with no authored id.
+     */
+    sceneId?: string;
+
+    /**
+     * The DSL tag this node was authored as (`<Fullscreen>`, `<Container>`, `<Mesh>`, …),
+     * stamped by {@link instantiateScene} on every node it builds. Distinct from
+     * Three.js's own `Object3D.type` (which some tag builders — e.g.
+     * `@scenoco-three/ui`'s elements, all plain `THREE.Mesh` subclasses — never
+     * override, so it reads as generic `"Mesh"`), and from `.constructor.name`
+     * (minified in a production build). This is what editor/tooling should show
+     * as a node's kind; `undefined` on a hand-built node never instantiated from
+     * a compiled scene (e.g. `new Group()` added directly to `engine.scene`).
+     */
+    sceneTag?: string;
+
+    /**
+     * This node's local rotation in **degrees** — a live view over `rotation`
+     * (which stays radians), like Unity's `Transform.eulerAngles`. There is no
+     * separate stored state: reads and writes convert on the fly, so `eulerAngles`
+     * and `rotation` can never disagree. Manipulate rotation in whichever unit
+     * suits — set `object.rotation.y = Math.PI/2` **or** `object.eulerAngles.y = 90`
+     * (or `object.eulerAngles.set(0, 90, 0)`); each is visible through the other.
+     */
+    readonly eulerAngles: EulerAngles;
 
     /** Whether this node belongs to an engine's scene — i.e. the component API below is usable. */
     readonly isSceneAttached: boolean;
@@ -103,6 +185,18 @@ function requireEngine(node: Object3D, method: string): Engine {
 Object.defineProperty(Object3D.prototype, 'isSceneAttached', {
   get(this: Object3D): boolean {
     return resolveEngine(this) !== undefined;
+  },
+  configurable: true,
+});
+
+Object.defineProperty(Object3D.prototype, 'eulerAngles', {
+  get(this: Object3D): EulerAngles {
+    let view = eulerViews.get(this);
+    if (!view) {
+      view = new EulerAngles(this);
+      eulerViews.set(this, view);
+    }
+    return view;
   },
   configurable: true,
 });

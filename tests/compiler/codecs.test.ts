@@ -11,15 +11,17 @@ describe('scalar attribute codecs', () => {
     expect(codecs.bool.parse('1').ok).toBe(false); // only true/false
   });
 
-  it('parses/serializes vec3, euler (deg↔rad) and color (hex/named → hex int)', () => {
+  it('parses/serializes vec3, euler (degrees, no build-time conversion) and color (hex/named → hex int)', () => {
     expect(codecs.vec3.parse('0 1.5 -3')).toEqual({ ok: true, value: [0, 1.5, -3] });
     expect(codecs.vec3.parse('0 1').ok).toBe(false); // needs 3
     expect(codecs.vec3.serialize([0, 1.5, -3])).toBe('0 1.5 -3');
 
+    // Euler stays degrees end to end — the deg→rad conversion moved to runtime
+    // (Object3D.eulerAngles), so the codec no longer touches the numbers.
     const euler = codecs.euler.parse('0 90 0');
     expect(euler.ok).toBe(true);
     if (euler.ok) {
-      expect((euler.value as number[])[1]).toBeCloseTo(Math.PI / 2);
+      expect(euler.value).toEqual([0, 90, 0]);
       expect(codecs.euler.serialize(euler.value)).toBe('0 90 0');
     }
     expect(codecs.color.parse('#ffcc00')).toEqual({ ok: true, value: 0xffcc00 });

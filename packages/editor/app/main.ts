@@ -1,13 +1,16 @@
-import { Box3, BoxHelper, Raycaster, Vector2, Vector3, type Object3D } from 'three';
-import { EditorSession } from './session.js';
+import {
+  Box3, BoxHelper, IcosahedronGeometry, LineBasicMaterial, LineSegments, Raycaster, Vector2, Vector3,
+  WireframeGeometry, type Object3D,
+} from 'three';
+import { EditorSession, resolveInEngine } from './session.js';
 import { connectEditor } from './wsClient.js';
 import { CameraRig } from './cameraRig.js';
 import { DesktopControls } from './desktopControls.js';
 import { TouchControls, isTouchDevice } from './touchControls.js';
-import { buildPanels, type Panels } from './panels.js';
+import { mountEditorUI } from './ui/mount.js';
+import type { EditorUIHandle } from './ui/types.js';
 import { SceneDocument } from './document.js';
 import { Gizmo, type GizmoMode } from './gizmo.js';
-import { buildToolbar, type Toolbar } from './toolbar.js';
 import { showFilePicker } from './filePicker.js';
 import { isEditorOnly } from './meta.js';
 import type { AgentEdit } from '../src/protocol.js';
@@ -20,15 +23,31 @@ const session = new EditorSession(canvas);
 
 let rig: CameraRig | undefined;
 let desktop: DesktopControls | undefined;
-let panels: Panels | undefined;
-let selection: BoxHelper | undefined;
+let ui: EditorUIHandle | undefined;
+/** BoxHelper's own shape — the marker fallback below matches it structurally. */
+interface SelectionHelper extends LineSegments {
+  update(): void;
+}
+let selection: SelectionHelper | undefined;
 let doc: SceneDocument | undefined;
 let gizmo: Gizmo | undefined;
 let gizmoMode: GizmoMode = 'translate';
-let toolbar: Toolbar | undefined;
 let saving = false;
 
-// Rebuild the edit-mode camera, document, gizmo + refresh panels whenever the
+// Edits fire the document's change event per-commit (including each coalesced
+// scrub tick); collapse a burst into one UI refresh per frame so the React tree/
+// inspector/top-bar re-render at most once a frame.
+let refreshQueued = false;
+function scheduleRefresh(): void {
+  if (refreshQueued) return;
+  refreshQueued = true;
+  requestAnimationFrame(() => {
+    refreshQueued = false;
+    ui?.refresh();
+  });
+}
+
+// Rebuild the edit-mode camera, document, gizmo + refresh the UI whenever the
 // engine swaps (open / run / stop). Play mode runs the scene's own camera with
 // no editor rig, document, or gizmo.
 function rebind(): void {
@@ -49,49 +68,75 @@ function rebind(): void {
     if (isTouchDevice()) new TouchControls(rig, canvas, () => gizmo?.dragging ?? false);
     if (graph) {
       doc = new SceneDocument(graph, session.provenance);
-      doc.onChange(() => toolbar?.refresh()); // keep the dirty/undo state live
+      // Keep the session's play/preview overlays (attribute + structural) in sync with
+      // the doc, then refresh the UI — so Play reflects edits even before a save.
+      doc.onChange(() => {
+        session.setEdits(doc?.netEdits() ?? []);
+        session.setStructural(doc?.structuralOps() ?? []);
+        scheduleRefresh();
+      });
+      // Restore edits that outlived an engine swap (e.g. play→stop, which rebuilds the
+      // edit engine from the saved baseline), re-recording them in the fresh document so
+      // they stay dirty + saveable. Snapshot first: applyEdits fires onChange, which
+      // resets the session overlays. Runs for UI + MCP stops; a no-op on a fresh open.
+      const pendingEdits = session.pendingEdits;
+      const pendingStructural = session.pendingStructural;
+      if (pendingEdits.length) doc.applyEdits(pendingEdits);
+      for (const op of pendingStructural) {
+        if (op.op !== 'moveNode') continue;
+        const node = resolveInEngine(session.engine, op.target);
+        const parent = op.parent.path?.length === 0 ? session.engine.scene : resolveInEngine(session.engine, op.parent);
+        if (node && parent) doc.moveNode(node, parent, op.index);
+      }
       gizmo = new Gizmo(session.editorCamera, canvas, session.engine.scene, isTouchDevice(), {
-        onObjectChange: () => panels?.refresh(),
+        onObjectChange: () => ui?.refresh(),
         onCommit: commitTransform,
       });
       gizmo.setMode(gizmoMode);
     }
   }
-  if (!panels) panels = buildPanels(() => session.engine, () => doc, onSelect);
-  else panels.refresh();
-  if (!toolbar) toolbar = buildToolbar(toolbarHandlers);
-  else toolbar.refresh();
+  if (!ui)
+    ui = mountEditorUI({
+      getEngine: () => session.engine,
+      getDoc: () => doc,
+      handlers: toolbarHandlers,
+      onSelect,
+      focusSelected: frameNode,
+      reparent: (node, newParent, index) => {
+        doc?.moveNode(node, newParent, index);
+        ui?.refresh();
+      },
+    });
+  else ui.refresh();
 }
 session.onChange = rebind;
 
 const toolbarHandlers = {
   play: () => {
     session.run();
-    toolbar?.refresh();
+    ui?.refresh();
   },
   pause: () => {
     session.pause();
-    toolbar?.refresh();
+    ui?.refresh();
   },
   step: () => {
     session.step();
-    toolbar?.refresh();
+    ui?.refresh();
   },
   stop: () => {
     session.stop();
-    toolbar?.refresh();
+    ui?.refresh();
   },
   getMode: () => gizmoMode,
   setMode: setGizmoMode,
   undo: () => {
     doc?.undoLast();
-    panels?.refresh();
-    toolbar?.refresh();
+    ui?.refresh();
   },
   redo: () => {
     doc?.redoLast();
-    panels?.refresh();
-    toolbar?.refresh();
+    ui?.refresh();
   },
   save: () => void doSave().catch(() => undefined), // failures surface in the save banner
   state: () => ({
@@ -108,15 +153,15 @@ const toolbarHandlers = {
 function setGizmoMode(mode: GizmoMode): void {
   gizmoMode = mode;
   gizmo?.setMode(mode);
-  toolbar?.refresh();
+  ui?.refresh();
 }
 
 async function doSave(): Promise<{ changed: number; unresolved: number }> {
   if (!doc || saving || !doc.isDirty) return { changed: 0, unresolved: 0 };
   saving = true;
-  toolbar?.refresh();
+  ui?.refresh();
   try {
-    const result = await session.save(doc.netEdits());
+    const result = await session.save(doc.netEdits(), doc.structuralOps());
     if (result.unresolved > 0) {
       // Some edits couldn't be located in the file (it changed on disk, or a
       // component type is unregistered) — keep the document dirty so nothing is
@@ -133,7 +178,7 @@ async function doSave(): Promise<{ changed: number; unresolved: number }> {
     throw e;
   } finally {
     saving = false;
-    toolbar?.refresh();
+    ui?.refresh();
   }
 }
 
@@ -144,8 +189,7 @@ const editorHost = {
   edit: (edits: AgentEdit[]) => {
     if (session.mode !== 'edit' || !doc) throw new Error('scene editing requires edit mode — stop playback first');
     const result = doc.applyAgentEdits(edits);
-    panels?.refresh();
-    toolbar?.refresh();
+    ui?.refresh();
     return result;
   },
   save: () => {
@@ -167,6 +211,8 @@ function setSaveError(message: string | undefined): void {
   saveErrorBanner = bar;
 }
 
+const SELECTION_COLOR = 0x4af0e0;
+
 function onSelect(node: Object3D | null): void {
   if (selection) {
     session.engine.scene.remove(selection);
@@ -174,18 +220,60 @@ function onSelect(node: Object3D | null): void {
     selection = undefined;
   }
   if (node) {
-    selection = new BoxHelper(node, 0x4af0e0);
+    // A node whose subtree has no `Object3D.geometry` vertex data (an empty
+    // Box3) gets no outline from BoxHelper — not just Camera/Light, but any
+    // `@scenoco-three/ui` element: uikit renders panels/text through its own
+    // batched draw pipeline and never populates `mesh.geometry`, so a selected
+    // HUD node would otherwise show *no* selection feedback at all. Fall back to
+    // a small marker at the node's world transform, like an engine's icon gizmo
+    // for a non-visual object.
+    const bounds = new Box3().setFromObject(node);
+    selection = bounds.isEmpty() ? markerHelper(node, SELECTION_COLOR) : new BoxHelper(node, SELECTION_COLOR);
     selection.userData.scenocoEditorOnly = true; // keep out of the Hierarchy + picking
     session.engine.scene.add(selection);
-    rig?.focusOn(node.getWorldPosition(new Vector3()));
+    // No auto-focus on select — selecting only highlights; the node-list "focus"
+    // action (frameNode) is the explicit way to recenter the camera.
   }
   gizmo?.attach(node);
+}
+
+/** Reframe the camera on a node's subtree bounds — the node-list "focus" action. */
+function frameNode(node: Object3D): void {
+  const bounds = new Box3().setFromObject(node);
+  const center = bounds.isEmpty() ? node.getWorldPosition(new Vector3()) : bounds.getCenter(new Vector3());
+  rig?.lookAt(center);
+}
+
+/**
+ * A small wireframe marker tracking `node`'s world transform — `BoxHelper`'s
+ * counterpart for a node with no visible geometry anywhere in its subtree
+ * (Camera, Light, or any `@scenoco-three/ui` element: uikit renders panels/
+ * text through its own batched draw pipeline and never populates
+ * `mesh.geometry`, so `Box3.setFromObject` comes back empty). `depthTest:
+ * false` keeps it visible even when — as a UI element commonly is — it sits
+ * right at or inside other geometry.
+ */
+function markerHelper(node: Object3D, color: number): SelectionHelper {
+  // A faceted sphere (not the move gizmo's own arrow/cube shapes) so it reads as
+  // a distinct "selection halo" rather than blending into the transform gizmo,
+  // which is drawn at the same point. `depthTest: false` keeps it visible
+  // through — or up against — any geometry it sits inside.
+  const marker = new LineSegments(
+    new WireframeGeometry(new IcosahedronGeometry(0.4, 1)),
+    new LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.8 }),
+  ) as unknown as SelectionHelper;
+  marker.update = () => {
+    node.getWorldPosition(marker.position);
+    node.getWorldQuaternion(marker.quaternion);
+  };
+  marker.update();
+  return marker;
 }
 
 /** Commit a gizmo drag as one undoable edit (only the channels that changed record). */
 function commitTransform(object: Object3D): void {
   doc?.setTransform(object, 'position', object.position.toArray());
-  doc?.setTransform(object, 'rotation', [object.rotation.x, object.rotation.y, object.rotation.z]);
+  doc?.setTransform(object, 'eulerAngles', object.eulerAngles.toArray());
   doc?.setTransform(object, 'scale', object.scale.toArray());
 }
 
@@ -205,7 +293,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerup', (e) => {
   if (dragged || gizmo?.dragging || session.mode !== 'edit') return; // a camera/gizmo gesture, not a pick
-  panels?.select(pickAt(e.clientX, e.clientY));
+  ui?.select(pickAt(e.clientX, e.clientY));
 });
 
 function pickAt(clientX: number, clientY: number): Object3D | null {
@@ -224,7 +312,7 @@ function pickAt(clientX: number, clientY: number): Object3D | null {
 /** Walk up to the nearest id'd ancestor (the editable node); else the hit object. */
 function selectable(object: Object3D): Object3D {
   for (let o: Object3D | null = object; o && o !== session.engine.scene; o = o.parent) {
-    if (o.name) return o;
+    if (o.sceneId) return o;
   }
   return object;
 }
@@ -284,8 +372,7 @@ async function reloadScene(preserveEdits: boolean): Promise<void> {
   } finally {
     reloading = false;
     dismissConflict();
-    panels?.refresh();
-    toolbar?.refresh();
+    ui?.refresh();
   }
 }
 
@@ -416,7 +503,7 @@ void (async () => {
     setComponentError(e instanceof Error ? e.message : String(e));
     if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', () => location.reload());
   }
-  rebind(); // builds the (empty) panels
+  rebind(); // mounts the editor UI (empty until a file loads)
   connectEditor(session, editorHost);
   void showNetworkUrl(); // corner badge with the LAN URL for opening on another device
   const initial = new URLSearchParams(location.search).get('file');

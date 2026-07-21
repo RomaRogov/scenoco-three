@@ -105,7 +105,11 @@ function emitNode(scene: CompiledScene, index: number, depth: number, ids: Scene
 
   out.push(`${pad}<${node.tag}${attrs}>`);
   const inner = '  '.repeat(depth + 1);
-  for (const ai of node.attachments) out.push(`${inner}${attachmentTag(scene.attachments[ai]!)}`);
+  if (hasAttachments) {
+    out.push(`${inner}<Attachments>`);
+    for (const ai of node.attachments) out.push(`${inner}  ${attachmentTag(scene.attachments[ai]!)}`);
+    out.push(`${inner}</Attachments>`);
+  }
   if (hasComponents) {
     out.push(`${inner}<Components>`);
     for (const ci of node.components) out.push(`${inner}  ${componentTag(scene.components[ci]!, ci, ids)}`);
@@ -123,7 +127,7 @@ function nodeAttrs(node: CompiledNode, index: number, ids: SceneIds): string {
 
   const t = node.transform;
   if (!isZero(t.position)) parts.push(attr('position', codecs.vec3.serialize(t.position)));
-  if (!isZero(t.rotation)) parts.push(attr('rotation', codecs.euler.serialize(t.rotation)));
+  if (!isZero(t.eulerAngles)) parts.push(attr('eulerAngles', codecs.euler.serialize(t.eulerAngles)));
   if (!isOne(t.scale)) parts.push(attr('scale', codecs.vec3.serialize(t.scale)));
   if (!t.visible) parts.push(attr('visible', 'false'));
 

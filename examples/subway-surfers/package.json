@@ -1,0 +1,29 @@
+{
+  "name": "subway-surfers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SceNoCo Subway Surfers clone \u2014 lane runner (prefabs, particles, animation, curved-world shader)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "editor": "scenoco-editor --port 55470",
+    "validate": "scenoco validate assets/scenes/subway.scene.xml",
+    "export": "scenoco export --out schema"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^0.4.0",
+    "@scenoco-three/collision": "^0.4.0",
+    "@scenoco-three/particles": "^0.4.0",
+    "@scenoco-three/animation": "^0.4.0",
+    "three": "^0.184.0",
+    "@scenoco-three/ui": "^0.4.0"
+  },
+  "devDependencies": {
+    "@scenoco-three/compiler": "^0.4.0",
+    "@scenoco-three/vite": "^0.4.0",
+    "@types/three": "^0.184.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.0.0"
+  }
+}

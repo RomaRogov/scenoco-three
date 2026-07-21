@@ -48,9 +48,10 @@ export function validateScene(root: SncElement): SncDiagnostic[] {
 }
 
 /**
- * Validates a prefab file: a `<Prefab>` root wrapping exactly one spatial node.
- * Prefabs must be **self-contained** — every `#ref` resolves within the file —
- * which is what makes them instantiable at runtime without a surrounding scene.
+ * Validates a prefab file: a `<Prefab>` root wrapping one *or several* nodes
+ * (several are given a synthetic `<Group>` root at compile time). Prefabs must be
+ * **self-contained** — every `#ref` resolves within the file — which is what makes
+ * them instantiable at runtime without a surrounding scene.
  */
 export function validatePrefab(root: SncElement): SncDiagnostic[] {
   const ctx = new ValidationContext();
@@ -63,13 +64,12 @@ export function validatePrefab(root: SncElement): SncDiagnostic[] {
     ctx.error(root, 'unexpected-attr', `A prefab file's <Prefab> root takes no attributes (found "${attr}")`);
   }
 
-  const spatial = root.children.filter((c) => isSpatial(c.tag));
-  if (root.children.length !== 1 || spatial.length !== 1) {
-    ctx.error(
-      root,
-      'bad-prefab-root',
-      `<Prefab> must contain exactly one node (e.g. a <Mesh> or <Group>); found ${root.children.length}`,
-    );
+  // A prefab may declare one *or several* top-level nodes — several are wrapped in
+  // a synthetic <Group> root at compile time (see prefabContentRoot), so no manual
+  // wrapper is needed. Every top-level child must still be a real node, though.
+  const nonSpatial = root.children.filter((c) => !isSpatial(c.tag));
+  for (const bad of nonSpatial) {
+    ctx.error(bad, 'bad-prefab-root', `<Prefab> may only contain nodes (e.g. <Mesh>, <Group>); found <${bad.tag}>`);
   }
   for (const child of root.children) ctx.walk(child);
   ctx.resolveReferences();
@@ -108,10 +108,11 @@ class ValidationContext {
   walk(el: SncElement): void {
     const def = getNodeDef(el.tag);
     if (!def) {
-      // Unknown at this position. Components are handled by their parent; if we
-      // reach an unregistered, non-Components tag here it's a genuine unknown.
-      if (el.tag !== 'Components') {
-        const suggestion = nearestName(el.tag, [...nodeTags(), ...attachmentTags(), 'Components']);
+      // Unknown at this position. Components/Attachments blocks are handled by
+      // their parent; reaching one of those here (or any unregistered tag) is a
+      // genuine unknown.
+      if (el.tag !== 'Components' && el.tag !== 'Attachments') {
+        const suggestion = nearestName(el.tag, [...nodeTags(), ...attachmentTags(), 'Attachments', 'Components']);
         this.error(
           el,
           'unknown-tag',
@@ -129,13 +130,16 @@ class ValidationContext {
 
   private validateChildren(el: SncElement, def: NodeDef): void {
     let componentsCount = 0;
-    // group → first attachment tag seen on this node (for uniqueness diagnostics).
+    let attachmentsCount = 0;
+    // group → first attachment tag seen on this node (for uniqueness + required checks).
     const groupFirst = new Map<string, string>();
 
     for (const child of el.children) {
-      const attDef = getAttachmentDef(child.tag);
-      if (attDef) {
-        this.validateAttachment(el, def, child, attDef, groupFirst);
+      if (child.tag === 'Attachments') {
+        if (++attachmentsCount > 1) {
+          this.error(child, 'duplicate-attachments', `<${el.tag}> may have only one <Attachments> block`);
+        }
+        this.validateAttachmentsBlock(el, def, child, groupFirst);
         continue;
       }
 
@@ -158,6 +162,15 @@ class ValidationContext {
         continue;
       }
 
+      if (getAttachmentDef(child.tag)) {
+        this.error(
+          child,
+          'attachment-outside-block',
+          `<${child.tag}> is an attachment and must be placed inside an <Attachments> block`,
+        );
+        continue;
+      }
+
       if (Registry.getComponent(child.tag)) {
         this.error(
           child,
@@ -171,11 +184,32 @@ class ValidationContext {
       this.walk(child);
     }
 
-    // Required attachment groups (e.g. a <Mesh> needs a geometry).
+    // Required attachment groups (e.g. a <Mesh> needs a geometry) — checked against
+    // the <Attachments> block (empty map when the node has none).
     for (const [group, tags] of requiredGroupsFor(def)) {
       if (!groupFirst.has(group)) {
         this.error(el, 'missing-required-attachment', `<${el.tag}> requires a ${group} (e.g. <${tags[0]} />)`);
       }
+    }
+  }
+
+  /** A `<Attachments>` block: no attributes; only attachments (target-compatible, group-unique). */
+  private validateAttachmentsBlock(host: SncElement, hostDef: NodeDef, block: SncElement, groupFirst: Map<string, string>): void {
+    if (block.attributes.size > 0) {
+      this.error(block, 'unexpected-attr', `<Attachments> takes no attributes`);
+    }
+    for (const child of block.children) {
+      const attDef = getAttachmentDef(child.tag);
+      if (!attDef) {
+        if (getNodeDef(child.tag) || Registry.getComponent(child.tag)) {
+          this.error(child, 'not-an-attachment', `<${child.tag}> is not an attachment; <Attachments> may only contain attachments`);
+        } else {
+          const suggestion = nearestName(child.tag, attachmentTags());
+          this.error(child, 'unknown-attachment', `Unknown attachment <${child.tag}>${suggestion ? `. Did you mean <${suggestion}>?` : ''}`);
+        }
+        continue;
+      }
+      this.validateAttachment(host, hostDef, child, attDef, groupFirst);
     }
   }
 

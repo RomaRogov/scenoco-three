@@ -134,7 +134,7 @@ describe('engine: subsystems', () => {
 
 describe('engine: deferred scene swap and destruction flush', () => {
   it('loadScene from inside update defers the swap to end of tick; the old scene finishes the frame', () => {
-    const r = compileSceneXml('<Scene><Mesh id="newRoot"><BoxGeometry /></Mesh></Scene>');
+    const r = compileSceneXml('<Scene><Mesh id="newRoot"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>');
     if (!r.ok) throw new Error('compile failed');
     const bundle = bundleScene(r.scene);
     const engine = new Engine();
@@ -191,6 +191,58 @@ class MarkerSystem extends System<Marker> {
     this.detached = true;
   }
 }
+
+// A @system may query an Object3D class instead of a component type
+// (`@system({ nodes: X })`) — for systems driven by scene objects (UI layout).
+@system({ nodes: Mesh })
+class MeshTracker extends System {
+  stepped = 0;
+  override step(): void {
+    this.stepped++;
+  }
+}
+
+// `executeInEditor` opts a system's step into editor mode (visual systems).
+@system({ nodes: Mesh, executeInEditor: true })
+class EditorMeshTracker extends System {
+  stepped = 0;
+  override step(): void {
+    this.stepped++;
+  }
+}
+
+describe('engine: node-query systems', () => {
+  const meshSceneBundle = () => {
+    const r = compileSceneXml('<Scene><Mesh id="m"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>');
+    if (!r.ok) throw new Error('compile failed');
+    return bundleScene(r.scene);
+  };
+
+  it('auto-starts at scene load when a matching object is in the tree, seeds `nodes`, and keeps it live', () => {
+    const engine = new Engine();
+    engine.loadScene(meshSceneBundle());
+    const sys = engine.getSystem(MeshTracker);
+    expect(sys).toBeDefined();
+    expect(sys!.nodes.length).toBe(1); // seeded from the loaded tree
+    engine.destroy(engine.findObject('m')!);
+    engine.tick(1 / 60); // destruction flushes end of tick
+    expect(sys!.nodes.length).toBe(0); // query tracked the removal
+    engine.disposeScene(); // scene-scoped: torn down on unload
+    expect(engine.getSystem(MeshTracker)).toBeUndefined();
+    engine.dispose();
+  });
+
+  it('in editor mode, only executeInEditor systems start and step', () => {
+    const engine = new Engine({ editor: true });
+    engine.loadScene(meshSceneBundle());
+    expect(engine.getSystem(MeshTracker)).toBeUndefined(); // play-only system stays off
+    const sys = engine.getSystem(EditorMeshTracker);
+    expect(sys).toBeDefined();
+    engine.tick(1 / 60);
+    expect(sys!.stepped).toBe(1); // stepped despite editor mode
+    engine.dispose();
+  });
+});
 
 describe('engine: systems auto-attach at runtime (CORE-IMPROVEMENTS #1)', () => {
   it('starts a @system when its component first appears via addComponent, and seeds the query', () => {

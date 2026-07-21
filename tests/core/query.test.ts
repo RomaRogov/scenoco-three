@@ -14,10 +14,10 @@ function toBundle(xml: string): Bundle {
 const NESTED = `<Scene>
   <Group id="root">
     <Components><Rotator id="rootRot" speed="1" /></Components>
-    <Mesh id="hero" position="0 1 0"><BoxGeometry /><Components>
+    <Mesh id="hero" position="0 1 0"><Attachments><BoxGeometry /></Attachments><Components>
       <Rotator speed="2" /><Oscillator id="bob" amplitude="0.5" />
     </Components></Mesh>
-    <Mesh id="b"><BoxGeometry /><Components><Oscillator id="osc" amplitude="0.5" /></Components></Mesh>
+    <Mesh id="b"><Attachments><BoxGeometry /></Attachments><Components><Oscillator id="osc" amplitude="0.5" /></Components></Mesh>
   </Group>
 </Scene>`;
 

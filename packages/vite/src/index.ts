@@ -63,8 +63,11 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
     // surfaces as a crash on a single minified line with two-letter names and no
     // way back to source. This is a plugin default — a project's own vite.config
     // (or the singlefile build, which sets `sourcemap: 'inline'`) overrides it.
+    // `dedupe: ['three']` keeps one three in the module graph even when a tag
+    // package brings its own three-based deps (instanceof across two three
+    // copies silently fails — the standard three-ecosystem safeguard).
     config() {
-      return { build: { sourcemap: true } };
+      return { build: { sourcemap: true }, resolve: { dedupe: ['three'] } };
     },
 
     configResolved(config) {
@@ -148,17 +151,6 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
         ...[...projectFiles].map((f) => `import ${JSON.stringify(asImportSpecifier(f, isServe))};`),
         ...[...bareSpecifiers].map((spec) => `import ${JSON.stringify(spec)};`),
       ].join('\n');
-
-      // A scene may declare a DOM UI overlay in a sibling `*.ui.html`; embed its
-      // HTML in the bundle so the runtime mounts it over the canvas
-      // (engine.overlay). Watched so editing the HTML re-triggers a rebuild.
-      if (!isPrefab) {
-        const uiFile = file.replace(/\.(scene\.)?xml$/, '.ui.html');
-        if (existsSync(uiFile)) {
-          this.addWatchFile(uiFile);
-          result.scene.ui = readFileSync(uiFile, 'utf8');
-        }
-      }
 
       const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
 

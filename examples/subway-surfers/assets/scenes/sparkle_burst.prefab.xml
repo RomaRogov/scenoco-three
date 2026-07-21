@@ -1,0 +1,9 @@
+<!-- Spawned by PlayerController at a collected coin's position; cleans itself up. -->
+<Prefab>
+  <Group>
+    <Components>
+      <ParticleSystem src="../vfx/sparkle.particle.xml" />
+      <SelfDestruct life="1.0" />
+    </Components>
+  </Group>
+</Prefab>

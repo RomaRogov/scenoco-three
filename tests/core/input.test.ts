@@ -69,7 +69,7 @@ class Clicker extends Component {
 
 describe('engine: raycasting + pointer events', () => {
   const load = () => {
-    const r = compileSceneXml(`<Scene><PerspectiveCamera position="0 0 5" /><Mesh id="target"><BoxGeometry /><Components><Clicker /></Components></Mesh></Scene>`);
+    const r = compileSceneXml(`<Scene><PerspectiveCamera position="0 0 5" /><Mesh id="target"><Attachments><BoxGeometry /></Attachments><Components><Clicker /></Components></Mesh></Scene>`);
     if (!r.ok) throw new Error('compile failed');
     const engine = new Engine();
     engine.loadScene(bundleScene(r.scene));

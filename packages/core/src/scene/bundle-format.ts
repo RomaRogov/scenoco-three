@@ -11,7 +11,9 @@
  *    once; instances reference them by integer (small ints in any varint codec).
  *  - **Default-value elision via bitmask**: only attributes that differ from the
  *    registry default are stored; a per-tag mask says which. A node at defaults
- *    carries almost no data.
+ *    carries almost no data. A tag with more than 32 schema entries (UI
+ *    elements) stores the mask as an array of 32-bit words (see `BundleMask`);
+ *    both sides derive the shape from the registry schema.
  *  - **TRS special-case**: an identity transform is omitted entirely.
  *  - **Bitwise-NOT reference encoding**: a reference prop stores `i` for
  *    component[i] or `~i` for node[i] — one integer, no wrapper (unambiguous
@@ -37,27 +39,11 @@ export type BundleValue = CompiledScalar | BundleValue[];
  */
 export type BundleKind = 'scene' | 'prefab';
 
-export type Bundle = [
-  version: number,
-  strings: string[],
-  scene: BundleAsset,
-  kind?: BundleKind,
-  /**
-   * A scene's DOM UI overlay — the raw HTML of its sibling `*.ui.html`, mounted
-   * over the canvas on load (see `Engine.overlay`). Appended only when the scene
-   * has one; `kind` is then written explicitly so this stays at index 4.
-   */
-  ui?: string,
-];
+export type Bundle = [version: number, strings: string[], scene: BundleAsset, kind?: BundleKind];
 
 /** The bundle's kind, defaulting to `scene` for bundles that predate the marker. */
 export function bundleKind(bundle: Bundle): BundleKind {
   return bundle[3] ?? 'scene';
-}
-
-/** The scene's DOM UI overlay HTML, if it declared a sibling `*.ui.html`. */
-export function bundleUi(bundle: Bundle): string | undefined {
-  return bundle[4];
 }
 
 export type BundleAsset = [
@@ -75,7 +61,7 @@ export type BundleAsset = [
 ];
 
 /** Attachment: `[tagStringIndex, attrMask, ...nonDefaultValues]`. */
-export type BundleTag = [number, number, ...BundleValue[]];
+export type BundleTag = [number, number | number[], ...BundleValue[]];
 
 /**
  * Node: `[tagStringIndex, flags, attrMask, ...nonDefaultAttrValues, ...extras]`.
@@ -91,9 +77,11 @@ export type BundleNode = BundleValue[];
  */
 export type BundleComponent = BundleValue[];
 
-// v3 unifies the old geometries/materials/settings pools into one `attachments`
-// pool, and a node references its attachments by an index list.
-export const BUNDLE_VERSION = 3;
+// v4 drops the DOM-overlay `ui` slot (in-canvas UI is scene nodes now — see
+// @scenoco-three/ui) and allows multi-word attr masks for >32-attr tags.
+// v3 unified the old geometries/materials/settings pools into one `attachments`
+// pool, with a node referencing its attachments by an index list.
+export const BUNDLE_VERSION = 4;
 
 /** Node flag bits (presence of optional sections). */
 export const NodeFlag = {

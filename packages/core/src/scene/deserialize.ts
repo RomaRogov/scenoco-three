@@ -4,7 +4,6 @@ import { isEnumType } from '../registry/EnumRegistry.js';
 import {
   ComponentFlag,
   NodeFlag,
-  bundleUi,
   type Bundle,
   type BundleComponent,
   type BundleNode,
@@ -12,7 +11,14 @@ import {
   type BundleValue,
 } from './bundle-format.js';
 import type { NodeAttr } from '../registry/NodeRegistry.js';
-import { attachmentAttrEntries, componentPropEntries, nodeAttrEntries, popcount } from './bundle-shared.js';
+import {
+  attachmentAttrEntries,
+  componentPropEntries,
+  maskHas,
+  nodeAttrEntries,
+  popcount,
+  type BundleMask,
+} from './bundle-shared.js';
 import type {
   CompiledAsset,
   CompiledComponent,
@@ -46,13 +52,12 @@ export function deserializeBundle(bundle: Bundle): CompiledScene {
     for (const c of node.components) components[c]!.node = i;
   });
 
-  const ui = bundleUi(bundle);
-  return { root, nodes, attachments, components, ...(prefabs ? { prefabs } : {}), ...(ui ? { ui } : {}) };
+  return { root, nodes, attachments, components, ...(prefabs ? { prefabs } : {}) };
 }
 
 function decodeTag(data: BundleTag, strings: string[]): CompiledAsset {
   const tag = strings[data[0]]!;
-  const mask = data[1];
+  const mask = data[1] as BundleMask;
   const attrCount = popcount(mask);
   const attrs = decodeAttrs(attachmentAttrEntries(tag), mask, data.slice(2, 2 + attrCount), strings);
   const asset: CompiledAsset = { tag, attrs };
@@ -70,7 +75,7 @@ function decodeUniform(u: BundleValue[], strings: string[]): CompiledUniform {
 function decodeNode(data: BundleNode, strings: string[]): CompiledNode {
   const tag = strings[data[0] as number]!;
   const flags = data[1] as number;
-  const mask = data[2] as number;
+  const mask = data[2] as BundleMask;
 
   const entries = nodeAttrEntries(tag);
   let i = 3;
@@ -99,13 +104,13 @@ function decodeNode(data: BundleNode, strings: string[]): CompiledNode {
 function decodeComponent(data: BundleComponent, strings: string[]): CompiledComponent {
   const type = strings[data[0] as number]!;
   const flags = data[1] as number;
-  const mask = data[2] as number;
+  const mask = data[2] as BundleMask;
 
   const props: Record<string, CompiledValue> = {};
   let i = 3;
   let bit = 0;
   for (const [name, meta] of componentPropEntries(type)) {
-    if (mask & (1 << bit)) {
+    if (maskHas(mask, bit)) {
       props[name] = decodePropValue(data[i++] as BundleValue, meta.type, strings);
     }
     bit++;
@@ -121,7 +126,7 @@ function decodeComponent(data: BundleComponent, strings: string[]): CompiledComp
 
 function decodeAttrs(
   entries: [string, NodeAttr][],
-  mask: number,
+  mask: BundleMask,
   values: BundleValue[],
   strings: string[],
 ): Record<string, CompiledScalar | CompiledScalar[]> {
@@ -129,10 +134,12 @@ function decodeAttrs(
   let vi = 0;
   let bit = 0;
   for (const [name, meta] of entries) {
-    if (mask & (1 << bit)) {
+    if (maskHas(mask, bit)) {
       out[name] = decodeAttrValue(values[vi++]!, meta.type, strings);
-    } else {
-      out[name] = meta.default !== undefined ? cloneDefault(meta.default) : isArrayType(meta.type) ? [] : 0;
+    } else if (meta.default !== undefined) {
+      // No-default attrs stay absent (mirrors compileAttrs) — the builder's
+      // field keeps its initializer rather than a materialized zero value.
+      out[name] = cloneDefault(meta.default);
     }
     bit++;
   }
@@ -167,14 +174,14 @@ function decodePropValue(raw: BundleValue, type: PropertyType, strings: string[]
 function decodeTransform(arr: number[]): CompiledTransform {
   return {
     position: arr.slice(0, 3),
-    rotation: arr.slice(3, 6),
+    eulerAngles: arr.slice(3, 6),
     scale: arr.slice(6, 9),
     visible: arr[9] === 1,
   };
 }
 
 function identityTransform(): CompiledTransform {
-  return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true };
+  return { position: [0, 0, 0], eulerAngles: [0, 0, 0], scale: [1, 1, 1], visible: true };
 }
 
 function cloneDefault(value: CompiledScalar | CompiledScalar[]): CompiledScalar | CompiledScalar[] {

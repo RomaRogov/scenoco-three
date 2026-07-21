@@ -14,10 +14,11 @@ import {
 } from '@scenoco-three/core';
 import { ValueType } from '@scenoco-three/core';
 import type { NodeOrigin, SceneProvenance } from '@scenoco-three/compiler';
-import type { AgentEdit, EditOp, EditTarget } from '../src/protocol.js';
+import type { AgentEdit, EditOp, EditTarget, NodeRef, StructuralOp } from '../src/protocol.js';
+import { isEditorOnly } from './meta.js';
 import { UndoStack } from './commands.js';
 
-export type TransformChannel = 'position' | 'rotation' | 'scale';
+export type TransformChannel = 'position' | 'eulerAngles' | 'scale';
 type Scalar = number | boolean | string | number[];
 type AttrMap = Record<string, Scalar>;
 
@@ -51,6 +52,12 @@ export class SceneDocument {
   private readonly cowAttachments = new Set<number>();
   /** `src` edits (prefab instance / material) — no compiled home, tracked explicitly. */
   private readonly srcEdits = new Map<string, EditOp>();
+  /**
+   * Structural changes (reparent/remove/insert) as an ordered op-log — structure
+   * can't be diffed like attributes, so it's recorded. Applied to the source XML by
+   * the server's CST splicer on save (comment-preserving); undo/redo keep it in sync.
+   */
+  private readonly structural: StructuralOp[] = [];
 
   constructor(
     private readonly graph: SceneGraph,
@@ -104,7 +111,7 @@ export class SceneDocument {
   }
   /** Any unsaved change (cheap: scenes are small). */
   get isDirty(): boolean {
-    return this.netEdits().length > 0;
+    return this.netEdits().length > 0 || this.structural.length > 0;
   }
 
   undoLast(): void {
@@ -116,7 +123,7 @@ export class SceneDocument {
 
   // ── transform edits ──────────────────────────────────────────────────────────
 
-  /** Set a node's position/scale (world units) or rotation (radians, XYZ). */
+  /** Set a node's position/scale (world units) or eulerAngles (degrees, XYZ). */
   setTransform(node: Object3D, channel: TransformChannel, value: number[], opts?: { coalesce?: boolean }): void {
     if (!this.canEditTransform(node)) return;
     const i = this.graph.nodeIndexOf.get(node);
@@ -126,7 +133,7 @@ export class SceneDocument {
     const next = value.slice();
     if (numbersEqual(prev, next)) return; // no-op (e.g. an unchanged channel after a drag)
     this.undo.run({
-      label: `${channel} ${node.name || node.type}`,
+      label: `${channel} ${node.sceneId || node.type}`,
       coalesceKey: opts?.coalesce ? `node:${i}:${channel}` : undefined,
       apply: () => {
         t[channel] = next.slice();
@@ -147,7 +154,7 @@ export class SceneDocument {
     const prev = t.visible;
     if (prev === value) return;
     this.undo.run({
-      label: `visible ${node.name || node.type}`,
+      label: `visible ${node.sceneId || node.type}`,
       apply: () => {
         t.visible = value;
         node.visible = value;
@@ -306,6 +313,70 @@ export class SceneDocument {
     });
   }
 
+  // ── structural edits (reparent; remove/insert are future) ──────────────────────
+
+  /**
+   * Reparent `node` under `newParent` (append, or at `index` among its node
+   * children). Mirrors the move on the **live** Three.js scene (so the viewport +
+   * tree update immediately) and records a `moveNode` op for the save-time splicer.
+   * A no-op if it would put a node inside itself/a descendant.
+   */
+  moveNode(node: Object3D, newParent: Object3D, index?: number): void {
+    const oldParent = node.parent;
+    if (!oldParent || node === newParent || this.isAncestor(node, newParent)) return;
+    const oldIndex = oldParent.children.indexOf(node);
+    const op: StructuralOp = {
+      op: 'moveNode',
+      target: this.nodeRef(node),
+      parent: this.nodeRef(newParent),
+      ...(index !== undefined ? { index } : {}),
+    };
+    this.undo.run({
+      label: 'move node',
+      apply: () => {
+        newParent.add(node); // Three.add detaches from the old parent first
+        this.structural.push(op);
+      },
+      invert: () => {
+        oldParent.add(node);
+        const cur = oldParent.children.indexOf(node);
+        if (cur !== -1 && oldIndex >= 0 && oldIndex <= oldParent.children.length - 1) {
+          oldParent.children.splice(cur, 1);
+          oldParent.children.splice(oldIndex, 0, node);
+        }
+        const i = this.structural.lastIndexOf(op);
+        if (i !== -1) this.structural.splice(i, 1);
+      },
+    });
+  }
+
+  /** The ordered structural op-log to send on save (applied before attribute edits). */
+  structuralOps(): StructuralOp[] {
+    return this.structural.slice();
+  }
+
+  /** Address a node for the splicer: the scene root as `path:[]`, else by `id`, else structural path. */
+  private nodeRef(node: Object3D): NodeRef {
+    if (!node.parent) return { path: [] }; // the scene root (THREE.Scene)
+    if (node.sceneId) return { id: node.sceneId };
+    return { path: this.pathOf(node), tag: node.sceneTag ?? node.type };
+  }
+
+  /** Ordinals among node-kind siblings (editor-only helpers excluded) from the root. */
+  private pathOf(node: Object3D): number[] {
+    const path: number[] = [];
+    for (let cur: Object3D = node; cur.parent; cur = cur.parent) {
+      const sibs = cur.parent.children.filter((c) => !isEditorOnly(c));
+      path.unshift(sibs.indexOf(cur));
+    }
+    return path;
+  }
+
+  private isAncestor(node: Object3D, maybe: Object3D): boolean {
+    for (let o: Object3D | null = maybe; o; o = o.parent) if (o === node) return true;
+    return false;
+  }
+
   // ── persistence ───────────────────────────────────────────────────────────────
 
   /** The minimal set of changed attributes vs. the loaded source, for surgical save. */
@@ -316,8 +387,8 @@ export class SceneDocument {
       const target = (): EditTarget => this.nodeTarget(i);
       if (!numbersEqual(node.transform.position, orig.transform.position))
         out.push({ target: target(), attr: 'position', value: node.transform.position.slice() });
-      if (!numbersEqual(node.transform.rotation, orig.transform.rotation))
-        out.push({ target: target(), attr: 'rotation', value: node.transform.rotation.slice() });
+      if (!numbersEqual(node.transform.eulerAngles, orig.transform.eulerAngles))
+        out.push({ target: target(), attr: 'eulerAngles', value: node.transform.eulerAngles.slice() });
       if (!numbersEqual(node.transform.scale, orig.transform.scale))
         out.push({ target: target(), attr: 'scale', value: node.transform.scale.slice() });
       if (node.transform.visible !== orig.transform.visible)
@@ -353,6 +424,7 @@ export class SceneDocument {
   markSaved(): void {
     this.original = structuredClone(this.compiled);
     this.srcEdits.clear();
+    this.structural.length = 0;
     this.emit();
   }
 
@@ -372,7 +444,7 @@ export class SceneDocument {
       if (!node) return;
       if (op.attr === 'src') this.setNodeSrc(node, op.value as string);
       else if (op.attr === 'visible') this.setVisible(node, op.value as boolean);
-      else if (op.attr === 'position' || op.attr === 'rotation' || op.attr === 'scale')
+      else if (op.attr === 'position' || op.attr === 'eulerAngles' || op.attr === 'scale')
         this.setTransform(node, op.attr, op.value as number[]);
     } else if (t.kind === 'component') {
       const comp = this.componentByTarget(t.nodeId, t.type, t.ordinal);
@@ -456,13 +528,13 @@ export class SceneDocument {
       this.setVisible(node, edit.value);
       return undefined;
     }
-    if (edit.attr === 'position' || edit.attr === 'rotation' || edit.attr === 'scale') {
+    if (edit.attr === 'position' || edit.attr === 'eulerAngles' || edit.attr === 'scale') {
       const value = coerceVec(edit.value, 3);
       if (!value) return `"${edit.attr}" takes [x, y, z]`;
       this.setTransform(node, edit.attr, value);
       return undefined;
     }
-    return `unknown node attr "${edit.attr}" — use position/rotation/scale/visible (or src on a prefab instance)`;
+    return `unknown node attr "${edit.attr}" — use position/eulerAngles/scale/visible (or src on a prefab instance)`;
   }
 
   private nodeById(id?: string): Object3D | undefined {
@@ -551,7 +623,8 @@ export class SceneDocument {
 // ── value helpers ────────────────────────────────────────────────────────────────
 
 function applyTransform(node: Object3D, channel: TransformChannel, v: number[]): void {
-  if (channel === 'rotation') node.rotation.set(v[0]!, v[1]!, v[2]!);
+  // `eulerAngles` is degrees; the accessor writes through to `rotation` (radians).
+  if (channel === 'eulerAngles') node.eulerAngles.fromArray(v);
   else node[channel].fromArray(v);
 }
 

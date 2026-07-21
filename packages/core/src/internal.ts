@@ -60,8 +60,11 @@ export {
   componentPropEntries,
   nodeAttrEntries,
   attachmentAttrEntries,
+  buildMask,
+  maskHas,
   popcount,
   valueEquals,
+  type BundleMask,
 } from './scene/bundle-shared.js';
 
 export type {

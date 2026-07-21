@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "SceNoCo Breakout — a self-contained example project (2D physics + DOM overlay HUD)",
+  "description": "SceNoCo Breakout — a self-contained example project (2D physics + in-canvas uikit HUD)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -15,6 +15,7 @@
     "@scenoco-three/core": "^0.4.0",
     "@scenoco-three/box2d": "^0.4.0",
     "@scenoco-three/particles": "^0.4.0",
+    "@scenoco-three/ui": "^0.4.0",
     "three": "^0.184.0"
   },
   "devDependencies": {

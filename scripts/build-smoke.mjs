@@ -42,6 +42,15 @@ const checks = [
     re: /sourceMappingURL=data:application\/json/,
     why: 'the singlefile build sets `sourcemap: "inline"` so a minified crash maps back to source (fix-plan P1-2).',
   },
+  {
+    label: '@scenoco-three/ui runtime (UIRenderSystem + uikit) survived tree-shaking',
+    // Unique string from UIRenderSystem's mis-authored-Fullscreen warning. The ui
+    // package registers its tags and system purely via side-effect import, the
+    // exact pattern a bundler drops when `sideEffects` is wrong — the HUD would
+    // then silently not render.
+    re: /must be a child of the camera node/,
+    why: 'ui/package.json `sideEffects` must keep the registration import so the scene HUD renders in production.',
+  },
 ];
 
 console.log(`[build-smoke] building ${example} (singlefile/IIFE) → ${outDir}`);
@@ -49,7 +58,10 @@ try {
   execFileSync(
     'npm',
     ['--prefix', example, 'run', 'build', '--', '--outDir', outDir, '--emptyOutDir'],
-    { cwd: repoRoot, stdio: ['ignore', 'inherit', 'inherit'] },
+    // The sourcemap is opt-in (off by default — it dwarfs the actual app, see
+    // vite.singlefile.ts) but this smoke test still wants to confirm the
+    // opt-in path itself works, so it forces it on for this one build.
+    { cwd: repoRoot, stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, SCENOCO_SOURCEMAP: '1' } },
   );
 
   const html = readFileSync(join(outDir, 'index.html'), 'utf8');

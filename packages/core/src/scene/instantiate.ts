@@ -1,4 +1,11 @@
-import { Color, Euler, type Object3D, Vector2, Vector3 } from 'three';
+import { Color, Euler, MathUtils, type Object3D, Vector2, Vector3 } from 'three';
+
+const { DEG2RAD } = MathUtils;
+
+/** Build a radians `THREE.Euler` from a degrees `[x, y, z]` triple (compiled Euler is degrees). */
+function eulerFromDegrees(d: number[]): Euler {
+  return new Euler((d[0] ?? 0) * DEG2RAD, (d[1] ?? 0) * DEG2RAD, (d[2] ?? 0) * DEG2RAD);
+}
 import type { AssetCache } from '../assets/AssetCache.js';
 import type { Component } from '../runtime/Component.js';
 import { Registry, isArrayType, elementType, type PropType, type PropertyMeta } from '../registry/Registry.js';
@@ -7,7 +14,7 @@ import type { EnumDef } from '../registry/EnumRegistry.js';
 import type { CompiledComponent, CompiledNode, CompiledRef, CompiledScene, CompiledValue } from './compiled.js';
 import type { CompiledScalar } from './types.js';
 import { getAttachmentDef, getNodeDef, type AttachmentInstance } from '../registry/NodeRegistry.js';
-import { PrefabRef, type SpawnFn } from './PrefabRef.js';
+import { PrefabAsset, type SpawnFn } from './PrefabAsset.js';
 
 /**
  * The live result of instantiating a CompiledScene: a Three.js subtree, bare
@@ -30,7 +37,7 @@ export interface InstantiatedScene {
 export interface InstantiateContext {
   /**
    * How a `prefab` prop spawns its subtree (the Engine passes `engine.instantiate`).
-   * Absent when instantiating standalone (pure tests) — a PrefabRef.spawn() then
+   * Absent when instantiating standalone (pure tests) — a PrefabAsset.spawn() then
    * throws a clear error rather than silently no-op.
    */
   spawn?: SpawnFn;
@@ -78,7 +85,7 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
     const props = Registry.getComponent(c.type)!.meta.properties;
     const ownerNode = instances[i]!.node;
     const resolveRef = (ref: CompiledRef): unknown => {
-      if ('prefab' in ref) return new PrefabRef(compiled.prefabs![ref.prefab]!, spawn, ownerNode);
+      if ('prefab' in ref) return new PrefabAsset(compiled.prefabs![ref.prefab]!, spawn, ownerNode);
       return 'node' in ref ? objects[ref.node] : instances[ref.component];
     };
     for (const [attr, value] of Object.entries(c.props)) {
@@ -119,13 +126,18 @@ export function instantiateScene(compiled: CompiledScene, ctx: InstantiateContex
 
 function buildObject(node: CompiledNode): Object3D {
   const object = getNodeDef(node.tag)!.build(node.attrs);
-  // The DSL `id` maps to Three.js's Object3D.name (Object3D.id is a reserved
-  // numeric auto-id), so name-based lookups keep working.
-  if (node.id !== undefined) object.name = node.id;
+  // The DSL tag itself, for editor/tooling display (see `Object3D.sceneTag`) —
+  // set unconditionally, unlike `sceneId` below, since every compiled node has one.
+  object.sceneTag = node.tag;
+  // The DSL `id` maps to the dedicated `Object3D.sceneId` (Three's `Object3D.id`
+  // is a reserved numeric auto-id, and `name` is left free for its own meaning —
+  // e.g. a loaded glTF's mesh names). Engine.findObject / the id index key off this.
+  if (node.id !== undefined) object.sceneId = node.id;
 
-  const { position, rotation, scale, visible } = node.transform;
+  const { position, eulerAngles, scale, visible } = node.transform;
   object.position.fromArray(position);
-  object.rotation.set(rotation[0]!, rotation[1]!, rotation[2]!);
+  // `eulerAngles` is degrees; the accessor writes through to `rotation` (radians).
+  object.eulerAngles.fromArray(eulerAngles);
   object.scale.fromArray(scale);
   object.visible = visible;
   return object;
@@ -166,9 +178,10 @@ function coerceMathValue(elem: PropType | { new (): unknown } | EnumDef, current
     case ValueType.Vec3:
       return current instanceof Vector3 ? current : new Vector3().fromArray(toNumberArray(current, 3));
     case ValueType.Euler: {
+      // Already a runtime (radians) Euler → keep it; a degrees array/{x,y,z}
+      // default → convert to a radians Euler.
       if (current instanceof Euler) return current;
-      const a = toNumberArray(current, 3);
-      return new Euler(a[0]!, a[1]!, a[2]!);
+      return eulerFromDegrees(toNumberArray(current, 3));
     }
     case ValueType.Color:
       return current instanceof Color ? current : new Color(current as number | string);
@@ -197,10 +210,8 @@ function toRuntimeValue(type: PropType | { new (): unknown } | EnumDef, value: C
       return new Vector2().fromArray(value as number[]);
     case ValueType.Vec3:
       return new Vector3().fromArray(value as number[]);
-    case ValueType.Euler: {
-      const e = value as number[];
-      return new Euler(e[0]!, e[1]!, e[2]!);
-    }
+    case ValueType.Euler:
+      return eulerFromDegrees(value as number[]); // compiled Euler is degrees
     case ValueType.Color:
       return new Color(value as number);
     default:
@@ -231,5 +242,5 @@ function isReferenceType(elem: PropType | { new (): unknown } | EnumDef): boolea
 
 /** Fallback for a prefab prop instantiated without an engine (pure/standalone use). */
 const unboundSpawn: SpawnFn = () => {
-  throw new Error('PrefabRef.spawn() needs an engine — instantiate the scene via Engine.loadScene/instantiate.');
+  throw new Error('PrefabAsset.spawn() needs an engine — instantiate the scene via Engine.loadScene/instantiate.');
 };

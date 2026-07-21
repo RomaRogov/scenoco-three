@@ -6,11 +6,13 @@ import {
   BUNDLE_VERSION,
   ComponentFlag,
   NodeFlag,
+  buildMask,
   componentPropEntries,
   nodeAttrEntries,
   attachmentAttrEntries,
   valueEquals,
   type Bundle,
+  type BundleMask,
   type BundleAsset,
   type BundleComponent,
   type BundleKind,
@@ -48,9 +50,6 @@ export function bundleScene(compiled: CompiledScene, kind: BundleKind = 'scene')
   const asset: BundleAsset = compiled.prefabs?.length
     ? [nodes, attachments, components, compiled.root, compiled.prefabs.map((p) => bundlePrefab(p))]
     : [nodes, attachments, components, compiled.root];
-  // A scene's DOM UI overlay HTML rides at index 4; `kind` (index 3) is then
-  // written explicitly. Prefabs never carry UI, so their shape is unchanged.
-  if (kind !== 'prefab' && compiled.ui) return [BUNDLE_VERSION, pool.strings, asset, 'scene', compiled.ui];
   // The `kind` slot is appended only for prefabs, so scene bundles stay at 3 elements.
   return kind === 'prefab' ? [BUNDLE_VERSION, pool.strings, asset, 'prefab'] : [BUNDLE_VERSION, pool.strings, asset];
 }
@@ -159,16 +158,18 @@ function encodeNode(n: CompiledNode, intern: (s: string) => number): BundleNode 
 }
 
 function encodeComponent(c: CompiledComponent, intern: (s: string) => number): BundleComponent {
-  let mask = 0;
+  const entries = componentPropEntries(c.type);
+  const bits: number[] = [];
   const values: BundleValue[] = [];
   let bit = 0;
-  for (const [name, meta] of componentPropEntries(c.type)) {
+  for (const [name, meta] of entries) {
     if (name in c.props) {
-      mask |= 1 << bit;
+      bits.push(bit);
       values.push(encodePropValue(c.props[name]!, meta.type, intern));
     }
     bit++;
   }
+  const mask = buildMask(bits, entries.length);
 
   let flags = 0;
   const out: BundleComponent = [intern(c.type), 0, mask, ...values];
@@ -191,19 +192,19 @@ function encodeAttrs(
   entries: [string, NodeAttr][],
   attrs: Record<string, CompiledScalar | CompiledScalar[]>,
   intern: (s: string) => number,
-): { mask: number; values: BundleValue[] } {
-  let mask = 0;
+): { mask: BundleMask; values: BundleValue[] } {
+  const bits: number[] = [];
   const values: BundleValue[] = [];
   let bit = 0;
   for (const [name, meta] of entries) {
     const value = attrs[name];
     if (value !== undefined && !valueEquals(value, meta.default)) {
-      mask |= 1 << bit;
+      bits.push(bit);
       values.push(encodeAttrValue(value, meta.type, intern));
     }
     bit++;
   }
-  return { mask, values };
+  return { mask: buildMask(bits, entries.length), values };
 }
 
 /** Encode a node/attachment attr value (string→pool index), mapping element-wise for arrays. */
@@ -244,9 +245,9 @@ function encodePropValue(
 function encodeTransform(t: CompiledTransform): number[] | null {
   const isIdentity =
     t.position.every((v) => v === 0) &&
-    t.rotation.every((v) => v === 0) &&
+    t.eulerAngles.every((v) => v === 0) &&
     t.scale.every((v) => v === 1) &&
     t.visible;
   if (isIdentity) return null;
-  return [...t.position, ...t.rotation, ...t.scale, t.visible ? 1 : 0];
+  return [...t.position, ...t.eulerAngles, ...t.scale, t.visible ? 1 : 0];
 }

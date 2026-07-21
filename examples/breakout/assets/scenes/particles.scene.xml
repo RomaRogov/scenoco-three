@@ -6,14 +6,16 @@
 -->
 <Scene xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xsi:noNamespaceSchemaLocation="../../schema/scene.xsd">
-  <Background color="#0a0e16" />
+  <Attachments>
+    <Background color="#0a0e16" />
+  </Attachments>
   <PerspectiveCamera id="cam" position="0 2 10" fov="45" near="0.1" far="200" />
   <AmbientLight intensity="0.7" />
 
   <!-- Full fire effect from a separate .particle.xml (its own grammar + XSD),
        referenced like a material. The cone emits along local +Z, so rotate the
        node -90° about X to aim it up (+Y). -->
-  <Group id="fx" position="0 0 0" rotation="-90 0 0">
+  <Group id="fx" position="0 0 0" eulerAngles="-90 0 0">
     <Components>
       <ParticleSystem src="../vfx/fire.particle.xml" />
     </Components>

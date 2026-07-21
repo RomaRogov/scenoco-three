@@ -59,12 +59,14 @@ export class Ball extends Component {
     this.body = this.node.getComponent(RigidBody2D);
     this.remaining = this.bricks.length;
     this.scoreboard?.setLives(this.lives);
-    console.log(`[Breakout] ${this.remaining} bricks in play — press SPACE to launch.`);
+    console.log(`[Breakout] ${this.remaining} bricks in play — press SPACE or tap to launch.`);
   }
 
   override update(): void {
-    // Launch on the frame SPACE is pressed (engine.input handles the DOM + edge).
-    if (this.engine.input.getKeyDown('Space')) this.launch();
+    // Launch on the frame SPACE is pressed, or on a tap/click (a single touch is
+    // reported as mouse button 0 by the engine, so this covers mobile for free).
+    const input = this.engine.input;
+    if (input.getKeyDown('Space') || input.getMouseButtonDown(0)) this.launch();
   }
 
   /** Send the ball upward at `launchSpeed`, with a small random horizontal spread. */

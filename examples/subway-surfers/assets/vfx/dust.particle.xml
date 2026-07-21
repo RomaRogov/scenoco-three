@@ -1,0 +1,14 @@
+<!--
+  Continuous dust trail behind the runner's feet. World space so puffs stay
+  where they were born instead of following the player — that's what makes it
+  read as a "trail" rather than a cloud glued to the character.
+-->
+<ParticleSystem duration="2" looping="true" simulationSpace="World"
+                startLifetime="0.5" startSpeed="0.6" startSize="0.22"
+                startColor="#cbd5e1" gravityModifier="-0.05">
+  <Emission rateOverTime="26" />
+  <Shape type="Sphere" radius="0.12" />
+  <Renderer renderMode="Billboard" blending="Alpha" />
+  <ColorOverLifetime colors="[#e2e8f0, #94a3b8, #475569]" />
+  <SizeOverLifetime curve="[0.3, 1, 0]" />
+</ParticleSystem>
