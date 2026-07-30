@@ -1,17 +1,13 @@
 import { SphereGeometry, type Mesh } from 'three';
-import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { GeometryAttachment } from '../families.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
-import { GEOMETRY_TARGETS } from '../targets.js';
 
 @attachment({
   name: 'SphereGeometry',
   description: 'Sphere geometry for a mesh.',
-  target: GEOMETRY_TARGETS,
-  group: 'geometry',
-  required: true,
 })
-export class SphereGeometryNode extends Attachment<Mesh> {
+export class SphereGeometryNode extends GeometryAttachment {
   @property({ type: ValueType.Float, description: 'Sphere radius' }) radius = 1;
   @property({ type: ValueType.Int, description: 'Horizontal (longitude) segments' }) widthSegments = 32;
   @property({ type: ValueType.Int, description: 'Vertical (latitude) segments' }) heightSegments = 16;

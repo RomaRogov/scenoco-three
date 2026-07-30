@@ -2,6 +2,11 @@
 // server (Node) and the editor app (browser). Pure types + a tiny correlation
 // helper, so both ends agree and the relay logic is unit-testable.
 
+import type { CompiledAsset, CompiledComponent, CompiledScene } from '@scenoco-three/core';
+// Type-only: erased at build (verbatimModuleSyntax), so the browser bundle never
+// pulls in the compiler. Direction is editor → compiler, never the reverse.
+import type { MemberRef, NodeRef } from '@scenoco-three/compiler';
+
 /** WebSocket path the editor connects to on the dev server. */
 export const WS_PATH = '/scenoco-ws';
 
@@ -75,11 +80,20 @@ export type EditorResponse =
  *
  * - `fileChanged`: a watched file changed on disk — the open scene/prefab
  *   (`role: 'open'`) or one of its `src=` deps, a prefab/material (`role: 'dep'`).
+ * - `componentsChanged`: a project component source file was added, removed or
+ *   edited. Component classes are ES modules already evaluated in the page, and
+ *   re-importing one would re-run its decorator (a duplicate registration), so
+ *   picking up new `@property` metadata needs a full page reload. That discards
+ *   unsaved scene edits, hence the notification instead of a silent reload — the
+ *   editor asks first when the document is dirty. `metaChanged` distinguishes an
+ *   edit that altered the registered property surface (the inspector will render
+ *   differently) from a body-only change.
  * - `shutdown`: the dev server is stopping; the editor page closes itself so no
  *   stale tab is left behind.
  */
 export type EditorPush =
   | { push: 'fileChanged'; file: string; role: 'open' | 'dep' }
+  | { push: 'componentsChanged'; metaChanged: boolean }
   | { push: 'shutdown' };
 
 /** Result payloads, discriminated by `kind`. */
@@ -145,24 +159,53 @@ export type EditTarget =
 export interface EditOp {
   target: EditTarget;
   attr: string;
-  value: number | boolean | string | number[];
+  /** The new compiled value, or `null` to remove the attribute from the source. */
+  value: number | boolean | string | number[] | null;
 }
 
 // ── structural edits: an ordered op-log the server applies via the CST splicer ──────
 
-/** Addresses a node element by `id` first, else structural `path` (`[]` = the root). */
-export interface NodeRef {
-  id?: string;
-  path?: number[];
-  tag?: string;
-}
+/**
+ * Addresses a node element by `id` first, else structural `path` (`[]` = the root).
+ *
+ * Re-exported from the compiler rather than redeclared: the op-log the editor sends
+ * is applied by the compiler's CST splicer, so the two must address nodes
+ * identically — a second declaration is a divergence waiting to happen. The import
+ * is type-only, so nothing from the compiler reaches the browser bundle (the
+ * dependency direction is editor → compiler; the compiler never knows about the
+ * editor).
+ */
+export type { MemberRef, NodeRef };
 
 /**
  * A structural change to the scene tree (reparent / remove / insert a node),
- * applied to the source XML by `applyStructuralOps` (comment-preserving splice).
- * Mirrors the compiler's `StructuralOp`; sent alongside attribute `EditOp`s on save.
+ * applied to the source XML on save (comment-preserving splice). Sent alongside
+ * attribute `EditOp`s.
+ *
+ * `insertNode` carries the inserted subtree as an in-memory `CompiledScene`
+ * **fragment** (root = the inserted node), not XML: the browser has no compiler, so
+ * a paste keeps the compiled fragment (reused to spawn the subtree live via
+ * `Engine.spawnSubtree`), and the server serializes it to XML with `serializeScene`
+ * only at save time. The compiler's own `StructuralOp.insertNode` stays XML-based;
+ * the save endpoint bridges the two.
  */
 export type StructuralOp =
   | { op: 'moveNode'; target: NodeRef; parent: NodeRef; index?: number }
   | { op: 'removeNode'; target: NodeRef }
-  | { op: 'insertNode'; parent: NodeRef; index?: number; xml: string };
+  | { op: 'insertNode'; parent: NodeRef; index?: number; fragment: CompiledScene }
+  // Managing a node's components/attachments. Both are plain element edits with no
+  // browser/compiler divergence, so they cross the bridge unchanged.
+  | { op: 'removeMember'; target: MemberRef }
+  | { op: 'moveMember'; target: MemberRef; index: number }
+  /**
+   * Add a component/attachment. Like `insertNode`, the browser sends the **compiled**
+   * member rather than XML — it has no serializer — and the save endpoint turns it
+   * into an element. Re-derived at send time, so edits made after adding are carried.
+   */
+  | {
+      op: 'insertMember';
+      node: NodeRef;
+      block: 'Components' | 'Attachments';
+      index?: number;
+      member: { kind: 'component'; value: CompiledComponent } | { kind: 'attachment'; value: CompiledAsset };
+    };

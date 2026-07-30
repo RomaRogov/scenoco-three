@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { Lock, X } from 'lucide-react';
 import type { EnumDef } from '@scenoco-three/core';
-import { toDeg, toRad } from '../meta.js';
 import { fmtNum } from './format.js';
 import { cx } from './cx.js';
 import styles from './ui.module.css';
@@ -12,12 +12,58 @@ import styles from './ui.module.css';
 
 type Commit = (value: number, opts?: { coalesce?: boolean }) => void;
 
-/** A read-only label/value row. */
-export function ReadRow({ label, value }: { label: string; value: string }): React.JSX.Element {
+/**
+ * Every row accepts the registry `description` of the thing it edits and shows it
+ * as the row's tooltip. Descriptions are mandatory on `@property`/`@node`/
+ * `@attachment`, so this surfaces documentation the codebase already guarantees.
+ */
+type Described<T> = T & {
+  description?: string;
+  /** The value is not written in the source — render it as a placeholder, not a value. */
+  unset?: boolean;
+  /** Present only for a clearable (source-written) attribute; renders the × button. */
+  onClear?: () => void;
+};
+
+/** Removes an attribute from the source. Only rendered when the value is actually written. */
+function ClearBtn({ onClear }: { onClear: () => void }): React.JSX.Element {
   return (
-    <div className={styles.row}>
+    <button
+      type="button"
+      className={styles.clearBtn}
+      title="Clear — remove this attribute from the file"
+      aria-label="Clear value"
+      onClick={onClear}
+    >
+      <X />
+    </button>
+  );
+}
+
+/** A read-only label/value row (purely informational — no "disabled" affordance). */
+export function ReadRow({ label, value, description, unset }: Described<{ label: string; value: string }>): React.JSX.Element {
+  return (
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <span className={styles.v}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * A read-only row for a value that *would* be editable but is disabled — decorated
+ * with a lock and a `reason` tooltip so it reads as intentionally locked (prefab
+ * content, a `src`-loaded asset, or a value type the inspector can't edit yet)
+ * rather than a plain fact.
+ */
+export function LockRow({ label, value, reason, description, unset }: Described<{ label: string; value: string; reason: string }>): React.JSX.Element {
+  return (
+    <div className={cx(styles.row, styles.locked)} title={description ? `${description}\n\n${reason}` : reason}>
+      <span className={styles.k}>{label}</span>
+      <span className={styles.v}>
+        <Lock className={styles.lockIcon} aria-label={reason} />
+        <span className={styles.lockVal}>{value}</span>
+      </span>
     </div>
   );
 }
@@ -28,24 +74,28 @@ export function NumberRow({
   value,
   commit,
   int,
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
   value: number;
   commit: (v: number) => void;
   int?: boolean;
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [text, setText] = useState(() => fmtNum(value));
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setText(fmtNum(value));
   }, [value]);
   const doCommit = (): void => {
+    if (text === fmtNum(value)) return; // untouched — never write on a bare focus/blur
     const v = parseFloat(text);
     if (Number.isFinite(v)) commit(int ? Math.round(v) : v);
     else setText(fmtNum(value));
   };
   return (
-    <div className={styles.row}>
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <div className={styles.v}>
         <input
@@ -61,6 +111,7 @@ export function NumberRow({
           }}
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         />
+        {onClear ? <ClearBtn onClear={onClear} /> : null}
       </div>
     </div>
   );
@@ -70,18 +121,21 @@ export function TextRow({
   label,
   value,
   commit,
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
   value: string;
   commit: (v: string) => void;
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [text, setText] = useState(() => value);
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setText(value);
   }, [value]);
   return (
-    <div className={styles.row}>
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <div className={styles.v}>
         <input
@@ -92,10 +146,11 @@ export function TextRow({
           onFocus={() => (focused.current = true)}
           onBlur={() => {
             focused.current = false;
-            commit(text);
+            if (text !== value) commit(text); // untouched → no write
           }}
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         />
+        {onClear ? <ClearBtn onClear={onClear} /> : null}
       </div>
     </div>
   );
@@ -105,16 +160,20 @@ export function BoolRow({
   label,
   value,
   commit,
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
   value: boolean;
   commit: (v: boolean) => void;
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
-    <div className={styles.row}>
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <div className={styles.v}>
         <input type="checkbox" className={styles.toggle} checked={value} onChange={(e) => commit(e.target.checked)} />
+        {onClear ? <ClearBtn onClear={onClear} /> : null}
       </div>
     </div>
   );
@@ -126,15 +185,18 @@ export function EnumRow({
   def,
   value,
   commit,
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
   def: EnumDef;
   value: unknown;
   commit: (v: string | number) => void;
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const current = def.byValue.get(value as string | number) ?? '';
   return (
-    <div className={styles.row}>
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <div className={styles.v}>
         <select
@@ -151,6 +213,7 @@ export function EnumRow({
             </option>
           ))}
         </select>
+        {onClear ? <ClearBtn onClear={onClear} /> : null}
       </div>
     </div>
   );
@@ -160,19 +223,25 @@ export function ColorRow({
   label,
   value,
   commit,
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
   value: number;
   commit: (hex: number) => void;
-}): React.JSX.Element {
-  const css = '#' + value.toString(16).padStart(6, '0');
+}>): React.JSX.Element {
+  // Defensive: the inspector has no error boundary, so a bad value here would
+  // blank the entire panel rather than one row.
+  const hex24 = Number.isFinite(value) ? (value as number) & 0xffffff : 0;
+  const css = '#' + hex24.toString(16).padStart(6, '0');
   const [hex, setHex] = useState(css);
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setHex(css);
   }, [css]);
   return (
-    <div className={styles.row}>
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <div className={styles.v}>
         <div className={styles.color}>
@@ -193,6 +262,7 @@ export function ColorRow({
             onFocus={() => (focused.current = true)}
             onBlur={() => {
               focused.current = false;
+              if (hex === css) return; // untouched → no write
               const v = parseInt(hex.replace(/^#/, ''), 16);
               if (Number.isFinite(v)) commit(v);
               else setHex(css);
@@ -200,6 +270,7 @@ export function ColorRow({
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
         </div>
+        {onClear ? <ClearBtn onClear={onClear} /> : null}
       </div>
     </div>
   );
@@ -211,14 +282,17 @@ export function VecRow({
   value,
   commit,
   labels = ['x', 'y', 'z'],
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
   value: number[];
   commit: (v: number[], opts?: { coalesce?: boolean }) => void;
   labels?: string[];
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
-    <div className={styles.row}>
+    <div className={cx(styles.row, unset && styles.unsetRow)} title={description}>
       <span className={styles.k}>{label}</span>
       <div className={cx(styles.v, styles.axes)}>
         {labels.map((axis, i) => (
@@ -233,28 +307,32 @@ export function VecRow({
             }}
           />
         ))}
+        {onClear ? <ClearBtn onClear={onClear} /> : null}
       </div>
     </div>
   );
 }
 
-/** Euler editor: UI in degrees, commits radians (the compiled/runtime unit). */
+/**
+ * Euler editor — **degrees in, degrees out**, matching the authored DSL and the
+ * compiled model (`transform.eulerAngles`, `ValueType.Euler` props). Callers
+ * holding a live `THREE.Euler` (radians) convert at their own boundary, e.g. via
+ * `node.eulerAngles.toArray()` or `eulerDeg(...)`; this row never converts, so
+ * there is exactly one place per call site where units change.
+ */
 export function EulerRow({
   label,
   value,
   commit,
-}: {
+  description,
+  unset,
+  onClear,
+}: Described<{
   label: string;
-  value: number[]; // radians
-  commit: (radians: number[], opts?: { coalesce?: boolean }) => void;
-}): React.JSX.Element {
-  return (
-    <VecRow
-      label={label}
-      value={value.map(toDeg)}
-      commit={(degs, opts) => commit(degs.map(toRad), opts)}
-    />
-  );
+  value: number[]; // degrees
+  commit: (degrees: number[], opts?: { coalesce?: boolean }) => void;
+}>): React.JSX.Element {
+  return <VecRow label={label} value={value} commit={commit} description={description} />;
 }
 
 /** One axis: a draggable letter (scrub) + a number input. */
@@ -265,6 +343,7 @@ function AxisField({ label, value, commit }: { label: string; value: number; com
     if (!focused.current) setText(fmtNum(value));
   }, [value]);
   const doCommit = (): void => {
+    if (text === fmtNum(value)) return; // untouched → no write
     const v = parseFloat(text);
     if (Number.isFinite(v)) commit(v);
     else setText(fmtNum(value));

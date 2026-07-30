@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  MeshStandardMaterial,
+  BufferGeometry,
   Color,
   Fog,
   Group,
@@ -26,8 +28,22 @@ import {
   Engine,
   type AttachContext,
   ValueType,
+  allAttachmentDefs,
+  detachAttachment,
+  componentAcceptsNode,
+  getNodeDef,
+  Registry,
+  Component,
+  component,
+  target,
 } from '@scenoco-three/core';
 import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
+import { MeshTinter } from '../fixtures/components/MeshTinter.js';
+import { Rotator } from '../fixtures/components/Rotator.js';
+
+// Registered by importing them.
+void MeshTinter;
+void Rotator;
 
 /** Find a node by its DSL scene id (Object3D.sceneId) — replaces the old name-based getObjectByName. */
 function bySceneId(root: import('three').Object3D, id: string): import('three').Object3D | undefined {
@@ -49,7 +65,7 @@ describe('tag registry — custom node/attachment', () => {
   class WidgetNode extends Object3DNode {
     build(): Group { return new Group(); }
   }
-  @attachment({ name: 'Knot', description: 'torus-knot shape', target: 'Widget', group: 'shape', required: true })
+  @attachment({ name: 'Knot', description: 'torus-knot shape', target: Group, group: 'shape', required: true })
   class KnotAttachment extends Attachment {
     @property({ type: ValueType.Float, description: 'knot radius' }) radius = 1;
     attach(ctx: AttachContext): void { ctx.node.add(new Mesh(new TorusKnotGeometry(this.radius))); }
@@ -134,5 +150,109 @@ describe('built-in nodes', () => {
     m.rotation.z = Math.PI;
     expect(m.eulerAngles.z).toBeCloseTo(180);
     engine.dispose();
+  });
+});
+
+describe('attachment families', () => {
+  it('derives group, target and cardinality from the family base class', () => {
+    // `group` is no longer declared anywhere: it comes from the nearest Attachment
+    // subclass in the prototype chain (GeometryAttachment → 'geometry'), and an
+    // attachment extending Attachment directly is its own family (Background →
+    // 'background'). These strings are published in scene-api.json and the XSD, so
+    // pin them — a class rename must not silently reshape the schema.
+    const groups = new Map(allAttachmentDefs().map((d) => [d.tag, d.group]));
+    expect(groups.get('BoxGeometry')).toBe('geometry');
+    expect(groups.get('MeshStandardMaterial')).toBe('material');
+    expect(groups.get('Fog')).toBe('fog');
+    expect(groups.get('FogExp2')).toBe('fog');
+    expect(groups.get('Background')).toBe('background'); // its own family
+
+    // Targets and cardinality are inherited from the family, declared once.
+    const box = allAttachmentDefs().find((d) => d.tag === 'BoxGeometry')!;
+    expect(box.required).toBe(true);
+    expect(box.unique).toBe(true);
+    expect(box.target).toEqual([Mesh, Line, Points]);
+
+    const mat = allAttachmentDefs().find((d) => d.tag === 'MeshStandardMaterial')!;
+    expect(mat.required).toBe(false); // the family declares no `required`
+  });
+});
+
+describe('attachment family reset', () => {
+  it('restores the right host property for every node type the family targets', () => {
+    // The family targets Mesh | Line | Points (geometry) and those plus Sprite
+    // (material) — the reset has to be correct for each, not just for Mesh.
+    for (const host of [new Mesh(), new Line(), new Points()]) {
+      host.geometry = new TorusKnotGeometry(2);
+      detachAttachment(host, 'BoxGeometry');
+      expect(host.geometry).toBeInstanceOf(BufferGeometry);
+      expect(host.geometry).not.toBeInstanceOf(TorusKnotGeometry);
+    }
+
+    // A Sprite renders only with a SpriteMaterial; a mesh material makes it vanish.
+    const sprite = new Sprite(new SpriteMaterial({ color: 0x00ff00 }));
+    detachAttachment(sprite, 'SpriteMaterial');
+    expect(sprite.material).toBeInstanceOf(SpriteMaterial);
+
+    const mesh = new Mesh();
+    detachAttachment(mesh, 'MeshStandardMaterial');
+    expect(mesh.material).toBeInstanceOf(MeshStandardMaterial);
+  });
+});
+
+describe('component node-type constraint', () => {
+  it('is absent by default, and subclass-aware when a component declares one', () => {
+    // The normal case: no `static target`, so the component goes on any node.
+    const rotator = Registry.getComponent('Rotator')!.meta;
+    expect(rotator.target).toBeUndefined();
+    expect(componentAcceptsNode(rotator.target, getNodeDef('Group')!)).toBe(true);
+    expect(componentAcceptsNode(rotator.target, getNodeDef('PointLight')!)).toBe(true);
+
+    // A component that reads `this.node.material` declares `@target(Mesh)`, which
+    // the registry resolves from the class (the generic itself is erased).
+    const tinter = Registry.getComponent('MeshTinter')!.meta;
+    expect(tinter.target).toBe(Mesh);
+    expect(componentAcceptsNode(tinter.target, getNodeDef('Mesh')!)).toBe(true);
+    // Subclass-aware, exactly like attachment targeting.
+    expect(componentAcceptsNode(tinter.target, getNodeDef('SkinnedMesh')!)).toBe(true);
+    expect(componentAcceptsNode(tinter.target, getNodeDef('Group')!)).toBe(false);
+    expect(componentAcceptsNode(tinter.target, getNodeDef('PointLight')!)).toBe(false);
+  });
+});
+
+describe('@target decorator', () => {
+  it('works above or below @component — decorator order must not change behaviour', () => {
+    // Legacy decorators apply bottom-up, so `@component` registers before anything
+    // written above it. The registry therefore reads `target` from the class on
+    // access; if it snapshotted at registration, the first case below would be
+    // silently unconstrained — and above is exactly where Unity puts its attributes.
+    @target(Mesh)
+    @component({ name: 'TargetAbove', description: 'target declared above component' })
+    class Above extends Component<Mesh> {}
+
+    @component({ name: 'TargetBelow', description: 'target declared below component' })
+    @target(Mesh)
+    class Below extends Component<Mesh> {}
+
+    void Above;
+    void Below;
+    expect(Registry.getComponent('TargetAbove')!.meta.target).toBe(Mesh);
+    expect(Registry.getComponent('TargetBelow')!.meta.target).toBe(Mesh);
+
+    Registry.unregisterComponent('TargetAbove');
+    Registry.unregisterComponent('TargetBelow');
+  });
+
+  it('accepts several node classes', () => {
+    @target(Mesh, Line)
+    @component({ name: 'MultiTarget', description: 'accepts meshes and lines' })
+    class Multi extends Component {}
+    void Multi;
+
+    const meta = Registry.getComponent('MultiTarget')!.meta;
+    expect(componentAcceptsNode(meta.target, getNodeDef('Mesh')!)).toBe(true);
+    expect(componentAcceptsNode(meta.target, getNodeDef('Line')!)).toBe(true);
+    expect(componentAcceptsNode(meta.target, getNodeDef('Group')!)).toBe(false);
+    Registry.unregisterComponent('MultiTarget');
   });
 });

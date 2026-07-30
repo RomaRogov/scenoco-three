@@ -25,5 +25,6 @@ export function fmt(v: unknown): string {
 export const vec = (v: Vector3 | Vector2): string =>
   'z' in v ? `${round(v.x)} ${round(v.y)} ${round((v as Vector3).z)}` : `${round(v.x)} ${round(v.y)}`;
 export const euler = (e: Euler): string => `${toDeg(e.x)} ${toDeg(e.y)} ${toDeg(e.z)}`;
-export const eulerArr = (e: Euler): number[] => [e.x, e.y, e.z];
+/** A live `Euler` (radians) as the degrees triple the DSL and inspector use. */
+export const eulerDeg = (e: Euler): number[] => [toDeg(e.x), toDeg(e.y), toDeg(e.z)];
 export const fmtNum = (n: number): string => String(round(n));

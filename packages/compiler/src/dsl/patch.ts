@@ -28,7 +28,13 @@ export type PatchTarget =
 export interface PatchEdit {
   target: PatchTarget;
   attr: string;
-  value: number | boolean | string | number[];
+  /**
+   * The new compiled value, or **`null` to remove the attribute** from the source.
+   * Removal is explicit rather than inferred: an optional attribute with no
+   * registry default (`backgroundColor?: number`) has no value that could stand
+   * for "absent", so clearing it has to be its own instruction.
+   */
+  value: number | boolean | string | number[] | null;
 }
 
 export interface PatchResult {
@@ -65,6 +71,18 @@ export function patchSceneXml(xml: string, edits: PatchEdit[]): PatchResult {
 
   for (const edit of edits) {
     const el = locate(all, roots, edit.target);
+    // An explicit removal needs no codec — there is no value to serialize, and the
+    // attribute may have no registry entry to resolve a type from.
+    if (edit.value === null) {
+      if (!el) {
+        unresolved.push(edit);
+        continue;
+      }
+      let removeOps = byElement.get(el);
+      if (!removeOps) byElement.set(el, (removeOps = new Map()));
+      removeOps.set(edit.attr, null);
+      continue;
+    }
     const codec = resolve(edit);
     if (!el || !codec) {
       unresolved.push(edit);
@@ -178,7 +196,17 @@ function isNodeEl(e: El): boolean {
 /** The codec type + default for an edit's attribute (transform/registry/attachment; `src` is a plain string). */
 function resolve(edit: PatchEdit): { type: ScalarType | EnumDef; default?: number | boolean | string | number[] } | undefined {
   const t = edit.target;
-  if (t.kind === 'node') return edit.attr === 'src' ? { type: ValueType.String } : TRANSFORM[edit.attr];
+  // `id` and `src` are plain string attributes with no registry default (never elided).
+  if (t.kind === 'node') {
+    if (edit.attr === 'src' || edit.attr === 'id') return { type: ValueType.String };
+    const transform = TRANSFORM[edit.attr];
+    if (transform) return transform;
+    // Not a transform attr → the node tag's own attribute (`<PerspectiveCamera fov>`),
+    // typed by the node registry exactly as attachment and component attrs are.
+    const meta = t.tag ? getNodeDef(t.tag)?.attrs[edit.attr] : undefined;
+    if (!meta || (!isScalarType(meta.type) && !isEnumType(meta.type))) return undefined;
+    return { type: meta.type, ...(meta.default !== undefined ? { default: meta.default as number | boolean | string | number[] } : {}) };
+  }
   if (t.kind === 'component') {
     const meta = Registry.getComponent(t.type)?.meta.properties.get(edit.attr);
     if (!meta || (!isScalarType(meta.type) && !isEnumType(meta.type))) return undefined;

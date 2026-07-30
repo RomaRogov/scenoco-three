@@ -1,17 +1,13 @@
 import { BoxGeometry, type Mesh } from 'three';
-import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { GeometryAttachment } from '../families.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
-import { GEOMETRY_TARGETS } from '../targets.js';
 
 @attachment({
   name: 'BoxGeometry',
   description: 'Box (cuboid) geometry for a mesh.',
-  target: GEOMETRY_TARGETS,
-  group: 'geometry',
-  required: true,
 })
-export class BoxGeometryNode extends Attachment<Mesh> {
+export class BoxGeometryNode extends GeometryAttachment {
   @property({ type: ValueType.Float, description: 'Size along X' }) width = 1;
   @property({ type: ValueType.Float, description: 'Size along Y' }) height = 1;
   @property({ type: ValueType.Float, description: 'Size along Z' }) depth = 1;

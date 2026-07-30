@@ -1,3 +1,4 @@
+import { Scene } from 'three';
 import { Attachment, attachment, property, ValueType } from '@scenoco-three/core';
 
 /**
@@ -5,7 +6,7 @@ import { Attachment, attachment, property, ValueType } from '@scenoco-three/core
  * only so a scene authored for `@scenoco-three/rapier` (`<Physics gravity=…>`)
  * drops in unchanged. There is no gravity or simulation here.
  */
-@attachment({ name: 'Physics', target: 'Scene', group: 'physics', description: 'Scene physics config — inert in detection-only mode (rapier-compatible tag)' })
+@attachment({ name: 'Physics', target: Scene, group: 'physics', description: 'Scene physics config — inert in detection-only mode (rapier-compatible tag)' })
 export class Physics extends Attachment {
   @property({ type: ValueType.Vec3, description: 'Gravity vector (inert here)' })
   gravity = [0, -9.81, 0];

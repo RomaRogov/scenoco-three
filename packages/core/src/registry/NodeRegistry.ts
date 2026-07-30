@@ -58,8 +58,12 @@ export interface NodeDef {
 /** A node's runtime Object3D constructor (for attachment target matching). */
 export type AttachClass = abstract new (...args: never[]) => Object3D;
 
-/** Where an attachment may attach: an Object3D class (subclass-aware) or a node tag. */
-export type AttachTarget = AttachClass | AttachClass[] | string;
+/**
+ * Where an attachment may attach: an Object3D class, or several. Subclass-aware —
+ * a target of `Mesh` also accepts `SkinnedMesh`. Classes only, never tag strings:
+ * a class is checked by the compiler, a string typo silently matches nothing.
+ */
+export type AttachTarget = AttachClass | AttachClass[];
 
 /**
  * What an attachment is given when the scene loads: just its host node. A
@@ -97,6 +101,8 @@ export interface AttachmentDef {
   unique: boolean;
   /** Structured child tags this attachment accepts (e.g. `<ShaderMaterial>` → `['Uniform']`). */
   children?: string[];
+  /** Restore the host property this attachment's family owns — the inverse of `attach`. */
+  reset?(node: Object3D): void;
   /** Make a fresh instance, assign its attrs, and hand over any custom-shader uniforms. */
   make(attrs: Record<string, CompiledScalar | CompiledScalar[]>, uniforms?: CompiledUniform[]): AttachmentInstance;
 }
@@ -173,15 +179,24 @@ export function allAttachmentDefs(): AttachmentDef[] {
 
 /** Does an attachment's target accept this node? (class-assignable or tag match) */
 export function attachmentAcceptsNode(def: AttachmentDef, node: NodeDef): boolean {
-  const t = def.target;
-  if (typeof t === 'string') return node.tag === t;
-  const classes = Array.isArray(t) ? t : [t];
+  const classes = Array.isArray(def.target) ? def.target : [def.target];
   return node.produces !== undefined && classes.some((c) => isProducedBy(node.produces!, c));
 }
 
 /** `produces` is `target` or a subclass of it. */
 function isProducedBy(produces: AttachClass, target: AttachClass): boolean {
   return produces === target || produces.prototype instanceof target;
+}
+
+/**
+ * Does a component's optional node-type constraint accept this node? Subclass-aware,
+ * exactly like `attachmentAcceptsNode`. An unconstrained component (no `static
+ * target`) accepts every node — that is the normal case.
+ */
+export function componentAcceptsNode(target: AttachTarget | undefined, node: NodeDef): boolean {
+  if (target === undefined) return true;
+  const classes = Array.isArray(target) ? target : [target];
+  return node.produces !== undefined && classes.some((c) => isProducedBy(node.produces!, c));
 }
 
 /** Attachment tags a node may contain (for the XSD/docs and validator). */

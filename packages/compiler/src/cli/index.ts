@@ -16,6 +16,7 @@ import {
   generatePrefabXsd,
   generateXsd,
   loadComponents,
+  type ComponentScan,
   serializeScene,
   watchSceneFiles,
   type Bundle,
@@ -67,6 +68,10 @@ Exit code is non-zero when validation fails — wire it into your edit→check�
 // Commands that don't need the project's components registered first.
 const SKIP_COMPONENT_LOAD = new Set(['init', 'new']);
 
+// The scan from the bootstrap load, so `export` can record where each tag,
+// component and system is declared (project file vs. tag package).
+let loadedScan: ComponentScan | undefined;
+
 async function main(argv: string[]): Promise<number> {
   // Strip the global --components / --packages flags; commands re-parse their own.
   const { positionals, options } = parseArgs(argv, { '--components': 'components', '--packages': 'packages' });
@@ -84,7 +89,7 @@ async function main(argv: string[]): Promise<number> {
       options.packages !== undefined
         ? options.packages.split(',').map((s) => s.trim()).filter(Boolean)
         : detectTagPackages();
-    await loadComponents(roots, undefined, packages.length > 0 ? { packages } : undefined);
+    loadedScan = await loadComponents(roots, undefined, packages.length > 0 ? { packages } : undefined);
   }
 
   switch (command) {
@@ -361,7 +366,7 @@ function cmdExport(args: string[]): number {
   write(`${dir}/scene.xsd`, generateXsd());
   write(`${dir}/prefab.xsd`, generatePrefabXsd());
   write(`${dir}/material.xsd`, generateMaterialXsd());
-  write(`${dir}/scene-api.json`, generateApiJson());
+  write(`${dir}/scene-api.json`, generateApiJson({ sources: loadedScan }));
   const written = ['scene.xsd', 'prefab.xsd', 'material.xsd'];
   // Package-owned `src=` document schemas (e.g. particles' particle.xsd) — copied
   // verbatim from each registered tag package that ships one.

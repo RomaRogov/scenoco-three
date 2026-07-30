@@ -1,16 +1,13 @@
 import { MeshStandardMaterial, type Mesh, type Texture } from 'three';
-import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { MaterialAttachment } from '../families.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
-import { MATERIAL_TARGETS } from '../targets.js';
 
 @attachment({
   name: 'MeshStandardMaterial',
   description: 'Physically based (PBR) material with roughness/metalness and texture maps.',
-  target: MATERIAL_TARGETS,
-  group: 'material',
 })
-export class MeshStandardMaterialNode extends Attachment<Mesh> {
+export class MeshStandardMaterialNode extends MaterialAttachment {
   @property({ type: ValueType.Color, description: 'Base (albedo) color' }) color = 0xffffff;
   @property({ type: ValueType.Float, description: 'Surface roughness, 0 (glossy) to 1 (matte)' }) roughness = 1;
   @property({ type: ValueType.Float, description: 'Metalness, 0 (dielectric) to 1 (metal)' }) metalness = 0;

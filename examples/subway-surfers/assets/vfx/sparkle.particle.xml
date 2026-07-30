@@ -3,7 +3,9 @@
   (rateOverTime=0, all particles come from the Burst). Paired with a
   SelfDestruct on the spawning prefab so the burst node cleans itself up.
 -->
-<ParticleSystem duration="0.5" looping="false" simulationSpace="World"
+<ParticleSystem
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:noNamespaceSchemaLocation="../../schema/particle.xsd" duration="0.5" looping="false" simulationSpace="World"
                 startLifetime="0.5" startSpeed="3.5" startSize="0.18"
                 startColor="#ffe066" gravityModifier="-0.05">
   <Emission rateOverTime="0">

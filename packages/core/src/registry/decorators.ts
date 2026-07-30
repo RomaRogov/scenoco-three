@@ -11,6 +11,7 @@ import {
   type PropType,
   type PropertyType,
 } from './Registry.js';
+import { Attachment } from '../nodes/base.js';
 import type { ComponentCtor } from './Registry.js';
 // Re-exported so node/attachment files import `ValueType` from the same module as
 // the decorators they already use (`'../../registry/decorators.js'`).
@@ -175,10 +176,33 @@ export function component(options: ComponentOptions) {
     // Stamp the execution order as a static, read by the engine (O(1), not
     // shadowed by instances). Inherited by subclasses through the ctor chain.
     if (options.order !== undefined) (target as unknown as { executionOrder?: number }).executionOrder = options.order;
+    // `target` is not read here: `@target(...)` may be written *above* `@component`,
+    // and legacy decorators apply bottom-up, so it has not run yet. The registry
+    // resolves it from the class on access instead.
     Registry.registerComponent(
       { name: options.name, description: options.description, properties: collectProperties(target as CtorWithProps) },
       target,
     );
+  };
+}
+
+/**
+ * Constrain a component to a node type — `@target(Mesh)` above `@component`, the
+ * runtime counterpart of `class X extends Component<Mesh>` (the generic is erased
+ * before the registry ever runs). Subclass-aware: `@target(Mesh)` also accepts
+ * `SkinnedMesh`.
+ *
+ * Almost no component needs this. A component works on any node, exactly as a
+ * MonoBehaviour works on any GameObject; reach for it only when the body reads a
+ * host-specific member such as `this.node.material`.
+ *
+ * Order-independent: the registry reads the stamped static on access, so this may
+ * sit above or below `@component`.
+ */
+export function target(...nodes: AttachClass[]) {
+  return function (ctor: ComponentCtor): void {
+    if (nodes.length === 0) throw new Error('@target() needs at least one node class');
+    (ctor as unknown as { target?: AttachTarget }).target = nodes.length === 1 ? nodes[0]! : nodes;
   };
 }
 
@@ -265,13 +289,20 @@ export interface AttachmentOptions {
   name: string;
   /** Mandatory one-line summary of the attachment tag (read by people, agents, and RAG). */
   description: string;
-  /** Node(s) this attaches to: an Object3D class (subclass-aware) or a node tag. */
-  target: AttachTarget;
-  /** Cardinality bucket on the target (e.g. 'geometry', 'material', 'fog'). */
-  group: string;
-  /** The target needs at least one attachment of this group. Default false. */
+  /**
+   * Node class(es) this attaches to, subclass-aware. Omit when extending a family
+   * base (`GeometryAttachment`, …), which declares it once for the whole family.
+   */
+  target?: AttachTarget;
+  /**
+   * Cardinality bucket. Normally omitted: it is derived from the family — the
+   * nearest `Attachment` subclass in the prototype chain — so `GeometryAttachment`
+   * gives `geometry`, and an attachment with no family base is its own group.
+   */
+  group?: string;
+  /** The target needs at least one attachment of this group. Family default. */
   required?: boolean;
-  /** At most one attachment of this group per target. Default true. */
+  /** At most one attachment of this group per target. Family default, else true. */
   unique?: boolean;
   /** Structured child tags this attachment accepts (e.g. `['Uniform']` for shaders). */
   children?: string[];
@@ -282,14 +313,26 @@ export function attachment(options: AttachmentOptions) {
   return function (target: new () => { attach(ctx: AttachContext): void }): void {
     assertDescription('attachment', options.name, options.description);
     const { attrs, names } = readAttrs(target as CtorWithProps, options.name);
+    // The family the class belongs to. Statics follow the prototype chain, so a
+    // concrete attachment reads its base's `target`/`required` for free. Explicit
+    // options still win, so an attachment with no family base is unaffected.
+    const family = familyOf(target);
+    const group = options.group ?? groupNameOf(family, target, options.name);
+    const attachTarget = options.target ?? family.target;
+    if (attachTarget === undefined) {
+      throw new Error(
+        `@attachment("${options.name}") has no target — declare one, or extend a family base class (e.g. GeometryAttachment).`,
+      );
+    }
     registerAttachment({
       tag: options.name,
       description: options.description,
       attrs,
-      target: options.target,
-      group: options.group,
-      required: options.required ?? false,
-      unique: options.unique ?? true,
+      target: attachTarget,
+      group,
+      required: options.required ?? family.required ?? false,
+      unique: options.unique ?? family.unique ?? true,
+      ...(family.reset ? { reset: family.reset } : {}),
       ...(options.children ? { children: options.children } : {}),
       make: (a, uniforms) => {
         const inst = new target();
@@ -300,6 +343,38 @@ export function attachment(options: AttachmentOptions) {
       },
     });
   };
+}
+
+/** Statics a family base may declare; inherited by every member of the family. */
+interface FamilyStatics {
+  target?: AttachTarget;
+  required?: boolean;
+  unique?: boolean;
+  reset?(node: Object3D): void;
+}
+
+/**
+ * The attachment's *family*: the nearest class below `Attachment` in its prototype
+ * chain. `BoxGeometryNode extends GeometryAttachment extends Attachment` → the
+ * family is `GeometryAttachment`; an attachment extending `Attachment` directly is
+ * its own family. This is what makes the group derivable instead of declared.
+ */
+function familyOf(ctor: Function): FamilyStatics & { name: string } {
+  let cur = ctor;
+  while (Object.getPrototypeOf(cur) !== Attachment && Object.getPrototypeOf(cur) !== Function.prototype) {
+    cur = Object.getPrototypeOf(cur) as Function;
+  }
+  return cur as unknown as FamilyStatics & { name: string };
+}
+
+/**
+ * The group string for a family: `GeometryAttachment` → `geometry`. A class that is
+ * its own family uses its XML tag instead (`Background` → `background`), which
+ * reproduces the singleton groups those attachments already had.
+ */
+function groupNameOf(family: { name: string }, ctor: Function, tag: string): string {
+  if (family === (ctor as unknown as { name: string })) return tag.toLowerCase();
+  return family.name.replace(/Attachment$/, '').toLowerCase();
 }
 
 // ---- systems ----------------------------------------------------------------

@@ -1,6 +1,9 @@
 import type { AssetKind } from '../assets/AssetCache.js';
 import type { Component } from '../runtime/Component.js';
 import type { EnumDef } from './EnumRegistry.js';
+// Type-only, so this is erased — no runtime cycle with NodeRegistry (which imports
+// `duplicateRegistrationError`/`ValueType` from here as values).
+import type { AttachTarget } from './NodeRegistry.js';
 
 export type ComponentCtor = new () => Component;
 
@@ -113,6 +116,18 @@ export interface ComponentMeta {
   description: string;
   /** Attribute name → metadata, in declaration order (subclass first, then inherited). */
   properties: Map<string, PropertyMeta>;
+  /**
+   * Optional node-type constraint, declared with `@target(Mesh)`. Absent for almost
+   * every component — like a MonoBehaviour on a GameObject, a component goes on any
+   * node — and present only where one genuinely depends on the host type.
+   *
+   * **Resolved lazily from the class**, never snapshotted at registration: legacy
+   * decorators apply bottom-up, so `@component` runs *before* anything written above
+   * it. Reading on access is what lets `@target` sit above `@component` (where Unity
+   * puts its attributes, and where anyone will write it) instead of silently doing
+   * nothing.
+   */
+  readonly target?: AttachTarget;
 }
 
 export interface RegisteredComponent {
@@ -152,6 +167,12 @@ class EngineRegistry {
           : `A different class (${existing.ctor.name || '<anonymous>'}) already uses this name.`;
       throw duplicateRegistrationError('Component', meta.name, cause);
     }
+    // `target` reads through to the class each time — see ComponentMeta.target.
+    Object.defineProperty(meta, 'target', {
+      get: () => (ctor as unknown as { target?: AttachTarget }).target,
+      enumerable: true,
+      configurable: true,
+    });
     this.components.set(meta.name, { meta, ctor });
   }
 

@@ -2,6 +2,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "jsx": "react-jsx",
     "paths": {
       "@scenoco-three/core": ["./packages/core/src/index.ts"],
       "@scenoco-three/core/internal": ["./packages/core/src/internal.ts"],

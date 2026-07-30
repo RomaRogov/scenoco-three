@@ -137,8 +137,8 @@ node ../../packages/compiler/dist/cli/index.js export   --out schema
 ## Documentation
 
 Each package documents its own surface in `packages/*/README.md` (linked from the table
-above). `npm run export` generates a machine-readable scene-language reference
-(`schema/scene-api.json`) and XSDs for every document kind (`scene.xsd`, `prefab.xsd`,
+above). `npm run export`, run inside a project (e.g. `examples/breakout`), generates a
+machine-readable scene-language reference (`schema/scene-api.json`) and XSDs for every document kind (`scene.xsd`, `prefab.xsd`,
 `material.xsd`, plus any tag package's own — e.g. particles' `particle.xsd`) for IDE
 autocomplete, all derived from the same component registry as the runtime.
 

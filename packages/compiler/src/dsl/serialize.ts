@@ -135,6 +135,37 @@ function nodeAttrs(node: CompiledNode, index: number, ids: SceneIds): string {
   return parts.length > 0 ? ' ' + parts.join(' ') : '';
 }
 
+/**
+ * A single `<Attachment />` / `<Component />` element, for tooling that inserts one
+ * into an existing document (the editor's "add attachment/component"). Produces the
+ * same text `serializeScene` would, so an added element is indistinguishable from an
+ * authored one.
+ */
+export function serializeAttachmentElement(asset: CompiledAsset): string {
+  return attachmentTag(asset);
+}
+
+export function serializeComponentElement(component: CompiledComponent): string {
+  return componentTag(component, -1, STANDALONE_IDS);
+}
+
+/**
+ * Id table for a component serialized outside a scene: it has no id of its own, and
+ * a reference prop cannot be resolved without the surrounding scene. References are
+ * unreachable here — the inspector renders them read-only, so a freshly added
+ * component has none — and this throws rather than emitting a broken `#ref`.
+ */
+const STANDALONE_IDS: SceneIds = {
+  node: () => {
+    throw new Error('cannot serialize a node reference outside its scene');
+  },
+  component: () => {
+    throw new Error('cannot serialize a component reference outside its scene');
+  },
+  nodeHas: () => false,
+  componentHas: () => false,
+};
+
 function attachmentTag(asset: CompiledAsset): string {
   const parts: string[] = [];
   appendDefaultedAttrs(parts, getAttachmentDef(asset.tag)?.attrs ?? {}, asset.attrs);

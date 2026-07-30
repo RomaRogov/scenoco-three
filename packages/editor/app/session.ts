@@ -28,6 +28,13 @@ export class EditorSession {
   /** Fired when a watched file changes on disk (the open file or a `src=` dep). */
   onExternalChange?: (file: string, role: 'open' | 'dep') => void;
   /**
+   * A project component file changed. Picking up new `@property` metadata needs a
+   * full page reload (re-importing the module would re-run its decorator), which
+   * discards unsaved scene edits — so the host decides, rather than reloading here.
+   * `metaChanged` is true when the registered property surface actually moved.
+   */
+  onComponentsChanged?: (metaChanged: boolean) => void;
+  /**
    * Fired when a gameplay frame throws (a component hook / system error). The host
    * shows it in the same "component code has an error" banner; the session stays
    * alive (playback paused) so a fix + HMR reload recovers, rather than the RAF
@@ -330,6 +337,11 @@ export class EditorSession {
         if (node && parent) parent.add(node);
       } else if (op.op === 'removeNode') {
         resolveInEngine(engine, op.target)?.removeFromParent();
+      } else if (op.op === 'insertNode') {
+        // A pasted subtree: spawn the fragment live (no recompile) — the same
+        // roundtrip-free path the edit engine uses, so play/preview match.
+        const parent = op.parent.path?.length === 0 ? engine.scene : resolveInEngine(engine, op.parent);
+        if (parent) engine.spawnSubtree(op.fragment, parent, op.index);
       }
     }
   }

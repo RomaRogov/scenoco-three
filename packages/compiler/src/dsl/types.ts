@@ -13,16 +13,22 @@ import { ValueType } from '@scenoco-three/core/internal';
  *   bool       → boolean
  *   string     → string
  *   vec2/vec3  → number[]              (length 2 / 3)
- *   euler      → number[] in RADIANS   (XML is degrees; converted at parse time)
+ *   euler      → number[] in DEGREES   (degrees end to end; the radian conversion
+ *                                       happens once at instantiate — see the
+ *                                       `euler` codec below and instantiate.ts)
  *   color      → number (0xRRGGBB)
  *
  * Reference types (`node` and typed component references) are not scalar codecs;
  * they need the scene-wide name/id tables and are resolved by the compiler.
+ *
+ * The two value *types* are owned by core (the runtime consumes compiled values),
+ * and re-exported here so a consumer of the compiler gets the whole vocabulary
+ * from one import. Declaring them twice is what let the radians/degrees model
+ * drift between the packages in the first place.
  */
 
-export type ScalarType = 'float' | 'int' | 'bool' | 'string' | 'vec2' | 'vec3' | 'euler' | 'color';
-
-export type CompiledScalar = number | boolean | string | number[];
+export type { CompiledScalar, ScalarType } from '@scenoco-three/core/internal';
+import type { CompiledScalar, ScalarType } from '@scenoco-three/core/internal';
 
 export interface ParseOk<T> {
   ok: true;

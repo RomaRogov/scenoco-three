@@ -46,6 +46,7 @@ export function connectEditor(session: EditorSession, host: EditorHost): void {
       // Unsolicited server pushes — not id-correlated commands.
       if ('push' in msg) {
         if (msg.push === 'shutdown') serverStopping();
+        else if (msg.push === 'componentsChanged') session.onComponentsChanged?.(msg.metaChanged);
         else session.onExternalChange?.(msg.file, msg.role);
         return;
       }

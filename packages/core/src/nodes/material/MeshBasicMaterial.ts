@@ -1,16 +1,13 @@
 import { MeshBasicMaterial, type Mesh, type Texture } from 'three';
-import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { MaterialAttachment } from '../families.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
-import { MATERIAL_TARGETS } from '../targets.js';
 
 @attachment({
   name: 'MeshBasicMaterial',
   description: 'Unlit material — shows a flat color/texture regardless of scene lighting.',
-  target: MATERIAL_TARGETS,
-  group: 'material',
 })
-export class MeshBasicMaterialNode extends Attachment<Mesh> {
+export class MeshBasicMaterialNode extends MaterialAttachment {
   @property({ type: ValueType.Color, description: 'Material color' }) color = 0xffffff;
   @property({ type: ValueType.Float, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;
   @property({ type: ValueType.Bool, description: 'Enable alpha blending (use with opacity)' }) transparent = false;

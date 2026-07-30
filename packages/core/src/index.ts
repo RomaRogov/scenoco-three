@@ -43,6 +43,7 @@ export {
   node,
   attachment,
   system,
+  target,
   executeInEditor,
   type ComponentOptions,
   type NodeOptions,
@@ -50,16 +51,26 @@ export {
   type SystemOptions,
 } from './registry/decorators.js';
 export { Object3DNode, Attachment } from './nodes/base.js';
+// The inverse of `attach` — lets tooling remove an attachment, not just overwrite it.
+export { detachAttachment } from './nodes/detach.js';
 
 // Tag registry — built-in tags self-register on import; projects add their own
 // the same way (the extensible counterpart to @component).
 export {
   getNodeDef,
+  // The shared transform attribute metadata (type + default + description). Public
+  // so tooling — the editor inspector, docs — can describe `position`/`eulerAngles`/
+  // `scale`/`visible` from the registry instead of keeping a parallel copy.
+  TRANSFORM_ATTRS,
   nodeTags,
   allNodeDefs,
   registerNode,
   unregisterNode,
   getAttachmentDef,
+  // Which attachments a node accepts, subclass-aware. Public so tooling — the
+  // editor's add-attachment selector, the XSD — can offer exactly the valid set.
+  attachmentsForNode,
+  componentAcceptsNode,
   attachmentTags,
   allAttachmentDefs,
   registerAttachment,

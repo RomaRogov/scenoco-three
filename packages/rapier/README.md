@@ -6,6 +6,11 @@ entirely on the public `System` seam in `@scenoco-three/core`. Import it to get 
 don't, and no physics (or Rapier WASM) ships. The 2D counterpart is
 [`@scenoco-three/box2d`](../box2d).
 
+> **Pick one engine.** [`@scenoco-three/collision`](../collision) exposes the *same* tags
+> (detection only, no dynamics) so a project can switch by swapping the import — but the two
+> cannot coexist: importing both throws a duplicate-registration error. `box2d` is 2D and uses
+> distinct `*2D` tags, so it composes with neither conflict.
+
 ```bash
 npm i @scenoco-three/rapier
 ```

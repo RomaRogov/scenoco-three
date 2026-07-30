@@ -1,5 +1,7 @@
 <!-- Overhead beam — slide under it. No wrapper node; the spawned PrefabInstance root is placed, this Mesh keeps its y=1.65 offset. -->
-<Prefab>
+<Prefab
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
   <Mesh position="0 1.65 0">
     <Attachments>
       <BoxGeometry width="1.7" height="0.5" depth="0.4" />

@@ -8,6 +8,7 @@ import {
   isArrayType,
   isEnumType,
   TRANSFORM_ATTRS,
+  UNIFORM_TYPES,
   type EnumDef,
   type PropertyMeta,
   type NodeAttr,
@@ -61,7 +62,9 @@ export function generateMaterialXsd(): string {
   for (const e of allEnums()) out.push(enumSimpleType(e));
   out.push('');
   out.push(`  <!-- Materials (each is a valid document root) -->`);
-  for (const def of allAttachmentDefs().filter((d) => d.group === 'material')) out.push(attachmentElement(def));
+  const materials = allAttachmentDefs().filter((d) => d.group === 'material');
+  for (const def of materials) out.push(attachmentElement(def));
+  out.push(...attachmentChildElements(materials));
   out.push(`</xs:schema>`);
   out.push('');
   return out.join('\n');
@@ -110,6 +113,7 @@ function emitSchema(opts: { sceneRoot: boolean; prefabRoot: boolean }): string {
   // <Components> defers per-node rules to the compiler.)
   out.push(`  <!-- Attachments (children of <Attachments>): geometry/material/fog/… -->`);
   for (const def of allAttachmentDefs()) out.push(attachmentElement(def));
+  out.push(...attachmentChildElements(allAttachmentDefs()));
   out.push('');
   out.push(`  <xs:element name="Attachments">`);
   out.push(`    <xs:complexType>`);
@@ -225,6 +229,41 @@ function spatialElement(def: NodeDef): string {
   return lines.join('\n');
 }
 
+/**
+ * Element declarations for the structured children some attachments accept
+ * (`AttachmentDef.children`, e.g. `<ShaderMaterial>` → `['Uniform']`). Emitted
+ * once per schema, for the union of every registered attachment's children, so a
+ * package that declares a new child tag is covered without touching this file.
+ * Without these the attachment's complexType has no content model and a valid
+ * document fails validation — the Validator accepts the children, so the schema
+ * must too.
+ */
+function attachmentChildElements(defs: readonly AttachmentDef[]): string[] {
+  const tags = [...new Set(defs.flatMap((d) => d.children ?? []))].sort();
+  return tags.map((tag) =>
+    tag === 'Uniform'
+      ? [
+          `  <xs:element name="Uniform">`,
+          ...xsDoc('    ', 'A shader uniform: name, declared type, and value.'),
+          `    <xs:complexType>`,
+          attrXml('      ', 'name', 'xs:string', true, 'Uniform name, as declared in the shader'),
+          attrXml('      ', 'type', 'UniformType', true, `One of: ${UNIFORM_TYPES.join(', ')}`),
+          attrXml('      ', 'value', 'xs:string', true, 'Value, parsed according to "type"'),
+          `    </xs:complexType>`,
+          `  </xs:element>`,
+        ].join('\n')
+      : // Unknown child tag from a third-party package: permit any attributes
+        // rather than reject a document the Validator would accept.
+        [
+          `  <xs:element name="${tag}">`,
+          `    <xs:complexType>`,
+          `      <xs:anyAttribute processContents="skip"/>`,
+          `    </xs:complexType>`,
+          `  </xs:element>`,
+        ].join('\n'),
+  );
+}
+
 function attachmentElement(def: AttachmentDef): string {
   const attrs = Object.entries(def.attrs).map(([name, meta]) => nodeAttr('      ', name, meta));
   // Any attachment may pull defaults from a resource file via src= (e.g. .material.xml) —
@@ -233,10 +272,21 @@ function attachmentElement(def: AttachmentDef): string {
   if (!('src' in def.attrs)) {
     attrs.unshift(attrXml('      ', 'src', 'xs:string', false, 'Load attribute defaults from a resource file'));
   }
+  // An attachment that declares child tags needs a matching content model; without
+  // one XSD treats the type as empty and rejects children the Validator allows.
+  const children = def.children ?? [];
+  const content = children.length
+    ? [
+        `      <xs:choice minOccurs="0" maxOccurs="unbounded">`,
+        ...children.map((tag) => `        <xs:element ref="${tag}"/>`),
+        `      </xs:choice>`,
+      ]
+    : [];
   return [
     `  <xs:element name="${def.tag}">`,
     ...xsDoc('    ', def.description),
     `    <xs:complexType>`,
+    ...content,
     ...attrs,
     `    </xs:complexType>`,
     `  </xs:element>`,

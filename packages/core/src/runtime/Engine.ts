@@ -700,6 +700,33 @@ export class Engine {
   }
 
   /**
+   * Spawn a compiled subtree as **plain authored nodes** under `parent` (the scene
+   * root by default) at runtime, without the `PrefabInstance` wrapper `instantiate`
+   * adds — a pasted `<Group>` stays a `<Group>`. Optionally insert at `index` among
+   * the parent's children (else appended). Unlike `instantiate`, it returns the full
+   * {@link InstantiatedScene} — its `nodes`/`components` are index-aligned with the
+   * source `CompiledScene`, so an editor can map each live object back to its source
+   * index and keep its own scene-graph in sync. Used by the editor's copy/paste.
+   *
+   * The subtree is id-indexed and its components are registered + lifecycle-started
+   * (inert in editor mode, exactly like a loaded scene), so it is immediately live.
+   * Remove it with `destroy(live.root)`.
+   */
+  spawnSubtree(source: Bundle | CompiledScene, parent: Object3D = this.scene, index?: number): InstantiatedScene {
+    const compiled = Array.isArray(source) ? deserializeBundle(source) : source;
+    const live = instantiateScene(compiled, this.instantiateContext());
+    parent.add(live.root);
+    if (index !== undefined && index >= 0 && index < parent.children.length - 1) {
+      const from = parent.children.indexOf(live.root);
+      parent.children.splice(from, 1);
+      parent.children.splice(index, 0, live.root);
+    }
+    this.indexObjects(live.root, true);
+    this.initLive(live);
+    return live;
+  }
+
+  /**
    * Destroy an object and its whole subtree — Unity/Cocos `Destroy(gameObject)`.
    * **Deferred**: the object and its components are marked destroyed immediately
    * (so every phase this tick skips them) but the actual teardown — onDisable/

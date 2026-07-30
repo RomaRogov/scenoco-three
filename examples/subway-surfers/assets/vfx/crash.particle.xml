@@ -1,5 +1,7 @@
 <!-- One-shot crash burst: bigger, hotter, with a little turbulence (Noise). -->
-<ParticleSystem duration="0.8" looping="false" simulationSpace="World"
+<ParticleSystem
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:noNamespaceSchemaLocation="../../schema/particle.xsd" duration="0.8" looping="false" simulationSpace="World"
                 startLifetime="0.9" startSpeed="6" startSize="0.3"
                 startColor="#ff5533" gravityModifier="0.4">
   <Emission rateOverTime="0">

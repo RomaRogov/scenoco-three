@@ -5,6 +5,7 @@ import {
   attachmentsForNode,
   attachmentAcceptsNode,
   allSystemDefs,
+  builtinNodeModules,
   isArrayType,
   isEnumType,
   elementType,
@@ -16,6 +17,8 @@ import {
   type AttachmentDef,
 } from '@scenoco-three/core/internal';
 import { ValueType } from '@scenoco-three/core/internal';
+import { isAbsolute, relative, sep } from 'node:path';
+
 import { codecs, type ScalarType } from '../dsl/types.js';
 
 /** Bump on any breaking change to the exported shape below. */
@@ -61,6 +64,34 @@ export interface Attribute {
   description?: string;
 }
 
+/**
+ * Where a tag/component/system is declared, so a consumer can jump from an XML
+ * tag straight to the TypeScript that defines it. Exactly one locator is set:
+ * `file` for something declared in the project being exported (repo-relative,
+ * POSIX separators), `package` for something a registered tag package brought in.
+ */
+export interface SourceRef {
+  /** Project-relative path, e.g. "assets/components/Ball.ts". */
+  file?: string;
+  /** Package specifier, e.g. "@scenoco-three/box2d". */
+  package?: string;
+  /** The exported class / decorated symbol to look up in that file or package. */
+  symbol: string;
+}
+
+/**
+ * Tag/component/system → declaring origin. Structurally the subset of the
+ * compiler's `ComponentScan` this exporter needs; each value is either an
+ * absolute file path (project) or a package specifier (dependency).
+ */
+export interface SourceIndex {
+  byName: ReadonlyMap<string, string>;
+  byTag: ReadonlyMap<string, string>;
+  byComponentSystem?: ReadonlyMap<string, readonly string[]>;
+  /** `@system` class name → package specifier that registered it. */
+  bySystem?: ReadonlyMap<string, string>;
+}
+
 export interface NodeApi {
   tag: string;
   kind: 'scene' | 'object3d';
@@ -74,6 +105,8 @@ export interface NodeApi {
   children: { object3d: boolean; components: boolean };
   /** Attachment groups the node accepts, with cardinality (the node's view of compatibility). */
   accepts: AttachmentGroupRef[];
+  /** Where the tag is declared, when the exporter was given a source index. */
+  source?: SourceRef;
 }
 
 export interface AttachmentGroupRef {
@@ -95,12 +128,14 @@ export interface AttachmentApi {
   /** Node tags this attachment can attach to. */
   targets: string[];
   attributes: Attribute[];
+  source?: SourceRef;
 }
 
 export interface ComponentApi {
   name: string;
   description?: string;
   properties: PropertyApi[];
+  source?: SourceRef;
 }
 
 /** A component property: either a scalar value or a typed reference to another entity. */
@@ -152,8 +187,29 @@ export type Relation =
   | { kind: 'references'; from: EntityRef; via: string; to: ReferenceTarget; array?: true }
   | { kind: 'processes'; from: EntityRef; to: EntityRef };
 
+/**
+ * Options for the exporters. Pass `sources` (the `ComponentScan` from
+ * `loadComponents`) to attach a `source` locator to every tag, component and
+ * system — the link from an XML tag to the TypeScript that declares it. Omit it
+ * and the output is exactly as before, minus the `source` fields.
+ */
+export interface ApiOptions {
+  sources?: SourceIndex;
+  /** Root that `source.file` paths are relative to. Defaults to `process.cwd()`. */
+  cwd?: string;
+}
+
 /** Build the scene API model from the live registries. */
-export function generateApi(): SceneApi {
+export function generateApi(opts: ApiOptions = {}): SceneApi {
+  const src = opts.sources;
+  const cwd = opts.cwd ?? process.cwd();
+  const locate = (origin: string | undefined, symbol: string): SourceRef | undefined =>
+    origin === undefined ? undefined : sourceRef(origin, symbol, cwd);
+  // Built-in tags are registered by core itself, so they never appear in a scan.
+  // `builtinNodeModules` is the authoritative tag → module map (kept in sync by
+  // tests/treeshake.test.ts), which makes every built-in locatable too.
+  const locateTag = (tag: string): SourceRef | undefined =>
+    locate(src?.byTag.get(tag) ?? builtinNodeModules[tag], tag);
   const valueTypes = Object.fromEntries(
     (Object.keys(codecs) as ScalarType[]).map((t) => [t, { example: codecs[t].example }]),
   ) as Record<ScalarType, { example: string }>;
@@ -161,22 +217,35 @@ export function generateApi(): SceneApi {
   const transform = Object.entries(TRANSFORM_ATTRS).map(([name, meta]) => attribute(name, meta));
 
   const nodeDefs = allNodeDefs();
-  const nodes = nodeDefs.slice().sort(byKindThenTag).map((def) => nodeApi(def));
+  const nodes = nodeDefs
+    .slice()
+    .sort(byKindThenTag)
+    .map((def) => withSource(nodeApi(def), locateTag(def.tag)));
 
   const attachments = allAttachmentDefs()
     .slice()
     .sort((a, b) => a.group.localeCompare(b.group) || a.tag.localeCompare(b.tag))
-    .map((def) => attachmentApi(def, nodeDefs));
+    .map((def) => withSource(attachmentApi(def, nodeDefs), locateTag(def.tag)));
 
   const components = Registry.componentNames()
     .slice()
     .sort((a, b) => a.localeCompare(b))
-    .map((name) => componentApi(name));
+    .map((name) => withSource(componentApi(name), locate(src?.byName.get(name), name)));
 
   const systems = allSystemDefs()
     .map((def) => {
       const processes = componentNameOf(def.componentType as ComponentCtor);
-      return { name: def.ctor.name, ...(processes ? { processes } : {}) };
+      // A system is indexed by the component type it processes, and may be
+      // declared in more than one file; the first is the canonical declaration.
+      // Prefer the package that registered the system class; fall back to the
+      // project file(s) declaring a `@system` for the component it processes.
+      const origin =
+        src?.bySystem?.get(def.ctor.name) ??
+        (processes ? src?.byComponentSystem?.get(processes)?.[0] : undefined);
+      return withSource(
+        { name: def.ctor.name, ...(processes ? { processes } : {}) },
+        locate(origin, def.ctor.name),
+      );
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -193,8 +262,23 @@ export function generateApi(): SceneApi {
 }
 
 /** Pretty-printed JSON of the scene API (diff-friendly artifact). */
-export function generateApiJson(): string {
-  return JSON.stringify(generateApi(), null, 2) + '\n';
+export function generateApiJson(opts: ApiOptions = {}): string {
+  return JSON.stringify(generateApi(opts), null, 2) + '\n';
+}
+
+/** Attach a `source` only when one is known, so the field is absent, never null. */
+function withSource<T extends object>(entry: T, source: SourceRef | undefined): T {
+  return source ? { ...entry, source } : entry;
+}
+
+/**
+ * An absolute path means the project declares it → repo-relative `file`.
+ * Anything else is a package specifier as written in `package.json`.
+ */
+function sourceRef(origin: string, symbol: string, cwd: string): SourceRef {
+  return isAbsolute(origin)
+    ? { file: relative(cwd, origin).split(sep).join('/'), symbol }
+    : { package: origin, symbol };
 }
 
 // ---- builders ---------------------------------------------------------------

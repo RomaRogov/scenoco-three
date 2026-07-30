@@ -13,7 +13,8 @@ import { SceneDocument } from './document.js';
 import { Gizmo, type GizmoMode } from './gizmo.js';
 import { showFilePicker } from './filePicker.js';
 import { isEditorOnly } from './meta.js';
-import type { AgentEdit } from '../src/protocol.js';
+import type { CompiledScene } from '@scenoco-three/core';
+import type { AgentEdit, NodeRef } from '../src/protocol.js';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 // Right mouse drag is the fly-camera look control — suppress the native
@@ -33,6 +34,10 @@ let doc: SceneDocument | undefined;
 let gizmo: Gizmo | undefined;
 let gizmoMode: GizmoMode = 'translate';
 let saving = false;
+/** The current selection (tracked here so tree-edit actions/keys can target it). */
+let selectedNode: Object3D | null = null;
+/** Cut/copy clipboard — an in-memory compiled subtree fragment, pasted with no recompile. */
+let clipboard: CompiledScene | null = null;
 
 // Edits fire the document's change event per-commit (including each coalesced
 // scrub tick); collapse a burst into one UI refresh per frame so the React tree/
@@ -67,7 +72,7 @@ function rebind(): void {
     desktop = new DesktopControls(rig, session.engine.input);
     if (isTouchDevice()) new TouchControls(rig, canvas, () => gizmo?.dragging ?? false);
     if (graph) {
-      doc = new SceneDocument(graph, session.provenance);
+      doc = new SceneDocument(graph, session.provenance, session.engine);
       // Keep the session's play/preview overlays (attribute + structural) in sync with
       // the doc, then refresh the UI — so Play reflects edits even before a save.
       doc.onChange(() => {
@@ -82,11 +87,23 @@ function rebind(): void {
       const pendingEdits = session.pendingEdits;
       const pendingStructural = session.pendingStructural;
       if (pendingEdits.length) doc.applyEdits(pendingEdits);
+      // Re-record the structural op-log against the fresh document so reparents /
+      // deletes / pastes survive an engine swap (play→stop) — each replays through the
+      // same live path (add / removeFromParent / spawnSubtree), in original order.
+      const resolveParent = (ref: NodeRef): Object3D | undefined =>
+        ref.path?.length === 0 ? session.engine.scene : resolveInEngine(session.engine, ref);
       for (const op of pendingStructural) {
-        if (op.op !== 'moveNode') continue;
-        const node = resolveInEngine(session.engine, op.target);
-        const parent = op.parent.path?.length === 0 ? session.engine.scene : resolveInEngine(session.engine, op.parent);
-        if (node && parent) doc.moveNode(node, parent, op.index);
+        if (op.op === 'moveNode') {
+          const node = resolveInEngine(session.engine, op.target);
+          const parent = resolveParent(op.parent);
+          if (node && parent) doc.moveNode(node, parent, op.index);
+        } else if (op.op === 'removeNode') {
+          const node = resolveInEngine(session.engine, op.target);
+          if (node) doc.removeNode(node);
+        } else if (op.op === 'insertNode') {
+          const parent = resolveParent(op.parent);
+          if (parent) doc.pasteFragment(op.fragment, parent, op.index);
+        }
       }
       gizmo = new Gizmo(session.editorCamera, canvas, session.engine.scene, isTouchDevice(), {
         onObjectChange: () => ui?.refresh(),
@@ -106,6 +123,15 @@ function rebind(): void {
         doc?.moveNode(node, newParent, index);
         ui?.refresh();
       },
+      copy: copyNode,
+      cut: cutNode,
+      paste: pasteInto,
+      remove: deleteNode,
+      setId: (node, id) => {
+        doc?.setId(node, id);
+        ui?.refresh();
+      },
+      hasClipboard: () => clipboard !== null,
     });
   else ui.refresh();
 }
@@ -198,6 +224,39 @@ const editorHost = {
   },
 };
 
+// ── tree edits: copy / cut / paste / delete / rename (all through the document) ─────
+
+/** Copy `node`'s subtree into the clipboard as a compiled fragment (ids stripped). */
+function copyNode(node: Object3D): void {
+  const fragment = doc?.copyFragment(node);
+  if (fragment) clipboard = fragment;
+  ui?.refresh(); // reflect the new clipboard in Paste's enabled state
+}
+/** Delete `node`; clears the selection if it (or an ancestor) was selected. */
+function deleteNode(node: Object3D): void {
+  if (!doc) return;
+  doc.removeNode(node);
+  if (selectedNode && !inScene(selectedNode)) ui?.select(null);
+  else ui?.refresh();
+}
+/** Cut = copy then delete. */
+function cutNode(node: Object3D): void {
+  copyNode(node);
+  deleteNode(node);
+}
+/** Paste the clipboard fragment under `parent` (or the scene root) and select it. */
+function pasteInto(parent: Object3D | null): void {
+  if (!doc || !clipboard) return;
+  const root = doc.pasteFragment(clipboard, parent ?? session.engine.scene);
+  if (root) ui?.select(root);
+  else ui?.refresh();
+}
+/** Whether `object` is still attached under the live scene (false once deleted). */
+function inScene(object: Object3D): boolean {
+  for (let o: Object3D | null = object; o; o = o.parent) if (o === session.engine.scene) return true;
+  return false;
+}
+
 /** Save-failure banner: unlike open/runtime errors this is transient — dismiss or a clean save clears it. */
 let saveErrorBanner: HTMLElement | undefined;
 function setSaveError(message: string | undefined): void {
@@ -214,6 +273,7 @@ function setSaveError(message: string | undefined): void {
 const SELECTION_COLOR = 0x4af0e0;
 
 function onSelect(node: Object3D | null): void {
+  selectedNode = node;
   if (selection) {
     session.engine.scene.remove(selection);
     selection.geometry.dispose();
@@ -327,6 +387,16 @@ window.addEventListener('keydown', (e) => {
     else toolbarHandlers.undo();
     return;
   }
+  // Tree edits on the current selection (edit mode only) — copy/cut/paste + delete.
+  if (session.mode === 'edit') {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'c' && selectedNode) return void (e.preventDefault(), copyNode(selectedNode));
+      if (k === 'x' && selectedNode) return void (e.preventDefault(), cutNode(selectedNode));
+      if (k === 'v' && clipboard) return void (e.preventDefault(), pasteInto(selectedNode));
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode) return void (e.preventDefault(), deleteNode(selectedNode));
+  }
   if (!gizmo) return;
   const mode = ({ g: 'translate', r: 'rotate', y: 'scale' } as const)[e.key.toLowerCase()];
   if (mode) setGizmoMode(mode);
@@ -340,8 +410,10 @@ function isTextField(t: EventTarget | null): boolean {
 
 let reloading = false;
 let conflictBanner: HTMLElement | undefined;
+let componentsBanner: HTMLElement | undefined;
 
 session.onExternalChange = (_file, role) => void handleExternalChange(role);
+session.onComponentsChanged = (metaChanged) => handleComponentsChanged(metaChanged);
 // A gameplay frame that throws surfaces in the same banner; playback is already
 // paused by the session, so the editor stays alive until the code is fixed.
 session.onRuntimeError = (message) => setComponentError(message);
@@ -355,6 +427,56 @@ async function handleExternalChange(role: 'open' | 'dep'): Promise<void> {
   } else {
     showConflict(); // unsaved edits vs. an external change — let the user decide
   }
+}
+
+/**
+ * A project component file changed. The component classes are ES modules already
+ * evaluated in this page, so new `@property` metadata only reaches the inspector
+ * after a full page reload — which throws away unsaved scene edits. Reload
+ * silently when there is nothing to lose; otherwise let the user choose.
+ */
+function handleComponentsChanged(metaChanged: boolean): void {
+  if (reloading) return;
+  if (!(doc?.isDirty ?? false)) {
+    location.reload();
+    return;
+  }
+  showComponentsConflict(metaChanged);
+}
+
+/**
+ * Unsaved edits vs. changed component code. "Save and reload" writes the scene
+ * first and only reloads if the write fully succeeded — a partial save (some edits
+ * unresolved) keeps the page alive so nothing is lost silently.
+ */
+function showComponentsConflict(metaChanged: boolean): void {
+  if (componentsBanner) return;
+  const bar = document.createElement('div');
+  bar.id = 'sc-conflict';
+  bar.append(
+    textSpan(
+      metaChanged
+        ? 'Component properties changed on disk. Reloading is needed to show them — you have unsaved scene changes.'
+        : 'Component code changed on disk. Reloading is needed to run it — you have unsaved scene changes.',
+    ),
+  );
+  bar.append(
+    bannerButton('Save and reload', () => {
+      void (async () => {
+        const result = await doSave();
+        if (result.unresolved > 0) return; // doSave already explained; stay put
+        location.reload();
+      })();
+    }),
+    bannerButton('Reload (lose changes)', () => location.reload()),
+    bannerButton('Keep editing', dismissComponentsConflict),
+  );
+  document.body.append(bar);
+  componentsBanner = bar;
+}
+function dismissComponentsConflict(): void {
+  componentsBanner?.remove();
+  componentsBanner = undefined;
 }
 
 async function reloadScene(preserveEdits: boolean): Promise<void> {

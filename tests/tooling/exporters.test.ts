@@ -89,4 +89,29 @@ describe('API exporter', () => {
       to: { entity: 'component', name: 'Oscillator' },
     });
   });
+
+  it('links every tag to its declaring source: repo-relative for the project, specifier for a package', () => {
+    // Built-ins resolve from the node manifest, so they are located even with no
+    // scan; a project component has no origin to report until one is supplied.
+    expect(api.nodes.find((n) => n.tag === 'Mesh')!.source).toMatchObject({ symbol: 'Mesh' });
+    expect(api.components.find((c) => c.name === 'Rotator')).not.toHaveProperty('source');
+
+    const linked = generateApi({
+      cwd: '/repo',
+      sources: {
+        byName: new Map([['Rotator', '/repo/assets/components/Rotator.ts']]),
+        byTag: new Map([['MyWidget', '@acme/widgets']]),
+      },
+    });
+    // A project file becomes a repo-relative path; a package keeps its specifier.
+    expect(linked.components.find((c) => c.name === 'Rotator')!.source).toEqual({
+      file: 'assets/components/Rotator.ts',
+      symbol: 'Rotator',
+    });
+    // Built-ins are never in a scan, but stay locatable via the node manifest.
+    expect(linked.nodes.find((n) => n.tag === 'Mesh')!.source).toMatchObject({
+      package: expect.stringContaining('@scenoco-three/core/nodes'),
+      symbol: 'Mesh',
+    });
+  });
 });

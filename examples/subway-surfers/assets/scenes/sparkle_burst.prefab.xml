@@ -1,5 +1,7 @@
 <!-- Spawned by PlayerController at a collected coin's position; cleans itself up. -->
-<Prefab>
+<Prefab
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
   <Group>
     <Components>
       <ParticleSystem src="../vfx/sparkle.particle.xml" />

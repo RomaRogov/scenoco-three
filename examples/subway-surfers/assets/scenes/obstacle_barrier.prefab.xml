@@ -3,7 +3,9 @@
   at a PrefabInstance, and PrefabAsset.spawn({position}) places *that* root, so
   this Mesh keeps its baked height offset (y=0.3) intact.
 -->
-<Prefab>
+<Prefab
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
   <Mesh position="0 0.3 0">
     <Attachments>
       <BoxGeometry width="1.7" height="0.6" depth="0.5" />

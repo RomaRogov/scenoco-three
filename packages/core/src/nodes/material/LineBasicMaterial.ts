@@ -1,16 +1,13 @@
 import { LineBasicMaterial, type Mesh } from 'three';
-import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { MaterialAttachment } from '../families.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
-import { MATERIAL_TARGETS } from '../targets.js';
 
 @attachment({
   name: 'LineBasicMaterial',
   description: 'Material for line geometry (<Line>/<LineSegments>).',
-  target: MATERIAL_TARGETS,
-  group: 'material',
 })
-export class LineBasicMaterialNode extends Attachment<Mesh> {
+export class LineBasicMaterialNode extends MaterialAttachment {
   @property({ type: ValueType.Color, description: 'Line color' }) color = 0xffffff;
   @property({ type: ValueType.Float, description: 'Line width (most platforms render 1px regardless)' }) linewidth = 1;
   @property({ type: ValueType.Float, description: 'Opacity, 0 (transparent) to 1 (opaque)' }) opacity = 1;

@@ -3,7 +3,9 @@
   where they were born instead of following the player — that's what makes it
   read as a "trail" rather than a cloud glued to the character.
 -->
-<ParticleSystem duration="2" looping="true" simulationSpace="World"
+<ParticleSystem
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:noNamespaceSchemaLocation="../../schema/particle.xsd" duration="2" looping="true" simulationSpace="World"
                 startLifetime="0.5" startSpeed="0.6" startSize="0.22"
                 startColor="#cbd5e1" gravityModifier="-0.05">
   <Emission rateOverTime="26" />

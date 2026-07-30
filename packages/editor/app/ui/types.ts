@@ -47,6 +47,18 @@ export interface EditorDeps {
   focusSelected: (node: Object3D) => void;
   /** Reparent a node under a new parent (tree drag) — records an undoable move. */
   reparent: (node: Object3D, newParent: Object3D, index?: number) => void;
+  /** Copy a node's subtree to the clipboard. */
+  copy: (node: Object3D) => void;
+  /** Cut (copy + delete) a node's subtree. */
+  cut: (node: Object3D) => void;
+  /** Paste the clipboard subtree under `parent` (the scene root when null). */
+  paste: (parent: Object3D | null) => void;
+  /** Delete a node's subtree (undoable). */
+  remove: (node: Object3D) => void;
+  /** Rename (or set) a node's scene id. */
+  setId: (node: Object3D, id: string) => void;
+  /** Whether the clipboard holds a subtree (for Paste's enabled state). */
+  hasClipboard: () => boolean;
 }
 
 /** The tiny imperative surface `main.ts` keeps a handle to (mirrors the old panels/toolbar). */

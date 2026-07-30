@@ -6,6 +6,10 @@ import. The same `<RigidBody>`/`<BoxCollider>` scene and the same `onCollisionEn
 `onTriggerEnter` component code run on either package. This one **detects overlaps and dispatches
 the contact hooks; it has no dynamics** (bodies and gravity are inert). Zero dependencies.
 
+> **Pick one engine.** Because the tags are identical by design, this package and
+> `@scenoco-three/rapier` cannot both be installed in one project — importing both throws a
+> duplicate-registration error for `<RigidBody>`, `<Physics>`, and every `<*Collider>`.
+
 ```bash
 npm i @scenoco-three/collision
 ```

@@ -29,10 +29,33 @@ export interface NodeRef {
   tag?: string;
 }
 
+/**
+ * Addresses a component or attachment element — a child of a node's `<Components>`
+ * or `<Attachments>` block, picked by tag + ordinal among same-tag siblings (the
+ * same addressing `patchSceneXml` uses for their attributes).
+ */
+export interface MemberRef {
+  node: NodeRef;
+  block: 'Components' | 'Attachments';
+  tag: string;
+  /** Ordinal among same-tag siblings in that block. */
+  ordinal: number;
+}
+
 export type StructuralOp =
   | { op: 'moveNode'; target: NodeRef; parent: NodeRef; index?: number }
   | { op: 'removeNode'; target: NodeRef }
-  | { op: 'insertNode'; parent: NodeRef; index?: number; xml: string };
+  | { op: 'insertNode'; parent: NodeRef; index?: number; xml: string }
+  | { op: 'removeMember'; target: MemberRef }
+  /** Reorder within the member's own block; `index` is among *all* the block's children. */
+  | { op: 'moveMember'; target: MemberRef; index: number }
+  /**
+   * Add a component/attachment element. `xml` is the element source (e.g.
+   * `<Rotator speed="2" />`). The block is created when the node has none yet,
+   * placed in the serializer's canonical order: `<Attachments>`, `<Components>`,
+   * then child nodes.
+   */
+  | { op: 'insertMember'; node: NodeRef; block: 'Components' | 'Attachments'; xml: string; index?: number };
 
 export interface ApplyResult {
   text: string;
@@ -180,11 +203,118 @@ function openTag(xml: string, parent: El): { selfClose: boolean; mark: number } 
   return null;
 }
 
-// ── the three node ops ───────────────────────────────────────────────────────────
+/** Resolve a MemberRef to its element inside the node's `<Components>`/`<Attachments>` block. */
+function resolveMember(doc: Doc, ref: MemberRef): { el: El; block: El } | null {
+  const node = resolveNode(doc, ref.node);
+  if (!node) return null;
+  const block = node.subElements.find((c) => c.name === ref.block);
+  if (!block) return null;
+  const el = block.subElements.filter((c) => c.name === ref.tag)[ref.ordinal];
+  return el ? { el, block } : null;
+}
+
+/**
+ * Remove an element and re-insert it at `index` among its parent's children —
+ * used for reordering a component/attachment within its block. Both edits are
+ * computed against the original text and applied right-to-left, so the second
+ * splice never sees offsets invalidated by the first.
+ */
+function reorderWithin(doc: Doc, parent: El, el: El, index: number): string | null {
+  const xml = doc.xml;
+  const kids = parent.subElements;
+  const from = kids.indexOf(el);
+  if (from < 0 || index === from) return null; // not found, or already there
+  const { removeStart, commentStart } = leading(doc, el);
+  const block = xml.slice(commentStart, el.position.endOffset + 1);
+  const indent = lineIndent(xml, el.position.startOffset);
+
+  // Insert before the child that will occupy `index`; past the end → after the last.
+  // `index` counts positions in the *current* order, so a downward move targets the
+  // child after the one being displaced.
+  const others = kids.filter((k) => k !== el);
+  const at = index < others.length ? others[index]! : null;
+  const offset = at ? leading(doc, at).removeStart : others.length ? others[others.length - 1]!.position.endOffset + 1 : null;
+  if (offset === null) return null;
+
+  const edits = [
+    { start: removeStart, end: el.position.endOffset + 1, text: '' },
+    { start: offset, end: offset, text: `\n${indent}${block}` },
+  ].sort((a, b) => b.start - a.start);
+  return edits.reduce((t, e) => t.slice(0, e.start) + e.text + t.slice(e.end), xml);
+}
+
+// ── the node + member ops ────────────────────────────────────────────────────────
 
 function applyOne(xml: string, op: StructuralOp): string | null {
   const doc = index(xml);
   if (!doc) return null;
+
+  if (op.op === 'removeMember') {
+    const found = resolveMember(doc, op.target);
+    if (!found) return null;
+    const { removeStart } = leading(doc, found.el);
+    return xml.slice(0, removeStart) + xml.slice(found.el.position.endOffset + 1);
+  }
+
+  if (op.op === 'moveMember') {
+    const found = resolveMember(doc, op.target);
+    if (!found) return null;
+    return reorderWithin(doc, found.block, found.el, op.index);
+  }
+
+  if (op.op === 'insertMember') {
+    const host = resolveNode(doc, op.node);
+    if (!host) return null;
+    const member = op.xml.trim();
+    const existing = host.subElements.find((c) => c.name === op.block);
+
+    if (existing) {
+      const slot = openTag(xml, existing);
+      if (!slot) return null;
+      const kids = existing.subElements;
+      const inner = kids[0]
+        ? lineIndent(xml, kids[0].position.startOffset)
+        : lineIndent(xml, existing.position.startOffset) + indentUnit(doc);
+      const text = reindent(member, lineIndent(member, 0), inner);
+      if (slot.selfClose) {
+        // `<Components />` → `<Components>…</Components>` to gain a child slot.
+        const pad = lineIndent(xml, existing.position.startOffset);
+        let ws = slot.mark;
+        while (ws > 0 && /\s/.test(xml[ws - 1]!)) ws--;
+        return xml.slice(0, ws) + `>\n${inner}${text}\n${pad}</${existing.name}>` + xml.slice(slot.mark + 2);
+      }
+      const at = op.index !== undefined && op.index < kids.length ? kids[op.index]! : null;
+      const off = at
+        ? leading(doc, at).removeStart
+        : kids.length
+          ? kids[kids.length - 1]!.position.endOffset + 1
+          : slot.mark;
+      return xml.slice(0, off) + `\n${inner}${text}` + xml.slice(off);
+    }
+
+    // No such block yet — create it around the member.
+    const slot = openTag(xml, host);
+    if (!slot) return null;
+    const pad = lineIndent(xml, host.position.startOffset);
+    const inner = pad + indentUnit(doc);
+    const block = [`<${op.block}>`, `${indentUnit(doc)}${reindent(member, lineIndent(member, 0), '')}`, `</${op.block}>`]
+      .map((line, i) => (i === 0 ? line : inner + line))
+      .join('\n');
+    if (slot.selfClose) {
+      let ws = slot.mark;
+      while (ws > 0 && /\s/.test(xml[ws - 1]!)) ws--;
+      return xml.slice(0, ws) + `>\n${inner}${block}\n${pad}</${host.name}>` + xml.slice(slot.mark + 2);
+    }
+    // Canonical order: <Attachments> before <Components> before child nodes.
+    const attachments = host.subElements.find((c) => c.name === 'Attachments');
+    const anchor =
+      op.block === 'Components' && attachments
+        ? attachments.position.endOffset + 1
+        : host.subElements.length
+          ? leading(doc, host.subElements[0]!).removeStart
+          : slot.mark;
+    return xml.slice(0, anchor) + `\n${inner}${block}` + xml.slice(anchor);
+  }
 
   if (op.op === 'removeNode') {
     const el = resolveNode(doc, op.target);

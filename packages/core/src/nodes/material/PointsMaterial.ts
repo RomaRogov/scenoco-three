@@ -1,16 +1,13 @@
 import { PointsMaterial, type Mesh } from 'three';
-import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
+import { MaterialAttachment } from '../families.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
-import { MATERIAL_TARGETS } from '../targets.js';
 
 @attachment({
   name: 'PointsMaterial',
   description: 'Material for point clouds (<Points>) — colored, sized dots.',
-  target: MATERIAL_TARGETS,
-  group: 'material',
 })
-export class PointsMaterialNode extends Attachment<Mesh> {
+export class PointsMaterialNode extends MaterialAttachment {
   @property({ type: ValueType.Color, description: 'Point color' }) color = 0xffffff;
   @property({ type: ValueType.Float, description: 'Point size in world units (or pixels if no attenuation)' }) size = 1;
   @property({ type: ValueType.Bool, description: 'Scale point size with distance (perspective)' }) sizeAttenuation = true;

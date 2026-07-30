@@ -1,3 +1,4 @@
+import { Scene } from 'three';
 import { Attachment, attachment, property, ValueType } from '@scenoco-three/core';
 
 /**
@@ -6,7 +7,7 @@ import { Attachment, attachment, property, ValueType } from '@scenoco-three/core
  * has rigid bodies) reads its `gravity` via `engine.findAttachment(Physics)`.
  * Requires `await initRapier()` before `engine.loadScene()`.
  */
-@attachment({ name: 'Physics', target: 'Scene', group: 'physics', description: 'Scene physics config (gravity)' })
+@attachment({ name: 'Physics', target: Scene, group: 'physics', description: 'Scene physics config (gravity)' })
 export class Physics extends Attachment {
   @property({ type: ValueType.Vec3, description: 'Gravity vector' })
   gravity = [0, -9.81, 0];

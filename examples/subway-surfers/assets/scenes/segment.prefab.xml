@@ -7,7 +7,9 @@
   segment's obstacles/coins under that root, and one engine.destroy(root) tears
   the whole populated chunk down.
 -->
-<Prefab>
+<Prefab
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
   <Mesh eulerAngles="-90 0 0">
     <Attachments>
       <PlaneGeometry width="8.4" height="24" />

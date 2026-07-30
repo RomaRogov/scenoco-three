@@ -17,6 +17,8 @@ interface UIState {
   inspectorOpen: boolean;
   /** Portrait forces the two sheets to be mutually exclusive (phones); landscape allows both. */
   portrait: boolean;
+  /** The open "add component/attachment" picker, if any. */
+  adding: { kind: 'component' | 'attachment'; node: Object3D } | null;
   rev: number;
   select: (node: Object3D | null) => void;
   openNodes: () => void;
@@ -24,6 +26,8 @@ interface UIState {
   openInspector: () => void;
   closeInspector: () => void;
   setPortrait: (portrait: boolean) => void;
+  openAdd: (kind: 'component' | 'attachment', node: Object3D) => void;
+  closeAdd: () => void;
   bump: () => void;
 }
 
@@ -45,6 +49,7 @@ export const useUI = create<UIState>((set, get) => ({
   nodesOpen: false,
   inspectorOpen: false,
   portrait: false,
+  adding: null,
   rev: 0,
 
   select: (node) => {
@@ -58,6 +63,9 @@ export const useUI = create<UIState>((set, get) => ({
   closeNodes: () => set({ nodesOpen: false }),
   openInspector: () => set((s) => ({ inspectorOpen: true, nodesOpen: s.portrait ? false : s.nodesOpen })),
   closeInspector: () => set({ inspectorOpen: false }),
+
+  openAdd: (kind, node) => set({ adding: { kind, node } }),
+  closeAdd: () => set({ adding: null }),
 
   // On rotating to portrait with both open, drop the node list (keep the inspector focused).
   setPortrait: (portrait) =>

@@ -1,9 +1,9 @@
-import { Color, type Scene } from 'three';
+import { Color, Scene } from 'three';
 import { Attachment } from '../base.js';
 import { attachment, property, ValueType } from '../../registry/decorators.js';
 import type { AttachContext } from '../../registry/NodeRegistry.js';
 
-@attachment({ name: 'Background', target: 'Scene', group: 'background', description: 'Solid background color for the scene' })
+@attachment({ name: 'Background', target: Scene, group: 'background', description: 'Solid background color for the scene' })
 export class BackgroundAttachment extends Attachment<Scene> {
   @property({ type: ValueType.Color, description: 'Background color' }) color = 0xffffff;
 

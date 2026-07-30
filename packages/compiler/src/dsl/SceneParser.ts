@@ -20,7 +20,7 @@ export interface SncElement {
   prefabSrc?: string;
 }
 
-export type ParseResult =
+export type SceneParseResult =
   | { ok: true; root: SncElement }
   | { ok: false; diagnostics: SncDiagnostic[] };
 
@@ -29,7 +29,7 @@ export type ParseResult =
  * syntax errors (malformed markup) as diagnostics; semantic validation against
  * the schema is a separate pass (see Validator).
  */
-export function parseScene(xml: string): ParseResult {
+export function parseScene(xml: string): SceneParseResult {
   const parser = new SaxesParser({ fileName: 'scene' });
   const diagnostics: SncDiagnostic[] = [];
 

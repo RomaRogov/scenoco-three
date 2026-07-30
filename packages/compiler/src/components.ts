@@ -8,6 +8,7 @@ import {
   getAttachmentDef,
   nodeTags,
   attachmentTags,
+  allSystemDefs,
   unregisterNode,
 } from '@scenoco-three/core/internal';
 import { build, type Loader } from 'esbuild';
@@ -43,6 +44,12 @@ export interface ComponentScan {
    * which would otherwise be silently never imported.
    */
   byComponentSystem: Map<string, string[]>;
+  /**
+   * `@system` class name → the package specifier that registered it. Only tag
+   * packages are recorded here (diffed on import, exactly like names and tags);
+   * a system declared in a project file is found via `byComponentSystem`.
+   */
+  bySystem: Map<string, string>;
 }
 
 // A file is loadable if it declares a component or a node tag; both register by
@@ -152,7 +159,8 @@ export function scanComponents(roots: string[], cwd = process.cwd()): ComponentS
       }
     }
   }
-  return { files, byName, byTag, byComponentSystem };
+  // `bySystem` starts empty: only `registerPackages` fills it, on import.
+  return { files, byName, byTag, byComponentSystem, bySystem: new Map() };
 }
 
 // Per-process load state. The registration set is loaded as ONE module (a
@@ -277,6 +285,8 @@ interface PackageRegistration {
   tags: string[];
   /** Package-owned XSDs (see `SchemaFile`) resolved to absolute paths. */
   schemas: SchemaFile[];
+  /** `@system` classes the package registered on import. */
+  systems: string[];
 }
 const packageRegistrations = new Map<string, PackageRegistration>();
 
@@ -294,6 +304,7 @@ async function registerPackages(packages: string[], scan: ComponentScan): Promis
     if (!reg) {
       const beforeNames = new Set(Registry.componentNames());
       const beforeTags = new Set([...nodeTags(), ...attachmentTags()]);
+      const beforeSystems = new Set(allSystemDefs().map((d) => d.ctor.name));
       const mod = (await import(pkg)) as { sceneTags?: string[]; schemas?: readonly string[] };
       // A tag package may export `sceneTags` (authoritative — works even if it
       // was already imported); otherwise diff the registries for what it added.
@@ -302,6 +313,7 @@ async function registerPackages(packages: string[], scan: ComponentScan): Promis
           names: mod.sceneTags.filter((t) => Registry.getComponent(t) !== undefined),
           tags: mod.sceneTags.filter((t) => getNodeDef(t) !== undefined || getAttachmentDef(t) !== undefined),
           schemas: resolvePackageSchemas(pkg, mod.schemas ?? []),
+          systems: allSystemDefs().map((d) => d.ctor.name).filter((n) => !beforeSystems.has(n)),
         };
       } else {
         const after = new Set([...nodeTags(), ...attachmentTags()]);
@@ -309,12 +321,14 @@ async function registerPackages(packages: string[], scan: ComponentScan): Promis
           names: Registry.componentNames().filter((n) => !beforeNames.has(n)),
           tags: [...after].filter((t) => !beforeTags.has(t)),
           schemas: resolvePackageSchemas(pkg, mod.schemas ?? []),
+          systems: allSystemDefs().map((d) => d.ctor.name).filter((n) => !beforeSystems.has(n)),
         };
       }
       packageRegistrations.set(pkg, reg);
     }
     for (const n of reg.names) scan.byName.set(n, pkg);
     for (const t of reg.tags) scan.byTag.set(t, pkg);
+    for (const sys of reg.systems) scan.bySystem.set(sys, pkg);
   }
 }
 

@@ -1,3 +1,4 @@
+import { Scene } from 'three';
 import { Attachment, attachment, property, ValueType } from '@scenoco-three/core';
 
 /**
@@ -10,7 +11,7 @@ import { Attachment, attachment, property, ValueType } from '@scenoco-three/core
  *
  * Unlike the Rapier add-on, no async init is needed — planck (Box2D) is pure JS.
  */
-@attachment({ name: 'Physics2D', target: 'Scene', group: 'physics2d', description: 'Scene 2D physics config (gravity, solver iterations)' })
+@attachment({ name: 'Physics2D', target: Scene, group: 'physics2d', description: 'Scene 2D physics config (gravity, solver iterations)' })
 export class Physics2D extends Attachment {
   @property({ type: ValueType.Vec2, description: 'Gravity vector (XY plane)' })
   gravity = [0, -9.81];

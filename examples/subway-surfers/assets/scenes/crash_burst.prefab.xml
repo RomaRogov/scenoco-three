@@ -1,5 +1,7 @@
 <!-- Spawned by PlayerController at the player's position on a crash; cleans itself up. -->
-<Prefab>
+<Prefab
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
   <Group>
     <Components>
       <ParticleSystem src="../vfx/crash.particle.xml" />

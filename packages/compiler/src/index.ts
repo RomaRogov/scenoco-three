@@ -8,7 +8,7 @@
 // This is the Node process only; it never reaches the browser bundle.
 import '@scenoco-three/core/nodes';
 
-export { parseScene, type SncElement as SceElement, type ParseResult } from './dsl/SceneParser.js';
+export { parseScene, type SncElement as SceElement, type SceneParseResult } from './dsl/SceneParser.js';
 export { validateScene } from './dsl/Validator.js';
 export {
   compileSceneXml,
@@ -19,9 +19,9 @@ export {
   type ResolvedFile,
 } from './dsl/compile.js';
 export { bundleScene, bundlePrefab } from './dsl/bundle.js';
-export { serializeScene } from './dsl/serialize.js';
+export { serializeScene, serializeAttachmentElement, serializeComponentElement } from './dsl/serialize.js';
 export { patchSceneXml, type PatchEdit, type PatchTarget, type PatchResult } from './dsl/patch.js';
-export { applyStructuralOps, type StructuralOp, type NodeRef, type ApplyResult } from './dsl/apply.js';
+export { applyStructuralOps, type StructuralOp, type MemberRef, type NodeRef, type ApplyResult } from './dsl/apply.js';
 export { parseUniforms, glslMatches } from './dsl/shader.js';
 export type { NodeOrigin, SceneProvenance } from './dsl/provenance.js';
 export {

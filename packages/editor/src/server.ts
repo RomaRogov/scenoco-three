@@ -18,15 +18,14 @@ import {
   generatePrefabXsd,
   generateXsd,
   loadComponents,
-  applyStructuralOps,
-  patchSceneXml,
   scanComponents,
   type ComponentLoadError,
   type PatchEdit,
-  type StructuralOp,
   type ResourceResolver,
 } from '@scenoco-three/compiler';
-import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse } from './protocol.js';
+import { Registry } from '@scenoco-three/core';
+import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type StructuralOp as EditorStructuralOp } from './protocol.js';
+import { applySaveOps } from './structuralOps.js';
 
 export interface ServerOptions {
   /** Directories scanned for `@component`/`@node` tags (default `['assets']`). */
@@ -76,6 +75,8 @@ export interface FileWatcher {
   /** Record content the editor itself just wrote, so its own save isn't seen as external. */
   note(file: string, contents: string): void;
   setPush(push: (msg: EditorPush) => void): void;
+  /** Send an unsolicited push over the same bridge (component-change notices). */
+  emit(msg: EditorPush): void;
   close(): Promise<void>;
 }
 
@@ -183,7 +184,7 @@ export async function startEditorServer(opts: ServerOptions = {}): Promise<Edito
       server: { host: true, port, strictPort: true, fs: { strict: false } },
       plugins: [
         react(), // TSX/JSX for the editor chrome under app/ui/
-        allComponentsPlugin(componentRoots, packages, cwd),
+        allComponentsPlugin(componentRoots, packages, cwd, watcher),
         bundleEndpointPlugin(componentRoots, packages, cwd, watcher),
         infoEndpointPlugin(netInfo),
       ],
@@ -275,6 +276,9 @@ function createFileWatcher(): FileWatcher {
     note(file, contents) {
       content.set(resolve(file), contents);
     },
+    emit(msg) {
+      push(msg);
+    },
     setPush(fn) {
       push = fn;
     },
@@ -292,7 +296,7 @@ function createFileWatcher(): FileWatcher {
  * The components module is invalidated when a component file is added/removed, so
  * a deleted file never lingers as a stale import (the client-cache half of P1).
  */
-function allComponentsPlugin(roots: string[], packages: string[], cwd: string): Plugin {
+function allComponentsPlugin(roots: string[], packages: string[], cwd: string, watcher: FileWatcher): Plugin {
   const runtimeId = 'virtual:scenoco-runtime';
   const componentsId = 'virtual:scenoco-components';
   const resolvedRuntime = '\0' + runtimeId;
@@ -320,23 +324,52 @@ function allComponentsPlugin(roots: string[], packages: string[], cwd: string): 
       // component roots explicitly, so a brand-NEW file's `add` fires too — not just
       // edits/deletes of already-imported ones.
       server.watcher.add(absRoots);
-      // Adding/removing a component file changes the import list — rebuild the
-      // components module (not the runtime one) and reload, so a new file gets
-      // imported and a just-deleted one isn't imported from a stale graph.
+      // A component file changed: rebuild the components module (not the runtime
+      // one) so a new file gets imported and a deleted one isn't imported from a
+      // stale graph. Then *ask* the editor to reload rather than forcing it —
+      // `full-reload` here would throw away unsaved scene edits without warning.
+      // `change` is included, not just add/unlink: editing a class's `@property`
+      // set changes what the inspector must render.
+      let metaSignature = componentMetaSignature();
       const invalidate = (file: string): void => {
         if (!isComponentFile(file)) return;
         const mod = server.moduleGraph.getModuleById(resolvedComponents);
         if (mod) server.moduleGraph.invalidateModule(mod);
-        server.ws.send({ type: 'full-reload' });
+        // Re-register in this Node process so the signature reflects the edit, then
+        // report whether the *registered property surface* actually moved.
+        void refreshComponents(roots, cwd, packages).then(() => {
+          const next = componentMetaSignature();
+          const metaChanged = next !== metaSignature;
+          metaSignature = next;
+          watcher.emit({ push: 'componentsChanged', metaChanged });
+        });
       };
       server.watcher.on('add', invalidate);
       server.watcher.on('unlink', invalidate);
+      server.watcher.on('change', invalidate);
     },
   };
 }
 
 /** Component source extensions the editor imports (mirrors the compiler's scan). */
 const SOURCE_EXT_RE = /\.[cm]?[jt]sx?$/;
+
+/**
+ * A stable fingerprint of the registered component *surface*: every component and
+ * the property names it exposes. Comparing it across a reload distinguishes an
+ * edit that changed what the inspector must render (a `@property` added, removed
+ * or renamed) from one that only touched a method body.
+ */
+export function componentMetaSignature(): string {
+  return Registry.componentNames()
+    .slice()
+    .sort()
+    .map((name) => {
+      const props = [...(Registry.getComponent(name)?.meta.properties.keys() ?? [])].sort();
+      return `${name}(${props.join(',')})`;
+    })
+    .join('|');
+}
 
 /** `GET /@scenoco/bundle?file=<abs>` → the compiled runtime bundle (JSON). */
 function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, watcher: FileWatcher): Plugin {
@@ -353,20 +386,20 @@ function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, 
         if (req.method !== 'POST' || !req.url || !req.url.startsWith('/@scenoco/save')) return next();
         void readJsonBody(req)
           .then((body) => {
-            const { file, edits, structuralOps } = (body ?? {}) as { file?: string; edits?: PatchEdit[]; structuralOps?: StructuralOp[] };
+            const { file, edits, structuralOps } = (body ?? {}) as { file?: string; edits?: PatchEdit[]; structuralOps?: EditorStructuralOp[] };
             if (!file || !Array.isArray(edits)) throw new Error('expected { file, edits }');
             const abs = resolve(cwd, file);
             // 1) structural ops (id-first; reshape the source), then 2) attribute patch.
-            const structural = applyStructuralOps(readFileSync(abs, 'utf8'), structuralOps ?? []);
-            const { text, changed, unresolved } = patchSceneXml(structural.text, edits);
-            const structuralChanged = structural.applied;
-            const totalUnresolved = unresolved.length + structural.unresolved.length;
+            // An `insertNode` op carries a compiled fragment (the browser has no
+            // compiler) — serialize it to canonical subtree XML here, so the compiler's
+            // XML-based splicer inserts it comment-preservingly.
+            const { text, changed, unresolved: totalUnresolved } = applySaveOps(readFileSync(abs, 'utf8'), edits, structuralOps ?? []);
             if (totalUnresolved > 0)
               console.warn(`[scenoco] save: ${totalUnresolved} edit(s) could not be located in ${file}`);
-            if (changed > 0 || structuralChanged > 0) writeFileSync(abs, text);
+            if (changed > 0) writeFileSync(abs, text);
             watcher.note(abs, text); // our own write — don't report it back as an external change
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: true, changed: changed + structuralChanged, unresolved: totalUnresolved }));
+            res.end(JSON.stringify({ ok: true, changed, unresolved: totalUnresolved }));
           })
           .catch((e: unknown) => {
             res.statusCode = 400;
