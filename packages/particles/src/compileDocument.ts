@@ -1,4 +1,7 @@
-import type { ParsedElement, SrcCompileResult, SrcDiagnostic } from '@scenoco-three/core';
+// Build-time only — reached through `@scenoco-three/particles/compiler`, never
+// from the runtime entry, so none of this lands in a game bundle. The compiler
+// types are imported type-only, so the dependency erases at build.
+import type { ParsedElement, SrcCompileResult, SrcDiagnostic } from '@scenoco-three/compiler';
 import type { ParticleConfig } from './config.js';
 
 type Emit = (message: string, code?: string) => void;
@@ -9,8 +12,9 @@ type Emit = (message: string, code?: string) => void;
  * `registerSrcCompiler('ParticleSystem', …)` so the core compiler delegates the
  * component's `src=` here — the format is owned entirely by this package.
  *
- * Attribute formats match the rest of SceNoCo: `x y z` vectors, `#hex` colors,
- * `[a, b, c]` arrays (a color gradient / a value curve are just arrays).
+ * Attribute formats match the rest of SceNoCo: `#hex` colors and `[a, b, c]`
+ * arrays (a color gradient / a value curve are just arrays). The format has no
+ * vector attributes, so the keyed vec grammar does not come up here.
  */
 export function compileParticleDocument(root: ParsedElement): SrcCompileResult {
   const diagnostics: SrcDiagnostic[] = [];

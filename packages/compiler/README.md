@@ -16,8 +16,7 @@ npm i -D @scenoco-three/compiler
 
 ```
 scenoco init [dir]                        Scaffold a runnable project
-scenoco new component <Name>              Generate assets/components/<Name>.ts
-scenoco new scene <name>                  Generate assets/scenes/<name>.scene.xml
+scenoco new <kind> <name>                 Create an asset — run bare to list the kinds
 scenoco check                             Pre-flight: scans components, flags physics setup
 scenoco validate <file...>                "tsc for scenes": file:line:col diagnostics
 scenoco bundle <file> [-o out]            Build the runtime bundle (.bundle.json)
@@ -34,12 +33,55 @@ Configuration is zero-config by convention — components/scenes under `assets/`
 read from `package.json`. The exit code is non-zero when validation fails — wire it straight
 into an edit→check→fix loop.
 
+### Assets
+
+`new` and `validate` cover every kind of document a project holds, dispatching on the file
+extension. The list is **generated**, not hard-coded: the three built-ins come from the
+compiler, and any further kind comes from a tag package that owns a `src=` document format —
+so `particle` appears only in projects that depend on `@scenoco-three/particles`.
+
+```
+$ scenoco new
+Kinds:
+  scene      A scene: the <Scene> root with its nodes, attachments and components
+  prefab     A reusable node subtree, instantiable at runtime or placed with <PrefabInstance>
+  material   A shared material an attachment pulls in with src=
+  particle   A particle system / VFX document (Unity Shuriken-style modules)
+  component  A @component class: per-instance behaviour, authored in <Components>
+  system     A @system class: batch processing for every component of one type
+```
+
+Each kind knows where its files go and what to do with one next, and every generated
+document is valid and pre-wired to its XSD:
+
+```bash
+scenoco new scene main            # assets/scenes/main.scene.xml
+scenoco new prefab crate          # assets/scenes/crate.prefab.xml
+scenoco new material metal        # assets/materials/metal.material.xml
+scenoco new particle sparks       # assets/vfx/sparks.particle.xml
+scenoco new component Ball        # assets/components/Ball.ts
+scenoco new system SpawnerSystem  # assets/systems/SpawnerSystem.ts
+```
+
+`validate` routes each kind to the deepest check available for it: scenes and prefabs are
+compiled, a `.material.xml` is checked as a standalone attachment document, and a
+package-owned document goes to the format's own compiler — so you get its semantic
+diagnostics, not just the structural ones an XSD can express.
+
+```bash
+$ scenoco validate assets/vfx/sparks.particle.xml
+assets/vfx/sparks.particle.xml:7:1  particle-bad-color  expected a hex color like "#ffcc00", got "notacolor"
+```
+
 ```bash
 scenoco init my-app
-scenoco validate assets/scenes/hello.scene.xml     # all problems, with fix-its
-scenoco bundle   assets/scenes/hello.scene.xml -o hello.bundle.json
-scenoco export   --out schema                      # XSDs for IDE autocomplete + scene-api.json
+scenoco validate assets/scenes/main.scene.xml     # all problems, with fix-its
+scenoco bundle   assets/scenes/main.scene.xml -o main.bundle.json
+scenoco export   --out schema                     # XSDs for IDE autocomplete + scene-api.json
 ```
+
+`init` scaffolds an **empty** project: the Vite wiring and one scene holding a camera and a
+light, exactly like a new Unity or Cocos scene. Content arrives through `scenoco new`.
 
 ## Library API
 

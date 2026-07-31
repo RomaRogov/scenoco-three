@@ -16,6 +16,7 @@
       "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
       "@scenoco-three/animation": ["./packages/animation/src/index.ts"],
       "@scenoco-three/particles": ["./packages/particles/src/index.ts"],
+      "@scenoco-three/particles/compiler": ["./packages/particles/src/compiler.ts"],
       "@scenoco-three/editor": ["./packages/editor/src/index.ts"]
     }
   },

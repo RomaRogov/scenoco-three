@@ -3,13 +3,10 @@ import {
   isEnumType,
   isArrayType,
   elementType,
-  isSpatial,
   Registry,
   getNodeDef,
   getAttachmentDef,
-  getSrcCompiler,
   TRANSFORM_ATTRS,
-  type ParsedElement,
   type ComponentCtor,
   type EnumDef,
   type PropType,
@@ -29,6 +26,7 @@ import { isNamespaceAttr, validatePrefab, validateScene } from './Validator.js';
 import { expandPrefabs, prefabContentRoot } from './prefab.js';
 import { parseArrayLiteral, parseScalarArray, scalarCodec, uniformValue, type CompiledScalar, type ScalarType } from './types.js';
 import { glslMatches, parseUniforms } from './shader.js';
+import { getSrcCompiler, toParsedElement } from './src-document.js';
 import type { NodeOrigin, SceneProvenance } from './provenance.js';
 import type { SncDiagnostic } from './diagnostics.js';
 
@@ -488,11 +486,6 @@ function compileComponentSrc(
     diagnostics.push({ line: 1, column: 1, code: d.code ?? 'src-document', message: d.message, file: file.path });
   }
   if (result.config !== undefined) compiled.config = result.config;
-}
-
-/** Adapt the compiler's parsed element to the core `ParsedElement` a src-compiler receives. */
-function toParsedElement(el: SncElement): ParsedElement {
-  return { tag: el.tag, attributes: Object.fromEntries(el.attributes), children: el.children.map(toParsedElement) };
 }
 
 function collectComponentProps(

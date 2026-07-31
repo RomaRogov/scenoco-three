@@ -4,7 +4,6 @@ import {
   allAttachmentDefs,
   allEnums,
   attachmentsForNode,
-  getSrcCompiler,
   isArrayType,
   isEnumType,
   TRANSFORM_ATTRS,
@@ -17,6 +16,7 @@ import {
 } from '@scenoco-three/core/internal';
 import { ValueType } from '@scenoco-three/core/internal';
 import { codecs, type ScalarType } from '../dsl/types.js';
+import { getSrcCompiler } from '../dsl/src-document.js';
 
 /**
  * Generates a no-namespace XSD 1.0 from the live registries (node tags +

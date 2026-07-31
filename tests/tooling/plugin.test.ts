@@ -139,15 +139,43 @@ this is not valid typescript {{{`,
 });
 
 describe('scenoco init scaffold', () => {
-  it('writes a runnable project skeleton whose starter scene validates against the starter component', () => {
+  it('writes a runnable project skeleton whose starter scene validates', () => {
     const files = scaffoldFiles('my-app');
     expect(Object.keys(files)).toEqual(
-      expect.arrayContaining(['package.json', 'tsconfig.json', 'vite.config.ts', 'src/main.ts', 'assets/components/Spin.ts', 'assets/scenes/hello.scene.xml']),
+      expect.arrayContaining(['package.json', 'tsconfig.json', 'vite.config.ts', 'src/main.ts', 'assets/scenes/main.scene.xml']),
     );
     expect(Object.keys(files).some((f) => f.endsWith('.md'))).toBe(false); // no markdown
     const pkg = JSON.parse(files['package.json']!) as { name: string; scripts: Record<string, string> };
     expect(pkg.name).toBe('my-app');
     expect(pkg.scripts.validate).not.toContain('--components'); // assets/ convention, zero-config
-    expect(compileSceneXml(files['assets/scenes/hello.scene.xml']!).ok).toBe(true);
+    expect(compileSceneXml(files['assets/scenes/main.scene.xml']!).ok).toBe(true);
+  });
+
+  // A fresh scene is a camera and a light, like a new Unity or Cocos scene —
+  // not a demo. A scaffold that ships sample content makes every real project
+  // start with a deletion, and teaches the demo instead of the tool.
+  it('starts empty: one camera, one light, no components and no sample content', () => {
+    const files = scaffoldFiles('my-app');
+    const scene = files['assets/scenes/main.scene.xml']!;
+
+    expect(scene).toMatch(/<PerspectiveCamera\b/);
+    expect(scene).toMatch(/<DirectionalLight\b/);
+    expect(scene).not.toMatch(/<Components>/);
+    expect(scene).not.toMatch(/<Mesh\b/);
+    // No component file ships with the scaffold at all.
+    expect(Object.keys(files).filter((f) => f.startsWith('assets/components/'))).toEqual([]);
+
+    const compiled = compileSceneXml(scene);
+    if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics));
+    expect(compiled.scene.nodes.map((n) => n.tag)).toEqual(['Scene', 'PerspectiveCamera', 'DirectionalLight']);
+    expect(compiled.scene.components).toEqual([]);
+  });
+
+  // Every generated document carries its schema hint, or `scripts/check-xml.sh`
+  // silently skips it and the IDE gives no completion.
+  it('wires the starter scene to its XSD', () => {
+    expect(scaffoldFiles('my-app')['assets/scenes/main.scene.xml']!).toMatch(
+      /xsi:noNamespaceSchemaLocation="\.\.\/\.\.\/schema\/scene\.xsd"/,
+    );
   });
 });

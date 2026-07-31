@@ -58,7 +58,6 @@ export {
 } from './registry/NodeRegistry.js';
 
 export { builtinNodeModules, builtinNodeModule } from './nodes/manifest.js';
-export { getSrcCompiler, type ParsedElement, type SrcCompiler } from './scene/src-compiler.js';
 
 export {
   BUNDLE_VERSION,

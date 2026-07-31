@@ -1,7 +1,21 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import '@scenoco-three/particles'; // registers <ParticleSystem> + its .particle.xml src-compiler
-import { bundleScene, compileSceneXml, generateXsd, type ResourceResolver } from '@scenoco-three/compiler';
+import '@scenoco-three/particles'; // registers the <ParticleSystem> component
+// The `.particle.xml` format lives behind the package's build-time entry, so a
+// game bundle never pulls in the document compiler. `scenoco` does this via
+// `registerPackages`; a test does it by hand.
+import { srcDocument } from '@scenoco-three/particles/compiler';
+import {
+  bundleScene,
+  compileSceneXml,
+  generateXsd,
+  registerSrcDocument,
+  type ResourceResolver,
+} from '@scenoco-three/compiler';
 import { deserializeBundle } from '@scenoco-three/core';
+
+registerSrcDocument(srcDocument);
 
 const FIRE = `<ParticleSystem duration="2" simulationSpace="World" startColor="#ff8800">
   <Emission rateOverTime="50"><Burst time="0" count="5" /></Emission>
@@ -50,5 +64,20 @@ describe('particles src document', () => {
     const result = compileSceneXml(SCENE, { path: '/scene.xml', resolve: () => null });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics.some((d) => /resolve src=/.test(d.message))).toBe(true);
+  });
+
+  // The reason the format sits behind `<pkg>/compiler` at all: a document
+  // compiler is build-time code, and a runtime entry that imports it pins it —
+  // and its diagnostic strings — into every game bundle (invariant 2). Guard the
+  // module graph, not the bundler, so this holds however the game is built.
+  it('keeps the document compiler out of the runtime entry', () => {
+    const entry = readFileSync(
+      fileURLToPath(new URL('../../packages/particles/src/index.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(entry).not.toMatch(/from '\.\/compileDocument\.js'/);
+    // …and the build-time entry is what carries it.
+    expect(srcDocument.compile).toBeTypeOf('function');
+    expect(srcDocument.extension).toBe('.particle.xml');
   });
 });

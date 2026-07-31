@@ -97,14 +97,6 @@ export { PrefabInstance } from './scene/PrefabInstance.js';
 // the runtime API above.
 export { deserializeBundle } from './scene/deserialize.js';
 export {
-  registerSrcCompiler,
-  getSrcCompiler,
-  type ParsedElement,
-  type SrcCompiler,
-  type SrcCompileResult,
-  type SrcDiagnostic,
-} from './scene/src-compiler.js';
-export {
   BUNDLE_VERSION,
   bundleKind,
   type Bundle,

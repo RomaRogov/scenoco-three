@@ -91,12 +91,19 @@ component up automatically. No registration wiring.
 ## Start a new project
 
 ```bash
-scenoco init my-app   # scaffold a runnable project (starter component + scene + Vite wiring)
+scenoco init my-app   # scaffold an empty project: one scene (camera + light) + Vite wiring
 cd my-app && npm install
+npm run export        # generate schema/ (XSD + scene-api.json)
 npm run dev           # http://localhost:5173
 npm run validate      # "tsc for scenes"
-npm run export        # generate schema/ (XSD + scene-api.json)
+
+scenoco new           # list every asset kind this project can create
+scenoco new component Ball
 ```
+
+Like a new Unity or Cocos scene, `init` gives you a camera and a light and nothing
+else; `scenoco new <kind> <name>` is how content arrives. The kinds are generated —
+`particle` shows up once a project depends on `@scenoco-three/particles`.
 
 The scaffold ships an `AGENTS.md` explaining the edit→validate→fix loop, so an agent can be
 productive immediately. The project convention is **zero-config**: components and scenes live
@@ -156,8 +163,8 @@ exact API) and **`@scenoco-three/particles`** (three.quarks VFX with a validated
 `.particle.xml` format); **in-canvas UI** (**`@scenoco-three/ui`**: flexbox
 `<Fullscreen>`/`<Container>`/`<Text>`/`<Image>` scene tags rendered by pmndrs uikit,
 attributes = uikit properties verbatim); the **`src=` sub-document
-seam** (`registerSrcCompiler` + `Component.applyConfig`, letting a package own its own
-validated file format); runtime `@system` attachment for spawn-only scenes; Unity-shaped
+seam** (a package declares its own validated file format from a build-time entry, and
+`Component.applyConfig` receives the compiled blob at runtime); runtime `@system` attachment for spawn-only scenes; Unity-shaped
 `PrefabRef.spawn` placement and type-only component queries; `scenoco export` publishing
 **all four document XSDs**; and an editor that **survives broken component code** (last-good
 registry, error banner, auto-reload) with a start-up file picker and a pinned MCP port. Now

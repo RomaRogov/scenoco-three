@@ -10,18 +10,16 @@
 //     it each frame. Auto-runs when the scene has a `<ParticleSystem>` (the
 //     System seam, like the physics add-ons) and, like them, only in play mode.
 //
-// Importing this module registers the component, the particle enums, and the
-// `.particle.xml` src-compiler (decorator + enumOf + registerSrcCompiler side
-// effects), hence the package is `sideEffects`.
-import { registerSrcCompiler } from '@scenoco-three/core';
-import { compileParticleDocument } from './compileDocument.js';
-
-// The core compiler delegates a `<ParticleSystem src="*.particle.xml">` document to this.
-registerSrcCompiler('ParticleSystem', compileParticleDocument);
+// Importing this module registers the component and the particle enums (decorator
+// + enumOf side effects), hence the package is `sideEffects`.
+//
+// It deliberately does NOT reach the `.particle.xml` compiler: that is build-time
+// code, and importing it here would pin it — and its diagnostic strings — into
+// every game bundle (invariant 2). It lives behind the separate
+// `@scenoco-three/particles/compiler` entry, which only `scenoco` loads.
 
 export { ParticleSystem } from './ParticleSystem.js';
 export { ParticleRenderSystem } from './ParticleRenderSystem.js';
-export { compileParticleDocument } from './compileDocument.js';
 export { configToParameters, type ParticleConfig } from './config.js';
 export { ParticleShape, ParticleRenderMode, SimulationSpace, ParticleBlending } from './enums.js';
 
@@ -36,3 +34,10 @@ export const sceneTags = ['ParticleSystem'] as const;
  * at runtime) — the CLI resolves them against this package's directory.
  */
 export const schemas = ['particle.xsd'] as const;
+
+/**
+ * This package ships a build-time entry (`@scenoco-three/particles/compiler`)
+ * describing its `src=` document format. A plain boolean, so the compiler knows
+ * to load that subpath without probing for a module that may not exist.
+ */
+export const hasSrcDocument = true;

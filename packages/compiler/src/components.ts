@@ -12,6 +12,7 @@ import {
   unregisterNode,
 } from '@scenoco-three/core/internal';
 import { build, type Loader } from 'esbuild';
+import { registerSrcDocument, type SrcDocumentDef } from './dsl/src-document.js';
 
 /**
  * Project component AND node discovery and Node-side loading.
@@ -305,7 +306,17 @@ async function registerPackages(packages: string[], scan: ComponentScan): Promis
       const beforeNames = new Set(Registry.componentNames());
       const beforeTags = new Set([...nodeTags(), ...attachmentTags()]);
       const beforeSystems = new Set(allSystemDefs().map((d) => d.ctor.name));
-      const mod = (await import(pkg)) as { sceneTags?: string[]; schemas?: readonly string[] };
+      const mod = (await import(pkg)) as {
+        sceneTags?: string[];
+        schemas?: readonly string[];
+        hasSrcDocument?: boolean;
+      };
+      // A package that owns a `src=` document format keeps the format's compiler
+      // behind a build-time entry, so importing the package at runtime never
+      // pulls it in. Load it here — this is the Node build, the only place it
+      // belongs. Flagged rather than probed: a blind import of a subpath that
+      // does not exist would swallow real module errors in packages that do.
+      if (mod.hasSrcDocument) await registerSrcDocumentOf(pkg);
       // A tag package may export `sceneTags` (authoritative — works even if it
       // was already imported); otherwise diff the registries for what it added.
       if (mod.sceneTags) {
@@ -346,6 +357,23 @@ export function collectedPackageSchemas(): SchemaFile[] {
 }
 
 /** Resolve a package's declared XSD filenames to absolute paths in its install dir. */
+/**
+ * Import a tag package's build-time entry (`<pkg>/compiler`) and register the
+ * `src=` document format it describes. By convention the entry exports one
+ * `srcDocument`; anything else is a packaging mistake and says so loudly rather
+ * than leaving `scenoco new <kind>` and `validate` silently missing a format.
+ */
+async function registerSrcDocumentOf(pkg: string): Promise<void> {
+  const specifier = `${pkg}/compiler`;
+  const mod = (await import(specifier)) as { srcDocument?: SrcDocumentDef };
+  if (!mod.srcDocument) {
+    throw new Error(
+      `${pkg} sets hasSrcDocument but ${specifier} exports no "srcDocument" — see SrcDocumentDef in @scenoco-three/compiler`,
+    );
+  }
+  registerSrcDocument(mod.srcDocument);
+}
+
 function resolvePackageSchemas(pkg: string, filenames: readonly string[]): SchemaFile[] {
   if (filenames.length === 0) return [];
   const root = packageRoot(pkg);

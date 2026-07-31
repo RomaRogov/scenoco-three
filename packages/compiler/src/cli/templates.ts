@@ -1,8 +1,13 @@
 /**
  * Files written by `scenoco init` — kept as a pure path→content map so the
- * scaffold can be unit-tested without touching the filesystem. The result is a
- * runnable SceNoCo project: a starter component, a scene that uses it, and the
- * Vite wiring so `npm run dev` serves it with no XML parser in the browser.
+ * scaffold can be unit-tested without touching the filesystem.
+ *
+ * The result is a runnable but *empty* project: the Vite wiring, and one scene
+ * holding a camera and a light. That is deliberately what a new Unity or Cocos
+ * scene contains — no sample cube, no sample component. A scaffold that ships
+ * demo content leaves every new project starting with a deletion, and teaches
+ * the shape of the demo rather than the shape of the tool. `scenoco new` is how
+ * content arrives, and `init` says so on its way out.
  */
 export function scaffoldFiles(packageName: string, version = '^0.1.0'): Record<string, string> {
   return {
@@ -13,7 +18,7 @@ export function scaffoldFiles(packageName: string, version = '^0.1.0'): Record<s
       scripts: {
         dev: 'vite',
         build: 'vite build',
-        validate: 'scenoco validate assets/scenes/hello.scene.xml',
+        validate: 'scenoco validate assets/scenes/main.scene.xml',
         export: 'scenoco export --out schema',
       },
       dependencies: {
@@ -82,7 +87,7 @@ declare module '*.scene.xml?bundle' {
 `,
 
     'src/main.ts': `import { Engine } from '@scenoco-three/core';
-import scene from '../assets/scenes/hello.scene.xml?bundle';
+import scene from '../assets/scenes/main.scene.xml?bundle';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#app')!;
 const engine = new Engine({ canvas });
@@ -90,36 +95,7 @@ const engine = new Engine({ canvas });
 engine.loadScene(scene);
 `,
 
-    'assets/components/Spin.ts': `import { Component, component, property, ValueType } from '@scenoco-three/core';
-
-@component({ name: 'Spin', description: 'Spins the host node around its Y axis over time' })
-export class Spin extends Component {
-  @property({ type: ValueType.Float, description: 'Rotation speed in radians per second' })
-  speed = 1;
-
-  // \`this.node\` IS a THREE.Object3D — use Three.js directly.
-  override update(dt: number): void {
-    this.node.rotation.y += this.speed * dt;
-  }
-}
-`,
-
-    'assets/scenes/hello.scene.xml': `<Scene>
-  <PerspectiveCamera id="cam" position="0 1 5" />
-  <AmbientLight intensity="0.4" />
-  <DirectionalLight intensity="2" position="2 4 3" />
-
-  <Mesh id="cube" position="0 0 0">
-    <Attachments>
-      <BoxGeometry width="1.5" height="1.5" depth="1.5" />
-      <MeshStandardMaterial color="#4f8ef7" roughness="0.3" metalness="0.6" />
-    </Attachments>
-    <Components>
-      <Spin speed="1.2" />
-    </Components>
-  </Mesh>
-</Scene>
-`,
+    'assets/scenes/main.scene.xml': sceneFile('main'),
 
     '.gitignore': `node_modules/
 dist/
@@ -154,11 +130,81 @@ export class ${name} extends Component {
 `;
 }
 
-/** A scene XML skeleton — a camera and a light, like a fresh Unity scene. */
+/**
+ * A scene skeleton: one camera, one light, nothing else — a fresh Unity or Cocos
+ * scene, which is what a new scene should be. Content comes from `scenoco new`,
+ * not from a scaffold guessing at it.
+ *
+ * Every generated document carries the `xsi:noNamespaceSchemaLocation` hint, so
+ * IDE completion and `scripts/check-xml.sh` work on it from the first save (a
+ * file without the hint is silently skipped by the checker).
+ */
 export function sceneFile(_name: string): string {
-  return `<Scene>
-  <PerspectiveCamera id="cam" position="0 1 5" />
-  <DirectionalLight intensity="2" position="5 10 5" />
+  return `<Scene xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="../../schema/scene.xsd">
+  <PerspectiveCamera id="camera" position="y: 1; z: 5" />
+  <DirectionalLight intensity="2" position="x: 5; y: 10; z: 5" />
 </Scene>
+`;
+}
+
+/**
+ * A prefab skeleton: one node, ready to be given attachments and components.
+ * A `<Prefab>` root may hold several nodes, but one is the common case and the
+ * clearer starting point.
+ */
+export function prefabFile(name: string): string {
+  return `<Prefab xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
+  <Mesh id="${name}">
+    <Attachments>
+      <BoxGeometry width="1" height="1" depth="1" />
+      <MeshStandardMaterial color="#cccccc" />
+    </Attachments>
+  </Mesh>
+</Prefab>
+`;
+}
+
+/**
+ * A shared material. Scenes pull it in with
+ * `<MeshStandardMaterial src="../materials/<name>.material.xml" />`, and inline
+ * attributes on that element override what the file sets.
+ */
+export function materialFile(_name: string): string {
+  return `<MeshStandardMaterial xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                      xsi:noNamespaceSchemaLocation="../../schema/material.xsd"
+                      color="#cccccc" roughness="0.5" metalness="0" />
+`;
+}
+
+/**
+ * A `@system` boilerplate. A system batch-processes every component of one type
+ * each frame — the right shape when per-instance `update()` would repeat work
+ * that could be done once (a shared query, a single renderer, one physics step).
+ */
+export function systemFile(name: string): string {
+  const component = name.replace(/System$/, '') || 'Target';
+  return `import { System, system } from '@scenoco-three/core';
+import { ${component} } from '../components/${component}.js';
+
+// Runs once per frame over every <${component}> in the scene, instead of each
+// component updating itself. Worth it when there is shared work to hoist (one
+// query, one renderer, one world step); otherwise just use ${component}.update().
+//
+// The engine starts this automatically whenever a loaded scene contains a
+// <${component}>, and only in play mode.
+@system(${component})
+export class ${name} extends System<${component}> {
+  /** Once, when the system starts. Also available: fixedStep, onDetach. */
+  override onAttach(): void {}
+
+  override step(dt: number): void {
+    for (const c of this.components) {
+      void c;
+      void dt;
+    }
+  }
+}
 `;
 }

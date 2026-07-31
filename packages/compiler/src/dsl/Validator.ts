@@ -8,7 +8,6 @@ import {
   Registry,
   getNodeDef,
   getAttachmentDef,
-  getSrcCompiler,
   allAttachmentDefs,
   attachmentAcceptsNode,
   attachmentTags,
@@ -27,6 +26,7 @@ import { ValueType } from '@scenoco-three/core/internal';
 import { nearestName, type SncDiagnostic } from './diagnostics.js';
 import type { SncElement } from './SceneParser.js';
 import { parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } from './types.js';
+import { getSrcCompiler } from './src-document.js';
 
 /**
  * Validates a parsed scene tree against the node and component registries,
@@ -73,6 +73,38 @@ export function validatePrefab(root: SncElement): SncDiagnostic[] {
   }
   for (const child of root.children) ctx.walk(child);
   ctx.resolveReferences();
+  ctx.diagnostics.sort((a, b) => a.line - b.line || a.column - b.column);
+  return ctx.diagnostics;
+}
+
+/**
+ * Validates a standalone attachment document — a `.material.xml`, whose root is
+ * a single material element (`<MeshStandardMaterial …/>`) that scenes pull in
+ * with `src=`. There is no host node to check the target against, so this covers
+ * what a shared file can be judged on alone: the root really is an attachment of
+ * the expected group, and its attributes are well-typed.
+ *
+ * `group` is the attachment group the document must hold, e.g. `material`.
+ */
+export function validateAttachmentDocument(root: SncElement, group: string): SncDiagnostic[] {
+  const ctx = new ValidationContext();
+  const def = getAttachmentDef(root.tag);
+
+  if (!def) {
+    const candidates = allAttachmentDefs().filter((d) => d.group === group).map((d) => d.tag);
+    const suggestion = nearestName(root.tag, candidates);
+    ctx.error(
+      root,
+      'bad-root',
+      `A .${group}.xml file's root must be a ${group} (e.g. <${candidates[0] ?? group} />), got <${root.tag}>` +
+        (suggestion ? `. Did you mean <${suggestion}>?` : ''),
+    );
+  } else if (def.group !== group) {
+    ctx.error(root, 'bad-root', `<${root.tag}> is a ${def.group}, not a ${group} — a .${group}.xml must hold a ${group}`);
+  } else {
+    ctx.validateAttachmentDocumentRoot(root, def);
+  }
+
   ctx.diagnostics.sort((a, b) => a.line - b.line || a.column - b.column);
   return ctx.diagnostics;
 }
@@ -316,6 +348,16 @@ class ValidationContext {
         this.error(el, 'missing-attr', `<${el.tag}> is missing required attribute "${attr}"`);
       }
     }
+  }
+
+  /**
+   * An attachment standing alone as a document root (a `.material.xml`): the
+   * same attribute rules as inline, plus its structured children (a
+   * `<ShaderMaterial>`'s `<Uniform>`s), but no host to check the target against.
+   */
+  validateAttachmentDocumentRoot(el: SncElement, def: AttachmentDef): void {
+    this.validateAttachmentAttributes(el, def);
+    this.validateAttachmentChildren(el, def);
   }
 
   /** Validate an attachment element's attributes (no transform/id; `src` allowed). */
