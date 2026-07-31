@@ -35,14 +35,14 @@ bundlePlugin({ registerPackages: ['@scenoco-three/rapier'] });
 ```xml
 <Scene>
   <Physics gravity="0 -9.81 0" />
-  <Mesh position="0 5 0">
+  <Mesh position="y: 5">
     <BoxGeometry /><MeshStandardMaterial />
     <Components>
       <RigidBody kind="dynamic" />
       <BoxCollider halfExtents="0.5 0.5 0.5" restitution="0.4" />
     </Components>
   </Mesh>
-  <Mesh position="0 0 0">
+  <Mesh position="x: 0; y: 0; z: 0">
     <BoxGeometry width="20" height="0.5" depth="20" /><MeshStandardMaterial />
     <Components><RigidBody kind="fixed" /><BoxCollider halfExtents="10 0.25 10" /></Components>
   </Mesh>
@@ -96,7 +96,7 @@ Connects this node's `<RigidBody>` to another body's with a Rapier impulse joint
 
 ```xml
 <Mesh id="hinge"><BoxGeometry /><Components><RigidBody kind="fixed" /><BoxCollider /></Components></Mesh>
-<Mesh id="door" position="1 0 0">
+<Mesh id="door" position="x: 1">
   <BoxGeometry width="2" /><MeshStandardMaterial />
   <Components>
     <RigidBody /><BoxCollider halfExtents="1 0.5 0.1" />

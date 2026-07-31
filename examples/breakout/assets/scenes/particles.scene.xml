@@ -9,13 +9,13 @@
   <Attachments>
     <Background color="#0a0e16" />
   </Attachments>
-  <PerspectiveCamera id="cam" position="0 2 10" fov="45" near="0.1" far="200" />
+  <PerspectiveCamera id="cam" position="y: 2; z: 10" fov="45" near="0.1" far="200" />
   <AmbientLight intensity="0.7" />
 
   <!-- Full fire effect from a separate .particle.xml (its own grammar + XSD),
        referenced like a material. The cone emits along local +Z, so rotate the
        node -90° about X to aim it up (+Y). -->
-  <Group id="fx" position="0 0 0" eulerAngles="-90 0 0">
+  <Group id="fx" position="x: 0; y: 0; z: 0" eulerAngles="x: -90">
     <Components>
       <ParticleSystem src="../vfx/fire.particle.xml" />
     </Components>

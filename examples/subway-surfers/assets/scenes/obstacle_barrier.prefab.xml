@@ -6,7 +6,7 @@
 <Prefab
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
-  <Mesh position="0 0.3 0">
+  <Mesh position="y: 0.3">
     <Attachments>
       <BoxGeometry width="1.7" height="0.6" depth="0.5" />
       <MeshStandardMaterial color="#ef4444" emissive="#3a0a0a" roughness="0.5" metalness="0.15" />

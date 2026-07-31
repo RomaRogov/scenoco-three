@@ -15,6 +15,23 @@ export {
 
 export { enumOf, isEnumType, getEnum, allEnums, unregisterEnum, type EnumDef } from './registry/EnumRegistry.js';
 
+// The vector text grammar. Declared in core (not the compiler) because the
+// editor's browser-side document model parses attribute text too — see the
+// module header for why one declaration matters here specifically.
+export {
+  VEC_AXES,
+  vecFormatFor,
+  VEC2_FORMAT,
+  VEC3_FORMAT,
+  EULER_FORMAT,
+  parseVecText,
+  serializeVecText,
+  serializeVecPositional,
+  vecMessage,
+  type VecFormat,
+  type VecParse,
+} from './scene/vec-format.js';
+
 export {
   getNodeDef,
   nodeTags,

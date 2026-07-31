@@ -13,7 +13,7 @@ describe('XSD exporter', () => {
     expect(xsd).toContain('<xs:simpleType name="vec3">');
     expect(xsd).toContain('<xs:simpleType name="color">');
     expect(xsd).toContain('<xs:attributeGroup name="transform">'); // shared transform attrs
-    expect(xsd).toContain('<xs:documentation>Local position x y z</xs:documentation>'); // descriptions → IDE hover
+    expect(xsd).toContain('<xs:documentation>Local position, e.g. y: 1.5; z: -3 (omitted axes are 0)</xs:documentation>'); // descriptions → IDE hover
   });
 
   it('declares no duplicate attribute within any element (valid XSD 1.0)', () => {

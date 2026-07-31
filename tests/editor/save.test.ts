@@ -31,7 +31,7 @@ describe('editor save — applySaveOps', () => {
     expect(out.changed).toBe(2); // 1 structural + 1 attribute
     const bBlock = /<Group id="b">([\s\S]*?)<\/Group>/.exec(out.text)?.[1] ?? '';
     expect(bBlock).toMatch(/id="kid"/);
-    expect(bBlock).toMatch(/position="9 9 9"/);
+    expect(bBlock).toMatch(/position="x: 9; y: 9; z: 9"/);
     expect(compileSceneXml(out.text).ok).toBe(true);
   });
 
@@ -50,7 +50,7 @@ describe('editor save — applySaveOps', () => {
 
     expect(out.unresolved).toBe(2); // one structural + one attribute
     expect(out.changed).toBe(1); // the real edit still applied
-    expect(out.text).toContain('position="3 0 0"');
+    expect(out.text).toContain('position="x: 3"');
   });
 
   it('is a no-op when there is nothing to apply', () => {

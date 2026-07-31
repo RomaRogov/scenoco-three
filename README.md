@@ -16,7 +16,7 @@ But you don't need any of that: it's a component scene framework for Three.js, u
 
 ```xml
 <Scene>
-  <Mesh id="Turbine_01" position="0 1 0">
+  <Mesh id="Turbine_01" position="y: 1">
     <CylinderGeometry radiusTop="0.4" radiusBottom="0.4" height="2" />
     <MeshStandardMaterial color="#8888aa" roughness="0.3" metalness="0.8" />
     <Components>
@@ -25,7 +25,7 @@ But you don't need any of that: it's a component scene framework for Three.js, u
     </Components>
   </Mesh>
 
-  <Mesh id="Indicator" position="2.5 1 0">
+  <Mesh id="Indicator" position="x: 2.5; y: 1">
     <SphereGeometry radius="0.3" />
     <Components>
       <Follow source="#turbine_osc" scale="2" />   <!-- typed component reference -->

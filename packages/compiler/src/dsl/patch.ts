@@ -1,5 +1,15 @@
 import { SaxesParser } from 'saxes';
-import { Registry, ValueType, getAttachmentDef, getNodeDef, isScalarType, isEnumType, valueEquals, type EnumDef } from '@scenoco-three/core/internal';
+import {
+  Registry,
+  TRANSFORM_ATTRS,
+  ValueType,
+  getAttachmentDef,
+  getNodeDef,
+  isScalarType,
+  isEnumType,
+  valueEquals,
+  type EnumDef,
+} from '@scenoco-three/core/internal';
 import { scalarCodec, type ScalarType } from './types.js';
 
 /**
@@ -52,14 +62,6 @@ interface El {
   openEnd: number; // index just after the start tag's '>'
   children: El[];
 }
-
-/** Transform attributes the editor sets directly on a node, with their codec + default. */
-const TRANSFORM: Record<string, { type: ScalarType; default: number | boolean | number[] }> = {
-  position: { type: ValueType.Vec3, default: [0, 0, 0] },
-  eulerAngles: { type: ValueType.Euler, default: [0, 0, 0] },
-  scale: { type: ValueType.Vec3, default: [1, 1, 1] },
-  visible: { type: ValueType.Bool, default: true },
-};
 
 export function patchSceneXml(xml: string, edits: PatchEdit[]): PatchResult {
   const { all, roots } = scan(xml);
@@ -199,8 +201,16 @@ function resolve(edit: PatchEdit): { type: ScalarType | EnumDef; default?: numbe
   // `id` and `src` are plain string attributes with no registry default (never elided).
   if (t.kind === 'node') {
     if (edit.attr === 'src' || edit.attr === 'id') return { type: ValueType.String };
-    const transform = TRANSFORM[edit.attr];
-    if (transform) return transform;
+    // Transform attrs come from the registry, never a local copy — `scale` is a
+    // `scale`-typed vec3 (identity 1), and a second table here would silently
+    // serialize it as a plain vec3 and stop eliding its 1s.
+    const transform = TRANSFORM_ATTRS[edit.attr];
+    if (transform && isScalarType(transform.type)) {
+      return {
+        type: transform.type,
+        ...(transform.default !== undefined ? { default: transform.default as number | boolean | string | number[] } : {}),
+      };
+    }
     // Not a transform attr → the node tag's own attribute (`<PerspectiveCamera fov>`),
     // typed by the node registry exactly as attachment and component attrs are.
     const meta = t.tag ? getNodeDef(t.tag)?.attrs[edit.attr] : undefined;

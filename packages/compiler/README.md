@@ -135,7 +135,7 @@ see ordinary nodes. During expansion:
 Per-instance customization uses two children:
 
 ```xml
-<PrefabInstance src="turbine.prefab.xml" id="t2" position="5 0 0">
+<PrefabInstance src="turbine.prefab.xml" id="t2" position="x: 5">
   <Override target="#osc" amplitude="1.5" />   <!-- patch an internal by prefab-local id -->
   <Components><Highlight color="#f00" /></Components> <!-- extra components on the instance root -->
 </PrefabInstance>

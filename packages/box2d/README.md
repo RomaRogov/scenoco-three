@@ -23,14 +23,14 @@ angle drives `rotation.z`.
 ```xml
 <Scene>
   <Physics2D gravity="0 -9.81" />
-  <Mesh id="ball" position="0 6 0">
+  <Mesh id="ball" position="y: 6">
     <SphereGeometry radius="0.3" />
     <Components>
       <RigidBody2D bullet="true" />            <!-- continuous collision for a fast ball -->
       <CircleCollider2D radius="0.3" restitution="0.9" />
     </Components>
   </Mesh>
-  <Mesh id="paddle" position="0 0.5 0">
+  <Mesh id="paddle" position="y: 0.5">
     <BoxGeometry width="3" height="0.4" depth="0.5" />
     <Components>
       <RigidBody2D kind="kinematic" />          <!-- you move the node; the body follows -->
@@ -89,12 +89,12 @@ Connects this node's `<RigidBody2D>` to another body's (Unity `Joint2D`-style pr
 | `frequency` / `damping` | float | `0` / `0.7` | Distance-joint spring (Hz; 0 = rigid). |
 
 ```xml
-<Mesh id="pivot" position="0 5 0"><BoxGeometry /><Components><RigidBody2D kind="static" /><BoxCollider2D /></Components></Mesh>
-<Mesh id="arm" position="2 5 0">
+<Mesh id="pivot" position="y: 5"><BoxGeometry /><Components><RigidBody2D kind="static" /><BoxCollider2D /></Components></Mesh>
+<Mesh id="arm" position="x: 2; y: 5">
   <BoxGeometry width="4" /><MeshStandardMaterial />
   <Components>
     <RigidBody2D /><BoxCollider2D halfExtents="2 0.2" />
-    <Joint2D kind="revolute" connectedBody="#pivot" anchor="-2 0" />
+    <Joint2D kind="revolute" connectedBody="#pivot" anchor="x: -2" />
   </Components>
 </Mesh>
 ```

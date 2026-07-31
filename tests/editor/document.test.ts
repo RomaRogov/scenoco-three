@@ -459,8 +459,8 @@ describe('SceneDocument — copy / paste', () => {
     // `applied === 1` plus "it still compiles" would accept any well-formed element,
     // so assert the actual content: the copied child, under a node at the new position.
     const dstBlock = /<Group id="dst">([\s\S]*?)<\/Group>/.exec(inserted.text)?.[1] ?? '';
-    expect(dstBlock).toMatch(/position="5 5 5"/);
-    expect(dstBlock).toMatch(/<Group position="1 0 0"\s*\/>/); // the copied kid, ids stripped
+    expect(dstBlock).toMatch(/position="x: 5; y: 5; z: 5"/);
+    expect(dstBlock).toMatch(/<Group position="x: 1"\s*\/>/); // the copied kid, ids stripped
 
     doc.undoLast(); // undo the transform edit
     doc.undoLast(); // undo the paste

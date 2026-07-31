@@ -105,7 +105,7 @@ describe('applyStructuralOps — comment-preserving structural XML edits', () =>
     const { text, applied, unresolved } = apply(SCENE, { op: 'insertNode', parent: { id: 'rig' }, xml });
     expect({ applied, unresolved }).toEqual({ applied: 1, unresolved: [] });
     // The pasted subtree lands under <Group id="rig"> and re-indents to its depth.
-    expect(text).toMatch(/<Group id="rig">[\s\S]*\n {4}<Group>\s*\n {6}<Group position="1 0 0" \/>\s*\n {4}<\/Group>/);
+    expect(text).toMatch(/<Group id="rig">[\s\S]*\n {4}<Group>\s*\n {6}<Group position="x: 1" \/>\s*\n {4}<\/Group>/);
     expect(text).toContain('<!-- the hero -->'); // unrelated comments untouched
     expect(recompiles(text)).toBe(true);
   });

@@ -125,9 +125,15 @@ export interface SystemDef {
  * authoring name.
  */
 export const TRANSFORM_ATTRS: Record<string, NodeAttr> = {
-  position: { type: ValueType.Vec3, default: [0, 0, 0], description: 'Local position x y z' },
-  eulerAngles: { type: ValueType.Euler, default: [0, 0, 0], description: 'Local rotation in degrees x y z' },
-  scale: { type: ValueType.Vec3, default: [1, 1, 1], description: 'Local scale x y z' },
+  // Descriptions avoid double quotes: they land in XSD <xs:documentation>, where
+  // a quote is escaped to &quot; and reads badly in IDE hover.
+  position: { type: ValueType.Vec3, default: [0, 0, 0], description: 'Local position, e.g. y: 1.5; z: -3 (omitted axes are 0)' },
+  eulerAngles: {
+    type: ValueType.Euler,
+    default: [0, 0, 0],
+    description: 'Local rotation in degrees, e.g. y: 90 (omitted axes are 0)',
+  },
+  scale: { type: ValueType.Vec3, default: [1, 1, 1], description: 'Local scale, e.g. x: 2; y: 2; z: 2 (omitted axes are 0, so write all three)' },
   visible: { type: ValueType.Bool, default: true, description: 'Whether the object renders' },
 };
 

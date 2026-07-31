@@ -1,5 +1,12 @@
 import { Color, Euler, MathUtils, Vector2, Vector3, type Object3D } from 'three';
 import {
+  EULER_FORMAT,
+  VEC2_FORMAT,
+  VEC3_FORMAT,
+  parseVecText,
+  vecFormatFor,
+  TRANSFORM_ATTRS,
+  type VecFormat,
   Registry,
   elementType,
   detachAttachment,
@@ -1345,8 +1352,13 @@ export class SceneDocument {
       return undefined;
     }
     if (edit.attr === 'position' || edit.attr === 'eulerAngles' || edit.attr === 'scale') {
-      const value = coerceVec(edit.value, 3);
-      if (!value) return `"${edit.attr}" takes [x, y, z]`;
+      // Each channel carries its own identity — an omitted axis is 0 for
+      // position/eulerAngles but 1 for scale — so take the format from the
+      // registry entry rather than assuming a plain vec3.
+      const fmt = vecFormatFor(TRANSFORM_ATTRS[edit.attr]?.type);
+      if (!fmt) return `"${edit.attr}" is not a vector attribute`;
+      const value = coerceVec(edit.value, fmt);
+      if (!value) return `"${edit.attr}" takes [x, y, z] or "${fmt.example}"`;
       this.setTransform(node, edit.attr, value);
       return undefined;
     }
@@ -1527,24 +1539,29 @@ function coerceScalar(value: string | number | boolean | number[], elem: PropTyp
       return undefined;
     }
     case ValueType.Vec2:
-      return coerceVec(value, 2);
+      return coerceVec(value, VEC2_FORMAT);
     case ValueType.Vec3:
+      return coerceVec(value, VEC3_FORMAT);
     case ValueType.Euler:
-      return coerceVec(value, 3);
+      return coerceVec(value, EULER_FORMAT);
     default:
       return undefined; // references/prefabs aren't editable over MCP
   }
 }
 
-/** A numeric vector of `length`, from a number[] or an "x y z" string. */
-function coerceVec(value: string | number | boolean | number[], length: number): number[] | undefined {
-  const parts = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? value.split(/[ ,]+/).map(Number)
-      : undefined;
-  if (!parts || parts.length !== length || !parts.every((n) => typeof n === 'number' && Number.isFinite(n))) return undefined;
-  return parts;
+/**
+ * A numeric vector from a number[] (the canonical MCP form) or from attribute
+ * text. Text goes through core's `parseVecText`, the same grammar the compiler
+ * uses — so an agent that has read the scene may write `"y: 1.5"` here and get
+ * the behaviour it saw in the file, rather than a bespoke splitter's guess.
+ */
+function coerceVec(value: string | number | boolean | number[], fmt: VecFormat): number[] | undefined {
+  if (typeof value === 'string') {
+    const r = parseVecText(value, fmt);
+    return r.ok ? r.value : undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  return value.length === fmt.n && value.every((n) => typeof n === 'number' && Number.isFinite(n)) ? value : undefined;
 }
 
 const isSavableScalar = (v: unknown): boolean =>

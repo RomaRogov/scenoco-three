@@ -15,9 +15,9 @@ await engine.loadSceneAsync(bundle); // audio buffers preload before play
 
 ```xml
 <Scene>
-  <PerspectiveCamera position="0 0 10" />
+  <PerspectiveCamera position="z: 10" />
   <Mesh><Sound src="music.mp3" loop="true" volume="0.6" /></Mesh>      <!-- 2D background music -->
-  <Mesh position="-4 0 0">
+  <Mesh position="x: -4">
     <SphereGeometry /><MeshStandardMaterial />
     <Sound src="engine.ogg" positional="true" loop="true" refDistance="2" />  <!-- 3D world sound -->
   </Mesh>

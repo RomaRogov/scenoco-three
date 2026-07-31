@@ -124,3 +124,20 @@ export type {
 } from './scene/compiled.js';
 export { UNIFORM_TYPES, UniformType, isUniformType, type UniformTypeName } from './scene/uniforms.js';
 
+// The vector attribute text grammar ("y: 1.5; z: -3", or positional "0 1.5 -3").
+// Public so a tool that reads or writes scene text — the editor's document model,
+// a project's own codemod — shares the compiler's exact parse instead of
+// hand-rolling a splitter that drifts from it.
+export {
+  VEC_AXES,
+  vecFormatFor,
+  VEC2_FORMAT,
+  VEC3_FORMAT,
+  EULER_FORMAT,
+  parseVecText,
+  serializeVecText,
+  serializeVecPositional,
+  type VecFormat,
+  type VecParse,
+} from './scene/vec-format.js';
+

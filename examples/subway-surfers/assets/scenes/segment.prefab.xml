@@ -10,7 +10,7 @@
 <Prefab
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
-  <Mesh eulerAngles="-90 0 0">
+  <Mesh eulerAngles="x: -90">
     <Attachments>
       <PlaneGeometry width="8.4" height="24" />
       <ShaderMaterial vertex="../shaders/curve.vert" fragment="../shaders/curve.frag">
@@ -20,7 +20,7 @@
     </Attachments>
   </Mesh>
 
-  <Mesh position="-4.0 0.8 0">
+  <Mesh position="x: -4; y: 0.8">
     <Attachments>
       <BoxGeometry width="0.25" height="1.6" depth="24" />
       <ShaderMaterial vertex="../shaders/curve.vert" fragment="../shaders/curve.frag">
@@ -29,7 +29,7 @@
       </ShaderMaterial>
     </Attachments>
   </Mesh>
-  <Mesh position="4.0 0.8 0">
+  <Mesh position="x: 4; y: 0.8">
     <Attachments>
       <BoxGeometry width="0.25" height="1.6" depth="24" />
       <ShaderMaterial vertex="../shaders/curve.vert" fragment="../shaders/curve.frag">
@@ -42,13 +42,13 @@
   <!-- Neon rail trim — plain (uncurved) emissive strips; at this scale the
        mismatch with the curved wall beneath is imperceptible, and it avoids
        needing a custom emissive variant of the curve shader. -->
-  <Mesh position="-4.0 1.62 0">
+  <Mesh position="x: -4; y: 1.62">
     <Attachments>
       <BoxGeometry width="0.3" height="0.06" depth="24" />
       <MeshStandardMaterial color="#22d3ee" emissive="#22d3ee" roughness="0.4" />
     </Attachments>
   </Mesh>
-  <Mesh position="4.0 1.62 0">
+  <Mesh position="x: 4; y: 1.62">
     <Attachments>
       <BoxGeometry width="0.3" height="0.06" depth="24" />
       <MeshStandardMaterial color="#22d3ee" emissive="#22d3ee" roughness="0.4" />

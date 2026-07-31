@@ -100,7 +100,7 @@ describe('serializeScene (CompiledScene → XML)', () => {
     expect(compile(serializeScene(scene))).toEqual(scene); // XML round-trip is exact
 
     const minimal = serializeScene(compile(`<Scene><Mesh eulerAngles="0 90 0"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>`));
-    expect(minimal).toContain('eulerAngles="0 90 0"'); // degrees, unchanged through compile→serialize
+    expect(minimal).toContain('eulerAngles="y: 90"'); // degrees, unchanged through compile→serialize
     expect(minimal).not.toMatch(/position=|scale=|visible=/); // defaults elided
   });
 

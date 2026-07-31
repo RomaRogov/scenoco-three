@@ -1,6 +1,17 @@
 import { Color } from 'three';
 import { isEnumType, type EnumDef } from '@scenoco-three/core/internal';
 import { ValueType } from '@scenoco-three/core/internal';
+import {
+  EULER_FORMAT,
+  VEC2_FORMAT,
+  VEC3_FORMAT,
+  VEC_AXES,
+  parseVecText,
+  serializeVecText,
+  serializeVecPositional,
+  vecFormatFor,
+  type VecFormat,
+} from '@scenoco-three/core/internal';
 
 /**
  * Canonical wire formats for SceNoCo attribute values — the single place that
@@ -17,6 +28,10 @@ import { ValueType } from '@scenoco-three/core/internal';
  *                                       happens once at instantiate — see the
  *                                       `euler` codec below and instantiate.ts)
  *   color      → number (0xRRGGBB)
+ *
+ * The vector *text* grammar ("y: 1.5; z: -3", or positional "0 1.5 -3") is
+ * declared once in core — `scene/vec-format.ts` — and wrapped here; see that
+ * module for why it cannot live in this file.
  *
  * Reference types (`node` and typed component references) are not scalar codecs;
  * they need the scene-wide name/id tables and are resolved by the compiler.
@@ -68,7 +83,6 @@ const NUM_RE = new RegExp(`^${NUM_SRC}$`);
 // XML-Schema-flavored equivalents for the generated XSD: patterns are implicitly
 // anchored and forbid the `(?:…)` non-capturing group, so we use plain groups.
 const XSD_NUM = '[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?';
-const xsdVecPattern = (n: number) => `\\s*${XSD_NUM}(\\s+${XSD_NUM}){${n - 1}}\\s*`;
 
 function parseFiniteNumber(raw: string): ParseResult<number> {
   const t = raw.trim();
@@ -77,22 +91,43 @@ function parseFiniteNumber(raw: string): ParseResult<number> {
   return Number.isFinite(n) ? ok(n) : err(`expected a finite number, got "${raw}"`);
 }
 
-function parseVec(raw: string, n: number, label: string): ParseResult<number[]> {
-  const parts = raw.trim().split(/\s+/);
-  if (parts.length !== n) {
-    return err(`expected ${label} — ${n} space-separated numbers (e.g. "${vecExample(n)}"), got "${raw}"`);
-  }
-  const out: number[] = [];
-  for (const p of parts) {
-    if (!NUM_RE.test(p)) {
-      return err(`expected ${label} — ${n} space-separated numbers (e.g. "${vecExample(n)}"), got "${raw}"`);
-    }
-    out.push(Number(p));
-  }
-  return ok(out);
+// ---- vectors ---------------------------------------------------------------
+//
+// The grammar itself lives in core (`scene/vec-format.ts`) because the editor's
+// browser-side document model parses attribute text too and deliberately never
+// bundles the compiler — a second declaration here is exactly how the
+// radians/degrees model drifted once before. This file keeps only the build-time
+// wrapping: the codec table, and the XSD patterns.
+
+/** Adapt core's vector parse to the compiler's ParseResult shape. */
+const vecCodecParse =
+  (fmt: VecFormat) =>
+  (raw: string): ParseResult<number[]> => {
+    const r = parseVecText(raw, fmt);
+    return r.ok ? ok(r.value) : err(r.message);
+  };
+
+const vecCodecSerialize = (fmt: VecFormat) => (v: CompiledScalar) => serializeVecText(v as number[], fmt);
+
+/**
+ * XSD pattern accepting either form. XSD cannot express "no duplicate axis" or
+ * "at most n declarations"; the validator reports those with a real message.
+ */
+function xsdVecPattern(fmt: VecFormat): string {
+  const axes = `[${VEC_AXES.slice(0, fmt.n).join('')}]`;
+  const positional = `${XSD_NUM}(\\s+${XSD_NUM}){${fmt.n - 1}}`;
+  const keyed = `${axes}\\s*:\\s*${XSD_NUM}(\\s*;\\s*${axes}\\s*:\\s*${XSD_NUM})*\\s*;?`;
+  return `\\s*(${positional}|${keyed})\\s*`;
 }
 
-const vecExample = (n: number) => (n === 2 ? '0 1' : '0 1.5 -3');
+/** Positional-only number list, for the shader types whose components have no names. */
+function parseNumberList(raw: string, n: number, label: string): ParseResult<number[]> {
+  const parts = raw.trim().split(/\s+/);
+  if (parts.length !== n || parts.some((p) => !NUM_RE.test(p))) {
+    return err(`expected ${label} — ${n} space-separated numbers, got "${raw}"`);
+  }
+  return ok(parts.map(Number));
+}
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -139,30 +174,33 @@ export const codecs: Record<ScalarType, TypeCodec> = {
   },
 
   vec2: {
-    label: 'a vec2',
-    example: '0 1',
-    parse: (raw) => parseVec(raw, 2, 'a vec2'),
-    serialize: (v) => (v as number[]).join(' '),
-    xsd: { base: 'xs:string', pattern: xsdVecPattern(2) },
+    label: VEC2_FORMAT.label,
+    example: VEC2_FORMAT.example,
+    parse: vecCodecParse(VEC2_FORMAT),
+    serialize: vecCodecSerialize(VEC2_FORMAT),
+    xsd: { base: 'xs:string', pattern: xsdVecPattern(VEC2_FORMAT) },
   },
 
   vec3: {
-    label: 'a vec3',
-    example: '0 1.5 -3',
-    parse: (raw) => parseVec(raw, 3, 'a vec3'),
-    serialize: (v) => (v as number[]).join(' '),
-    xsd: { base: 'xs:string', pattern: xsdVecPattern(3) },
+    label: VEC3_FORMAT.label,
+    example: VEC3_FORMAT.example,
+    parse: vecCodecParse(VEC3_FORMAT),
+    serialize: vecCodecSerialize(VEC3_FORMAT),
+    xsd: { base: 'xs:string', pattern: xsdVecPattern(VEC3_FORMAT) },
   },
 
   euler: {
     // Degrees, end to end (Unity/Blender/A-Frame convention). The compiled form
     // stays degrees too — no build-time deg→rad conversion; the radian conversion
     // happens once at instantiate, via Object3D.eulerAngles (see instantiate.ts).
-    label: 'an euler (degrees)',
-    example: '0 90 0',
-    parse: (raw) => parseVec(raw, 3, 'an euler (degrees)'),
-    serialize: (v) => (v as number[]).map((d) => round(d)).join(' '),
-    xsd: { base: 'xs:string', pattern: xsdVecPattern(3) },
+    // Deliberately *no* unit suffix: requiring "deg" would invent a new format
+    // error, and allowing both "deg" and "rad" would reintroduce the ambiguity
+    // the separate `eulerAngles` name exists to remove.
+    label: EULER_FORMAT.label,
+    example: EULER_FORMAT.example,
+    parse: vecCodecParse(EULER_FORMAT),
+    serialize: vecCodecSerialize(EULER_FORMAT),
+    xsd: { base: 'xs:string', pattern: xsdVecPattern(EULER_FORMAT) },
   },
 
   color: {
@@ -178,11 +216,6 @@ export const codecs: Record<ScalarType, TypeCodec> = {
     xsd: { base: 'xs:string', pattern: `#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})|[a-zA-Z]+` },
   },
 };
-
-// Trim floating-point dust when serializing degrees back from radians.
-function round(n: number): number {
-  return Math.round(n * 1e6) / 1e6;
-}
 
 // ---- enums ----------------------------------------------------------------
 //
@@ -228,11 +261,11 @@ export function uniformValue(type: string, raw: string): ParseResult<CompiledSca
     case ValueType.Color:
       return codecs[type].parse(raw);
     case 'vec4':
-      return parseVec(raw, 4, 'a vec4');
+      return parseNumberList(raw, 4, 'a vec4');
     case 'mat3':
-      return parseVec(raw, 9, 'a mat3 (9 numbers)');
+      return parseNumberList(raw, 9, 'a mat3 (9 numbers)');
     case 'mat4':
-      return parseVec(raw, 16, 'a mat4 (16 numbers)');
+      return parseNumberList(raw, 16, 'a mat4 (16 numbers)');
     case 'sampler2D': {
       const t = raw.trim();
       return t ? ok(t) : err('a sampler2D needs a texture path, e.g. "noise.png"');
@@ -284,11 +317,19 @@ export function parseScalarArray(raw: string, type: ScalarType | EnumDef): Parse
 
 /** Serialize compiled element values back to a `[a,b,c]` literal. */
 export function serializeScalarArray(values: CompiledScalar[], type: ScalarType | EnumDef): string {
+  // Vector elements are written positionally inside a list — see
+  // `serializeVecPositional`. Keying every vertex of a polygon would repeat the
+  // axis names n times for no gain in clarity.
+  const fmt = isEnumType(type) ? undefined : vecFormatFor(type);
+  if (fmt) return `[${values.map((v) => serializeVecPositional(v as number[], fmt)).join(',')}]`;
   const codec = scalarCodec(type);
   return `[${values.map((v) => codec.serialize(v)).join(',')}]`;
 }
 
 /** A worked array example for a scalar element type (docs/errors). */
 export function arrayExample(type: ScalarType): string {
-  return `[${codecs[type].example},${codecs[type].example}]`;
+  // Match what the serializer emits: vectors are positional inside a list.
+  const fmt = vecFormatFor(type);
+  const one = fmt ? fmt.positional : codecs[type].example;
+  return `[${one},${one}]`;
 }

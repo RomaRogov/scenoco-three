@@ -11,7 +11,7 @@ Attribute names and values are uikit properties **verbatim** — if you know uik
 or CSS flexbox, you already know the DSL.
 
 ```xml
-<PerspectiveCamera id="cam" position="0 7 20" fov="45">
+<PerspectiveCamera id="cam" position="y: 7; z: 20" fov="45">
   <!-- Screen-space HUD: a child of the camera (uikit's convention), always
        fills the viewport; children are laid out in screen pixels. -->
   <Fullscreen id="hud" color="#e2e8f0" fontWeight="bold">

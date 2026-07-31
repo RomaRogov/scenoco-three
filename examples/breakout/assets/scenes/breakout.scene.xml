@@ -6,7 +6,7 @@
     <Physics2D gravity="0 0" />
   </Attachments>
   <AmbientLight intensity="0.5" />
-  <DirectionalLight intensity="2.5" position="0 8 10" />
+  <DirectionalLight intensity="2.5" position="y: 8; z: 10" />
   <!-- `fit="contain"` is the engine's built-in adaptive-camera feature: it keeps
        the whole `designWidth`×`designHeight` region visible on any canvas aspect
        ratio (portrait phone, landscape desktop, anything between) — the design
@@ -15,7 +15,7 @@
        either see it nearly edge-to-edge or with a little letterboxing, never
        cropped. Works the same way for `<OrthographicCamera>`; see
        `packages/core/src/runtime/cameraFit.ts`. -->
-  <PerspectiveCamera id="cam" position="0 7 20" fov="45" near="0.1" far="200" fit="contain" designWidth="18" designHeight="17">
+  <PerspectiveCamera id="cam" position="y: 7; z: 20" fov="45" near="0.1" far="200" fit="contain" designWidth="18" designHeight="17">
     <!-- ─── HUD (in-canvas UI) ────────────────────────────────────────────────
          pmndrs-uikit flexbox UI, part of the scene itself. <Fullscreen> always
          fills the viewport (a child of the camera, uikit's convention) and lays
@@ -47,9 +47,9 @@
     </Fullscreen>
   </PerspectiveCamera>
 
-  <Group id="walls" position="0 0 0">
+  <Group id="walls" position="x: 0; y: 0; z: 0">
     <!-- ─── Walls (static Box2D bodies, restitution 1 → perfect bounce) ───────── -->
-    <Mesh id="wall_left" position="-8.5 7 0">
+    <Mesh id="wall_left" position="x: -8.5; y: 7">
       <Attachments>
         <BoxGeometry width="1" height="16" depth="0.5" />
         <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
@@ -59,7 +59,7 @@
         <BoxCollider2D halfExtents="0.5 8" restitution="1" />
       </Components>
     </Mesh>
-    <Mesh id="wall_right" position="8.5 7 0">
+    <Mesh id="wall_right" position="x: 8.5; y: 7">
       <Attachments>
         <BoxGeometry width="1" height="16" depth="0.5" />
         <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
@@ -69,7 +69,7 @@
         <BoxCollider2D halfExtents="0.5 8" restitution="1" />
       </Components>
     </Mesh>
-    <Mesh id="wall_top" position="0 15 0">
+    <Mesh id="wall_top" position="y: 15">
       <Attachments>
         <BoxGeometry width="18" height="1" depth="0.5" />
         <MeshStandardMaterial color="#1e2a44" roughness="0.9" metalness="0.1" />
@@ -82,7 +82,7 @@
   </Group>
 
   <!-- ─── Paddle (kinematic body: PaddleController moves the node, body follows) -->
-  <Mesh id="paddle" position="0 0.5 0">
+  <Mesh id="paddle" position="y: 0.5">
     <Attachments>
       <BoxGeometry width="3" height="0.4" depth="0.5" />
       <MeshStandardMaterial color="#38bdf8" emissive="#0c4a6e" roughness="0.2" metalness="0.6" />
@@ -95,7 +95,7 @@
   </Mesh>
 
   <!-- ─── Ball (dynamic bullet body; references the bricks as an array) ──────── -->
-  <Mesh id="ball" position="0 1.1 0">
+  <Mesh id="ball" position="y: 1.1">
     <Attachments>
       <SphereGeometry radius="0.3" widthSegments="16" heightSegments="12" />
       <MeshStandardMaterial color="#fb923c" emissive="#7c2d12" roughness="0.25" metalness="0.3" />
@@ -119,7 +119,7 @@
        response (isSensor) — when the ball overlaps it, Box2D fires the ball's
        onTriggerEnter2D and a life is lost.
   -->
-  <Mesh id="bottom" position="0 -1.5 0" visible="false">
+  <Mesh id="bottom" position="y: -1.5" visible="false">
     <Attachments>
       <BoxGeometry width="18" height="0.5" depth="0.5" />
       <MeshStandardMaterial color="#000000" />
@@ -135,17 +135,17 @@
        a stable id so the Ball can reference the whole set as an array above.
        Two rows of six.
   -->
-  <PrefabInstance src="brick.prefab.xml" id="b1"  position="-6.75 12 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b2"  position="-4.05 12 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b3"  position="-1.35 12 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b4"  position="1.35 12.984195533949313 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b5"  position="4.05 12 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b6"  position="6.75 12 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b7"  position="-6.75 11 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b8"  position="-4.05 11 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b9"  position="-1.35 11 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b10" position="1.35 9.696244484192764 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b11" position="4.05 11 0" />
-  <PrefabInstance src="brick.prefab.xml" id="b12" position="6.75 11 0" />
+  <PrefabInstance src="brick.prefab.xml" id="b1"  position="x: -6.75; y: 12" />
+  <PrefabInstance src="brick.prefab.xml" id="b2"  position="x: -4.05; y: 12" />
+  <PrefabInstance src="brick.prefab.xml" id="b3"  position="x: -1.35; y: 12" />
+  <PrefabInstance src="brick.prefab.xml" id="b4"  position="x: 1.35; y: 12.984195533949313" />
+  <PrefabInstance src="brick.prefab.xml" id="b5"  position="x: 4.05; y: 12" />
+  <PrefabInstance src="brick.prefab.xml" id="b6"  position="x: 6.75; y: 12" />
+  <PrefabInstance src="brick.prefab.xml" id="b7"  position="x: -6.75; y: 11" />
+  <PrefabInstance src="brick.prefab.xml" id="b8"  position="x: -4.05; y: 11" />
+  <PrefabInstance src="brick.prefab.xml" id="b9"  position="x: -1.35; y: 11" />
+  <PrefabInstance src="brick.prefab.xml" id="b10" position="x: 1.35; y: 9.696244484192764" />
+  <PrefabInstance src="brick.prefab.xml" id="b11" position="x: 4.05; y: 11" />
+  <PrefabInstance src="brick.prefab.xml" id="b12" position="x: 6.75; y: 11" />
 
 </Scene>

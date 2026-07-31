@@ -23,7 +23,7 @@ describe('Validator', () => {
     expect(attr?.message).toContain('position');
 
     const value = check(`<Scene><Mesh id="A" position="0 0"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>`).find((d) => d.code === 'bad-value');
-    expect(value?.message).toContain('3 space-separated numbers');
+    expect(value?.message).toContain('y: 1.5');
   });
 
   it('enforces attachment rules (required, uniqueness, target, and the <Attachments> block)', () => {

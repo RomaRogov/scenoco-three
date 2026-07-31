@@ -11,8 +11,9 @@ export type ComponentCtor = new () => Component;
  * Primitive/math property wire types. Each maps to a canonical XML attribute
  * format (defined in scene/types.ts) and an XSD encoding:
  *   float/int/bool/string — native XSD types
- *   vec2/vec3 — space-separated numbers, A-Frame/X3D style: "0 2.5 -5"
- *   euler     — degrees, space-separated: "0 90 0"
+ *   vec2/vec3 — keyed, CSS-declaration style: "x: 0; y: 2.5; z: -5" (an omitted
+ *               axis is 0). The positional form "0 2.5 -5" is still accepted.
+ *   euler     — same grammar, in degrees: "y: 90"
  *   color     — "#rrggbb" or a CSS color name
  *   node      — Object3D reference by scene path: "Turbine_01/Blade"
  *   prefab    — a `.prefab.xml` file reference, resolved at build time to an
