@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { scaffoldFiles, componentFile, sceneFile, prefabFile, materialFile, systemFile } from './templates.js';
 import { deserializeBundle } from '@scenoco-three/core';
 import {
@@ -130,7 +131,10 @@ function cmdInit(args: string[]): number {
   const dir = resolve(positionals[0] ?? '.');
   const name = basename(dir).replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'scenoco-app';
 
-  const files = scaffoldFiles(name);
+  // Pin the scaffold to the toolchain that wrote it — the CLI's own version. A
+  // hard-coded default silently rots: it sat at ^0.1.0 while the packages shipped
+  // 0.4.0, so every `scenoco init` produced a project that could not install.
+  const files = scaffoldFiles(name, `^${cliVersion()}`);
   let written = 0;
   let skipped = 0;
   for (const [rel, content] of Object.entries(files)) {
@@ -458,6 +462,12 @@ function cmdExport(args: string[]): number {
   }
   console.log(`✓ wrote ${written.join(', ')} + scene-api.json to ${dir}`);
   return 0;
+}
+
+/** This CLI's own package version, for pinning a scaffold's dependencies. */
+function cliVersion(): string {
+  const pkg = fileURLToPath(new URL('../../package.json', import.meta.url));
+  return (JSON.parse(readFileSync(pkg, 'utf8')) as { version: string }).version;
 }
 
 function write(path: string, content: string): void {

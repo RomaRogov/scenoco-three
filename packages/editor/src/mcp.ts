@@ -58,7 +58,15 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
   );
   server.registerTool(
     'get_telemetry',
-    { description: 'Current property values (JSON) for the node/components at a scene id.', inputSchema: { id: z.string() } },
+    {
+      description:
+        'Current property values (JSON) at a scene id. Nodes and components share one id namespace, so `id` may be ' +
+        'either: a node id returns its transform plus every component on it; a component id returns that component ' +
+        "alone plus its host node's transform. Values shown are the @property fields — plain runtime fields are not " +
+        'part of a component\'s declared surface and do not appear. An id that no longer resolves means the thing was ' +
+        'destroyed, which is a useful assertion in itself.',
+      inputSchema: { id: z.string() },
+    },
     ({ id }) => relay({ id: commandId(), type: 'telemetry', targetId: id }),
   );
 

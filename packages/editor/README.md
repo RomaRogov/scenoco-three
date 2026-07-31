@@ -40,7 +40,7 @@ prompt).
 | `open_file` | `path` | Opens a `.scene.xml` / `.prefab.xml` in edit mode. |
 | `get_preview` | `camera?`, `lookAt?`, `size?` | A **PNG** of the current view. |
 | `playback` | `state` | `play` / `pause` / `stop` — enter play mode (components, systems, physics) / freeze / return to the authored scene. |
-| `get_telemetry` | `id` | **JSON** of current property values for the node + components at a scene `id`. |
+| `get_telemetry` | `id` | **JSON** of current property values at a scene `id` — a **node** (its transform + every component on it) or a **component** (its `@property` values + its host node's transform). Nodes and components share one id namespace. |
 | `simulate` | `commands: SimStep[]` | Ordered **images + JSON** — the workhorse below. |
 
 ### `simulate` — closed-loop driving

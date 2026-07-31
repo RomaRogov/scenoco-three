@@ -68,6 +68,7 @@ export type SimStep =
   /** Gamepad: synthetic pad `index` (default 0) with pressed `buttons` + `axes`. */
   | { do: 'gamepad'; index?: number; buttons?: boolean[]; axes?: number[] }
   | { do: 'preview'; camera?: string; lookAt?: string }
+  /** Sample state at a scene id — a node (transform + its components) or a component. */
   | { do: 'telemetry'; id: string };
 
 /** The editor's reply, keyed by the command id. */

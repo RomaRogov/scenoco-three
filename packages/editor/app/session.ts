@@ -198,26 +198,9 @@ export class EditorSession {
     return this.canvas.toDataURL('image/png');
   }
 
-  /** Current property values for the node + its components at `id`, as plain JSON. */
+  /** Current property values at a scene id — see {@link telemetryFor}. */
   telemetry(id: string): unknown {
-    const node = this.engine.findObject(id);
-    if (!node) return { error: `no object with id "${id}"` };
-    const components: Record<string, Record<string, unknown>> = {};
-    for (const c of this.engine.getComponents(node)) {
-      // Surface the component's scene id (if any), alongside its @property values.
-      components[componentName(c) ?? c.constructor.name] = { ...(c.id !== undefined ? { id: c.id } : {}), ...propValues(c) };
-    }
-    return {
-      id,
-      type: node.type,
-      transform: {
-        position: arr(node.position),
-        eulerAngles: node.eulerAngles.toArray(),
-        scale: arr(node.scale),
-        visible: node.visible,
-      },
-      components,
-    };
+    return telemetryFor(this.engine, id);
   }
 
   /**
@@ -481,6 +464,61 @@ function jsonValue(v: unknown): unknown {
   return String(v);
 }
 const arr = (v: { x: number; y: number; z: number }) => [round(v.x), round(v.y), round(v.z)];
+
+/**
+ * Current property values at `id`, as plain JSON — what `get_telemetry` returns.
+ *
+ * Nodes and components share one scene-wide id namespace (a `#ref` resolves against
+ * either), so this resolves either kind: a **node** id reports the node's transform
+ * plus every component on it; a **component** id reports that component alone, plus
+ * the transform of the node hosting it — a component's state is rarely meaningful
+ * without knowing where it is.
+ *
+ * Only `@property` fields are reported: they are the component's declared surface,
+ * the same set the inspector and the XML expose. A plain runtime field is private
+ * working memory and deliberately absent.
+ *
+ * Exported as a free function (like `resolveInEngine`) so it can be tested against a
+ * headless Engine without constructing a renderer-backed session.
+ */
+export function telemetryFor(engine: Engine, id: string): unknown {
+  const node = engine.findObject(id);
+  if (node) {
+    const components: Record<string, Record<string, unknown>> = {};
+    for (const c of engine.getComponents(node)) {
+      // Surface the component's scene id (if any), alongside its @property values.
+      components[componentName(c) ?? c.constructor.name] = { ...(c.id !== undefined ? { id: c.id } : {}), ...propValues(c) };
+    }
+    return { id, type: node.type, transform: transformOf(node), components };
+  }
+
+  // Not a node — try the component id index, which engine.findComponent resolves
+  // directly. Its own node fallback cannot fire here, since findObject already missed.
+  const component = engine.findComponent(id);
+  if (component) {
+    const host = component.node;
+    return {
+      id,
+      kind: 'component',
+      type: componentName(component) ?? component.constructor.name,
+      node: { ...(host.sceneId !== undefined ? { id: host.sceneId } : {}), type: host.type },
+      transform: transformOf(host),
+      properties: propValues(component),
+    };
+  }
+
+  return { error: `no node or component with id "${id}"` };
+}
+
+/** A node's authored-shaped transform for telemetry (eulers in degrees, like the XML). */
+function transformOf(node: Object3D): Record<string, unknown> {
+  return {
+    position: arr(node.position),
+    eulerAngles: node.eulerAngles.toArray(),
+    scale: arr(node.scale),
+    visible: node.visible,
+  };
+}
 
 function vec3(s?: string): Vector3 | undefined {
   if (!s) return undefined;
