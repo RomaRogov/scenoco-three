@@ -5,7 +5,7 @@ import { Collider2D } from './Collider2D.js';
 /** A 2D axis-aligned box collision shape (planck). */
 @component({ name: 'BoxCollider2D', description: 'A 2D box collision shape (planck); attaches to the node’s RigidBody2D.' })
 export class BoxCollider2D extends Collider2D {
-  @property({ type: ValueType.Vec2, description: 'Half-extents (x, y)' })
+  @property({ type: ValueType.Vec2, required: true, description: 'Half-extents (x, y) — half the visible size; a collider never infers size from geometry' })
   halfExtents = [0.5, 0.5];
 
   toShape(): Shape {

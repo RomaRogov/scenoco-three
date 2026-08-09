@@ -23,8 +23,9 @@ Starts a local editor and an MCP server. The editor opens in your default
 browser; on Ctrl+C the page closes its own tab when the browser allows,
 otherwise it waits and reattaches on the next start (the editor reuses its
 previous port, so a restart reclaims the open tab instead of piling up new ones).
-Point an MCP client at the printed endpoint; its tools — open_file, get_preview,
-playback, simulate, get_telemetry, edit_scene, save_file — drive the live editor.`;
+Point an MCP client at the printed endpoint; its tools — open_file, screenshot,
+playback, simulate, inspect — observe and drive the live editor. Scenes are
+changed by editing the XML files themselves; the editor picks the change up.`;
 
 async function main(argv: string[]): Promise<number> {
   const { positionals, options } = parseArgs(argv);

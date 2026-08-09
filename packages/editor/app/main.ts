@@ -14,7 +14,7 @@ import { Gizmo, type GizmoMode } from './gizmo.js';
 import { showFilePicker } from './filePicker.js';
 import { isEditorOnly } from './meta.js';
 import type { CompiledScene } from '@scenoco-three/core';
-import type { AgentEdit, NodeRef } from '../src/protocol.js';
+import type { NodeRef } from '../src/protocol.js';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 // Right mouse drag is the fly-camera look control — suppress the native
@@ -207,22 +207,6 @@ async function doSave(): Promise<{ changed: number; unresolved: number }> {
     ui?.refresh();
   }
 }
-
-// What MCP scene-mutating tools (edit_scene / save_file) run against: the same
-// document funnel and save path as the human UI, so agent edits are undoable,
-// dirty-flagging, and visible in the viewport.
-const editorHost = {
-  edit: (edits: AgentEdit[]) => {
-    if (session.mode !== 'edit' || !doc) throw new Error('scene editing requires edit mode — stop playback first');
-    const result = doc.applyAgentEdits(edits);
-    ui?.refresh();
-    return result;
-  },
-  save: () => {
-    if (!doc) throw new Error('no file open');
-    return doSave();
-  },
-};
 
 // ── tree edits: copy / cut / paste / delete / rename (all through the document) ─────
 
@@ -626,7 +610,7 @@ void (async () => {
     if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', () => location.reload());
   }
   rebind(); // mounts the editor UI (empty until a file loads)
-  connectEditor(session, editorHost);
+  connectEditor(session);
   void showNetworkUrl(); // corner badge with the LAN URL for opening on another device
   const initial = new URLSearchParams(location.search).get('file');
   if (initial) await openFile(initial);

@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Component, component, property, ValueType } from '@scenoco-three/core';
+import { Axis, Component, component, property, MouseButton, ValueType } from '@scenoco-three/core';
 
 /**
  * Moves the paddle left/right — keyboard/gamepad (`Horizontal` virtual axis,
@@ -32,7 +32,7 @@ export class PaddleController extends Component {
 
   override update(dt: number): void {
     const input = this.engine.input;
-    if (input.getMouseButton(0) && this.engine.mainCamera) {
+    if (input.getMouseButton(MouseButton.Left) && this.engine.mainCamera) {
       // Unproject the pointer's NDC x through the active camera to get its
       // world-space x on the field's plane — exact for whatever the camera's
       // current frustum is, so a screen-edge-to-edge drag always reaches the
@@ -41,7 +41,7 @@ export class PaddleController extends Component {
       this.node.position.x = Math.max(-this.halfRange, Math.min(this.halfRange, this.ndc.x));
       return;
     }
-    const dir = input.getAxis('Horizontal');
+    const dir = input.getAxis(Axis.Horizontal);
     if (dir === 0) return;
     this.node.position.x = Math.max(
       -this.halfRange,

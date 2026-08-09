@@ -135,27 +135,6 @@ function makeSharedMaterialGraph(): { graph: SceneGraph; provenance: SceneProven
   };
 }
 
-describe('SceneDocument — agent edits (MCP edit_scene)', () => {
-  it('applies id-addressed edits through the undoable funnel, reporting failures per edit', () => {
-    const { graph, node, rotator } = makeGraph();
-    graph.compiled.nodes[0]!.id = 'obj'; // agent edits address nodes by scene id
-    const doc = new SceneDocument(graph);
-    const result = doc.applyAgentEdits([
-      { node: 'obj', component: 'Rotator', attr: 'speed', value: 5 },
-      { node: 'obj', attr: 'position', value: '1 2 3' }, // friendly string form coerces
-      { node: 'missing', attr: 'visible', value: false },
-    ]);
-    expect(result.applied).toBe(2);
-    expect(result.failed).toHaveLength(1);
-    expect(result.failed[0]!.reason).toContain('no node with id "missing"');
-    expect((rotator as unknown as { speed: number }).speed).toBe(5);
-    expect(node.position.toArray()).toEqual([1, 2, 3]);
-    expect(doc.isDirty).toBe(true);
-    doc.undoLast(); // agent edits are undoable, exactly like inspector edits
-    expect(node.position.toArray()).toEqual([0, 1, 0]);
-  });
-});
-
 describe('SceneDocument — attachment editing', () => {
   it('copy-on-write changes only the edited node, not a sibling sharing the pooled asset', () => {
     const { graph, provenance, a, b } = makeSharedMaterialGraph();
@@ -258,7 +237,7 @@ describe('SceneDocument — id editing', () => {
 
 describe('SceneDocument — node attributes', () => {
   it('reads the authored value or the registry default, edits it, saves it, and undoes', () => {
-    const { doc, engine } = realDoc('<Scene><PerspectiveCamera id="cam" fov="60" /></Scene>');
+    const { doc, engine } = realDoc('<Scene><PerspectiveCamera id="cam" fov="60" fit="none" /></Scene>');
     const cam = engine.findObject('cam')!;
 
     expect(doc.nodeAttr(cam, 'fov')).toBe(60); // authored
@@ -281,7 +260,7 @@ describe('SceneDocument — node attributes', () => {
     // The inspector renders an unset optional attribute with a neutral placeholder.
     // Committing that placeholder unchanged must NOT materialise the attribute —
     // otherwise merely focusing a field would write it into the file.
-    const src = '<Scene>\n  <PerspectiveCamera id="cam" fov="60" />\n</Scene>\n';
+    const src = '<Scene>\n  <PerspectiveCamera id="cam" fov="60" fit="none" />\n</Scene>\n';
     const { doc, engine } = realDoc(src);
     const cam = engine.findObject('cam')!;
 
@@ -292,7 +271,7 @@ describe('SceneDocument — node attributes', () => {
   });
 
   it('clears a written attribute, removing it from the XML, and undo restores it', () => {
-    const src = '<Scene>\n  <PerspectiveCamera id="cam" fov="60" near="0.5" />\n</Scene>\n';
+    const src = '<Scene>\n  <PerspectiveCamera id="cam" fov="60" near="0.5" fit="none" />\n</Scene>\n';
     const { doc, engine } = realDoc(src);
     const cam = engine.findObject('cam')!;
     expect(doc.isNodeAttrSet(cam, 'fov')).toBe(true);
@@ -315,7 +294,7 @@ describe('SceneDocument — node attributes', () => {
 
   it('distinguishes written from unset for an attribute with no default', () => {
     // `hasNodeAttr` is what drives the inspector's unset styling and × button.
-    const { doc, engine } = realDoc('<Scene><PerspectiveCamera id="cam" fov="60" /></Scene>');
+    const { doc, engine } = realDoc('<Scene><PerspectiveCamera id="cam" fov="60" fit="none" /></Scene>');
     const cam = engine.findObject('cam')!;
     expect(doc.isNodeAttrSet(cam, 'fov')).toBe(true); // in the file
     expect(doc.isNodeAttrSet(cam, 'near')).toBe(false); // defaulted, not written
@@ -323,7 +302,7 @@ describe('SceneDocument — node attributes', () => {
   });
 
   it('writes through to the XML on save', () => {
-    const src = '<Scene>\n  <PerspectiveCamera id="cam" fov="60" />\n</Scene>\n';
+    const src = '<Scene>\n  <PerspectiveCamera id="cam" fov="60" fit="none" />\n</Scene>\n';
     const { doc, engine } = realDoc(src);
     doc.setNodeAttr(engine.findObject('cam')!, 'fov', 35);
 

@@ -19,7 +19,6 @@ export function scaffoldFiles(packageName: string, version = '^0.1.0'): Record<s
         dev: 'vite',
         build: 'vite build',
         validate: 'scenoco validate assets/scenes/main.scene.xml',
-        export: 'scenoco export --out schema',
       },
       dependencies: {
         '@scenoco-three/core': version,
@@ -62,7 +61,9 @@ export default defineConfig({
 
     'src/vite-env.d.ts': `/// <reference types="vite/client" />
 
-declare module '*.scene.xml?bundle' {
+// The plugin compiles a \`?bundle\` import of a scene or a prefab to a runtime
+// Bundle at build time — the browser ships no XML parser.
+declare module '*.xml?bundle' {
   const bundle: import('@scenoco-three/core').Bundle;
   export default bundle;
 }
@@ -135,14 +136,14 @@ export class ${name} extends Component {
  * scene, which is what a new scene should be. Content comes from `scenoco new`,
  * not from a scaffold guessing at it.
  *
- * Every generated document carries the `xsi:noNamespaceSchemaLocation` hint, so
- * IDE completion and `scripts/check-xml.sh` work on it from the first save (a
- * file without the hint is silently skipped by the checker).
+ * Deliberately no `xsi:noNamespaceSchemaLocation` hint: the toolchain
+ * (`scenoco validate` / `scenoco which`) is the source of truth, and a schema
+ * pointer tempts agents into reading XSDs instead. IDE users who want XML
+ * completion can run `scenoco export` and add the hint themselves.
  */
 export function sceneFile(_name: string): string {
-  return `<Scene xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-       xsi:noNamespaceSchemaLocation="../../schema/scene.xsd">
-  <PerspectiveCamera id="camera" position="y: 1; z: 5" />
+  return `<Scene>
+  <PerspectiveCamera id="camera" position="y: 1; z: 5" fit="contain" />
   <DirectionalLight intensity="2" position="x: 5; y: 10; z: 5" />
 </Scene>
 `;
@@ -154,8 +155,7 @@ export function sceneFile(_name: string): string {
  * clearer starting point.
  */
 export function prefabFile(name: string): string {
-  return `<Prefab xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="../../schema/prefab.xsd">
+  return `<Prefab>
   <Mesh id="${name}">
     <Attachments>
       <BoxGeometry width="1" height="1" depth="1" />
@@ -172,9 +172,7 @@ export function prefabFile(name: string): string {
  * attributes on that element override what the file sets.
  */
 export function materialFile(_name: string): string {
-  return `<MeshStandardMaterial xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                      xsi:noNamespaceSchemaLocation="../../schema/material.xsd"
-                      color="#cccccc" roughness="0.5" metalness="0" />
+  return `<MeshStandardMaterial color="#cccccc" roughness="0.5" metalness="0" />
 `;
 }
 

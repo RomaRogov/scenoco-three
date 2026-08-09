@@ -1,4 +1,4 @@
-import { MathUtils, Object3D } from 'three';
+import { MathUtils, Object3D, type Material } from 'three';
 import type { Component } from './Component.js';
 import type { Engine } from './Engine.js';
 
@@ -148,6 +148,35 @@ declare module 'three' {
      * of tick, so removing one inside a hook is safe.
      */
     removeComponent(instance: Component): void;
+
+    /**
+     * This node's **own** material, cloned from the shared one on first call —
+     * Unity's `Renderer.material` (vs `sharedMaterial`), which exists for exactly
+     * this reason.
+     *
+     * Identical materials are interned at compile time, so fifty bricks authored
+     * `<MeshStandardMaterial color="#fff"/>` all point at *one* live material.
+     * Mutating it from a component (`this.node.material.color.set(this.color)`)
+     * therefore recolours all fifty, and nothing reports it: the compiler is
+     * happy, `tsc` is happy, and every instance's own `@property` values really
+     * are correct when inspected. Only the picture is wrong.
+     *
+     * Call this before the first mutation and the node gets its own copy:
+     *
+     * ```ts
+     * override onLoad(): void {
+     *   this.node.uniqueMaterial<MeshStandardMaterial>().color.copy(this.color);
+     * }
+     * ```
+     *
+     * Idempotent — call it in `onLoad` and again later and you still have one
+     * clone. The declarative counterpart is `unique="true"` on the attachment,
+     * for when the *scene* is what knows a placement is individual.
+     *
+     * Throws when the node has no material at all (a `Group`, an empty node) —
+     * silently handing back nothing would just move the invisible bug.
+     */
+    uniqueMaterial<T extends Material | Material[] = Material>(): T;
   }
 }
 
@@ -257,4 +286,27 @@ Object3D.prototype.addComponent = function addComponent<T extends Component>(
 
 Object3D.prototype.removeComponent = function removeComponent(this: Object3D, instance: Component): void {
   requireEngine(this, 'removeComponent').destroyComponent(instance);
+};
+
+/** Nodes whose material has already been cloned, so repeat calls are free and don't pile up copies. */
+const uniqueMaterials = new WeakSet<Object3D>();
+
+Object3D.prototype.uniqueMaterial = function uniqueMaterial<T extends Material | Material[] = Material>(
+  this: Object3D,
+): T {
+  const host = this as Object3D & { material?: Material | Material[] };
+  const current = host.material;
+  if (!current) {
+    throw new Error(
+      `uniqueMaterial(): <${this.sceneTag ?? this.type}>${this.sceneId ? ` id="${this.sceneId}"` : ''} has no material to clone. ` +
+        `Only a node with a material attachment (a <Mesh>, and so on) has one.`,
+    );
+  }
+  // Already ours — cloning again would orphan the copy the caller is holding.
+  if (uniqueMaterials.has(this)) return current as T;
+  // A multi-material mesh: every slot is shared, so every slot is cloned. Missing
+  // it would leave the bug alive on all but the first submesh.
+  host.material = Array.isArray(current) ? current.map((m) => m.clone()) : current.clone();
+  uniqueMaterials.add(this);
+  return host.material as T;
 };

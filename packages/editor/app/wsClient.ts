@@ -1,15 +1,5 @@
-import { WS_PATH, type AgentEdit, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../src/protocol.js';
+import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type EditorResult } from '../src/protocol.js';
 import type { EditorSession } from './session.js';
-
-/**
- * What the host page (main) exposes for scene-mutating commands — the live
- * document's edit funnel and the save path, both shared with the human UI so an
- * agent's changes are undoable and visible exactly like inspector edits.
- */
-export interface EditorHost {
-  edit(edits: AgentEdit[]): { applied: number; failed: { edit: AgentEdit; reason: string }[] };
-  save(): Promise<{ changed: number; unresolved: number }>;
-}
 
 /**
  * Connect the editor page to the dev server's WebSocket bridge and execute the
@@ -18,7 +8,7 @@ export interface EditorHost {
  * shutdown: the server serves on a sticky port, so this same tab reattaches on a
  * restart rather than being stranded or replaced by a fresh one.
  */
-export function connectEditor(session: EditorSession, host: EditorHost): void {
+export function connectEditor(session: EditorSession): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}${WS_PATH}`;
 
@@ -53,7 +43,7 @@ export function connectEditor(session: EditorSession, host: EditorHost): void {
       const cmd = msg;
       let response: EditorResponse;
       try {
-        response = { id: cmd.id, ok: true, result: await runCommand(session, cmd, host) };
+        response = { id: cmd.id, ok: true, result: await runCommand(session, cmd) };
       } catch (e) {
         response = { id: cmd.id, ok: false, error: e instanceof Error ? e.message : String(e) };
       }
@@ -119,12 +109,12 @@ function clearStoppedOverlay(): void {
  * Execute one relayed command against the session. Exported so the command
  * dispatch (not just the WS plumbing) can be driven directly in tests.
  */
-export async function runCommand(session: EditorSession, cmd: EditorCommand, host: EditorHost): Promise<EditorResult> {
+export async function runCommand(session: EditorSession, cmd: EditorCommand): Promise<EditorResult> {
   switch (cmd.type) {
     case 'open':
       return { kind: 'json', data: await session.open(cmd.path) };
     case 'preview':
-      return { kind: 'image', dataUrl: session.preview({ camera: cmd.camera, lookAt: cmd.lookAt }) };
+      return { kind: 'image', dataUrl: await session.preview({ camera: cmd.camera, lookAt: cmd.lookAt, frame: cmd.frame }) };
     case 'run':
       session.run();
       return { kind: 'ok', info: 'playing' };
@@ -137,10 +127,6 @@ export async function runCommand(session: EditorSession, cmd: EditorCommand, hos
     case 'telemetry':
       return { kind: 'json', data: session.telemetry(cmd.targetId) };
     case 'simulate':
-      return { kind: 'multi', results: session.simulate(cmd.steps) };
-    case 'edit':
-      return { kind: 'json', data: host.edit(cmd.edits) };
-    case 'save':
-      return { kind: 'json', data: await host.save() };
+      return { kind: 'multi', results: await session.simulate(cmd.steps, cmd.frame) };
   }
 }

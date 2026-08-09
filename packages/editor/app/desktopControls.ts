@@ -1,4 +1,4 @@
-import type { InputManager } from '@scenoco-three/core';
+import { KeyCode, MouseButton, type InputManager } from '@scenoco-three/core';
 import type { CameraRig } from './cameraRig.js';
 
 /**
@@ -20,17 +20,17 @@ export class DesktopControls {
     const wheel = input.mouseScrollDelta.y;
     if (wheel !== 0) rig.speed = clamp(rig.speed * (wheel < 0 ? 1.1 : 1 / 1.1), 0.05, 1000);
 
-    if (input.getMouseButton(1)) {
+    if (input.getMouseButton(MouseButton.Right)) {
       const d = input.mouseDelta;
       rig.rotate(-d.x * this.look, -d.y * this.look);
     }
 
-    const right = axis(input.getKey('D'), input.getKey('A'));
-    const up = axis(input.getKey('E'), input.getKey('Q'));
-    const forward = axis(input.getKey('W'), input.getKey('S'));
+    const right = axis(input.getKey(KeyCode.D), input.getKey(KeyCode.A));
+    const up = axis(input.getKey(KeyCode.E), input.getKey(KeyCode.Q));
+    const forward = axis(input.getKey(KeyCode.W), input.getKey(KeyCode.S));
     if (right || up || forward) {
       const len = Math.hypot(right, up, forward);
-      const step = (rig.speed * (input.getKey('LeftShift') ? 4 : 1) * dt) / len;
+      const step = (rig.speed * (input.getKey(KeyCode.LeftShift) ? 4 : 1) * dt) / len;
       rig.move(right * step, up * step, forward * step);
     }
   }

@@ -23,9 +23,7 @@ import { compileParticleDocument } from './compileDocument.js';
 function template(name: string): string {
   return `<!-- ${name}: a short one-shot burst. Point a component at it with
      <ParticleSystem src="../vfx/${name}.particle.xml" />. -->
-<ParticleSystem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                xsi:noNamespaceSchemaLocation="../../schema/particle.xsd"
-                duration="1" looping="false" simulationSpace="World"
+<ParticleSystem duration="1" looping="false" simulationSpace="World"
                 startLifetime="0.8" startSpeed="2" startSize="0.15" startColor="#ffffff">
   <Emission rateOverTime="0">
     <Burst time="0" count="24" />

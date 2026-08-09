@@ -1,5 +1,6 @@
 import type { Object3D } from 'three';
 import type { Engine, PointerEventData } from './Engine.js';
+import type { Event } from './Event.js';
 // Side-effect: augments Object3D with the component API used by `this.node` below.
 import './node-augment.js';
 
@@ -79,6 +80,35 @@ export abstract class Component<TNode extends Object3D = Object3D> {
   }
 
   /**
+   * Subscribe to another object's {@link Event} for as long as this component
+   * lives: the engine unsubscribes on destroy, so a destroyed listener can never
+   * be called. `listener` must be a stable function (a bound arrow field, not an
+   * inline closure) if you also intend to `off` it yourself.
+   *
+   * This is how a component reacts to something it does not own, without the two
+   * classes importing each other — see {@link Event}.
+   */
+  // `NoInfer` on the listener: the event's own type is the contract, so a
+  // listener that ignores some arguments (the common case) can't narrow it.
+  listen<TArgs extends unknown[]>(event: Event<TArgs>, listener: (...args: NoInfer<TArgs>) => void): void {
+    event.on(listener);
+    (this._subscriptions ??= []).push(() => event.off(listener));
+  }
+
+  /**
+   * @internal Unsubscribe everything `listen` registered. Run by the engine as
+   * part of teardown, after onDestroy.
+   */
+  _unsubscribeAll(): void {
+    if (!this._subscriptions) return;
+    for (const unsubscribe of this._subscriptions) unsubscribe();
+    this._subscriptions = undefined;
+  }
+
+  /** @internal `off` thunks for the events `listen` subscribed to. */
+  private _subscriptions?: (() => void)[];
+
+  /**
    * Receives the build-time `config` compiled from this component's `src=`
    * document — a package-owned format (e.g. a particle system's `.particle.xml`)
    * turned into a plain JSON blob by a registered src-compiler. Called once,
@@ -105,6 +135,8 @@ export abstract class Component<TNode extends Object3D = Object3D> {
 
   // Pointer events (Unity-style), dispatched by the engine via a raycast from the
   // pointer through the active camera, bubbling up the hit object's ancestors.
+  // Every mouse button dispatches; `event.button` says which one, so a hook that
+  // only wants left clicks checks `event.button === MouseButton.Left`.
   /** The pointer pressed over this object (or a descendant). */
   onPointerDown?(event: PointerEventData): void;
   /** The pointer was released — delivered to the object the press started on. */

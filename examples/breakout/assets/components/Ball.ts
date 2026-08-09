@@ -1,5 +1,5 @@
 import type { Object3D } from 'three';
-import { Component, component, property, ValueType } from '@scenoco-three/core';
+import { Component, component, property, KeyCode, MouseButton, ValueType } from '@scenoco-three/core';
 import { RigidBody2D } from '@scenoco-three/box2d';
 import { Brick } from './Brick.js';
 import { Scoreboard } from './Scoreboard.js';
@@ -66,7 +66,7 @@ export class Ball extends Component {
     // Launch on the frame SPACE is pressed, or on a tap/click (a single touch is
     // reported as mouse button 0 by the engine, so this covers mobile for free).
     const input = this.engine.input;
-    if (input.getKeyDown('Space') || input.getMouseButtonDown(0)) this.launch();
+    if (input.getKeyDown(KeyCode.Space) || input.getMouseButtonDown(MouseButton.Left)) this.launch();
   }
 
   /** Send the ball upward at `launchSpeed`, with a small random horizontal spread. */

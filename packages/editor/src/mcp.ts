@@ -3,8 +3,54 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { commandId, type AgentEdit, type EditorCommand, type EditorResult, type SimStep } from './protocol.js';
+import { CAMERA_FIT_MODES, VEC3_FORMAT } from '@scenoco-three/core';
+import { commandId, type EditorCommand, type EditorResult, type PreviewFrame, type SimStep } from './protocol.js';
 import type { EditorBridge } from './server.js';
+
+/**
+ * How a point is written in every capture input. Built from the DSL's own
+ * `VEC3_FORMAT` rather than spelled out here, so the tool schema and the scene XML
+ * can't come to describe a vec3 differently — the agent writing `position="y: 6;
+ * z: 12"` in a scene should not have to learn a second grammar to point a camera
+ * at it. The positional form stays accepted, as it does in the XML.
+ */
+const VEC_HINT = `("${VEC3_FORMAT.example}" — an omitted axis is 0; the positional "${VEC3_FORMAT.positional}" also works)`;
+
+/**
+ * The capture-format inputs, shared verbatim by `screenshot` and `simulate` —
+ * one definition, so the two can never drift into describing the same frame
+ * differently. All required: a capture whose size or UI state was left to a
+ * default is a screenshot nobody can reason about, and the caller is usually an
+ * agent that will read pixels and draw conclusions from them.
+ */
+const frameSchema = {
+  width: z.number().int().positive().describe('Captured image width in pixels'),
+  height: z.number().int().positive().describe('Captured image height in pixels'),
+  fit: z
+    .enum(CAMERA_FIT_MODES)
+    .describe(
+      "How the rendering camera adapts to this frame's aspect, against its authored designWidth/designHeight " +
+        "(the <Camera fit=…> modes). 'none' = use the camera exactly as authored; 'contain' = keep the whole design " +
+        "region visible; 'cover' = fill the frame, cropping outside it; 'width'/'height' = hold that axis. A camera " +
+        'with no design size has nothing to adapt to, so any mode leaves it unchanged.',
+    ),
+  ui: z
+    .boolean()
+    .describe(
+      'Include the screen-space UI layer (a <Fullscreen> HUD and anything else parented to a camera). When the shot ' +
+        'is framed by a camera other than the scene\'s own, the layer is re-hosted on the capture camera and laid out ' +
+        'again, so the HUD appears where the player would see it. false leaves it out — use that to inspect geometry ' +
+        'a HUD covers.',
+    ),
+};
+
+/** Pull the frame settings out of a validated tool input. */
+const toFrame = (a: { width: number; height: number; fit: PreviewFrame['fit']; ui: boolean }): PreviewFrame => ({
+  width: a.width,
+  height: a.height,
+  fit: a.fit,
+  ui: a.ui,
+});
 
 export interface McpHandle {
   /** The MCP endpoint URL to add to an MCP client. */
@@ -37,16 +83,20 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     ({ path }) => relay({ id: commandId(), type: 'open', path }),
   );
   server.registerTool(
-    'get_preview',
+    'screenshot',
     {
-      description: 'Capture the current editor view as a PNG. Optionally frame a specific camera.',
+      description:
+        'Capture the current editor view as a PNG from an explicit camera framing — pick the angle that shows ' +
+        'what you are checking (top-down for layout, behind-the-player for gameplay, "fit" for an overview). ' +
+        'The output format (size, camera fit, whether the UI is in the shot) is stated per call, so a capture is ' +
+        'never at some ambient default you did not choose.',
       inputSchema: {
-        camera: z.string().optional().describe('Camera position "x y z"'),
-        lookAt: z.string().optional().describe('Look-at point "x y z"'),
+        camera: z.string().describe(`Camera position, in the scene DSL's vector grammar ${VEC_HINT} — or "fit" to auto-frame the whole scene`),
+        lookAt: z.string().optional().describe(`Look-at point ${VEC_HINT} (default: scene center; ignored when camera is "fit")`),
+        ...frameSchema,
       },
     },
-    ({ camera, lookAt }) =>
-      relay({ id: commandId(), type: 'preview', ...(camera ? { camera } : {}), ...(lookAt ? { lookAt } : {}) }),
+    (args) => relay({ id: commandId(), type: 'preview', camera: args.camera, ...(args.lookAt ? { lookAt: args.lookAt } : {}), frame: toFrame(args) }),
   );
   server.registerTool(
     'playback',
@@ -57,59 +107,29 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     ({ state }) => relay({ id: commandId(), type: state === 'play' ? 'run' : state }),
   );
   server.registerTool(
-    'get_telemetry',
+    'inspect',
     {
       description:
-        'Current property values (JSON) at a scene id. Nodes and components share one id namespace, so `id` may be ' +
+        'Read the current property values (JSON) at a scene id. Nodes and components share one id namespace, so `id` may be ' +
         'either: a node id returns its transform plus every component on it; a component id returns that component ' +
         "alone plus its host node's transform. Values shown are the @property fields — plain runtime fields are not " +
         'part of a component\'s declared surface and do not appear. An id that no longer resolves means the thing was ' +
-        'destroyed, which is a useful assertion in itself.',
+        'destroyed, which is a useful assertion in itself. Every reading carries `frame` (frames ticked) and `time` ' +
+        '(simulated seconds), so a reading can be tied to the point in the run that produced it.',
       inputSchema: { id: z.string() },
     },
     ({ id }) => relay({ id: commandId(), type: 'telemetry', targetId: id }),
   );
 
-  // One scene edit — addressed by scene id, applied through the editor's document
-  // (undoable, live in the viewport). See the protocol's AgentEdit.
-  const agentEdit = z.object({
-    node: z.string().describe('Scene id of the target node (the ids get_telemetry uses)'),
-    component: z.string().optional().describe('Component tag on that node, e.g. "Ball"'),
-    attachment: z.string().optional().describe('Attachment tag on that node, e.g. "MeshStandardMaterial"'),
-    ordinal: z.number().int().optional().describe('Among same-tag components/attachments on the node; default 0'),
-    attr: z.string().describe('The property/attr to set'),
-    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.number())]),
-  });
-  server.registerTool(
-    'edit_scene',
-    {
-      description:
-        'Edit the open scene (edit mode only — stop playback first). Changes are undoable and live in the ' +
-        'viewport; call save_file to persist. Each edit: {node} alone sets transform attrs (position/eulerAngles/' +
-        'scale as [x,y,z], eulerAngles in degrees, visible as bool, or a prefab instance\'s src); {node, component} ' +
-        'sets a component @property; {node, attachment} sets a geometry/material attr. Values: vecs as [x,y,z] ' +
-        'or "x y z", colors as hex int or "#rrggbb", enums by member name. ' +
-        'Example: {edits: [{node: "ball", component: "Ball", attr: "launchSpeed", value: 20}]}. ' +
-        'Returns {applied, failed: [{edit, reason}]} — a failed edit does not abort the rest.',
-      inputSchema: { edits: z.array(agentEdit) },
-    },
-    ({ edits }) => relay({ id: commandId(), type: 'edit', edits: edits as AgentEdit[] }),
-  );
-  server.registerTool(
-    'save_file',
-    {
-      description:
-        'Write the editor\'s unsaved changes back to the open scene/prefab file (surgical, minimal diff). ' +
-        'Returns {changed, unresolved}; unresolved > 0 means some edits could not be located in the file (it changed on disk).',
-    },
-    () => relay({ id: commandId(), type: 'save' }),
-  );
+  // Deliberately no scene-editing tools: the XML file is the single source of
+  // truth, and an agent changes the game by editing it (then the editor hot-reloads).
+  // The MCP surface only observes and drives: open/preview/playback/telemetry/simulate.
 
   // A simulation command — one entry in the `simulate` batch. Loose (all fields
   // optional) so the agent composes any step; only `do` is required.
   const simStep = z.object({
-    do: z.enum(['play', 'pause', 'stop', 'step', 'tap', 'keyDown', 'keyUp', 'click', 'move', 'gamepad', 'preview', 'telemetry']),
-    key: z.string().optional().describe("tap/keyDown/keyUp: key name, e.g. 'Space', 'W', 'LeftArrow'"),
+    do: z.enum(['play', 'pause', 'stop', 'step', 'press', 'keyDown', 'keyUp', 'click', 'move', 'gamepad', 'preview', 'telemetry']),
+    key: z.string().optional().describe("press/keyDown/keyUp: KeyCode member name, e.g. 'Space', 'W', 'LeftArrow'"),
     frames: z.number().int().optional(),
     dt: z.number().optional(),
     x: z.number().optional(),
@@ -120,8 +140,8 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     index: z.number().int().optional(),
     buttons: z.array(z.boolean()).optional(),
     axes: z.array(z.number()).optional(),
-    camera: z.string().optional(),
-    lookAt: z.string().optional(),
+    camera: z.string().optional().describe(`preview: camera position ${VEC_HINT}, or "fit" to auto-frame — required on preview steps`),
+    lookAt: z.string().optional().describe(`preview: look-at point ${VEC_HINT} (default: scene center)`),
     id: z.string().optional(),
   });
   server.registerTool(
@@ -129,12 +149,27 @@ export function buildMcpServer(bridge: EditorBridge): McpServer {
     {
       description:
         'Drive gameplay: an ordered batch of steps; returns previews (images) and telemetry (JSON) in order. ' +
-        'Each step is one self-contained verb: { do: "play"|"pause"|"stop" | "step"(frames) | "tap"(key) | ' +
+        'Each step is one self-contained verb: { do: "play"|"pause"|"stop" | "step"(frames) | "press"(key) | ' +
         '"keyDown"(key) | "keyUp"(key) | "click"(x,y,button) | "move"(x,y,dx,dy) | "preview"(camera,lookAt) | "telemetry"(id) }. ' +
-        'Example: [{do:"play"},{do:"tap",key:"Space"},{do:"step",frames:90},{do:"preview"}].',
-      inputSchema: { commands: z.array(simStep) },
+        'Example: [{do:"play"},{do:"press",key:"Space"},{do:"step",frames:90},{do:"preview",camera:"fit"}]. ' +
+        'Captures come back as one flat ordered list; each telemetry reading carries `frame` and `time`, so sampling ' +
+        'the same id before and after a `step` shows what changed and over how many frames. ' +
+        'The capture format (width/height/fit/ui) is stated once for the whole batch, not per preview step — every ' +
+        'shot of one run is then rendered identically, so what differs between two of them is the run, not the setup.',
+      inputSchema: { commands: z.array(simStep), ...frameSchema },
     },
-    ({ commands }) => relay({ id: commandId(), type: 'simulate', steps: commands as SimStep[] }),
+    ({ commands, ...frame }) => {
+      // The step schema is loose (fields shared across verbs), so the one required
+      // field is enforced here: a preview without an explicit framing is an error.
+      const bad = commands.findIndex((c) => c.do === 'preview' && !c.camera);
+      if (bad !== -1) {
+        return Promise.resolve({
+          isError: true as const,
+          content: [{ type: 'text' as const, text: `simulate: preview step #${bad} needs "camera" — a position ${VEC_HINT}, or "fit" to auto-frame the scene` }],
+        });
+      }
+      return relay({ id: commandId(), type: 'simulate', steps: commands as SimStep[], frame: toFrame(frame) });
+    },
   );
 
   return server;

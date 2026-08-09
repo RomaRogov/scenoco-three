@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   Registry,
@@ -11,7 +11,7 @@ import {
   allSystemDefs,
   unregisterNode,
 } from '@scenoco-three/core/internal';
-import { build, type Loader } from 'esbuild';
+import { build, type Loader, type Plugin as EsbuildPlugin } from 'esbuild';
 import { registerSrcDocument, type SrcDocumentDef } from './dsl/src-document.js';
 
 /**
@@ -76,6 +76,42 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'demo', 'cov
 const ASSET_LOADERS: Record<string, Loader> = Object.fromEntries(
   ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ktx2', '.basis', '.hdr', '.exr', '.glb', '.gltf', '.fbx', '.obj', '.bin', '.mp3', '.ogg', '.wav', '.m4a', '.woff', '.woff2', '.ttf'].map((ext) => [ext, 'dataurl' as Loader]),
 );
+
+const BUNDLE_STUB_NS = 'scenoco-bundle-stub';
+
+/**
+ * `import next from './level_2.scene.xml?bundle'` — how a component loads another
+ * scene or spawns a prefab at runtime — stubbed for this Node-side pass.
+ *
+ * `?bundle` is a @scenoco-three/vite concept: it compiles the XML in the browser
+ * build. esbuild has no `.xml` loader, so such an import used to fail the whole
+ * component set, leaving the registry empty and every tag in every scene
+ * "unknown". Registration only needs each module's decorator side effects — never
+ * the bundle data — so the import resolves to a placeholder instead.
+ *
+ * A `?bundle` path naming no file is still an error, like any unresolvable
+ * import: stubbing must not be the one way to smuggle a typo past the checks.
+ */
+const bundleStubPlugin: EsbuildPlugin = {
+  name: BUNDLE_STUB_NS,
+  setup(build) {
+    build.onResolve({ filter: /\.xml\?bundle$/ }, (args) => {
+      const request = args.path.slice(0, -'?bundle'.length);
+      // Only a relative/absolute request can be checked from here; an aliased or
+      // bare one is the bundler's to resolve, so take it on trust rather than
+      // reporting a file that isn't missing.
+      const file = request.startsWith('.') || isAbsolute(request) ? resolve(args.resolveDir, request) : '';
+      if (file && !existsSync(file)) {
+        return { errors: [{ text: `Could not resolve "${args.path}" (no such scene or prefab file)` }] };
+      }
+      return { path: file || args.path, namespace: BUNDLE_STUB_NS };
+    });
+    build.onLoad({ filter: /.*/, namespace: BUNDLE_STUB_NS }, () => ({
+      contents: 'export default null; // compiled by @scenoco-three/vite in the app build only',
+      loader: 'js',
+    }));
+  },
+};
 
 /** Toolchain/runtime `@scenoco-three/*` packages that don't contribute scene tags. */
 const NON_TAG_PACKAGES = new Set([
@@ -299,6 +335,32 @@ export interface SchemaFile {
   path: string;
 }
 
+/**
+ * Import modules with **browser-console banners suppressed**.
+ *
+ * A library may greet its user with `console.log('%c …', 'font-size: 14px')` at
+ * module scope (three.quarks does). The `%c` directive is a *browser devtools*
+ * CSS instruction — a log written with one is by definition addressed to a
+ * devtools console, not to a terminal. Registering a tag package here imports it
+ * only to read its decorators, so in a CLI run that banner is pure noise, and it
+ * repeats on every `validate`/`which`/`bundle`.
+ *
+ * The rule is the format, not a package name or a message: nothing hard-codes
+ * what any library prints, and a real warning (no `%c`) still comes through.
+ */
+async function importQuietly<T>(load: () => Promise<T>): Promise<T> {
+  const log = console.log;
+  console.log = (...args: unknown[]): void => {
+    if (typeof args[0] === 'string' && args[0].startsWith('%c')) return;
+    log(...args);
+  };
+  try {
+    return await load();
+  } finally {
+    console.log = log;
+  }
+}
+
 async function registerPackages(packages: string[], scan: ComponentScan): Promise<void> {
   for (const pkg of packages) {
     let reg = packageRegistrations.get(pkg);
@@ -306,7 +368,7 @@ async function registerPackages(packages: string[], scan: ComponentScan): Promis
       const beforeNames = new Set(Registry.componentNames());
       const beforeTags = new Set([...nodeTags(), ...attachmentTags()]);
       const beforeSystems = new Set(allSystemDefs().map((d) => d.ctor.name));
-      const mod = (await import(pkg)) as {
+      const mod = (await importQuietly(() => import(pkg))) as {
         sceneTags?: string[];
         schemas?: readonly string[];
         hasSrcDocument?: boolean;
@@ -365,7 +427,7 @@ export function collectedPackageSchemas(): SchemaFile[] {
  */
 async function registerSrcDocumentOf(pkg: string): Promise<void> {
   const specifier = `${pkg}/compiler`;
-  const mod = (await import(specifier)) as { srcDocument?: SrcDocumentDef };
+  const mod = (await importQuietly(() => import(specifier))) as { srcDocument?: SrcDocumentDef };
   if (!mod.srcDocument) {
     throw new Error(
       `${pkg} sets hasSrcDocument but ${specifier} exports no "srcDocument" — see SrcDocumentDef in @scenoco-three/compiler`,
@@ -442,6 +504,9 @@ async function buildComponentSet(files: string[], key: string, cwd: string, extr
       // Vite's inlining. Without this, a scene using such a component fails to
       // validate/bundle/export even though the app builds fine.
       loader: ASSET_LOADERS,
+      // A component may also import another scene/prefab as `…xml?bundle`; that
+      // one is the browser build's job, so it resolves to a stub here.
+      plugins: [bundleStubPlugin],
       sourcemap: false,
       logLevel: 'silent',
       tsconfigRaw: { compilerOptions: { experimentalDecorators: true } },
@@ -456,5 +521,7 @@ async function buildComponentSet(files: string[], key: string, cwd: string, extr
 
 /** Evaluate a built component module (runs the decorator registrations). */
 async function importBuiltSet(modulePath: string): Promise<void> {
-  await import(pathToFileURL(modulePath).href);
+  // Quiet too: a project component that imports a banner-printing library would
+  // otherwise reprint it on every load, including every watch rebuild.
+  await importQuietly(() => import(pathToFileURL(modulePath).href));
 }

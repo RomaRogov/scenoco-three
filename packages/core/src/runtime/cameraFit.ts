@@ -10,21 +10,22 @@ const { DEG2RAD, RAD2DEG } = MathUtils;
  * **ratio** matters (perspective framing is scale-invariant with distance — see
  * `applyCameraFit`).
  *
- * - `none`    — no adjustment (the default): the camera's authored fov / left-
- *               right-top-bottom apply completely unchanged, precisely as before
- *               this feature existed. Fully backward compatible; nothing opts in
- *               to fitting unless a scene sets `fit=`.
+ * - `none`    — no adjustment: the camera's authored fov / left-right-top-bottom
+ *               apply completely unchanged. Opt out of fitting entirely, for a
+ *               camera whose framing is already exactly what you want on every
+ *               aspect (or one you drive yourself).
  * - `width`   — the design width is always exactly what's visible; the height
  *               varies with aspect (may show more or less than designHeight).
  * - `height`  — the design height is always exactly what's visible; width varies.
- * - `contain` — whichever of width/height needs the more conservative (zoomed
- *               out) framing to keep **both** fully visible — the whole design
- *               region is always on screen; the other axis may show extra
- *               (letterboxing), never cropped. The "ShowAll" / "fit both" mode.
+ * - `contain` — the default: whichever of width/height needs the more
+ *               conservative (zoomed out) framing to keep **both** fully visible
+ *               — the whole design region is always on screen; the other axis may
+ *               show extra (letterboxing), never cropped. "ShowAll" / "fit both".
  * - `cover`   — the opposite: whichever framing fills the screen completely,
  *               cropping outside the design region on the non-binding axis.
  */
-export type CameraFitModeName = 'none' | 'width' | 'height' | 'contain' | 'cover';
+export const CAMERA_FIT_MODES = ['none', 'width', 'height', 'contain', 'cover'] as const;
+export type CameraFitModeName = (typeof CAMERA_FIT_MODES)[number];
 
 /** Per-camera fit config, stashed on `camera.userData.fit` by the node's `build()`. */
 export interface CameraFitConfig {

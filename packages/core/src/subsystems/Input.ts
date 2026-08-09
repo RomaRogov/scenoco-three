@@ -97,27 +97,31 @@ export class InputManager {
   get mouseScrollDelta(): Vector2 {
     return this._mouseScroll;
   }
-  /** Button held — Unity convention: 0 left, 1 right, 2 middle. */
-  getMouseButton(button: 0 | 1 | 2): boolean {
+  /** Button held — Unity convention: {@link MouseButton} (0 left, 1 right, 2 middle). */
+  getMouseButton(button: MouseButton): boolean {
     return this.mouseHeld[button] ?? false;
   }
-  getMouseButtonDown(button: 0 | 1 | 2): boolean {
+  getMouseButtonDown(button: MouseButton): boolean {
     return this.mouseDownThisFrame[button] ?? false;
   }
-  getMouseButtonUp(button: 0 | 1 | 2): boolean {
+  getMouseButtonUp(button: MouseButton): boolean {
     return this.mouseUpThisFrame[button] ?? false;
   }
 
   // ── virtual axes (Unity parity) ──────────────────────────────────────────────
 
   /** Range [-1..1] from arrows/WASD plus the gamepad left stick. */
-  getAxis(axis: 'Horizontal' | 'Vertical'): number {
+  getAxis(axis: Axis): number {
     const pad = this.getGamepad(0);
-    if (axis === 'Horizontal') {
-      const keys = (this.getKey('D') || this.getKey('RightArrow') ? 1 : 0) - (this.getKey('A') || this.getKey('LeftArrow') ? 1 : 0);
+    if (axis === Axis.Horizontal) {
+      const keys =
+        (this.getKey(KeyCode.D) || this.getKey(KeyCode.RightArrow) ? 1 : 0) -
+        (this.getKey(KeyCode.A) || this.getKey(KeyCode.LeftArrow) ? 1 : 0);
       return clampAxis(keys + (pad?.leftStick.x ?? 0));
     }
-    const keys = (this.getKey('W') || this.getKey('UpArrow') ? 1 : 0) - (this.getKey('S') || this.getKey('DownArrow') ? 1 : 0);
+    const keys =
+      (this.getKey(KeyCode.W) || this.getKey(KeyCode.UpArrow) ? 1 : 0) -
+      (this.getKey(KeyCode.S) || this.getKey(KeyCode.DownArrow) ? 1 : 0);
     return clampAxis(keys + (pad?.leftStick.y ?? 0));
   }
 
@@ -200,8 +204,8 @@ export class InputManager {
     this.mouseSeen = true;
   }
 
-  /** Press or release a mouse button (Unity index: 0 left, 1 right, 2 middle). */
-  injectMouseButton(button: 0 | 1 | 2, down: boolean): void {
+  /** Press or release a mouse button ({@link MouseButton}). */
+  injectMouseButton(button: MouseButton, down: boolean): void {
     if (down) {
       if (!this.mouseHeld[button]) {
         this.mouseHeld[button] = true;
@@ -254,19 +258,26 @@ export class InputManager {
       this.held.delete(key);
       this.pendingUp.add(key);
     });
-    // Release everything when focus is lost, so keys don't stick.
-    on(t, 'blur', () => this.clearHeld());
+    // Release everything when focus is lost, so nothing sticks. Buttons matter as
+    // much as keys here: a press that ends outside the page (alt-tab, a drag into
+    // another window) delivers no mouseup, and a mouse button stuck "held" makes
+    // the pointer dispatcher treat every later cursor move as a drag forever.
+    on(t, 'blur', () => this.releaseAll());
 
     const c = this.canvas;
     if (c) {
       on<MouseEvent>(c, 'mousemove', (e) => {
-        this.clientX = e.clientX;
-        this.clientY = e.clientY;
+        this.pointerAt(e.clientX, e.clientY);
         this.pendingMove.x += e.movementX ?? 0;
         this.pendingMove.y += e.movementY ?? 0;
-        this.mouseSeen = true;
       });
       on<MouseEvent>(c, 'mousedown', (e) => {
+        // Take the position from the press itself. A press is not always preceded
+        // by a move — the page can load or regain focus with the cursor already
+        // over the canvas — and without this the first click of a session would
+        // raycast through a stale (0,0) NDC, i.e. silently miss whatever was
+        // actually clicked. Every mouse event carries clientX/Y, so use them.
+        this.pointerAt(e.clientX, e.clientY);
         const b = unityButton(e.button);
         if (!this.mouseHeld[b]) {
           this.mouseHeld[b] = true;
@@ -275,11 +286,13 @@ export class InputManager {
       });
       // Buttons can release outside the canvas — listen on the window for mouseup.
       on<MouseEvent>(t, 'mouseup', (e) => {
+        this.pointerAt(e.clientX, e.clientY);
         const b = unityButton(e.button);
         this.mouseHeld[b] = false;
         this.pendingMouseUp[b] = true;
       });
       on<WheelEvent>(c, 'wheel', (e) => {
+        this.pointerAt(e.clientX, e.clientY);
         this.pendingScroll.x += e.deltaX;
         this.pendingScroll.y += e.deltaY;
       });
@@ -300,9 +313,9 @@ export class InputManager {
         const touch = e.changedTouches[0];
         if (!touch) return;
         activeTouch = touch.identifier;
-        this.clientX = lastX = touch.clientX;
-        this.clientY = lastY = touch.clientY;
-        this.mouseSeen = true;
+        lastX = touch.clientX;
+        lastY = touch.clientY;
+        this.pointerAt(touch.clientX, touch.clientY);
         if (!this.mouseHeld[0]) {
           this.mouseHeld[0] = true;
           this.pendingMouseDown[0] = true;
@@ -314,9 +327,9 @@ export class InputManager {
         if (!touch) return;
         this.pendingMove.x += touch.clientX - lastX;
         this.pendingMove.y += touch.clientY - lastY;
-        this.clientX = lastX = touch.clientX;
-        this.clientY = lastY = touch.clientY;
-        this.mouseSeen = true;
+        lastX = touch.clientX;
+        lastY = touch.clientY;
+        this.pointerAt(touch.clientX, touch.clientY);
       });
       const endTouch = (e: TouchEvent): void => {
         if (activeTouch === undefined || liveTouch(e, activeTouch)) return; // still down
@@ -362,9 +375,30 @@ export class InputManager {
     }
   }
 
-  private clearHeld(): void {
+  /**
+   * Record where the pointer is, from any event that carries a position (move,
+   * press, release, wheel, touch). Kept in raw client coords; `sampleMouse`
+   * converts to canvas/NDC space once per frame.
+   */
+  private pointerAt(clientX: number, clientY: number): void {
+    this.clientX = clientX;
+    this.clientY = clientY;
+    this.mouseSeen = true;
+  }
+
+  /**
+   * Release every held key and mouse button, reporting an up edge for each so a
+   * component's `getKeyUp`/`getMouseButtonUp` still sees the release it would
+   * have got. Used on focus loss.
+   */
+  private releaseAll(): void {
     for (const key of this.held) this.pendingUp.add(key);
     this.held.clear();
+    for (const button of MOUSE_BUTTONS) {
+      if (!this.mouseHeld[button]) continue;
+      this.mouseHeld[button] = false;
+      this.pendingMouseUp[button] = true;
+    }
   }
 }
 
@@ -435,24 +469,55 @@ const GAMEPAD_BUTTONS: Record<GamepadButton, number> = {
   guide: 16,
 };
 
-export type GamepadButton =
-  | 'a'
-  | 'b'
-  | 'x'
-  | 'y'
-  | 'leftBumper'
-  | 'rightBumper'
-  | 'leftTrigger'
-  | 'rightTrigger'
-  | 'back'
-  | 'start'
-  | 'leftStickButton'
-  | 'rightStickButton'
-  | 'dpadUp'
-  | 'dpadDown'
-  | 'dpadLeft'
-  | 'dpadRight'
-  | 'guide';
+/**
+ * Standard-gamepad face/shoulder/dpad buttons, by name
+ * (`pad.getButtonDown(GamepadButton.A)`). Closed, like {@link KeyCode}.
+ */
+export const GamepadButton = {
+  A: 'a',
+  B: 'b',
+  X: 'x',
+  Y: 'y',
+  LeftBumper: 'leftBumper',
+  RightBumper: 'rightBumper',
+  LeftTrigger: 'leftTrigger',
+  RightTrigger: 'rightTrigger',
+  Back: 'back',
+  Start: 'start',
+  LeftStickButton: 'leftStickButton',
+  RightStickButton: 'rightStickButton',
+  DpadUp: 'dpadUp',
+  DpadDown: 'dpadDown',
+  DpadLeft: 'dpadLeft',
+  DpadRight: 'dpadRight',
+  Guide: 'guide',
+} as const;
+
+export type GamepadButton = (typeof GamepadButton)[keyof typeof GamepadButton];
+
+/**
+ * Mouse buttons, Unity's numbering (the values the `getMouseButton*` queries and
+ * `PointerEventData.button` use). `MouseButton.Right` is 1, **not** the DOM's 2 —
+ * the DOM order is remapped on the way in (see `unityButton`).
+ */
+export const MouseButton = {
+  Left: 0,
+  Right: 1,
+  Middle: 2,
+} as const;
+
+export type MouseButton = (typeof MouseButton)[keyof typeof MouseButton];
+
+/** Every mouse button, in Unity index order — the set the pointer dispatcher walks. */
+export const MOUSE_BUTTONS: readonly MouseButton[] = [MouseButton.Left, MouseButton.Right, MouseButton.Middle];
+
+/** The virtual axes {@link InputManager.getAxis} understands (Unity's default two). */
+export const Axis = {
+  Horizontal: 'Horizontal',
+  Vertical: 'Vertical',
+} as const;
+
+export type Axis = (typeof Axis)[keyof typeof Axis];
 
 /** DOM MouseEvent.button (0 left, 1 middle, 2 right) → Unity index (0 left, 1 right, 2 middle). */
 function unityButton(domButton: number): 0 | 1 | 2 {
@@ -482,9 +547,14 @@ function clampAxis(v: number): number {
   return Math.max(-1, Math.min(1, v));
 }
 
-/** Map a physical `KeyboardEvent.code` to a Unity-style KeyCode name. */
-function codeToKey(code: string): KeyCode {
-  return (CODE_TO_KEY[code] ?? code) as KeyCode;
+/**
+ * Map a physical `KeyboardEvent.code` to a Unity-style KeyCode name. A code with
+ * no member falls through as its raw string: it still counts as held (so
+ * `anyKey` sees it) but no `KeyCode` can name it, which is the point of the
+ * closed enum.
+ */
+function codeToKey(code: string): string {
+  return CODE_TO_KEY[code] ?? code;
 }
 
 /**
@@ -496,9 +566,9 @@ const CODE_TO_KEY: Record<string, KeyCode> = {
   ...lettersToKeys(),
   ...digitsToKeys(),
   ...functionKeysToKeys(),
+  ...numpadToKeys(),
   Space: 'Space',
   Enter: 'Return',
-  NumpadEnter: 'Return',
   Escape: 'Escape',
   Tab: 'Tab',
   Backspace: 'Backspace',
@@ -532,6 +602,11 @@ const CODE_TO_KEY: Record<string, KeyCode> = {
   Comma: 'Comma',
   Period: 'Period',
   Slash: 'Slash',
+  NumLock: 'NumLock',
+  ScrollLock: 'ScrollLock',
+  Pause: 'Pause',
+  PrintScreen: 'Print',
+  ContextMenu: 'Menu',
 };
 
 function lettersToKeys(): Record<string, KeyCode> {
@@ -552,20 +627,86 @@ function functionKeysToKeys(): Record<string, KeyCode> {
   for (let f = 1; f <= 12; f++) out[`F${f}`] = `F${f}` as KeyCode;
   return out;
 }
+function numpadToKeys(): Record<string, KeyCode> {
+  const out: Record<string, KeyCode> = {
+    NumpadDecimal: 'KeypadPeriod',
+    NumpadDivide: 'KeypadDivide',
+    NumpadMultiply: 'KeypadMultiply',
+    NumpadSubtract: 'KeypadMinus',
+    NumpadAdd: 'KeypadPlus',
+    NumpadEnter: 'KeypadEnter',
+  };
+  for (let d = 0; d <= 9; d++) out[`Numpad${d}`] = `Keypad${d}` as KeyCode;
+  return out;
+}
 
-/** Unity-style key names (a curated union); any other `code` string is also accepted. */
-export type KeyCode =
-  | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L' | 'M'
-  | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
-  | 'Alpha0' | 'Alpha1' | 'Alpha2' | 'Alpha3' | 'Alpha4'
-  | 'Alpha5' | 'Alpha6' | 'Alpha7' | 'Alpha8' | 'Alpha9'
-  | 'F1' | 'F2' | 'F3' | 'F4' | 'F5' | 'F6' | 'F7' | 'F8' | 'F9' | 'F10' | 'F11' | 'F12'
-  | 'UpArrow' | 'DownArrow' | 'LeftArrow' | 'RightArrow'
-  | 'Space' | 'Return' | 'Escape' | 'Tab' | 'Backspace' | 'Delete' | 'Insert'
-  | 'Home' | 'End' | 'PageUp' | 'PageDown' | 'CapsLock'
-  | 'LeftShift' | 'RightShift' | 'LeftControl' | 'RightControl'
-  | 'LeftAlt' | 'RightAlt' | 'LeftMeta' | 'RightMeta'
-  | 'Minus' | 'Equals' | 'LeftBracket' | 'RightBracket' | 'Backslash'
-  | 'Semicolon' | 'Quote' | 'BackQuote' | 'Comma' | 'Period' | 'Slash'
-  // eslint-disable-next-line @typescript-eslint/ban-types
-  | (string & {});
+/**
+ * Unity-style key names — the one spelling you author with
+ * (`input.getKeyDown(KeyCode.Space)`). **Closed**: there is no raw-string escape
+ * hatch, so a misspelled key is a compile error rather than a control that
+ * silently never fires. Each member's value *is* its name, so the wire/XML form
+ * and the runtime value are the same readable string ({@link ValueType} style).
+ *
+ * A physical key with no member here still lands in the held set under its raw
+ * `KeyboardEvent.code` (so `anyKey` sees it) — it simply isn't queryable by name.
+ * If you need one, add it here and to `CODE_TO_KEY`.
+ */
+export const KeyCode = {
+  A: 'A', B: 'B', C: 'C', D: 'D', E: 'E', F: 'F', G: 'G', H: 'H', I: 'I',
+  J: 'J', K: 'K', L: 'L', M: 'M', N: 'N', O: 'O', P: 'P', Q: 'Q', R: 'R',
+  S: 'S', T: 'T', U: 'U', V: 'V', W: 'W', X: 'X', Y: 'Y', Z: 'Z',
+
+  Alpha0: 'Alpha0', Alpha1: 'Alpha1', Alpha2: 'Alpha2', Alpha3: 'Alpha3', Alpha4: 'Alpha4',
+  Alpha5: 'Alpha5', Alpha6: 'Alpha6', Alpha7: 'Alpha7', Alpha8: 'Alpha8', Alpha9: 'Alpha9',
+
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+
+  UpArrow: 'UpArrow', DownArrow: 'DownArrow', LeftArrow: 'LeftArrow', RightArrow: 'RightArrow',
+
+  Space: 'Space', Return: 'Return', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace',
+  Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
+  PageUp: 'PageUp', PageDown: 'PageDown', CapsLock: 'CapsLock',
+
+  LeftShift: 'LeftShift', RightShift: 'RightShift',
+  LeftControl: 'LeftControl', RightControl: 'RightControl',
+  LeftAlt: 'LeftAlt', RightAlt: 'RightAlt',
+  LeftMeta: 'LeftMeta', RightMeta: 'RightMeta',
+
+  Minus: 'Minus', Equals: 'Equals', LeftBracket: 'LeftBracket', RightBracket: 'RightBracket',
+  Backslash: 'Backslash', Semicolon: 'Semicolon', Quote: 'Quote', BackQuote: 'BackQuote',
+  Comma: 'Comma', Period: 'Period', Slash: 'Slash',
+
+  // Numpad — distinct physical keys, so they need their own names (Unity's
+  // Keypad*). Without them a numpad press would be unqueryable now the union is closed.
+  Keypad0: 'Keypad0', Keypad1: 'Keypad1', Keypad2: 'Keypad2', Keypad3: 'Keypad3', Keypad4: 'Keypad4',
+  Keypad5: 'Keypad5', Keypad6: 'Keypad6', Keypad7: 'Keypad7', Keypad8: 'Keypad8', Keypad9: 'Keypad9',
+  KeypadPeriod: 'KeypadPeriod', KeypadDivide: 'KeypadDivide', KeypadMultiply: 'KeypadMultiply',
+  KeypadMinus: 'KeypadMinus', KeypadPlus: 'KeypadPlus', KeypadEnter: 'KeypadEnter',
+
+  NumLock: 'NumLock', ScrollLock: 'ScrollLock', Pause: 'Pause', Print: 'Print', Menu: 'Menu',
+} as const;
+
+/** A Unity-style key name — the value side of {@link KeyCode}. */
+export type KeyCode = (typeof KeyCode)[keyof typeof KeyCode];
+
+/**
+ * To author a keybinding as an XML attribute, register it where you use it —
+ * `const Key = enumOf('KeyCode', KeyCode)`, then `@property({ type: Key })`.
+ * It is deliberately not registered here: the XSD exporter emits every
+ * registered enum into every schema, so registering a 100-member table nothing
+ * references would bloat each project's generated schema for nothing.
+ */
+
+/**
+ * Resolve a key **name** that arrived as an untyped string (an editor/MCP
+ * command, a config file, a save game) to a `KeyCode`, or `undefined` if it
+ * isn't one. Boundaries that take input from outside the type system call this
+ * so a typo surfaces as an error rather than a key that never fires.
+ */
+export function keyCodeFromName(name: string): KeyCode | undefined {
+  return Object.hasOwn(KeyCode, name) ? (name as KeyCode) : undefined;
+}
+
+/** Every key name, in declaration order — for error messages and editor pickers. */
+export const KEY_CODES: readonly KeyCode[] = Object.values(KeyCode);

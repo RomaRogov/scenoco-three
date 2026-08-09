@@ -17,7 +17,7 @@ npm i -D @scenoco-three/compiler
 ```
 scenoco init [dir]                        Scaffold a runnable project
 scenoco new <kind> <name>                 Create an asset — run bare to list the kinds
-scenoco check                             Pre-flight: scans components, flags physics setup
+scenoco doctor                            Environment check: scans components, flags physics setup
 scenoco validate <file...>                "tsc for scenes": file:line:col diagnostics
 scenoco bundle <file> [-o out]            Build the runtime bundle (.bundle.json)
 scenoco decompile <bundle.json> [-o out]  Inverse of bundle: back to canonical XML

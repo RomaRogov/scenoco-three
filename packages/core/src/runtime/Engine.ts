@@ -115,6 +115,18 @@ export class Engine {
   mainCamera?: Camera;
 
   /**
+   * Render at this exact pixel size instead of the canvas's own CSS size.
+   *
+   * Set it to draw a frame at a chosen resolution — a screenshot, a preview at a
+   * target device size — and every render camera's aspect and `fit` follows it,
+   * so the frame shows what that resolution would actually show. The size is in
+   * **device pixels**: the pixel ratio is not applied on top, because an explicit
+   * size means the pixels you asked for. Clear it (`undefined`, the default) to
+   * track the canvas again; the next tick restores the canvas size and ratio.
+   */
+  renderSize?: { width: number; height: number };
+
+  /**
    * Unity-style input (keyboard/mouse/gamepad), sampled once per `tick`. Read it
    * from any component via `this.engine.input.getKeyDown('Space')`. Inert when the
    * engine runs headless (no DOM).
@@ -177,6 +189,8 @@ export class Engine {
   /** ECS-hybrid `@system` instances + their live component queries; auto-run per scene. */
   private readonly systemManager = new SystemManager(this, this.components);
   private readonly rendererSize = new Vector2();
+  /** Device pixel ratio used when sizing to the canvas (an explicit `renderSize` renders 1:1 instead). */
+  private readonly canvasPixelRatio = Math.min(globalThis.devicePixelRatio ?? 1, 2);
   /** Seconds per fixed step; accumulator carries leftover frame time. */
   private readonly fixedTimeStep: number;
   private fixedAccumulator = 0;
@@ -230,7 +244,7 @@ export class Engine {
         antialias: true,
         preserveDrawingBuffer: options.preserveDrawingBuffer ?? false,
       });
-      this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
+      this.renderer.setPixelRatio(this.canvasPixelRatio);
       if (options.autoStart !== false) this.start();
     }
   }
@@ -338,6 +352,9 @@ export class Engine {
     // Only tear down what was set up — an inert (never-loaded) editor component
     // never ran onLoad, so it gets no onDestroy.
     if (instance._loaded) instance.onDestroy?.();
+    // Last: drop `listen` subscriptions, so a destroyed component can never be
+    // called by an event it outlived (onDestroy may still emit/unsubscribe).
+    instance._unsubscribeAll();
   }
 
   getComponents(node: Object3D): readonly Component[] {
@@ -988,8 +1005,12 @@ export class Engine {
    * is **not** one of the scene's cameras is treated as a render **override** —
    * the engine draws through it alone (e.g. an editor's free-look camera, or any
    * external camera you point `mainCamera` at). With none, renders nothing.
+   *
+   * Public so tooling can ask *which* cameras the next frame draws through —
+   * the editor needs it to frame a capture — rather than re-deriving the
+   * override rule and drifting from it.
    */
-  private renderList(): Camera[] {
+  renderList(): Camera[] {
     if (this.mainCamera && !this.cameras.includes(this.mainCamera)) return [this.mainCamera];
     if (this.cameras.length > 0) return this.cameras;
     return this.mainCamera ? [this.mainCamera] : [];
@@ -1070,9 +1091,15 @@ export class Engine {
   private resizeToCanvas(): void {
     const renderer = this.renderer!;
     const canvas = renderer.domElement;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
+    // An explicit `renderSize` wins over the canvas's own size, and renders 1:1
+    // (see the field): the caller asked for exactly these pixels.
+    const width = this.renderSize?.width ?? canvas.clientWidth;
+    const height = this.renderSize?.height ?? canvas.clientHeight;
     if (width === 0 || height === 0) return;
+    const pixelRatio = this.renderSize ? 1 : this.canvasPixelRatio;
+    // setPixelRatio re-applies the current size itself, so the size check below
+    // seeing no change is fine — the drawing buffer is already correct.
+    if (renderer.getPixelRatio() !== pixelRatio) renderer.setPixelRatio(pixelRatio);
     renderer.getSize(this.rendererSize);
     if (this.rendererSize.x !== width || this.rendererSize.y !== height) {
       renderer.setSize(width, height, false);

@@ -67,7 +67,7 @@ describe('patchSceneXml — surgical, minimal-diff editing', () => {
 
   it('locates an id-less node by structural path (ordinals among node-kind elements only)', () => {
     const xml = `<Scene>
-  <PerspectiveCamera position="0 1 5" />
+  <PerspectiveCamera position="0 1 5" fit="none" />
   <DirectionalLight intensity="2" />
   <Mesh>
     <Attachments>
@@ -87,7 +87,7 @@ describe('patchSceneXml — surgical, minimal-diff editing', () => {
 
   it('locates a component under an id-less node by nodePath (attachments do not shift ordinals)', () => {
     const xml = `<Scene>
-  <PerspectiveCamera position="0 1 5" />
+  <PerspectiveCamera position="0 1 5" fit="none" />
   <DirectionalLight intensity="2" />
   <Mesh>
     <Attachments>

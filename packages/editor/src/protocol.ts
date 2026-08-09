@@ -2,7 +2,7 @@
 // server (Node) and the editor app (browser). Pure types + a tiny correlation
 // helper, so both ends agree and the relay logic is unit-testable.
 
-import type { CompiledAsset, CompiledComponent, CompiledScene } from '@scenoco-three/core';
+import type { CameraFitModeName, CompiledAsset, CompiledComponent, CompiledScene } from '@scenoco-three/core';
 // Type-only: erased at build (verbatimModuleSyntax), so the browser bundle never
 // pulls in the compiler. Direction is editor → compiler, never the reverse.
 import type { MemberRef, NodeRef } from '@scenoco-three/compiler';
@@ -10,44 +10,46 @@ import type { MemberRef, NodeRef } from '@scenoco-three/compiler';
 /** WebSocket path the editor connects to on the dev server. */
 export const WS_PATH = '/scenoco-ws';
 
+/**
+ * How a capture is rendered — everything except *where the camera is*.
+ *
+ * Framing (`camera`/`lookAt`) belongs to the individual shot and changes between
+ * them; this is the output format, and it is the same for every capture in one
+ * command. Hence it sits on the command, not on each `preview` step: one
+ * simulation renders one way throughout, and two shots of the same run stay
+ * comparable because nothing but the camera moved between them.
+ */
+export interface PreviewFrame {
+  /** Captured image width in pixels. */
+  width: number;
+  /** Captured image height in pixels. */
+  height: number;
+  /**
+   * How the rendering camera's frustum adapts to this frame's aspect — the
+   * engine's own `<Camera fit=…>` modes, applied against the camera's authored
+   * `designWidth`/`designHeight`. A camera with no design size has nothing to
+   * adapt to, so every mode is a no-op for it.
+   */
+  fit: CameraFitModeName;
+  /**
+   * Include the screen-space UI layer (a `<Fullscreen>` HUD and anything else
+   * parented to a camera). The shot is then framed *through* the camera hosting
+   * that layer, which is what makes the HUD land where the player sees it rather
+   * than floating in world space in front of a camera nobody is looking through.
+   * `false` leaves it out entirely — the shot for checking geometry a HUD covers.
+   */
+  ui: boolean;
+}
+
 /** A command sent MCP-server → editor (id-correlated with its response). */
 export type EditorCommand =
   | { id: string; type: 'open'; path: string }
-  | { id: string; type: 'preview'; camera?: string; lookAt?: string; size?: string }
+  | { id: string; type: 'preview'; camera: string; lookAt?: string; frame: PreviewFrame }
   | { id: string; type: 'run' }
   | { id: string; type: 'pause' }
   | { id: string; type: 'stop' }
   | { id: string; type: 'telemetry'; targetId: string }
-  | { id: string; type: 'simulate'; steps: SimStep[] }
-  | { id: string; type: 'edit'; edits: AgentEdit[] }
-  | { id: string; type: 'save' };
-
-/**
- * One scene edit an agent requests over MCP, addressed by scene id (the same ids
- * `get_telemetry` uses). Applied through the editor's document, so it is undoable,
- * dirty-flagging, and live in the viewport — exactly as if typed in the inspector.
- *
- * - `node` only: a transform attr (`position`/`eulerAngles`/`scale` as `[x,y,z]`,
- *   `eulerAngles` in degrees, `visible` as bool) or a prefab instance's `src`.
- * - `node` + `component`: a `@property` of the Nth `<component>` on that node.
- * - `node` + `attachment`: an attr of the Nth `<attachment>` (geometry/material)
- *   on that node.
- *
- * Values use the compiled form (vecs as number arrays, colors as hex ints);
- * strings like "3 1 0" or "#ff0000" are coerced where the target type is known.
- */
-export interface AgentEdit {
-  /** Scene id of the target node (required in v1 — id-less nodes aren't addressable over MCP). */
-  node: string;
-  /** Component tag on that node (e.g. "Ball"). */
-  component?: string;
-  /** Attachment tag on that node (e.g. "MeshStandardMaterial"). */
-  attachment?: string;
-  /** Ordinal among same-tag components/attachments on the node. Default 0. */
-  ordinal?: number;
-  attr: string;
-  value: string | number | boolean | number[];
-}
+  | { id: string; type: 'simulate'; steps: SimStep[]; frame: PreviewFrame };
 
 /**
  * One step in a `simulate` batch — transport, frame stepping, synthetic input, or
@@ -58,8 +60,12 @@ export type SimStep =
   | { do: 'play' | 'pause' | 'stop' }
   /** Advance the simulation by `frames` ticks (default 1) of `dt` seconds (default 1/60). */
   | { do: 'step'; frames?: number; dt?: number }
-  /** Keyboard — `key` is a Unity KeyCode name (e.g. 'Space', 'W'). Each action is its own verb. */
-  | { do: 'tap'; key: string } // press + release
+  /**
+   * Keyboard — `key` is a Unity `KeyCode` **member name** (e.g. 'Space', 'W',
+   * 'LeftArrow'); an unknown name fails the batch with the valid list. Each
+   * action is its own verb.
+   */
+  | { do: 'press'; key: string } // press + release, the usual way to trigger something
   | { do: 'keyDown'; key: string }
   | { do: 'keyUp'; key: string }
   /** Mouse — `x,y` canvas-relative px (top-left). `click` = down+up; button defaults to left. */
@@ -67,7 +73,13 @@ export type SimStep =
   | { do: 'move'; x?: number; y?: number; dx?: number; dy?: number }
   /** Gamepad: synthetic pad `index` (default 0) with pressed `buttons` + `axes`. */
   | { do: 'gamepad'; index?: number; buttons?: boolean[]; axes?: number[] }
-  | { do: 'preview'; camera?: string; lookAt?: string }
+  /**
+   * Capture a PNG. `camera` is required: a position in the scene DSL's vector
+   * grammar ("y: 6; z: 12", or the positional "0 6 12"), or "fit" to auto-frame
+   * the scene. Size/fit/UI come from the batch's own `frame` — see
+   * {@link PreviewFrame} for why they are not repeated here.
+   */
+  | { do: 'preview'; camera: string; lookAt?: string }
   /** Sample state at a scene id — a node (transform + its components) or a component. */
   | { do: 'telemetry'; id: string };
 

@@ -56,6 +56,46 @@ describe('prefab static expansion', () => {
     expect(scene.nodes.find((n) => n.id === 't2/body')!.transform.eulerAngles[2]).toBe(90); // degrees
   });
 
+  // Restating a component under a `<PrefabInstance>` is the natural guess at
+  // "give this placement different values", and it used to compile clean while
+  // leaving the node carrying two of them — the prefab's original answering
+  // `getComponent`, so the override read as having silently done nothing.
+  it('rejects re-declaring a component the prefab root already has, pointing at <Override>', () => {
+    // A prefab whose *root* carries the component — the shape a "one brick" /
+    // "one coin" prefab has, and the only shape an instance `<Components>` block
+    // can collide with (it appends to the instance root, nothing deeper).
+    const brick = { 'brick.prefab.xml': `<Prefab><Mesh id="b"><Attachments><BoxGeometry /></Attachments><Components><Oscillator amplitude="0.5" /></Components></Mesh></Prefab>` };
+    const r = compileScene(
+      `<Scene><PrefabInstance src="brick.prefab.xml" id="t1"><Components><Oscillator amplitude="9" /></Components></PrefabInstance></Scene>`,
+      brick,
+    );
+    expect(err(r)).toBe('duplicate-component');
+    expect(r.ok ? '' : r.diagnostics[0]!.message).toContain('<Override target="#<id>"');
+    // A component the prefab's root does *not* have is a genuine addition, and still fine.
+    expect(
+      ok(compileScene(`<Scene><PrefabInstance src="brick.prefab.xml" id="t1"><Components><Rotator /></Components></PrefabInstance></Scene>`, brick))
+        .components.some((c) => c.type === 'Rotator'),
+    ).toBe(true);
+  });
+
+  // An `<Override>` naming a component's property against the *node's* id reported
+  // "<Mesh> has no attribute …" — true, and about the wrong element. The property
+  // is the clue to what the author meant, so the diagnostic follows it.
+  it('names the component (and its id) when an override attribute belongs to one', () => {
+    const message = (xml: string): string => {
+      const r = compileScene(xml);
+      return r.ok ? '(no error)' : r.diagnostics[0]!.message;
+    };
+    // `osc` has an id in the prefab → name it, in the prefab's own namespace.
+    expect(
+      message(`<Scene><PrefabInstance src="turbine.prefab.xml" id="t1"><Override target="#body" amplitude="2" /></PrefabInstance></Scene>`),
+    ).toContain('did you mean target="#osc"?');
+    // `Rotator` has none → the fix is to add one, which no message used to say.
+    expect(
+      message(`<Scene><PrefabInstance src="turbine.prefab.xml" id="t1"><Override target="#body" speed="2" /></PrefabInstance></Scene>`),
+    ).toContain('no id to target');
+  });
+
   it('reports prefab diagnostics: missing src/id, not-found, unknown override target, and cycles', () => {
     expect(err(compileScene(`<Scene><PrefabInstance src="turbine.prefab.xml" /></Scene>`))).toBe('prefab-missing-id');
     expect(err(compileScene(`<Scene><PrefabInstance id="x" /></Scene>`))).toBe('prefab-missing-src');

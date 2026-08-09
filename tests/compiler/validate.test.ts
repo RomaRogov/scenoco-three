@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseScene, validateScene, type SceDiagnostic } from '@scenoco-three/compiler';
+import '../fixtures/components/RequiredProbe.js';
 
 /** Parse + validate, returning diagnostics (parse errors included). */
 function check(xml: string): SceDiagnostic[] {
@@ -45,6 +46,27 @@ describe('Validator', () => {
     );
     expect(unknown?.message).toContain('Rotator');
     expect(codes(`<Scene><Mesh id="A"><Attachments><BoxGeometry /></Attachments></Mesh><Mesh id="A"><Attachments><BoxGeometry /></Attachments></Mesh></Scene>`)).toContain('duplicate-id');
+  });
+
+  it('flags a missing required @property, carrying the property description into the message', () => {
+    const d = check(`<Scene><Mesh id="A"><Attachments><BoxGeometry /></Attachments><Components><RequiredProbe /></Components></Mesh></Scene>`).find(
+      (x) => x.code === 'missing-attr',
+    );
+    expect(d?.message).toContain('required property "size"');
+    expect(d?.message).toContain('never inferred'); // the description tells the author what to write
+    expect(check(`<Scene><Mesh id="A"><Attachments><BoxGeometry /></Attachments><Components><RequiredProbe size="1 2" /></Components></Mesh></Scene>`)).toEqual([]);
+  });
+
+  // A camera's `fit` is required even though `none` is a perfectly good answer:
+  // it decides how the game frames on an aspect ratio nobody authored for, and
+  // left optional it is the thing discovered last, after the framing is already
+  // wrong. Requiring it moves the decision to where the camera is written.
+  it('requires an explicit `fit` on both camera tags', () => {
+    for (const tag of ['PerspectiveCamera', 'OrthographicCamera']) {
+      const d = check(`<Scene><${tag} id="cam" /></Scene>`).find((x) => x.code === 'missing-attr');
+      expect(d?.message, tag).toContain('fit');
+      expect(check(`<Scene><${tag} id="cam" fit="none" /></Scene>`), tag).toEqual([]);
+    }
   });
 
   it('validates references: requires #, reports unresolved, and type mismatches', () => {

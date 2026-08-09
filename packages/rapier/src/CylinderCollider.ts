@@ -5,10 +5,10 @@ import { Collider } from './Collider.js';
 /** A Rapier cylinder collision shape (axis-aligned along Y). */
 @component({ name: 'CylinderCollider', description: 'A Rapier cylinder collision shape; attaches to the node’s RigidBody.' })
 export class CylinderCollider extends Collider {
-  @property({ type: ValueType.Float, description: 'Radius' })
+  @property({ type: ValueType.Float, required: true, description: 'Radius — match the visible geometry; a collider never infers size from geometry' })
   radius = 0.5;
 
-  @property({ type: ValueType.Float, description: 'Half-height (along Y)' })
+  @property({ type: ValueType.Float, required: true, description: 'Half-height (along Y)' })
   halfHeight = 0.5;
 
   shapeDesc(): RAPIER.ColliderDesc {

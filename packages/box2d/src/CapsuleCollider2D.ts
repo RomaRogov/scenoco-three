@@ -13,7 +13,7 @@ export const CapsuleDirection2D = enumOf('CapsuleDirection2D', { vertical: 'vert
  */
 @component({ name: 'CapsuleCollider2D', description: 'A 2D capsule collision shape (planck; convex-polygon stadium).' })
 export class CapsuleCollider2D extends Collider2D {
-  @property({ type: ValueType.Vec2, description: 'Size (width, height)' })
+  @property({ type: ValueType.Vec2, required: true, description: 'Size (width, height) — the full visible size; a collider never infers size from geometry' })
   size = [0.5, 1];
 
   @property({ type: CapsuleDirection2D, description: 'Long axis of the capsule' })

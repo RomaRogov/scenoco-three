@@ -17,12 +17,12 @@ function fitted(camera: PerspectiveCamera | OrthographicCamera, config: CameraFi
 }
 
 describe('camera fit — DSL wiring', () => {
-  it('compiles fit/designWidth/designHeight into userData on both camera types, defaulting to off', () => {
+  it('compiles fit/designWidth/designHeight into userData on both camera types', () => {
     const live = instantiateScene(
       compile(`<Scene>
         <PerspectiveCamera id="persp" fov="50" fit="width" designWidth="10" designHeight="6" />
         <OrthographicCamera id="ortho" fit="contain" designWidth="10" designHeight="6" />
-        <PerspectiveCamera id="plain" />
+        <PerspectiveCamera id="plain" fit="none" />
       </Scene>`),
     );
     const persp = live.nodes.find((n) => n.sceneId === 'persp') as unknown as PerspectiveCamera;
@@ -32,9 +32,27 @@ describe('camera fit — DSL wiring', () => {
     const ortho = live.nodes.find((n) => n.sceneId === 'ortho') as unknown as OrthographicCamera;
     expect(ortho.userData.fit).toEqual({ mode: 'contain', designWidth: 10, designHeight: 6 });
 
-    // Undeclared fit defaults to 'none' — applyCameraFit must leave it untouched.
+    // `none` opts out, and applyCameraFit must leave the camera untouched — the
+    // design size still compiles through (it defaults to 16:9, not 0), so the
+    // mode alone is what turns fitting off.
     const plain = live.nodes.find((n) => n.sceneId === 'plain') as unknown as PerspectiveCamera;
-    expect(plain.userData.fit).toEqual({ mode: 'none', designWidth: 0, designHeight: 0 });
+    expect(plain.userData.fit).toEqual({ mode: 'none', designWidth: 16, designHeight: 9 });
+  });
+
+  // The design size defaults to 16:9 rather than 0 because `applyCameraFit`
+  // reads a zero dimension as "not configured" and returns early. Left at 0, a
+  // camera authored `fit="contain"` would frame exactly like `none` and nothing
+  // would say so — the mode has to mean what it says with no extra attributes.
+  it('makes the default fit actually fit, with no design size authored', () => {
+    const live = instantiateScene(compile(`<Scene><PerspectiveCamera id="cam" fov="50" fit="contain" /></Scene>`));
+    const cam = live.nodes.find((n) => n.sceneId === 'cam') as unknown as PerspectiveCamera;
+    expect(cam.userData.fit).toEqual({ mode: 'contain', designWidth: 16, designHeight: 9 });
+
+    // Narrower than 16:9 (a portrait phone) binds on width, so the fov widens to
+    // keep the design region's horizontal extent visible instead of cropping it.
+    fitted(cam, cam.userData.fit as CameraFitConfig);
+    applyCameraFit(cam, 9 / 16);
+    expect(cam.fov).toBeGreaterThan(50);
   });
 });
 

@@ -10,11 +10,25 @@ export {
   type PointerEventData,
 } from './runtime/Engine.js';
 export { Component } from './runtime/Component.js';
+// How a camera's frustum adapts to the canvas/render aspect (`<Camera fit=…>`).
+// The name list is public so tooling offers exactly the modes the engine has.
+export { CAMERA_FIT_MODES, type CameraFitModeName, type CameraFitConfig } from './runtime/cameraFit.js';
 export { System } from './runtime/System.js';
+// Typed events: how components signal each other without importing each other.
+// A class field, never a string name — the compiler checks every subscriber.
+export { Event } from './runtime/Event.js';
+// Input names are closed enums, not bare strings: `getKeyDown(KeyCode.Space)`
+// typechecks, `getKeyDown('Spce')` is a compile error. `keyCodeFromName` is the
+// boundary check for a key name that arrives untyped (an editor command, a config).
 export {
   InputManager,
-  type KeyCode,
-  type GamepadButton,
+  KeyCode,
+  KEY_CODES,
+  keyCodeFromName,
+  GamepadButton,
+  MouseButton,
+  MOUSE_BUTTONS,
+  Axis,
   type GamepadState,
 } from './subsystems/Input.js';
 export {

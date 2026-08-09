@@ -9,9 +9,9 @@ import { Collider, type Bounds } from './Collider.js';
  */
 @component({ name: 'CylinderCollider', description: 'A cylinder collision shape along Y (detection-only; approximated as a capsule)' })
 export class CylinderCollider extends Collider {
-  @property({ type: ValueType.Float, description: 'Radius' })
+  @property({ type: ValueType.Float, required: true, description: 'Radius — match the visible geometry; a collider never infers size from geometry' })
   radius = 0.5;
-  @property({ type: ValueType.Float, description: 'Half-height (along Y)' })
+  @property({ type: ValueType.Float, required: true, description: 'Half-height (along Y)' })
   halfHeight = 0.5;
 
   private readonly _a = new Vector3();

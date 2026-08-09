@@ -62,7 +62,7 @@
       <Components><ParticleSystem src="../vfx/dust.particle.xml" /></Components>
     </Group>
 
-    <PerspectiveCamera id="cam" position="y: 3.3; z: 7.5" eulerAngles="x: -18" fov="62" near="0.1" far="150">
+    <PerspectiveCamera id="cam" position="y: 3.3; z: 7.5" eulerAngles="x: -18" fov="62" near="0.1" far="150" fit="none">
       <!-- ─── HUD (in-canvas UI) ─────────────────────────────────────────────
            pmndrs-uikit flexbox UI as scene nodes. <Fullscreen> fills the
            viewport (child of the camera, uikit convention); the Hud component
@@ -72,8 +72,12 @@
       <Fullscreen id="hud" color="#e2e8f0" fontWeight="bold">
         <Container width="100%" flexDirection="row" justifyContent="space-between" alignItems="flex-start" padding="18">
           <Container flexDirection="column" alignItems="flex-end">
-            <Container flexDirection="row" gap="8" backgroundColor="#0a0e16" backgroundOpacity="0.65" borderRadius="10"
+            <!-- Translucent pill: `opacity` is inherited, so the background is its
+                 own absolutely-positioned element behind fully-opaque text. -->
+            <Container flexDirection="row" gap="8"
                        paddingTop="8" paddingBottom="8" paddingLeft="16" paddingRight="16">
+              <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                         backgroundColor="#0a0e16" opacity="0.65" borderRadius="10" />
               <Text text="SCORE" fontSize="20" />
               <Text id="score" text="0" fontSize="20" color="#4af0e0" />
             </Container>
@@ -82,8 +86,10 @@
               <Text id="bestVal" text="0" fontSize="12" color="#94a3b8" fontWeight="normal" />
             </Container>
           </Container>
-          <Container flexDirection="row" gap="8" alignItems="center" backgroundColor="#0a0e16" backgroundOpacity="0.65"
-                     borderRadius="10" paddingTop="8" paddingBottom="8" paddingLeft="16" paddingRight="16">
+          <Container flexDirection="row" gap="8" alignItems="center"
+                     paddingTop="8" paddingBottom="8" paddingLeft="16" paddingRight="16">
+            <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                       backgroundColor="#0a0e16" opacity="0.65" borderRadius="10" />
             <Container width="14" height="14" borderRadius="7" backgroundColor="#fbbf24" />
             <Text id="coins" text="0" fontSize="20" color="#fbbf24" />
           </Container>
@@ -91,16 +97,18 @@
         <!-- Bottom-center controls hint. -->
         <Container positionType="absolute" positionBottom="16" positionLeft="0" width="100%"
                    flexDirection="row" justifyContent="center">
-          <Container backgroundColor="#0a0e16" backgroundOpacity="0.55" borderRadius="8"
-                     paddingTop="6" paddingBottom="6" paddingLeft="14" paddingRight="14">
+          <Container paddingTop="6" paddingBottom="6" paddingLeft="14" paddingRight="14">
+            <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                       backgroundColor="#0a0e16" opacity="0.55" borderRadius="8" />
             <Text text="A/D lane - W/Space jump - S slide" fontSize="12" color="#94a3b8" fontWeight="normal" />
           </Container>
         </Container>
         <!-- Game-over panel — hidden until Hud.gameOver() shows it. -->
         <Container id="gameover" display="none" positionType="absolute"
                    positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
-                   flexDirection="column" gap="14" alignItems="center" justifyContent="center"
-                   backgroundColor="#080a10" backgroundOpacity="0.72">
+                   flexDirection="column" gap="14" alignItems="center" justifyContent="center">
+          <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                     backgroundColor="#080a10" opacity="0.72" />
           <Text text="CRASHED" fontSize="40" color="#fb7185" letterSpacing="2" />
           <Text id="finalScore" text="Score 0 - 0 coins" fontSize="18" fontWeight="normal" />
           <Container id="restartBtn" backgroundColor="#4af0e0" borderRadius="10"

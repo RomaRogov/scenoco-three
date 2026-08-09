@@ -81,6 +81,21 @@ export interface PropertyMeta {
    * asset picker. See `AssetKind`.
    */
   asset?: AssetKind;
+  /**
+   * The characters a `string` attr can actually render, for a field whose value
+   * goes to a renderer with a fixed glyph set. Anything outside it is a build-time
+   * diagnostic naming the character.
+   *
+   * `<Text>` needs this: uikit renders MSDF atlases, and the bundled Inter subset
+   * is **104 characters** — no em-dash, ellipsis, `×`, or any accented letter. An
+   * unsupported one draws a missing-glyph box and says so only in a runtime
+   * `console.warn`, which nobody is reading while a scene compiles. Typographic
+   * punctuation is exactly what careful prose reaches for, so this is not an
+   * exotic case: `<Text text="Level 1 — Start" />` is the natural thing to write.
+   *
+   * Declared by the package that owns the renderer, since only it knows the font.
+   */
+  charset?: string;
 }
 
 /**

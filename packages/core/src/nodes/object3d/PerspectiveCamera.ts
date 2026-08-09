@@ -2,10 +2,10 @@ import { PerspectiveCamera } from 'three';
 import { Object3DNode } from '../base.js';
 import { node, property, ValueType } from '../../registry/decorators.js';
 import { enumOf } from '../../registry/EnumRegistry.js';
-import type { CameraFitConfig, CameraFitModeName } from '../../runtime/cameraFit.js';
+import { CAMERA_FIT_MODES, type CameraFitConfig, type CameraFitModeName } from '../../runtime/cameraFit.js';
 
 /** See `CameraFitModeName` in runtime/cameraFit.ts for what each mode does. */
-const CameraFit = enumOf('CameraFit', ['none', 'width', 'height', 'contain', 'cover']);
+const CameraFit = enumOf('CameraFit', [...CAMERA_FIT_MODES]);
 
 @node({ name: 'PerspectiveCamera', description: 'Perspective-projection camera' })
 export class PerspectiveCameraNode extends Object3DNode {
@@ -17,18 +17,24 @@ export class PerspectiveCameraNode extends Object3DNode {
 
   /**
    * Keep a `designWidth`×`designHeight` region always framed correctly, on any
-   * canvas aspect ratio (portrait phone, landscape desktop, …) — `none` (default)
-   * leaves `fov` exactly as authored, unaffected. Only the *ratio* of
+   * canvas aspect ratio (portrait phone, landscape desktop, …). `contain` — the
+   * default — never crops the design region, letterboxing the other axis instead;
+   * `none` leaves `fov` exactly as authored. Only the *ratio* of
    * `designWidth`/`designHeight` matters for a perspective camera (framing is
    * scale-invariant with distance); `width`/`height`/`contain`/`cover` mirror
    * `<OrthographicCamera>`'s fit, which uses them as literal world units.
+   *
+   * The design size defaults to 16:9 rather than 0 because `applyCameraFit`
+   * treats a zero dimension as "not configured" and returns: a camera that said
+   * `fit="contain"` and silently framed like `none` is the worst of both, since
+   * nothing reports it. A real default means the mode always does what it says.
    */
-  @property({ type: CameraFit, description: "Auto-adjust fov to a designWidth/designHeight aspect ratio as the canvas resizes ('none' = off, unchanged fov)" })
-  fit: CameraFitModeName = 'none';
+  @property({ type: CameraFit, required: true, description: "Auto-adjust fov to a designWidth/designHeight aspect ratio as the canvas resizes ('none' = off, unchanged fov)" })
+  fit: CameraFitModeName = 'contain';
   @property({ type: ValueType.Float, description: 'Reference width for `fit` (only its ratio to designHeight matters)' })
-  designWidth = 0;
+  designWidth = 16;
   @property({ type: ValueType.Float, description: 'Reference height for `fit` (only its ratio to designWidth matters)' })
-  designHeight = 0;
+  designHeight = 9;
 
   // Aspect is set by the engine to match the canvas; so is the `fit` adjustment.
   build(): PerspectiveCamera {

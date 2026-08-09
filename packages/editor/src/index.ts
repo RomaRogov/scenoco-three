@@ -1,6 +1,6 @@
 // `@scenoco-three/editor` — programmatic API behind the `scenoco-editor` CLI.
 // Serves the editor app, bridges it to an MCP server over a WebSocket, and exposes
-// MCP tools (open_file / get_preview / run / pause / stop / get_telemetry).
+// MCP tools (open_file / screenshot / playback / simulate / inspect).
 export { startEditorServer, type ServerOptions, type EditorServer, type EditorBridge } from './server.js';
 export { startMcpServer, buildMcpServer, type McpHandle } from './mcp.js';
 export {

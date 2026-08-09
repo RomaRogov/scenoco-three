@@ -438,6 +438,7 @@ function readAttrs(target: CtorWithProps, tag: string): { attrs: Record<string, 
       ...(meta.required ? { required: true } : {}),
       description: meta.description,
       ...(meta.asset !== undefined ? { asset: meta.asset } : {}),
+      ...(meta.charset !== undefined ? { charset: meta.charset } : {}),
     };
   }
   return { attrs, names: [...props.keys()] };

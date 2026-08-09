@@ -9,7 +9,7 @@
   <Attachments>
     <Background color="#0a0e16" />
   </Attachments>
-  <PerspectiveCamera id="cam" position="y: 2; z: 10" fov="45" near="0.1" far="200" />
+  <PerspectiveCamera id="cam" position="y: 2; z: 10" fov="45" near="0.1" far="200" fit="contain" />
   <AmbientLight intensity="0.7" />
 
   <!-- Full fire effect from a separate .particle.xml (its own grammar + XSD),

@@ -145,7 +145,23 @@ function expandInstance(
         block = { tag: 'Components', attributes: new Map(), children: [], parent: clone, line: child.line, column: child.column };
         clone.children.push(block);
       }
+      // Adding a component the prefab root already has is legal (Unity allows
+      // duplicates too) but is almost never what was meant here: the natural
+      // guess at "override this placement's values" is to restate the component
+      // with new attributes, which compiles clean and leaves the node carrying
+      // *two* of them. `getComponent(T)` then returns the prefab's original, so
+      // the override looks like it silently did nothing — with `npm run check`
+      // green and the inspector showing correct-looking data on both.
+      const existing = new Set(block.children.map((c) => c.tag));
       for (const comp of child.children) {
+        if (existing.has(comp.tag)) {
+          fail(
+            'duplicate-component',
+            `<${comp.tag}> is already on this prefab's root, so this adds a second one. ` +
+              `To change the existing component's values, give it an id in ${src} and use <Override target="#<id>" …>.`,
+            comp,
+          );
+        }
         comp.parent = block;
         block.children.push(comp);
       }
@@ -291,7 +307,7 @@ function applyOverride(
     if (attr === 'target') continue;
     const type = schema.get(attr);
     if (type === undefined) {
-      fail('unknown-attr', `<Override>: <${found.tag}> has no attribute "${attr}"`, override);
+      fail('unknown-attr', `<Override>: <${found.tag}> has no attribute "${attr}"${componentHint(found, attr, rename)}`, override);
       continue;
     }
     if (type !== null) {
@@ -303,6 +319,33 @@ function applyOverride(
     }
     found.attributes.set(attr, value);
   }
+}
+
+/**
+ * When an `<Override>` names an attribute the target doesn't have, look for a
+ * *component* on that node which does — that is nearly always what happened, and
+ * the bare error points at the wrong element entirely.
+ *
+ * `<Override target="#brick" hitPoints="2">` fails saying "<Mesh> has no attribute
+ * hitPoints", because the id `brick` names the node while `hitPoints` belongs to a
+ * component sitting inside it. Worse, a component's id is what `target` needs, and
+ * a component isn't obliged to have one — so the fix may be to go and add an `id`
+ * in the prefab file, which nothing in the old message hinted at.
+ */
+function componentHint(target: SncElement, attr: string, rename: Map<string, string>): string {
+  const block = target.children.find((c) => c.tag === 'Components');
+  for (const comp of block?.children ?? []) {
+    if (!Registry.getComponent(comp.tag)?.meta.properties.has(attr)) continue;
+    // The clone carries scoped ids by now ("b1/hp"), but `target` is written in
+    // the prefab's own namespace ("hp") — suggest what the author has to type.
+    const scoped = comp.attributes.get('id');
+    const id = [...rename].find(([, to]) => to === scoped)?.[0] ?? scoped;
+    return id
+      ? ` — "${attr}" is a property of <${comp.tag}>; did you mean target="#${id}"?`
+      : ` — "${attr}" is a property of <${comp.tag}> on this node, but that component has no id to target.` +
+        ` Add one in the prefab file (<${comp.tag} id="…" />), then target it.`;
+  }
+  return '';
 }
 
 function findById(root: SncElement, id: string): SncElement | undefined {

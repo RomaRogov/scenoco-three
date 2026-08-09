@@ -1,19 +1,11 @@
 import { Color, Euler, MathUtils, Vector2, Vector3, type Object3D } from 'three';
 import {
-  EULER_FORMAT,
-  VEC2_FORMAT,
-  VEC3_FORMAT,
-  parseVecText,
-  vecFormatFor,
-  TRANSFORM_ATTRS,
-  type VecFormat,
   Registry,
   elementType,
   detachAttachment,
   getAttachmentDef,
   getNodeDef,
   isArrayType,
-  isEnumType,
   type Component,
   type CompiledAsset,
   type CompiledComponent,
@@ -29,7 +21,7 @@ import {
 } from '@scenoco-three/core';
 import { ValueType } from '@scenoco-three/core';
 import type { NodeOrigin, SceneProvenance } from '@scenoco-three/compiler';
-import type { MemberRef, AgentEdit, EditOp, EditTarget, NodeRef, StructuralOp } from '../src/protocol.js';
+import type { MemberRef, EditOp, EditTarget, NodeRef, StructuralOp } from '../src/protocol.js';
 import { isEditorOnly } from './meta.js';
 import { UndoStack } from './commands.js';
 
@@ -1282,89 +1274,6 @@ export class SceneDocument {
     }
   }
 
-  // ── agent edits (MCP `edit_scene`) ────────────────────────────────────────────
-
-  /**
-   * Apply agent-requested edits through the same undoable mutators the inspector
-   * uses, so they are undoable, dirty-flagging, and live in the viewport. A failed
-   * edit reports its reason without aborting the rest of the batch.
-   */
-  applyAgentEdits(edits: AgentEdit[]): { applied: number; failed: { edit: AgentEdit; reason: string }[] } {
-    let applied = 0;
-    const failed: { edit: AgentEdit; reason: string }[] = [];
-    for (const edit of edits) {
-      const reason = this.applyAgentEdit(edit);
-      if (reason) failed.push({ edit, reason });
-      else applied++;
-    }
-    return { applied, failed };
-  }
-
-  /** Apply one agent edit; returns a failure reason, or undefined on success. */
-  private applyAgentEdit(edit: AgentEdit): string | undefined {
-    const node = this.nodeById(edit.node);
-    if (!node) {
-      const ids = this.compiled.nodes.map((n) => n.id).filter((id): id is string => !!id);
-      return `no node with id "${edit.node}" — available ids: ${ids.join(', ') || '(none)'}`;
-    }
-    const ordinal = edit.ordinal ?? 0;
-
-    if (edit.component) {
-      if (!this.canEditComponents(node)) return `components on "${edit.node}" are read-only (prefab content)`;
-      const comp = this.componentByTarget(edit.node, edit.component, ordinal);
-      if (!comp) return `no <${edit.component}> (ordinal ${ordinal}) on "${edit.node}"`;
-      const meta = Registry.getComponent(edit.component)?.meta.properties.get(edit.attr);
-      if (!meta || isArrayType(meta.type)) {
-        const names = [...(Registry.getComponent(edit.component)?.meta.properties.keys() ?? [])];
-        return `<${edit.component}> has no editable property "${edit.attr}" — properties: ${names.join(', ') || '(none)'}`;
-      }
-      const value = coerceScalar(edit.value, elementType(meta.type));
-      if (value === undefined) return `value ${JSON.stringify(edit.value)} does not fit property "${edit.attr}"`;
-      this.setComponentProp(comp, edit.attr, value);
-      return undefined;
-    }
-
-    if (edit.attachment) {
-      const slot = this.attachmentSlot(node, edit.attachment, ordinal);
-      if (slot === undefined) return `no <${edit.attachment}> (ordinal ${ordinal}) on "${edit.node}"`;
-      if (edit.attr === 'src') {
-        this.setAttachmentSrc(node, slot, String(edit.value));
-        return undefined;
-      }
-      const meta = getAttachmentDef(edit.attachment)?.attrs[edit.attr];
-      if (!meta || isArrayType(meta.type)) return `<${edit.attachment}> has no editable attr "${edit.attr}"`;
-      const value = coerceScalar(edit.value, elementType(meta.type));
-      if (value === undefined) return `value ${JSON.stringify(edit.value)} does not fit attr "${edit.attr}"`;
-      this.setAttachmentProp(node, slot, edit.attr, value);
-      return undefined;
-    }
-
-    // Node-level: transform channels, visible, or a prefab instance's src.
-    if (edit.attr === 'src') {
-      if (this.nodeOrigin(node).kind !== 'prefab-root') return `"src" is only editable on a prefab instance`;
-      this.setNodeSrc(node, String(edit.value));
-      return undefined;
-    }
-    if (!this.canEditTransform(node)) return `transform of "${edit.node}" is read-only (prefab content)`;
-    if (edit.attr === 'visible') {
-      if (typeof edit.value !== 'boolean') return `"visible" takes a boolean`;
-      this.setVisible(node, edit.value);
-      return undefined;
-    }
-    if (edit.attr === 'position' || edit.attr === 'eulerAngles' || edit.attr === 'scale') {
-      // Each channel carries its own identity — an omitted axis is 0 for
-      // position/eulerAngles but 1 for scale — so take the format from the
-      // registry entry rather than assuming a plain vec3.
-      const fmt = vecFormatFor(TRANSFORM_ATTRS[edit.attr]?.type);
-      if (!fmt) return `"${edit.attr}" is not a vector attribute`;
-      const value = coerceVec(edit.value, fmt);
-      if (!value) return `"${edit.attr}" takes [x, y, z] or "${fmt.example}"`;
-      this.setTransform(node, edit.attr, value);
-      return undefined;
-    }
-    return `unknown node attr "${edit.attr}" — use position/eulerAngles/scale/visible (or src on a prefab instance)`;
-  }
-
   private nodeById(id?: string): Object3D | undefined {
     if (!id) return undefined;
     const i = this.compiled.nodes.findIndex((n) => n.id === id);
@@ -1506,62 +1415,6 @@ function cloneRuntime(v: unknown): unknown {
     return new Euler(e.x, e.y, e.z, e.order);
   }
   return Array.isArray(v) ? v.map(cloneRuntime) : v;
-}
-
-/**
- * Coerce an agent-supplied value into the compiled form the target's scalar type
- * expects — accepts the native JSON form, plus the friendly string spellings an
- * LLM tends to write ("3 1 0" for a vec, "#ff0000" for a color, "true" for a
- * bool, an enum member's name). Returns undefined when the value doesn't fit.
- */
-function coerceScalar(value: string | number | boolean | number[], elem: PropType | { new (): unknown } | EnumDef): number | boolean | string | number[] | undefined {
-  if (isEnumType(elem)) {
-    if (typeof value === 'string' && elem.byName.has(value)) return elem.byName.get(value)!;
-    if ((typeof value === 'string' || typeof value === 'number') && elem.byValue.has(value)) return value;
-    return undefined;
-  }
-  switch (elem) {
-    case ValueType.Float:
-    case ValueType.Int: {
-      const n = typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) : NaN;
-      return Number.isFinite(n) ? (elem === ValueType.Int ? Math.round(n) : n) : undefined;
-    }
-    case ValueType.Bool:
-      return typeof value === 'boolean' ? value : value === 'true' ? true : value === 'false' ? false : undefined;
-    case ValueType.String:
-      return typeof value === 'string' ? value : undefined;
-    case ValueType.Color: {
-      if (typeof value === 'number') return value;
-      if (typeof value === 'string') {
-        const n = parseInt(value.replace(/^#/, ''), 16);
-        return Number.isFinite(n) ? n : undefined;
-      }
-      return undefined;
-    }
-    case ValueType.Vec2:
-      return coerceVec(value, VEC2_FORMAT);
-    case ValueType.Vec3:
-      return coerceVec(value, VEC3_FORMAT);
-    case ValueType.Euler:
-      return coerceVec(value, EULER_FORMAT);
-    default:
-      return undefined; // references/prefabs aren't editable over MCP
-  }
-}
-
-/**
- * A numeric vector from a number[] (the canonical MCP form) or from attribute
- * text. Text goes through core's `parseVecText`, the same grammar the compiler
- * uses — so an agent that has read the scene may write `"y: 1.5"` here and get
- * the behaviour it saw in the file, rather than a bespoke splitter's guess.
- */
-function coerceVec(value: string | number | boolean | number[], fmt: VecFormat): number[] | undefined {
-  if (typeof value === 'string') {
-    const r = parseVecText(value, fmt);
-    return r.ok ? r.value : undefined;
-  }
-  if (!Array.isArray(value)) return undefined;
-  return value.length === fmt.n && value.every((n) => typeof n === 'number' && Number.isFinite(n)) ? value : undefined;
 }
 
 const isSavableScalar = (v: unknown): boolean =>

@@ -1,5 +1,5 @@
 import { Vector3, type Object3D } from 'three';
-import { Component, component, property, PrefabAsset, ValueType } from '@scenoco-three/core';
+import { Component, component, property, KeyCode, PrefabAsset, ValueType } from '@scenoco-three/core';
 import { Tween } from '@scenoco-three/animation';
 import { Hud } from './Hud.js';
 import { Obstacle } from './Obstacle.js';
@@ -108,10 +108,10 @@ export class PlayerController extends Component {
   private readInput(): void {
     if (this.state !== 'run') return; // no lane/jump/slide changes mid-jump or mid-slide
     const input = this.engine.input;
-    if (input.getKeyDown('A') || input.getKeyDown('LeftArrow')) this.changeLane(-1);
-    if (input.getKeyDown('D') || input.getKeyDown('RightArrow')) this.changeLane(1);
-    if (input.getKeyDown('W') || input.getKeyDown('UpArrow') || input.getKeyDown('Space')) this.jump();
-    if (input.getKeyDown('S') || input.getKeyDown('DownArrow')) this.slide();
+    if (input.getKeyDown(KeyCode.A) || input.getKeyDown(KeyCode.LeftArrow)) this.changeLane(-1);
+    if (input.getKeyDown(KeyCode.D) || input.getKeyDown(KeyCode.RightArrow)) this.changeLane(1);
+    if (input.getKeyDown(KeyCode.W) || input.getKeyDown(KeyCode.UpArrow) || input.getKeyDown(KeyCode.Space)) this.jump();
+    if (input.getKeyDown(KeyCode.S) || input.getKeyDown(KeyCode.DownArrow)) this.slide();
   }
 
   private changeLane(dir: -1 | 1): void {

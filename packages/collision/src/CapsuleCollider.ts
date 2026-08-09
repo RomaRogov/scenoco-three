@@ -5,9 +5,9 @@ import { Collider, type Bounds } from './Collider.js';
 /** A capsule collision shape along Y (API-identical to rapier's `<CapsuleCollider>`). */
 @component({ name: 'CapsuleCollider', description: 'A capsule collision shape, axis-aligned along Y (detection-only)' })
 export class CapsuleCollider extends Collider {
-  @property({ type: ValueType.Float, description: 'Radius of the hemispherical caps' })
+  @property({ type: ValueType.Float, required: true, description: 'Radius of the hemispherical caps — match the visible geometry; a collider never infers size from geometry' })
   radius = 0.5;
-  @property({ type: ValueType.Float, description: 'Half the distance between the cap centers (along Y)' })
+  @property({ type: ValueType.Float, required: true, description: 'Half the distance between the cap centers (along Y)' })
   halfHeight = 0.5;
 
   private readonly _a = new Vector3();

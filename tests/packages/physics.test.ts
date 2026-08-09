@@ -137,7 +137,7 @@ describe('box2d (planck) — 2D physics', () => {
       <Attachments>
         <Physics2D gravity="0 -9.81" />
       </Attachments>
-      <Mesh id="anchor" position="0 5 0"><Attachments><BoxGeometry /></Attachments><Components><RigidBody2D kind="static" /><BoxCollider2D /></Components></Mesh>
+      <Mesh id="anchor" position="0 5 0"><Attachments><BoxGeometry /></Attachments><Components><RigidBody2D kind="static" /><BoxCollider2D halfExtents="0.5 0.5" /></Components></Mesh>
       <Mesh id="bob" position="0 3 0"><Attachments><SphereGeometry radius="0.5" /></Attachments><Components>
         <RigidBody2D /><CircleCollider2D radius="0.5" /><Joint2D kind="distance" connectedBody="#anchor" anchor="0 0" connectedAnchor="0 0" />
       </Components></Mesh>

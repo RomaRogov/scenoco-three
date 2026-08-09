@@ -5,7 +5,7 @@ import { Collider, type Bounds } from './Collider.js';
 /** A sphere collision shape (API-identical to rapier's `<SphereCollider>`) — a zero-length capsule internally. */
 @component({ name: 'SphereCollider', description: 'A sphere collision shape (detection-only)' })
 export class SphereCollider extends Collider {
-  @property({ type: ValueType.Float, description: 'Radius' })
+  @property({ type: ValueType.Float, required: true, description: 'Radius — match the visible geometry (e.g. SphereGeometry radius); a collider never infers size from geometry' })
   radius = 0.5;
 
   private readonly _center = new Vector3();

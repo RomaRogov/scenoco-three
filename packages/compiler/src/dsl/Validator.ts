@@ -25,7 +25,7 @@ import {
 import { ValueType } from '@scenoco-three/core/internal';
 import { nearestName, type SncDiagnostic } from './diagnostics.js';
 import type { SncElement } from './SceneParser.js';
-import { parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } from './types.js';
+import { ATTACHMENT_UNIQUE_ATTR, parseArrayLiteral, parseScalarArray, scalarCodec, type ScalarType } from './types.js';
 import { getSrcCompiler } from './src-document.js';
 
 /**
@@ -341,7 +341,7 @@ class ValidationContext {
         this.error(el, 'unknown-attr', `<${el.tag}> has no attribute "${attr}"${suggestion ? `. Did you mean "${suggestion}"?` : ''}`);
         continue;
       }
-      this.parseScalarAttr(el, attr, raw, meta.type);
+      this.parseScalarAttr(el, attr, raw, meta.type, meta.charset);
     }
     for (const [attr, meta] of Object.entries(allowed)) {
       if (meta.required && !el.attributes.has(attr)) {
@@ -367,13 +367,20 @@ class ValidationContext {
       // An attachment may pull its defaults from a resource file (e.g. a shared
       // .material.xml); the file itself is resolved and checked at compile time.
       if (attr === 'src') continue;
+      // `unique` opts this element out of the shared attachment pool — see
+      // ATTACHMENT_UNIQUE_ATTR. Like `src`, it is on every attachment rather than
+      // declared per class, so it isn't in `def.attrs`.
+      if (attr === ATTACHMENT_UNIQUE_ATTR) {
+        this.parseScalarAttr(el, attr, raw, 'bool');
+        continue;
+      }
       const meta = def.attrs[attr];
       if (!meta) {
-        const suggestion = nearestName(attr, [...Object.keys(def.attrs), 'src']);
+        const suggestion = nearestName(attr, [...Object.keys(def.attrs), 'src', ATTACHMENT_UNIQUE_ATTR]);
         this.error(el, 'unknown-attr', `<${el.tag}> has no attribute "${attr}"${suggestion ? `. Did you mean "${suggestion}"?` : ''}`);
         continue;
       }
-      this.parseScalarAttr(el, attr, raw, meta.type);
+      this.parseScalarAttr(el, attr, raw, meta.type, meta.charset);
     }
     for (const [attr, meta] of Object.entries(def.attrs)) {
       if (meta.required && !el.attributes.has(attr)) {
@@ -403,7 +410,7 @@ class ValidationContext {
       if (isArrayType(meta.type)) {
         this.validateArrayAttr(el, attr, raw, elementType(meta.type));
       } else if (isScalarType(meta.type) || isEnumType(meta.type)) {
-        this.parseScalarAttr(el, attr, raw, meta.type);
+        this.parseScalarAttr(el, attr, raw, meta.type, meta.charset);
       } else if (meta.type === ValueType.Prefab) {
         // A prefab prop is a `.prefab.xml` file path (no `#`); the file itself is
         // resolved, compiled, and checked at compile time (with its own diagnostics).
@@ -414,7 +421,9 @@ class ValidationContext {
     }
     for (const [attr, meta] of props) {
       if (meta.required && !el.attributes.has(attr)) {
-        this.error(el, 'missing-attr', `<${el.tag}> is missing required property "${attr}"`);
+        // Carry the property's own description into the diagnostic — for a
+        // required property it states what to write and why it can't be omitted.
+        this.error(el, 'missing-attr', `<${el.tag}> is missing required property "${attr}" — ${meta.description}`);
       }
     }
   }
@@ -449,11 +458,36 @@ class ValidationContext {
     attr: string,
     raw: string,
     type: ScalarType | EnumDef | [ScalarType | EnumDef],
+    charset?: string,
   ): void {
     const result = Array.isArray(type) ? parseScalarArray(raw, type[0]) : scalarCodec(type).parse(raw);
     if (!result.ok) {
       this.error(el, 'bad-value', `<${el.tag}> attribute "${attr}": ${result.message}`);
+      return;
     }
+    if (charset !== undefined) this.checkCharset(el, attr, raw, charset);
+  }
+
+  /**
+   * Flag characters the renderer has no glyph for — see `PropertyMeta.charset`.
+   *
+   * The whole value is scanned rather than stopping at the first miss: a title
+   * screen tends to contain several of the same *kind* of character (curly
+   * quotes, an ellipsis, a dash), and reporting them one build at a time turns
+   * one fix into four. Reported as one diagnostic per attribute, listing them.
+   */
+  private checkCharset(el: SncElement, attr: string, raw: string, charset: string): void {
+    const supported = new Set([...charset]);
+    // Deduplicated, and by code point (`[...raw]`, not `raw[i]`) so an emoji is
+    // reported as itself instead of two broken halves.
+    const missing = [...new Set([...raw])].filter((ch) => !supported.has(ch) && ch !== '\n');
+    if (missing.length === 0) return;
+    this.error(
+      el,
+      'unsupported-glyph',
+      `<${el.tag}> attribute "${attr}": the font has no glyph for ${missing.map((c) => `"${c}" (U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')})`).join(', ')} — ` +
+        `it renders as an empty box. The bundled set is ASCII-ish; use "-" for a dash, "..." for an ellipsis, and plain quotes.`,
+    );
   }
 
   /** Validate an array-typed component property `[…]`: scalars/enums via codec, refs/prefabs per element. */

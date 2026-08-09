@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValueType } from '@scenoco-three/core';
-import { generateApi, generateApiJson, generateMaterialXsd, generatePrefabXsd, generateXsd, parseScene } from '@scenoco-three/compiler';
+import { generateApi, generateApiJson, generateMaterialXsd, generatePrefabXsd, generateXsd, parseScene, whichIndexText, whichText } from '@scenoco-three/compiler';
+import '../fixtures/components/RequiredProbe.js';
 
 describe('XSD exporter', () => {
   const xsd = generateXsd();
@@ -113,5 +114,71 @@ describe('API exporter', () => {
       package: expect.stringContaining('@scenoco-three/core/nodes'),
       symbol: 'Mesh',
     });
+  });
+});
+
+describe('`scenoco which` — symbol lookup (a view over the API model)', () => {
+  const api = generateApi();
+
+  it('renders a component with its properties, defaults, required flags and references', () => {
+    const text = whichText(api, 'Follow').text;
+    expect(text).toContain('<Follow> — component');
+    expect(text).toContain('#ref → <Oscillator>'); // typed reference, in the form XML writes it
+    // A required property reports "required" instead of a default, so an author
+    // can see at a glance what may not be omitted.
+    const probe = whichText(api, 'RequiredProbe').text;
+    expect(probe).toMatch(/size\s+vec2\s+required/);
+  });
+
+  it('renders a node tag with its required attachment groups, and reports what holds it', () => {
+    const text = whichText(api, 'Mesh').text;
+    expect(text).toContain('<Mesh> — node tag');
+    expect(text).toMatch(/Requires[\s\S]*<BoxGeometry>/); // the geometry group is mandatory
+    expect(text).toContain('<Components>'); // where behaviour goes
+  });
+
+  // An enum-typed attribute used to print only the enum's *name* ("CameraFit"),
+  // and looking that name up answered "not registered" — a dead end that reads as
+  // "this type does not exist". The members are what an author writes, so they
+  // belong on the line, and the name has to resolve like any other symbol.
+  it('lists an enum attribute’s members, and resolves the enum name itself', () => {
+    expect(whichText(api, 'PerspectiveCamera').text).toMatch(/fit\s+CameraFit.*none \| width \| height \| contain \| cover/);
+
+    const enumText = whichText(api, 'CameraFit');
+    expect(enumText.ok).toBe(true);
+    expect(enumText.text).toContain('CameraFit — enum');
+    expect(enumText.text).toContain('<PerspectiveCamera> fit'); // and where it may be written
+  });
+
+  // `<PrefabInstance>` is expanded away before the tree is built, so nothing
+  // registers a NodeDef for it — but it is a tag authors write, and the XSD has
+  // always emitted it. Looking it up used to answer "not registered", the same
+  // dead end `CameraFit` had: a real tag that reads as nonexistent.
+  it('resolves a tag with no NodeDef of its own', () => {
+    const text = whichText(api, 'PrefabInstance');
+    expect(text.ok).toBe(true);
+    expect(text.text).toContain('<PrefabInstance> — node tag');
+    expect(text.text).toMatch(/src\s+string\s+required/);
+    // `id` is required on *every* instance (prefab.ts fails before it even
+    // resolves src), and the lookup used to list only `src` — so the tool itself
+    // was the reason a batch of placements came back one error per instance.
+    expect(text.text).toMatch(/id\s+string\s+required/);
+    // How you change one placement's values is a child element no attribute row
+    // mentions, and guessing wrong is silent — so the shape is shown, not implied.
+    expect(text.text).toContain('<Override target="#hp" points="20" />');
+    expect(whichIndexText(api)).toContain('<PrefabInstance>');
+  });
+
+  it('suggests a near miss and lists the vocabulary when asked for nothing', () => {
+    const miss = whichText(api, 'Msh');
+    expect(miss.ok).toBe(false);
+    expect(miss.text).toContain('did you mean "Mesh"');
+    expect(whichIndexText(api)).toContain('<Mesh>');
+  });
+
+  it('disambiguates by kind when a name is registered as more than one thing', () => {
+    // `kind` narrows the search; an unrelated kind simply does not resolve.
+    expect(whichText(api, 'Mesh', 'node').ok).toBe(true);
+    expect(whichText(api, 'Mesh', 'component').ok).toBe(false);
   });
 });

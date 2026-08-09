@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "editor": "scenoco-editor --port 55470",
-    "validate": "scenoco validate assets/scenes/breakout.scene.xml",
+    "validate": "scenoco validate assets",
     "export": "scenoco export --out schema"
   },
   "dependencies": {

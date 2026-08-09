@@ -97,7 +97,17 @@ export abstract class UIElementNode extends Object3DNode {
 
   // ---- appearance -----------------------------------------------------------
   @property({ type: ValueType.Color, description: 'Background panel color' }) backgroundColor?: number;
-  @property({ type: ValueType.Float, description: 'Background panel opacity 0..1' }) backgroundOpacity?: number;
+  /**
+   * uikit has no panel-only alpha: `opacity` is **inherited**, so it fades this
+   * element's text and children with it. For a translucent panel behind readable
+   * text, give the panel its own element — an absolutely-positioned sibling
+   * filling the parent, carrying the background and the opacity, with the content
+   * beside it at full strength. (This replaced a `backgroundOpacity` attribute
+   * that uikit has never had; uikit drops unknown properties without a word, so
+   * every use of it silently did nothing.)
+   */
+  @property({ type: ValueType.Float, description: 'Opacity 0..1 — inherited, so it fades child text too' })
+  opacity?: number;
   @property({ type: ValueType.Float, description: 'Corner radius of the background panel' }) borderRadius?: number;
   @property({ type: ValueType.Float, description: 'Border width around the background panel' }) borderWidth?: number;
   @property({ type: ValueType.Color, description: 'Border color' }) borderColor?: number;

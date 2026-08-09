@@ -7,6 +7,7 @@ import {
   collectAssetRefs,
   compilePrefabXml,
   compileSceneXml,
+  componentLoadError,
   detectTagPackages,
   formatDiagnostic,
   loadComponents,
@@ -88,6 +89,13 @@ export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
           this.error(`failed to load tag modules from [${componentRoots.join(', ')}]: ${msg}`);
         },
       );
+      // A component set that failed to transpile registers nothing, so compiling
+      // against it would report every component and custom tag as unknown. Say
+      // what actually broke — one import in one file — not the cascade.
+      const failure = componentLoadError();
+      if (failure) {
+        this.error(`components in [${componentRoots.join(', ')}] failed to load:\n${failure.message}`);
+      }
 
       // Recompile when any component file changes (a property change affects
       // validation and compiled output), not just when the XML changes.

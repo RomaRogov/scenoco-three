@@ -8,7 +8,7 @@ import { Collider } from './Collider.js';
  */
 @component({ name: 'PlaneCollider', description: 'A flat Rapier ground plane (thin XZ cuboid); attaches to the node’s RigidBody.' })
 export class PlaneCollider extends Collider {
-  @property({ type: ValueType.Vec2, description: 'Half-extents in X and Z' })
+  @property({ type: ValueType.Vec2, required: true, description: 'Half-extents in X and Z — cover the playable area explicitly; a collider never infers size from geometry' })
   halfExtents = [5, 5];
 
   shapeDesc(): RAPIER.ColliderDesc {

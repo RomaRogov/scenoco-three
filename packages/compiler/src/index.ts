@@ -78,7 +78,9 @@ export {
   type Relation,
   type EntityRef,
   type AttachmentGroupRef,
+  type SourceRef,
 } from './exporters/api.js';
+export { whichText, whichIndexText, type WhichKind, type WhichResult } from './exporters/which.js';
 
 export { formatDiagnostic, type SncDiagnostic as SceDiagnostic } from './dsl/diagnostics.js';
 export { codecs, parseArrayLiteral, parseScalarArray, serializeScalarArray, type ScalarType, type TypeCodec } from './dsl/types.js';

@@ -80,7 +80,7 @@ component up automatically. No registration wiring.
 | [`@scenoco-three/core`](packages/core) | Runtime: `Engine`, `Component`, decorators, registry, bundle deserializer, Three.js node factories. No XML anywhere. |
 | [`@scenoco-three/compiler`](packages/compiler) | Build-time: XML parser, validator, scene compiler, bundler, XSD/docs exporters, component discovery, file watcher, and the `scenoco` CLI. |
 | [`@scenoco-three/vite`](packages/vite) | Vite plugin: `import scene from './x.scene.xml?bundle'` — compiles in Node, ships the bundle + the components the scene uses. |
-| [`@scenoco-three/editor`](packages/editor) | Local visual editor + **MCP server** (`open_file` / `get_preview` / `playback` / `simulate` / `get_telemetry`) driving the one live browser tab — the "eyes and hands" for a multimodal agent. Build-time only. |
+| [`@scenoco-three/editor`](packages/editor) | Local visual editor + **MCP server** (`open_file` / `screenshot` / `playback` / `simulate` / `inspect`) driving the one live browser tab — the "eyes and hands" for a multimodal agent. Build-time only. |
 | [`@scenoco-three/rapier`](packages/rapier) | Optional **3D physics** add-on: `<Physics>` setting + `<RigidBody>`/`<Collider>` components (Rapier) on the public `System` seam. Import it, or ship no physics. |
 | [`@scenoco-three/box2d`](packages/box2d) | Optional **2D physics** add-on: `<Physics2D>` setting + `<RigidBody2D>`/`<Collider2D>` components (planck/Box2D), with Unity-style `onCollisionEnter2D`/`onTriggerEnter2D` hooks. Same `System` seam; pure JS (no WASM). |
 | [`@scenoco-three/collision`](packages/collision) | Optional **detection-only collision** add-on: the *same tags and hooks as rapier* (`<RigidBody>`/`<*Collider>`, `onCollisionEnter`/`onTriggerEnter`) with inert dynamics — overlap events without a physics solver; switch to real physics by swapping one import. Zero deps. |
@@ -93,20 +93,23 @@ component up automatically. No registration wiring.
 ```bash
 scenoco init my-app   # scaffold an empty project: one scene (camera + light) + Vite wiring
 cd my-app && npm install
-npm run export        # generate schema/ (XSD + scene-api.json)
 npm run dev           # http://localhost:5173
 npm run validate      # "tsc for scenes"
 
 scenoco new           # list every asset kind this project can create
 scenoco new component Ball
+scenoco which Mesh    # what a tag is: attributes, what it requires, what it holds
 ```
+
+One optional extra: `scenoco export` writes the XSDs + `scene-api.json` if you want XML
+autocomplete in your IDE. It is not part of the scaffold — a game framework should not
+assume it.
 
 Like a new Unity or Cocos scene, `init` gives you a camera and a light and nothing
 else; `scenoco new <kind> <name>` is how content arrives. The kinds are generated —
 `particle` shows up once a project depends on `@scenoco-three/particles`.
 
-The scaffold ships an `AGENTS.md` explaining the edit→validate→fix loop, so an agent can be
-productive immediately. The project convention is **zero-config**: components and scenes live
+The project convention is **zero-config**: components and scenes live
 under `assets/` (auto-discovered — the validator, XSD, and docs pick them up with no
 registration), and any `@scenoco-three/*` tag package in your `package.json` (physics, audio,
 particles, …) is registered automatically by the CLI, the Vite plugin, and the editor.
@@ -144,10 +147,17 @@ node ../../packages/compiler/dist/cli/index.js export   --out schema
 ## Documentation
 
 Each package documents its own surface in `packages/*/README.md` (linked from the table
-above). `npm run export`, run inside a project (e.g. `examples/breakout`), generates a
-machine-readable scene-language reference (`schema/scene-api.json`) and XSDs for every document kind (`scene.xsd`, `prefab.xsd`,
-`material.xsd`, plus any tag package's own — e.g. particles' `particle.xsd`) for IDE
-autocomplete, all derived from the same component registry as the runtime.
+above).
+
+For the scene language itself, ask the CLI rather than a file: `scenoco which` lists everything
+registered in your project, and `scenoco which <Name>` details one tag or component —
+attributes, defaults, what it requires, what references it. It is rendered from the same
+registry as the runtime and the validator, so it cannot go stale.
+
+`scenoco export`, run inside a project (e.g. `examples/breakout`), writes the machine-readable
+form of the same model — `schema/scene-api.json` plus XSDs for every document kind (`scene.xsd`,
+`prefab.xsd`, `material.xsd`, and any tag package's own, e.g. particles' `particle.xsd`). Those
+are for XML-aware IDEs; to look something up, `scenoco which` is the shorter path.
 
 ## Status
 

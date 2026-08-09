@@ -94,7 +94,7 @@ describe('built-in nodes', () => {
     const live = instantiateScene(
       compile(`<Scene>
         <SpotLight id="spot" intensity="4" />
-        <OrthographicCamera id="ortho" />
+        <OrthographicCamera id="ortho" fit="none" />
         <Line id="line"><Attachments><BoxGeometry /><LineBasicMaterial color="#ff0000" /></Attachments></Line>
         <Points id="pts"><Attachments><SphereGeometry /><PointsMaterial size="3" /></Attachments></Points>
         <Sprite id="spr"><Attachments><SpriteMaterial color="#00ff00" /></Attachments></Sprite>
@@ -108,7 +108,7 @@ describe('built-in nodes', () => {
     expect((bySceneId(live.root, 'spr') as Sprite).material).toBeInstanceOf(SpriteMaterial);
 
     const engine = new Engine();
-    engine.loadScene(bundleScene(compile(`<Scene><PerspectiveCamera id="Main" fov="42" /></Scene>`)));
+    engine.loadScene(bundleScene(compile(`<Scene><PerspectiveCamera id="Main" fov="42" fit="none" /></Scene>`)));
     expect(engine.mainCamera).toBe(engine.findObject('Main'));
     expect((engine.mainCamera as PerspectiveCamera).fov).toBe(42);
     engine.disposeScene();

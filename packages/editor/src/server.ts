@@ -23,6 +23,7 @@ import {
   type PatchEdit,
   type ResourceResolver,
 } from '@scenoco-three/compiler';
+import { bundlePlugin } from '@scenoco-three/vite';
 import { Registry } from '@scenoco-three/core';
 import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type StructuralOp as EditorStructuralOp } from './protocol.js';
 import { applySaveOps } from './structuralOps.js';
@@ -184,6 +185,17 @@ export async function startEditorServer(opts: ServerOptions = {}): Promise<Edito
       server: { host: true, port, strictPort: true, fs: { strict: false } },
       plugins: [
         react(), // TSX/JSX for the editor chrome under app/ui/
+        // `import('level2.scene.xml?bundle')` from *game* code must work here the
+        // way it does under a project's own `vite dev`. The editor's own scene
+        // loading goes through `/@scenoco/bundle` (an HTTP endpoint, below), which
+        // leaves `?bundle` module ids with no handler at all — Vite then serves the
+        // raw XML and the import fails on "invalid JS syntax". Level transitions and
+        // restart flows are exactly what `simulate` is for, so the module-graph path
+        // has to be served too, by the same plugin real projects use.
+        // Roots go in absolute: the plugin resolves them against `process.cwd()`,
+        // but the editor's project dir is `cwd` (an option), and the Vite `root`
+        // here is the editor's own app dir — neither of which is the project.
+        bundlePlugin({ componentRoots: componentRoots.map((r) => resolve(cwd, r)), registerPackages: packages }),
         allComponentsPlugin(componentRoots, packages, cwd, watcher),
         bundleEndpointPlugin(componentRoots, packages, cwd, watcher),
         infoEndpointPlugin(netInfo),

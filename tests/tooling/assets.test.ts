@@ -90,11 +90,15 @@ describe('scenoco new templates', () => {
     expect(validateAssetXml('a.particle.xml', srcDocument.template('a')).ok).toBe(true);
   });
 
-  it('wires every generated document to its schema, so check-xml does not skip it', () => {
-    expect(sceneFile('a')).toMatch(/noNamespaceSchemaLocation=".*scene\.xsd"/);
-    expect(prefabFile('a')).toMatch(/noNamespaceSchemaLocation=".*prefab\.xsd"/);
-    expect(materialFile('a')).toMatch(/noNamespaceSchemaLocation=".*material\.xsd"/);
-    expect(srcDocument.template('a')).toMatch(/noNamespaceSchemaLocation=".*particle\.xsd"/);
+  // No generated document points at an XSD. The toolchain answers "what may I
+  // write here" (`scenoco validate` / `scenoco which`); a schema pointer in every
+  // file sends readers into the XSD instead — and machine-readable schema
+  // artifacts are the one place a small model reliably gets lost. `scenoco
+  // export` still emits them, for IDE completion, opt-in.
+  it('emits documents with no schema pointer', () => {
+    for (const doc of [sceneFile('a'), prefabFile('a'), materialFile('a'), srcDocument.template('a')]) {
+      expect(doc).not.toMatch(/noNamespaceSchemaLocation|xmlns:xsi/);
+    }
   });
 
   // The vector grammar has one rule — an omitted axis is 0 — and the templates

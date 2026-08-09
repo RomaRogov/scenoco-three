@@ -16,7 +16,11 @@ or CSS flexbox, you already know the DSL.
        fills the viewport; children are laid out in screen pixels. -->
   <Fullscreen id="hud" color="#e2e8f0" fontWeight="bold">
     <Container width="100%" flexDirection="row" justifyContent="space-between" padding="20">
-      <Container flexDirection="row" gap="8" backgroundColor="#0a0e16" backgroundOpacity="0.7" borderRadius="10" padding="10">
+      <Container flexDirection="row" gap="8" padding="10">
+        <!-- `opacity` is inherited (it would fade the text too), so a translucent
+             panel is its own element behind fully-opaque content. -->
+        <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                   backgroundColor="#0a0e16" opacity="0.7" borderRadius="10" />
         <Text text="SCORE" fontSize="26" />
         <Text id="score" text="0" fontSize="26" color="#4af0e0" />
       </Container>

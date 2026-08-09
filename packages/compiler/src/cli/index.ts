@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scaffoldFiles, componentFile, sceneFile, prefabFile, materialFile, systemFile } from './templates.js';
 import { deserializeBundle } from '@scenoco-three/core';
 import {
   assetKinds,
+  assetKindOf,
   bundlePrefab,
   bundleScene,
   collectedPackageSchemas,
@@ -16,11 +17,16 @@ import {
   validateAssetXml,
   type AssetKindDef,
   formatDiagnostic,
+  generateApi,
   generateApiJson,
+  whichIndexText,
+  whichText,
+  type WhichKind,
   generateMaterialXsd,
   generatePrefabXsd,
   generateXsd,
   loadComponents,
+  componentLoadError,
   type ComponentScan,
   serializeScene,
   watchSceneFiles,
@@ -52,12 +58,17 @@ const USAGE = `scenoco — Scene · Node · Component CLI
 Usage:
   scenoco init [dir]                        Scaffold a new SceNoCo project (default: current dir)
   scenoco new <kind> <name>                 Create an asset — run bare to list the kinds
-  scenoco check                             Pre-flight: scans components + flags physics setup
-  scenoco validate <file...>                Validate any asset document; prints file:line:col diagnostics
+  scenoco which [kind] [Name]               What a tag/component is: attributes, defaults, what it attaches to
+                                            (run bare for the whole vocabulary). Use this instead of reading schemas.
+  scenoco doctor                            Environment check: scans components + flags physics setup.
+                                            Not a validator — \`scenoco validate\` is the gate.
+  scenoco validate <file|dir...>            Validate asset documents; a directory checks everything under it.
+                                            Prints file:line:col diagnostics
   scenoco bundle <file> [-o out]            Build the runtime bundle (default: <file>.bundle.json)
   scenoco decompile <bundle.json> [-o out]  Inverse of bundle: a bundle back to canonical scene XML
   scenoco watch <file...> [--out dir]       Rebuild bundles on XML/resource changes
-  scenoco export [--out <dir>]              Write scene/prefab/material(+package) .xsd + scene-api.json (default: ./schema)
+  scenoco export [--out <dir>]              Write .xsd + scene-api.json for XML editors/IDE completion (default: ./schema).
+                                            Machine artifacts — to look a symbol up, use \`scenoco which\`.
 
 Options:
   --components <dirs>   Comma-separated directories scanned for @component classes
@@ -96,6 +107,16 @@ async function main(argv: string[]): Promise<number> {
         ? options.packages.split(',').map((s) => s.trim()).filter(Boolean)
         : detectTagPackages();
     loadedScan = await loadComponents(roots, undefined, packages.length > 0 ? { packages } : undefined);
+    // Stop here if the set didn't load: nothing it declares is registered, so
+    // every command below would run against an empty registry and blame the
+    // scenes — "Unknown component <Ball>" for a file that is perfectly fine.
+    // Report the real error (the one broken import) instead of that cascade.
+    const failure = componentLoadError();
+    if (failure) {
+      console.error(`✗ could not load the components in [${roots.join(', ')}]:\n\n${failure.message}\n`);
+      console.error('Fix that first — until it loads, every component and custom tag reads as unknown.');
+      return 1;
+    }
   }
 
   switch (command) {
@@ -103,8 +124,10 @@ async function main(argv: string[]): Promise<number> {
       return cmdInit(rest);
     case 'new':
       return cmdNew(rest);
-    case 'check':
-      return await cmdCheck(rest, options);
+    case 'which':
+      return cmdWhich(rest);
+    case 'doctor':
+      return await cmdDoctor(rest, options);
     case 'validate':
       return cmdValidate(rest);
     case 'bundle':
@@ -162,13 +185,45 @@ function cmdInit(args: string[]): number {
   return 0;
 }
 
+/**
+ * One `validate` argument → the files to check. A file is itself; a **directory**
+ * is every checkable document under it, recursively.
+ *
+ * Directories are accepted because the alternative is a shell glob, and a glob is
+ * a silent-failure machine: `validate assets/scenes/*.xml` quietly stops covering
+ * a project the moment someone adds `assets/vfx/`, and the check keeps passing.
+ * `validate assets` cannot go stale that way.
+ */
+function expandAssetArg(arg: string): string[] {
+  const path = resolve(arg);
+  if (!existsSync(path) || !statSync(path).isDirectory()) return [arg];
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && !entry.name.startsWith('.')) walk(child);
+      } else if (assetKindOf(entry.name)) {
+        out.push(child);
+      }
+    }
+  };
+  walk(path);
+  return out.sort();
+}
+
 function cmdValidate(args: string[]): number {
   if (args.length === 0) {
-    console.error(`validate: expected at least one file\n\nCheckable documents: ${assetKinds().map((k) => k.extension).join(', ')}`);
+    console.error(`validate: expected at least one file or directory\n\nCheckable documents: ${assetKinds().map((k) => k.extension).join(', ')}`);
+    return 1;
+  }
+  const files = args.flatMap(expandAssetArg);
+  if (files.length === 0) {
+    console.error(`validate: no checkable documents found in ${args.join(', ')}`);
     return 1;
   }
   let totalErrors = 0;
-  for (const file of args) {
+  for (const file of files) {
     const path = resolve(file);
     // Every asset kind, dispatched on the extension: scenes and prefabs compile,
     // materials check as standalone attachment documents, and a package-owned
@@ -180,10 +235,10 @@ function cmdValidate(args: string[]): number {
     }
   }
   if (totalErrors === 0) {
-    console.log(`✓ ${args.length} file(s) valid`);
+    console.log(`✓ ${files.length} file(s) valid`);
     return 0;
   }
-  console.error(`\n✗ ${totalErrors} problem(s) in ${args.length} file(s)`);
+  console.error(`\n✗ ${totalErrors} problem(s) in ${files.length} file(s)`);
   return 1;
 }
 
@@ -337,7 +392,46 @@ function kindTable(kinds: NewKind[]): string {
   return ['Kinds:', ...kinds.map((k) => `  ${k.kind.padEnd(width)}  ${k.description}`)].join('\n');
 }
 
-async function cmdCheck(
+/**
+ * Symbol lookup: `scenoco which <Name>`, or `scenoco which <kind> <Name>` when a
+ * name is registered as more than one kind. Bare, it prints the whole vocabulary.
+ * A view over `generateApi()` — the same model the XSD and the validator use — so
+ * nothing has to read `scene-api.json` or an `.xsd` to answer a "what is this".
+ */
+function cmdWhich(args: string[]): number {
+  const { positionals } = parseArgs(args, {});
+  const api = generateApi({ sources: loadedScan });
+  if (positionals.length === 0) {
+    console.log(whichIndexText(api));
+    return 0;
+  }
+  // `which <kind> <Name>` or `which <Name>`; the tag may be written `<Mesh>`.
+  const kinds: WhichKind[] = ['node', 'attachment', 'component', 'system', 'enum'];
+  const kind = kinds.find((k) => k === positionals[0]);
+  const name = (kind ? positionals[1] : positionals[0])?.replace(/^<|\/?>$/g, '');
+  if (!name) {
+    console.error(`which: expected a name, e.g. \`scenoco which ${kind ?? 'component'} <Name>\``);
+    return 1;
+  }
+  const result = whichText(api, name, kind);
+  if (!result.ok) {
+    console.error(result.text);
+    return 1;
+  }
+  console.log(result.text);
+  return 0;
+}
+
+/**
+ * `scenoco doctor` — a setup check, deliberately *not* named `check`.
+ *
+ * Projects put the real gate behind `npm run check` (validate + typecheck +
+ * build). A CLI subcommand of the same name that only inspects the environment
+ * is a trap: it passes on a project whose scenes are broken, and the name says
+ * it did the checking. `doctor` is what npm, brew and flutter call this, and it
+ * cannot be mistaken for the gate.
+ */
+async function cmdDoctor(
   _args: string[],
   options: Record<string, string>,
 ): Promise<number> {

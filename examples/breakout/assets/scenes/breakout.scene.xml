@@ -24,13 +24,21 @@
          elements and updates them with the plain uikit API (setProperties). -->
     <Fullscreen id="hud" color="#e2e8f0" fontWeight="bold">
       <Container width="100%" flexDirection="row" justifyContent="space-between" alignItems="flex-start" padding="20">
-        <Container flexDirection="row" gap="8" backgroundColor="#0a0e16" backgroundOpacity="0.7" borderRadius="10"
+        <!-- A translucent pill. uikit's `opacity` is inherited, so it cannot fade
+             a panel without fading the text on it — the background is therefore its
+             own element: absolutely positioned, filling this container, behind
+             siblings that stay fully opaque. -->
+        <Container flexDirection="row" gap="8"
                    paddingTop="10" paddingBottom="10" paddingLeft="16" paddingRight="16">
+          <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                     backgroundColor="#0a0e16" opacity="0.7" borderRadius="10" />
           <Text text="SCORE" fontSize="26" />
           <Text id="score" text="0" fontSize="26" color="#4af0e0" />
         </Container>
-        <Container flexDirection="row" gap="8" backgroundColor="#0a0e16" backgroundOpacity="0.7" borderRadius="10"
+        <Container flexDirection="row" gap="8"
                    paddingTop="10" paddingBottom="10" paddingLeft="16" paddingRight="16">
+          <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                     backgroundColor="#0a0e16" opacity="0.7" borderRadius="10" />
           <Text text="LIVES" fontSize="26" />
           <Text id="lives" text="3" fontSize="26" color="#fb923c" />
         </Container>
@@ -38,7 +46,9 @@
       <!-- Centered win/lose banner — hidden until Scoreboard.banner() shows it. -->
       <Container id="banner" display="none" positionType="absolute"
                  positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
-                 alignItems="center" justifyContent="center" backgroundColor="#0a0e16" backgroundOpacity="0.35">
+                 alignItems="center" justifyContent="center">
+        <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
+                   backgroundColor="#0a0e16" opacity="0.35" />
         <Text id="bannerText" text="" fontSize="64" fontWeight="extra-bold" />
       </Container>
       <Components>

@@ -24,7 +24,7 @@ import { ValueType } from '@scenoco-three/core/internal';
 import { parseScene, type SncElement } from './SceneParser.js';
 import { isNamespaceAttr, validatePrefab, validateScene } from './Validator.js';
 import { expandPrefabs, prefabContentRoot } from './prefab.js';
-import { parseArrayLiteral, parseScalarArray, scalarCodec, uniformValue, type CompiledScalar, type ScalarType } from './types.js';
+import { ATTACHMENT_UNIQUE_ATTR, parseArrayLiteral, parseScalarArray, scalarCodec, uniformValue, type CompiledScalar, type ScalarType } from './types.js';
 import { glslMatches, parseUniforms } from './shader.js';
 import { getSrcCompiler, toParsedElement } from './src-document.js';
 import type { NodeOrigin, SceneProvenance } from './provenance.js';
@@ -144,14 +144,17 @@ function compileTree(
   // Prefab files referenced by `prefab` props, deduped by source path.
   const prefabPool = new Map<string, number>();
 
-  const internAttachment = (asset: CompiledAsset, src?: string): number => {
+  const internAttachment = (asset: CompiledAsset, src?: string, unique = false): number => {
     const key = `${asset.tag}|${JSON.stringify(asset.attrs)}|${asset.uniforms ? JSON.stringify(asset.uniforms) : ''}`;
-    const existing = attachmentPool.get(key);
+    // `unique` skips the pool in both directions: this entry is not reused, and it
+    // does not become the entry a later identical attachment reuses. One live
+    // resource per element is the whole point — see ATTACHMENT_UNIQUE_ATTR.
+    const existing = unique ? undefined : attachmentPool.get(key);
     if (existing !== undefined) return existing;
     const index = scene.attachments.length;
     scene.attachments.push(asset);
     attachmentSrc[index] = src ?? null;
-    attachmentPool.set(key, index);
+    if (!unique) attachmentPool.set(key, index);
     return index;
   };
 
@@ -224,7 +227,9 @@ function compileTree(
           const asset: CompiledAsset = { tag: att.tag, attrs };
           // Shader attachments resolve their .vert/.frag and validate their <Uniform>s.
           if (attDef.children?.includes('Uniform')) compileShader(att, asset, options, diagnostics);
-          node.attachments.push(internAttachment(asset, att.attributes.get('src')));
+          node.attachments.push(
+            internAttachment(asset, att.attributes.get('src'), att.attributes.get(ATTACHMENT_UNIQUE_ATTR) === 'true'),
+          );
         }
       } else if (child.tag === 'Components') {
         buildComponents(child, index, node);

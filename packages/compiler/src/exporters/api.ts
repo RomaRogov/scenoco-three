@@ -59,6 +59,14 @@ export interface Attribute {
   type: ScalarType;
   /** True for an array attribute written `[a,b,c]`. */
   array?: true;
+  /**
+   * For an enum-typed attribute, the member names that may be written — `type` is
+   * then the enum's registered name. Carried here, not left to a lookup, because
+   * `type` alone ("CameraFit") tells a reader what to call the thing but not what
+   * to write; a component's enum *properties* have always listed their members,
+   * and an attribute is the same question asked on a node.
+   */
+  values?: string[];
   default?: number | boolean | string | number[] | (number | boolean | string | number[])[];
   required: boolean;
   description?: string;
@@ -105,6 +113,14 @@ export interface NodeApi {
   children: { object3d: boolean; components: boolean };
   /** Attachment groups the node accepts, with cardinality (the node's view of compatibility). */
   accepts: AttachmentGroupRef[];
+  /**
+   * A worked example, for a tag whose *shape* is the thing that has to be learned
+   * rather than its attribute list. Almost no node needs this — the attribute
+   * table is the documentation. `<PrefabInstance>` does, because how you change one
+   * placement's values is a child element (`<Override>`) that no attribute row
+   * mentions, and guessing wrong is silent (see the compiler's prefab.ts).
+   */
+  usage?: string[];
   /** Where the tag is declared, when the exporter was given a source index. */
   source?: SourceRef;
 }
@@ -174,6 +190,7 @@ export interface SystemApi {
   name: string;
   /** Registered component tag the system queries. */
   processes?: string;
+  source?: SourceRef;
 }
 
 /** Identifies an entity on either side of a relation. */
@@ -217,10 +234,13 @@ export function generateApi(opts: ApiOptions = {}): SceneApi {
   const transform = Object.entries(TRANSFORM_ATTRS).map(([name, meta]) => attribute(name, meta));
 
   const nodeDefs = allNodeDefs();
-  const nodes = nodeDefs
-    .slice()
-    .sort(byKindThenTag)
-    .map((def) => withSource(nodeApi(def), locateTag(def.tag)));
+  const nodes = [
+    ...nodeDefs
+      .slice()
+      .sort(byKindThenTag)
+      .map((def) => withSource(nodeApi(def), locateTag(def.tag))),
+    prefabInstanceApi(),
+  ];
 
   const attachments = allAttachmentDefs()
     .slice()
@@ -335,6 +355,7 @@ function attribute(name: string, meta: NodeAttr): Attribute {
     name,
     // Enum attrs report their registered name (the XSD simpleType); scalars their type.
     type: (isEnumType(elem) ? elem.name : elem) as ScalarType,
+    ...(isEnumType(elem) ? { values: elem.names } : {}),
     ...array,
     ...(meta.default !== undefined ? { default: meta.default } : {}),
     required: meta.required ?? false,
@@ -412,6 +433,52 @@ function componentNameOf(ctor: ComponentCtor): string | undefined {
 }
 
 /** Scene root first, then object3d nodes, alphabetically within each — stable output. */
+/**
+ * `<PrefabInstance>` has no `NodeDef` — it is expanded away before the tree is
+ * built, so nothing registers it. It is still a tag an author writes, and the
+ * XSD has always emitted it, so leaving it out of the API model made
+ * `scenoco which PrefabInstance` answer "not registered" about a tag this
+ * project's own docs tell you to use. A lookup that dead-ends on a real tag
+ * reads as "this does not exist", so the model carries it like any other node.
+ */
+function prefabInstanceApi(): NodeApi {
+  return {
+    tag: 'PrefabInstance',
+    kind: 'object3d',
+    description: 'Places a prefab. Expanded at build time — the prefab’s own root replaces this tag.',
+    hasTransform: true,
+    attributes: [
+      {
+        name: 'src',
+        type: 'string',
+        required: true,
+        description: 'The .prefab.xml file to place, relative to this document',
+      },
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Names this placement. Required on every instance — its internals are addressed as "#<id>/<inner>"',
+      },
+    ],
+    children: { object3d: false, components: true },
+    accepts: [],
+    // The two things that are only learnable by getting them wrong: overrides go
+    // through <Override>, not <Components> (which *adds* a second component), and
+    // the target is the id of the thing being patched — for a component property,
+    // that component's own id, which the prefab file has to declare.
+    usage: [
+      '<PrefabInstance src="brick.prefab.xml" id="b1" position="x: -6.75; y: 12">',
+      '  <Override target="#hp" points="20" />      <!-- patch a prefab-internal node/component by its id -->',
+      '  <Components><Wobble speed="2" /></Components>   <!-- ADDS a component to this placement -->',
+      '</PrefabInstance>',
+      '',
+      'To override a component property, that component needs an id in the prefab file:',
+      '  <Components><Brick id="hp" points="10" /></Components>',
+    ],
+  };
+}
+
 function byKindThenTag(a: NodeDef, b: NodeDef): number {
   const rank = (k: NodeDef['kind']) => (k === 'scene' ? 0 : 1);
   return rank(a.kind) - rank(b.kind) || a.tag.localeCompare(b.tag);

@@ -17,6 +17,7 @@ import {
 import { ValueType } from '@scenoco-three/core/internal';
 import { codecs, type ScalarType } from '../dsl/types.js';
 import { getSrcCompiler } from '../dsl/src-document.js';
+import { ATTACHMENT_UNIQUE_ATTR } from '../dsl/types.js';
 
 /**
  * Generates a no-namespace XSD 1.0 from the live registries (node tags +
@@ -271,6 +272,11 @@ function attachmentElement(def: AttachmentDef): string {
   // produce a duplicate attribute use and an invalid schema.
   if (!('src' in def.attrs)) {
     attrs.unshift(attrXml('      ', 'src', 'xs:string', false, 'Load attribute defaults from a resource file'));
+  }
+  // Likewise universal (see ATTACHMENT_UNIQUE_ATTR): opt this element out of the
+  // shared attachment pool. Guarded the same way, for the same reason.
+  if (!(ATTACHMENT_UNIQUE_ATTR in def.attrs)) {
+    attrs.unshift(attrXml('      ', ATTACHMENT_UNIQUE_ATTR, 'xs:boolean', false, 'Give this element its own resource instead of the pooled one'));
   }
   // An attachment that declares child tags needs a matching content model; without
   // one XSD treats the type as empty and rejects children the Validator allows.

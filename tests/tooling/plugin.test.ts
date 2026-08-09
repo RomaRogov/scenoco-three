@@ -12,6 +12,8 @@ import {
   detectTagPackages,
   loadComponents,
   scaffoldFiles,
+  prefabFile,
+  materialFile,
   scanComponents,
 } from '@scenoco-three/compiler';
 
@@ -71,6 +73,53 @@ describe('zero-config tag registration', () => {
     const dir = fileURLToPath(new URL('../fixtures/components-assets', import.meta.url));
     await loadComponents([dir]);
     expect(Registry.getComponent('SpriteThing')).toBeDefined();
+  });
+
+  // A component that loads another scene (or spawns a prefab) imports it with
+  // `?bundle` — a Vite-plugin concept esbuild knows nothing about. It used to
+  // fail the whole component set, so the registry stayed empty and every scene
+  // reported every component as unknown, naming innocent files.
+  it('loads a component that imports another scene with ?bundle', async () => {
+    const dir = fileURLToPath(new URL('../fixtures/components-scene-import', import.meta.url));
+    await loadComponents([dir]);
+    expect(componentLoadError()).toBeUndefined();
+    expect(Registry.getComponent('LevelLoader')).toBeDefined();
+  });
+
+  // …but the stub must not become a hole: a `?bundle` path that names no file is
+  // still an unresolvable import, reported like any other.
+  it('still reports a ?bundle import whose scene file does not exist', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'scenoco-missing-bundle-'));
+    writeFileSync(
+      join(dir, 'Loader.ts'),
+      `import { Component, component } from '@scenoco-three/core';
+import missing from './no_such.scene.xml?bundle';
+@component({ name: 'MissingLoader', description: 'imports a scene that is not there' })
+export class MissingLoader extends Component { data = missing; }`,
+    );
+    await loadComponents([dir]);
+    expect(componentLoadError()?.message).toContain('no_such.scene.xml?bundle');
+    expect(Registry.getComponent('MissingLoader')).toBeUndefined();
+  });
+
+  // A tag package may greet its user at module scope with a `%c`-styled banner
+  // (three.quarks does). That is a browser-devtools instruction, so in a CLI it is
+  // noise repeated on every validate/bundle/watch — but a plain warning from the
+  // same import must still reach the terminal.
+  it('swallows browser-console banners on import, but lets real logs through', async () => {
+    const dir = fileURLToPath(new URL('../fixtures/components-banner', import.meta.url));
+    const seen: unknown[][] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => void seen.push(args);
+    try {
+      await loadComponents([dir]);
+    } finally {
+      console.log = log;
+    }
+    const printed = seen.flat().join(' ');
+    expect(printed).not.toContain('Fixture banner'); // the `%c` devtools banner is dropped…
+    expect(printed).toContain('fixture-plain-warning'); // …while an ordinary log still reaches the terminal
+    expect(Registry.getComponent('NoisyThing')).toBeDefined(); // and the module still registered
   });
 });
 
@@ -171,11 +220,17 @@ describe('scenoco init scaffold', () => {
     expect(compiled.scene.components).toEqual([]);
   });
 
-  // Every generated document carries its schema hint, or `scripts/check-xml.sh`
-  // silently skips it and the IDE gives no completion.
-  it('wires the starter scene to its XSD', () => {
-    expect(scaffoldFiles('my-app')['assets/scenes/main.scene.xml']!).toMatch(
-      /xsi:noNamespaceSchemaLocation="\.\.\/\.\.\/schema\/scene\.xsd"/,
-    );
+  // Generated documents carry no XSD pointer: the toolchain (`scenoco validate`
+  // / `scenoco which`) is the source of truth, and a schema hint in every file
+  // sends readers — agents especially — into the XSD instead of the CLI. IDE
+  // users who want XML completion run `scenoco export` and add the hint.
+  it('leaves generated documents free of schema pointers', () => {
+    const files = scaffoldFiles('my-app');
+    expect(files['assets/scenes/main.scene.xml']!).not.toMatch(/noNamespaceSchemaLocation|xmlns:xsi/);
+    expect(prefabFile('brick')).not.toMatch(/noNamespaceSchemaLocation|xmlns:xsi/);
+    expect(materialFile('steel')).not.toMatch(/noNamespaceSchemaLocation|xmlns:xsi/);
+    // …and the scaffold no longer runs `scenoco export` as part of setup.
+    const pkg = JSON.parse(files['package.json']!) as { scripts: Record<string, string> };
+    expect(pkg.scripts).not.toHaveProperty('export');
   });
 });

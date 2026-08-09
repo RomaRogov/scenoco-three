@@ -22,6 +22,7 @@
 // side effects), hence the package is `sideEffects`.
 
 export { UiKitComponent, Container, Text, Image, Fullscreen, reversePainterSortStable } from './uikit.js';
+export { INTER_MSDF_CHARSET } from './charset.js';
 export { UIElementNode } from './nodes/UIElementNode.js';
 export { ContainerNode } from './nodes/Container.js';
 export { FullscreenNode } from './nodes/Fullscreen.js';

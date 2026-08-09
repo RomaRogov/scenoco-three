@@ -2,7 +2,7 @@
   <Attachments>
     <Background color="#0a0e16" />
   </Attachments>
-  <PerspectiveCamera id="cam" position="z: 4" />
+  <PerspectiveCamera id="cam" position="z: 4" fit="contain" />
 
   <!-- A rippling plane driven by a custom GLSL shader. `uColor` is declared and
        given a value here; `uTime` is declared in the shader and animated at

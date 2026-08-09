@@ -31,6 +31,8 @@ export interface NodeAttr {
   description: string;
   /** Marks a `string` attr as an asset reference (texture/model URL) — see `AssetKind`. */
   asset?: AssetKind;
+  /** Renderable characters for a `string` attr bound to a fixed glyph set — see `PropertyMeta.charset`. */
+  charset?: string;
 }
 
 /** What a node may contain (attachments are governed separately, by target). */

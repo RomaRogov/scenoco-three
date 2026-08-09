@@ -43,6 +43,34 @@ describe('compile → CompiledScene', () => {
     expect(scene.components[0]).toMatchObject({ type: 'Rotator', props: { speed: 3 } }); // defaults not stored
   });
 
+  // Pooling is what makes a wall of identical bricks cheap, and it is also how a
+  // component that mutates `this.node.material` recolours every one of them —
+  // silently, since each instance's own data stays correct. `unique` is the
+  // declarative way out, for a placement the scene knows is individual.
+  it('gives an attachment marked unique its own pool entry, and never lends it to another', () => {
+    const shared = compile(`<Scene>
+      <Mesh id="a"><Attachments><BoxGeometry /><MeshStandardMaterial color="#ffffff" /></Attachments></Mesh>
+      <Mesh id="b"><Attachments><BoxGeometry /><MeshStandardMaterial color="#ffffff" /></Attachments></Mesh>
+    </Scene>`);
+    const materialsOf = (s: typeof shared, id: string) =>
+      s.nodes.find((n) => n.id === id)!.attachments.filter((i) => s.attachments[i]!.tag === 'MeshStandardMaterial');
+    expect(materialsOf(shared, 'a')).toEqual(materialsOf(shared, 'b')); // one entry, two nodes
+
+    const unique = compile(`<Scene>
+      <Mesh id="a"><Attachments><BoxGeometry /><MeshStandardMaterial color="#ffffff" unique="true" /></Attachments></Mesh>
+      <Mesh id="b"><Attachments><BoxGeometry /><MeshStandardMaterial color="#ffffff" unique="true" /></Attachments></Mesh>
+      <Mesh id="c"><Attachments><BoxGeometry /><MeshStandardMaterial color="#ffffff" /></Attachments></Mesh>
+    </Scene>`);
+    expect(materialsOf(unique, 'a')).not.toEqual(materialsOf(unique, 'b'));
+    // …and the plain one after them gets a fresh entry too, rather than adopting
+    // a `unique` element's — that would hand it a co-owner it was declared to avoid.
+    expect(materialsOf(unique, 'c')).not.toEqual(materialsOf(unique, 'a'));
+    expect(materialsOf(unique, 'c')).not.toEqual(materialsOf(unique, 'b'));
+    // `unique` is a placement instruction, not a material property: it must not
+    // reach the compiled attrs (where it would also change the pool key).
+    expect(unique.attachments.every((a) => !('unique' in a.attrs))).toBe(true);
+  });
+
   it('resolves #id component and node references to pool indices', () => {
     const scene = compile(`<Scene>
       <Mesh id="Target"><Attachments><BoxGeometry /></Attachments><Components><Oscillator id="osc" /></Components></Mesh>

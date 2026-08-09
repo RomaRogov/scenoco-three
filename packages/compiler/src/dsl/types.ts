@@ -333,3 +333,28 @@ export function arrayExample(type: ScalarType): string {
   const one = fmt ? fmt.positional : codecs[type].example;
   return `[${one},${one}]`;
 }
+
+/**
+ * `unique="true"` on an attachment element: give **this** placement its own
+ * resource instead of the shared one.
+ *
+ * Identical attachments are interned into one content-addressed entry, so a
+ * scene with 150 `<MeshStandardMaterial color="#fff"/>` builds one material and
+ * every node points at it. That is the right default — it is what makes a wall of
+ * identical bricks cheap, and it matches Unity's shared-material semantics.
+ *
+ * It stops being right the moment a component *mutates* the thing it was handed:
+ * `this.node.material.color.set(…)` in `onLoad` then recolours every instance,
+ * and nothing anywhere reports it — the compiler is happy, `tsc` is happy, and
+ * each instance's own `@property` data really is correct when inspected. The
+ * damage is only visible on screen.
+ *
+ * So there are two ways out, and which one fits depends on where you know it from:
+ * declare it here when the author knows this placement is individual, or call
+ * `node.uniqueMaterial()` in the component that is about to mutate.
+ *
+ * Lives beside `src` as an attribute every attachment accepts, rather than a
+ * property declared per class — it says something about the *placement*, not
+ * about the material.
+ */
+export const ATTACHMENT_UNIQUE_ATTR = 'unique';

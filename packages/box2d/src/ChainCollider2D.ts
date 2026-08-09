@@ -5,7 +5,7 @@ import { Collider2D } from './Collider2D.js';
 /** A 2D chain (polyline) collision shape (planck) — a free-form static boundary. */
 @component({ name: 'ChainCollider2D', description: 'A 2D chain (polyline) collision shape (planck).' })
 export class ChainCollider2D extends Collider2D {
-  @property({ type: [ValueType.Vec2], description: 'Chain vertices, e.g. "[-0.5 0,0.5 0]"' })
+  @property({ type: [ValueType.Vec2], required: true, description: 'Chain vertices, e.g. "[-0.5 0,0.5 0]" — explicit; a collider never infers size from geometry' })
   points: number[][] = [
     [-0.5, 0],
     [0.5, 0],
