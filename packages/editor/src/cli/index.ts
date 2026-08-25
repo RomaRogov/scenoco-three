@@ -1,120 +1,131 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
-import { parseArgs, parseList } from '../args.js';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { startEditorServer } from '../server.js';
-import { startMcpServer } from '../mcp.js';
+import { createMcpServer, startMcpHttp } from '../mcp.js';
 
-const USAGE = `scenoco-editor — open a scene/prefab and drive it from an MCP client
+const USAGE = `scenoco-editor — open a scene and drive it from an MCP client
 
 Usage:
-  scenoco-editor [scene|prefab] [--port <n>]
+  scenoco-editor [document] [options]
 
-With no file, the editor opens a picker listing the scenes/prefabs in the
-project's assets/ folder. Components are scanned from that assets/ folder and tag
-packages are read from its package.json — no --components/--packages needed.
+With no document, the editor opens a picker listing the project's scenes and
+prefabs. Tag packages are read from the project's package.json, so --modules is
+only for compiling against something other than what the project depends on.
 
 Options:
-  --port <n>   Fixed MCP server port — set this so the endpoint an MCP client
-               connects to is stable across restarts (the editor's own HTTP
-               server always takes a free port; it doesn't need to be fixed)
+  --root <dir>     Project root (default: the nearest one at or above the
+                   current directory)
+  --modules a,b    Packages whose tags the documents use, beyond three
+  --mcp-port <n>   Fixed MCP port (default 55470) — an MCP client is configured
+                   once with a URL, so this must not move between restarts
 
-Starts a local editor and an MCP server. The editor opens in your default
-browser; on Ctrl+C the page closes its own tab when the browser allows,
-otherwise it waits and reattaches on the next start (the editor reuses its
-previous port, so a restart reclaims the open tab instead of piling up new ones).
-Point an MCP client at the printed endpoint; its tools — open_file, screenshot,
-playback, simulate, inspect — observe and drive the live editor. Scenes are
-changed by editing the XML files themselves; the editor picks the change up.`;
+The editor serves its own page and imports the project's generated modules, so
+what you see is the same scene the game loads. Its MCP tools **observe**: open,
+screenshot, telemetry, play/pause/stop, simulate. Documents are changed by
+editing the XML — in the editor, or in your own editor — and the watcher rebuilds.`;
 
-async function main(argv: string[]): Promise<number> {
-  const { positionals, options } = parseArgs(argv);
-  const file = positionals[0];
-  if (file === '-h' || file === '--help') {
+const DEFAULT_MCP_PORT = 55470;
+
+async function main(argv: readonly string[]): Promise<number> {
+  if (argv.includes('-h') || argv.includes('--help')) {
     console.log(USAGE);
     return 0;
   }
 
-  // npm/npx rewrites process.cwd() to the nearest enclosing package.json when
-  // run from inside a workspace package without its own node_modules/.bin
-  // (e.g. `npx scenoco-editor` from examples/breakout/scenes). INIT_CWD still
-  // holds the shell's actual directory.
-  const cwd = process.env.INIT_CWD || process.cwd();
+  const flag = (name: string): string | undefined => {
+    const i = argv.indexOf(`--${name}`);
+    return i === -1 ? undefined : argv[i + 1];
+  };
+  const document = argv.find((a) => !a.startsWith('--') && argv[argv.indexOf(a) - 1]?.startsWith('--') !== true);
+  const modules = flag('modules')?.split(',').filter(Boolean);
 
-  // Components default to assets/ and tag packages to the project's package.json
-  // deps (see startEditorServer); --components/--packages remain as optional
-  // overrides for non-standard layouts.
-  // The editor's HTTP server can float on any free port — the browser is pointed
-  // at whatever it gets. `--port` fixes the MCP endpoint instead, so an MCP
-  // client's configured URL stays valid across editor restarts.
+  // npm and npx rewrite `cwd` to the nearest enclosing package.json when run from inside a
+  // workspace package; `INIT_CWD` still holds the directory the shell was actually in.
+  const from = flag('root') ?? process.env.INIT_CWD ?? process.cwd();
+  const root = flag('root') ? resolve(from) : projectRootAt(from);
+
+  let closing = false;
   const editor = await startEditorServer({
-    cwd,
-    ...(parseList(options.components) ? { componentRoots: parseList(options.components) } : {}),
-    ...(parseList(options.packages) ? { packages: parseList(options.packages) } : {}),
-    // Self-halt once every editor tab is closed (or none ever opens), so a
-    // spawned editor never lingers as a stale process holding its ports.
+    root,
+    ...(modules ? { modules: ['three', ...modules] } : {}),
+    // Self-halt once every tab is closed, so a spawned editor never lingers holding its ports.
     onIdle: () => {
-      if (closing) return; // an intentional Ctrl+C shutdown is already underway
+      if (closing) return;
       console.error('\n  no editor connected — shutting down so no stale process is left behind\n');
       void shutdown();
     },
   });
-  const mcp = await startMcpServer(editor.bridge, {
-    ...(options.port ? { port: Number(options.port) } : {}),
-  });
 
-  // With no file, open bare — the editor page shows a picker of the assets/ scenes.
-  const query = file ? `?file=${encodeURIComponent(resolve(cwd, file))}` : '';
-  const appUrl = `${editor.url}${query}`;
-  console.log(`\n  editor:  ${appUrl}`);
+  const mcpPort = Number(flag('mcp-port') ?? DEFAULT_MCP_PORT);
+  // A server per session: an MCP client that reconnects gets a fresh one rather than a 400.
+  const mcp = await startMcpHttp(() => createMcpServer(editor.bridge, () => editor.url), mcpPort);
+
+  const query = document ? `?path=${encodeURIComponent(document)}` : '';
+  const url = `${editor.url}${query}`;
+  console.log(`\n  editor:  ${url}`);
+  // The address to type into a phone on the same Wi-Fi — the touch controls only mean anything
+  // on a device with fingers.
   if (editor.networkUrl) console.log(`  wi-fi:   ${editor.networkUrl}${query}`);
-  console.log(`  mcp:     ${mcp.url}   ← add this to your MCP client (transport: http)`);
-  console.log(`\n  press Ctrl+C to stop\n`);
+  console.log(`  mcp:     http://localhost:${mcpPort}   ← add this to your MCP client (transport: http)`);
+  console.log('\n  press Ctrl+C to stop\n');
 
-  let closing = false;
   const shutdown = async (): Promise<void> => {
     if (closing) return;
     closing = true;
-    // Tell the editor page to close its own tab, then give the notification a
-    // moment to reach the browser before we tear the socket down. Works in any
-    // browser/OS (the tab was opened with the platform's default `open`), though
-    // window.close() is best-effort — see the app's wsClient for the fallback.
-    editor.bridge.push({ push: 'shutdown' });
-    await new Promise((r) => setTimeout(r, 250).unref());
-    // Connected browsers keep WS/HMR/keep-alive sockets open, so `close()` can
-    // stall waiting for them to drain — cap it so Ctrl+C always exits promptly.
-    const deadline = new Promise<void>((r) => setTimeout(r, 1500).unref());
-    await Promise.race([Promise.all([mcp.close().catch(() => {}), editor.close().catch(() => {})]), deadline]);
+    // A connected browser holds WebSocket and HMR sockets open, so `close()` can stall waiting
+    // for them to drain. Cap it, so Ctrl+C always exits promptly.
+    const deadline = new Promise<void>((done) => setTimeout(done, 1500).unref());
+    await Promise.race([
+      Promise.all([mcp.close().catch(() => {}), editor.close().catch(() => {})]),
+      deadline,
+    ]);
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
 
-  // When we reclaimed the previous session's port, a tab left behind by an
-  // ungraceful exit is likely still retrying its WebSocket every second — give it
-  // a moment to reattach on its own before opening a fresh tab, so a restart
-  // reuses the existing tab (like Vite's dev-server reconnect) instead of piling
-  // up new ones. On a fresh port there's nothing waiting, so open immediately.
+  // Having reclaimed the previous session's port, give any tab left behind by an ungraceful exit
+  // a moment to reattach on its own retry loop — a restart should land in the tab that is
+  // already open rather than stack a second one beside it. On a fresh port nothing is waiting.
   const reattached = editor.reusedPort && (await editor.bridge.waitForConnection(1500));
-  if (reattached) console.log('  reattached the editor tab already open — no new tab\n');
-  else openBrowser(appUrl);
-
-  await new Promise(() => {}); // keep alive
-  return 0;
+  if (reattached) {
+    console.log('  reattached the editor tab already open — no new tab\n');
+    // That tab is still showing whatever it had open, so a named document has to be asked for.
+    if (document) await editor.bridge.send({ id: 'cli-open', type: 'open', path: document }).catch(() => {});
+  } else {
+    openBrowser(url);
+  }
+  return new Promise<number>(() => {}); // runs until interrupted
 }
 
-/** Open a URL in the default browser (best-effort, per platform). */
-function openBrowser(url: string): void {
-  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
-  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
-  try {
-    spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
-  } catch {
-    /* non-fatal: the URL is printed */
+/**
+ * The project a bare `scenoco-editor` means: the nearest directory at or above `from` that holds
+ * a `tsconfig.json`.
+ *
+ * Running it from `src/` or `assets/scenes/` is the normal way to reach for an editor, and
+ * "no tsconfig.json here" is a poor answer when the project is one directory up. Falls back to
+ * `from` unchanged, so the error still names the place the person actually was.
+ */
+function projectRootAt(from: string): string {
+  for (let dir = resolve(from); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'tsconfig.json'))) return dir;
+    if (dirname(dir) === dir) return resolve(from);
   }
 }
 
-process.exitCode = await main(process.argv.slice(2)).catch((e: unknown) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  return 1;
-});
+function openBrowser(url: string): void {
+  const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  spawn(command, [url], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' }).unref();
+}
+
+main(process.argv.slice(2)).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  },
+);

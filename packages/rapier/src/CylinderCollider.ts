@@ -1,17 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider } from './Collider.js';
 
-/** A Rapier cylinder collision shape (axis-aligned along Y). */
-@component({ name: 'CylinderCollider', description: 'A Rapier cylinder collision shape; attaches to the node’s RigidBody.' })
+/** A 3D cylinder collision shape. Its long axis is Y. */
 export class CylinderCollider extends Collider {
-  @property({ type: ValueType.Float, required: true, description: 'Radius — match the visible geometry; a collider never infers size from geometry' })
   radius = 0.5;
-
-  @property({ type: ValueType.Float, required: true, description: 'Half-height (along Y)' })
+  /** Half the cylinder's height. */
   halfHeight = 0.5;
 
-  shapeDesc(): RAPIER.ColliderDesc {
+  override shapeDesc(): RAPIER.ColliderDesc {
     return RAPIER.ColliderDesc.cylinder(this.halfHeight, this.radius);
   }
 }

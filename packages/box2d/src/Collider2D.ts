@@ -1,39 +1,88 @@
 import type { FixtureOpt, Shape } from 'planck';
-import { Component, property, ValueType } from '@scenoco-three/core';
+import { Component } from '@scenoco-three/core';
+import { RigidBody2D } from './RigidBody2D.js';
 
 /**
- * Shared base for the 2D collision shapes (planck), mirroring how each light is
- * its own tag: the concrete shapes — `<BoxCollider2D>`, `<CircleCollider2D>`,
- * `<EdgeCollider2D>`, `<PolygonCollider2D>`, `<ChainCollider2D>` — subclass this
- * and implement `toShape()`. The `Physics2DSystem` attaches every `Collider2D` on
- * a node to that node's `<RigidBody2D>` (no manual registration).
+ * Shared base for the 2D collision shapes, mirroring how each light is its own tag: the
+ * concrete shapes — `<BoxCollider2D>`, `<CircleCollider2D>`, and the rest — subclass this and
+ * implement `toShape()`.
  *
- * This base is **abstract** and registers no tag of its own; it only carries the
- * shared fixture material/sensor properties.
+ * A collider attaches to the `<RigidBody2D>` **on its own node**, and does so itself. There is
+ * no registry and no per-step reconcile: the body is asked for in `start`, which is exactly
+ * when every component in the scene has woken, so the two may be written in either order.
+ *
+ * Abstract, so it is machinery rather than a tag a document can write.
  */
 export abstract class Collider2D extends Component {
-  @property({ type: ValueType.Float, description: 'Density (kg/m²); 0 for static' })
+  /** Density in kg/m². Zero for a shape that should not contribute mass. */
   density = 1;
-
-  @property({ type: ValueType.Float, description: 'Friction 0..1' })
+  /** Friction, 0..1. */
   friction = 0.3;
-
-  @property({ type: ValueType.Float, description: 'Restitution (bounciness) 0..1' })
+  /** Restitution — bounciness, 0..1. */
   restitution = 0;
-
-  @property({ type: ValueType.Bool, description: 'A trigger: reports overlaps, no collision response' })
+  /** A trigger: reports overlaps and produces no collision response. */
   isSensor = false;
 
   /** The planck shape for this collider. */
   abstract toShape(): Shape;
 
-  /** Fixture material/flags for `body.createFixture(shape, opt)`. */
-  fixtureOpt(): FixtureOpt {
+  /** Fixture material and flags, as `body.createFixture` wants them. */
+  fixtureOptions(): FixtureOpt {
     return {
       density: this.density,
       friction: this.friction,
       restitution: this.restitution,
       isSensor: this.isSensor,
     };
+  }
+
+  // --- attachment ------------------------------------------------------------------------
+  //
+  // `start` rather than `awake`: the body may be declared after the collider on the same node,
+  // and by `start` every `awake` in the scene has run. `onEnable` tries too, for a collider
+  // enabled later; both paths are idempotent, so whichever arrives first wins and the other is
+  // a no-op. That is the whole registration — no system-side polling of anything.
+
+  override start(): void {
+    this.body()?.attachCollider(this);
+  }
+
+  override onEnable(): void {
+    this.body()?.attachCollider(this);
+  }
+
+  override onDisable(): void {
+    this.body()?.detachCollider(this);
+  }
+
+  override onDestroy(): void {
+    this.body()?.detachCollider(this);
+  }
+
+  /**
+   * Re-apply this collider's shape and material to the body.
+   *
+   * A planck fixture is immutable once created, so changing `radius`, `halfExtents`,
+   * `isSensor` or the material at runtime does **not** reach the simulation on its own. Call
+   * this after such a change:
+   *
+   * ```ts
+   * collider.radius = 2;
+   * collider.rebuild();
+   * ```
+   *
+   * Nothing needs it at load time: the values a document authors are applied before `awake`, so
+   * the first fixture is already built from them.
+   */
+  rebuild(): void {
+    const body = this.body();
+    if (!body) return;
+    body.detachCollider(this);
+    if (this.isActiveAndEnabled) body.attachCollider(this);
+  }
+
+  /** The body this collider gives shape to, or null while the node has none. */
+  protected body(): RigidBody2D | null {
+    return this.getComponent(RigidBody2D);
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/particles",
   "version": "0.4.0",
-  "description": "Particle systems / VFX for SceNoCo: a Unity-style <ParticleSystem> component + emission/shape/over-lifetime modules, rendered by three.quarks",
+  "description": "Particle systems / VFX for SceNoCo: a Unity-style <ParticleSystem> component playing .particle.xml effects, batched by three.quarks",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -10,17 +10,12 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./compiler": {
-      "types": "./dist/compiler.d.ts",
-      "import": "./dist/compiler.js"
     }
   },
   "files": [
-    "dist",
-    "particle.xsd"
+    "dist"
   ],
-  "sideEffects": true,
+  "sideEffects": false,
   "keywords": [
     "three",
     "threejs",
@@ -37,17 +32,13 @@
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && tsc --noEmit -p tsconfig.json"
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@scenoco-three/core": "^0.4.0",
     "three.quarks": "^0.17.1"
   },
-  "//devDependencies": "@scenoco-three/compiler is used by ./compiler (the build-time entry) for TYPES ONLY — `import type`, erased at build — so this package gains no runtime dependency on it and the layering table is unchanged.",
-  "devDependencies": {
-    "@scenoco-three/compiler": "^0.4.0"
-  },
   "peerDependencies": {
-    "three": ">=0.182"
+    "three": ">=0.160.0"
   }
 }

@@ -1,18 +1,21 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { component, property, ValueType } from '@scenoco-three/core';
+import { Vector2 } from 'three';
 import { Collider } from './Collider.js';
 
 /**
- * A flat Rapier ground plane in the XZ plane — a thin cuboid (Rapier has no
- * infinite half-space collider). Pair it with a `kind="fixed"` `<RigidBody>`.
+ * A flat ground plane, in the XZ plane.
+ *
+ * Rapier has no infinite plane, so this is a very thin box — which is what you want anyway, as
+ * a truly infinite plane makes a fallen object impossible to find.
  */
-@component({ name: 'PlaneCollider', description: 'A flat Rapier ground plane (thin XZ cuboid); attaches to the node’s RigidBody.' })
 export class PlaneCollider extends Collider {
-  @property({ type: ValueType.Vec2, required: true, description: 'Half-extents in X and Z — cover the playable area explicitly; a collider never infers size from geometry' })
-  halfExtents = [5, 5];
+  /** Half the plane's extent on X and Z. */
+  halfExtents = new Vector2(5, 5);
 
-  shapeDesc(): RAPIER.ColliderDesc {
-    const [hx, hz] = this.halfExtents;
-    return RAPIER.ColliderDesc.cuboid(hx!, 0.001, hz!);
+  override shapeDesc(): RAPIER.ColliderDesc {
+    return RAPIER.ColliderDesc.cuboid(this.halfExtents.x, THICKNESS, this.halfExtents.y);
   }
 }
+
+/** Thin enough not to be seen, thick enough that nothing tunnels through it. */
+const THICKNESS = 0.05;

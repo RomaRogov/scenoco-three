@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/box2d",
   "version": "0.4.0",
-  "description": "Box2D (planck) 2D physics for SceNoCo: <Physics2D> setting + RigidBody2D/Collider2D components on the System seam",
+  "description": "2D physics for SceNoCo on planck (Box2D): a Physics2D system, RigidBody2D, and the collider shapes.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -29,8 +29,11 @@
   "publishConfig": {
     "access": "public"
   },
-  "//sideEffects": "Importing the package registers its @component/@attachment tags (decorator side effects), so it must not be tree-shaken away when imported for registration.",
-  "sideEffects": true,
+  "//sideEffects": "contacts.ts merges the Unity-style contact hooks onto Component \u2014 a declaration-only import a bundler could otherwise elide. Everything else is pure.",
+  "sideEffects": [
+    "./dist/contacts.js",
+    "./src/contacts.ts"
+  ],
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

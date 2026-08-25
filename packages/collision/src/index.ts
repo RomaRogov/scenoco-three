@@ -1,36 +1,43 @@
-// `@scenoco-three/collision` — lightweight, **detection-only** collision for
-// SceNoCo, with an API **identical to `@scenoco-three/rapier`** so switching
-// engines is just swapping the import: the same `<BoxCollider>`/`<RigidBody>`
-// scene and the same `onCollisionEnter`/`onTriggerEnter` component code run on
-// either. This one detects overlaps and dispatches the contact hooks; it has no
-// dynamics (bodies/gravity are inert). Use rapier when you need real physics.
-//
-// The tags share rapier's names on purpose — importing both packages throws a
-// duplicate-registration error, so a project commits to one engine (Cocos-style
-// backend selection). Importing this module registers the tags (decorator side
-// effect), which is why the package is marked `sideEffects`.
-export { Collider, type Bounds, type ContactHandlers } from './Collider.js';
+/**
+ * `@scenoco-three/collision` — detection-only collision for SceNoCo, with an API **identical to
+ * `@scenoco-three/rapier`**.
+ *
+ * The same `<BoxCollider>` / `<RigidBody>` scene and the same `onCollisionEnter` /
+ * `onTriggerEnter` component code run on either: switching back-ends is swapping the import.
+ * This one detects overlaps and dispatches the contact hooks and has no dynamics — bodies and
+ * gravity are inert. Reach for rapier when you need real physics.
+ *
+ * ```xml
+ * <Scene>
+ *   <Systems>
+ *     <Collision />
+ *   </Systems>
+ *
+ *   <Mesh id="pickup" geometry="…" material="…">
+ *     <Components>
+ *       <BoxCollider halfExtents="x: 0.5; y: 0.5; z: 0.5" isSensor="true" />
+ *     </Components>
+ *   </Mesh>
+ * </Scene>
+ * ```
+ *
+ * Declaring `<Collision>` is optional — the first collider calls `requireSystem` and gets one.
+ *
+ * Because the tags are shared with rapier deliberately, depending on **both** packages is a
+ * build error naming the two classes: a project picks one back-end.
+ */
+
+// Side effect: merges the contact hooks onto `Component`.
+import './contacts.js';
+
+export { Collision } from './Collision.js';
+export { RigidBody, type RigidBodyKind } from './RigidBody.js';
+export { type ContactHandlers } from './contacts.js';
+
+export { Collider, type Bounds, type BoxBounds, type CapsuleBounds } from './Collider.js';
 export { BoxCollider } from './BoxCollider.js';
 export { SphereCollider } from './SphereCollider.js';
 export { CapsuleCollider } from './CapsuleCollider.js';
 export { CylinderCollider } from './CylinderCollider.js';
 export { PlaneCollider } from './PlaneCollider.js';
-export { RigidBody, RigidBodyKind } from './RigidBody.js';
-export { Physics } from './Physics.js';
-export { CollisionSystem } from './CollisionSystem.js';
-
-/**
- * The tags this package registers — read by the compiler/Vite plugin
- * (`registerPackages`) so a scene using them validates and imports the package.
- * Mirrors rapier's surface (colliders + `RigidBody` + `Physics`).
- * (`CollisionSystem` keys off the `Collider` type, not a tag.)
- */
-export const sceneTags = [
-  'BoxCollider',
-  'SphereCollider',
-  'CapsuleCollider',
-  'CylinderCollider',
-  'PlaneCollider',
-  'RigidBody',
-  'Physics',
-] as const;
+export { overlaps } from './overlap.js';

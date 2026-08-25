@@ -1,149 +1,120 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, type Object3D, type Texture } from 'three';
-import { describe, expect, it, vi } from 'vitest';
-import {
-  AssetCache,
-  Component,
-  Engine,
-  PrefabAsset,
-  component,
-  deserializeBundle,
-  property,
-  ValueType,
-} from '@scenoco-three/core';
-import { bundleScene, compileSceneXml, type CompileResult, type ResourceResolver } from '@scenoco-three/compiler';
+import { BoxGeometry, Mesh, MeshBasicMaterial, Scene, Texture } from 'three';
+import { afterEach, describe, expect, it } from 'vitest';
+import { Asset, SceneManager, isShared, loadAssets, shared, type SceneType } from '@scenoco-three/core';
+import { resetEngine } from './helpers.js';
 
-const compile = (xml: string) => {
-  const r = compileSceneXml(xml);
-  if (!r.ok) throw new Error('compile failed: ' + r.diagnostics.map((d) => d.message).join('; '));
-  return r.scene;
-};
-const fakeTexture = () => ({ isTexture: true as const, dispose: vi.fn(), userData: {} as Record<string, unknown> });
+afterEach(resetEngine);
 
-describe('assets: AssetCache', () => {
-  it('loads via a registered loader, caches (each URL once), and throws for an unknown extension', async () => {
-    const cache = new AssetCache();
-    const loader = vi.fn(async () => fakeTexture());
-    cache.registerLoader(['tex'], loader);
-
-    const a = await cache.load('x.tex');
-    const b = await cache.load('x.tex');
-    expect(a).toBe(b);
-    expect(loader).toHaveBeenCalledTimes(1);
-    expect(AssetCache.isManaged(a as { userData?: Record<string, unknown> })).toBe(true);
-    await expect(cache.load('x.unknownext')).rejects.toThrow('No asset loader');
-  });
-});
-
-describe('assets: textures + models on the engine', () => {
-  it('loadSceneAsync preloads the texture and the material picks it up', async () => {
-    const engine = new Engine();
-    const tex = fakeTexture();
-    engine.assets.registerLoader(['tex'], async () => tex);
-    await engine.loadSceneAsync(
-      bundleScene(compile('<Scene><Mesh id="m"><Attachments><BoxGeometry /><MeshStandardMaterial map="brick.tex" /></Attachments></Mesh></Scene>')),
-    );
-    const mesh = engine.findObject('m') as unknown as { material: { map: Texture | null } };
-    expect(mesh.material.map).toBe(tex);
-    engine.dispose();
-  });
-
-  it('clones a loaded glTF model under its host and keeps its shared resources across scene unload', async () => {
-    const model = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
-    const engine = new Engine();
-    engine.assets.registerLoader(['glb'], async () => ({ scene: new Group().add(model) }));
-    const geomSpy = vi.spyOn(model.geometry, 'dispose');
-    const matSpy = vi.spyOn(model.material, 'dispose');
-
-    await engine.loadSceneAsync(bundleScene(compile('<Scene><Group id="host"><Attachments><Model src="hero.glb" /></Attachments></Group></Scene>')));
-    const host = engine.findObject('host')!;
-    let meshes = 0;
-    host.traverse((o) => { if ((o as Mesh).isMesh) meshes++; });
-    expect(meshes).toBe(1); // the cloned model subtree
-
-    engine.disposeScene();
-    expect(geomSpy).not.toHaveBeenCalled(); // cache-managed, shared → not freed by scene unload
-    expect(matSpy).not.toHaveBeenCalled();
-    engine.dispose();
-  });
-});
-
-// A fake "asset" gated behind a preload provider; the component records whether
-// it was ready when its onLoad ran — proving load ordering.
-let assetReady = false;
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-@component({ name: 'NeedsAsset', description: 'Records whether its asset was ready at onLoad' })
-class NeedsAsset extends Component {
-  @property({ type: ValueType.Bool, description: 'ready at onLoad' }) sawAssetAtLoad = false;
-  override onLoad(): void {
-    this.sawAssetAtLoad = assetReady;
-  }
+function sceneOf(build: (scene: Scene) => void): SceneType {
+  return class extends Scene {
+    override onLoad(): void {
+      build(this);
+    }
+  };
 }
-const needsAssetBundle = () => bundleScene(compile('<Scene><Group id="g"><Components><NeedsAsset /></Components></Group></Scene>'));
 
-describe('engine: asynchronous scene loading', () => {
-  it('awaits preload providers before instantiating (onLoad sees ready assets); sync loadScene does not', async () => {
-    assetReady = false;
-    const asyncEngine = new Engine();
-    asyncEngine.addPreloadProvider(async () => { await delay(10); assetReady = true; });
-    await asyncEngine.loadSceneAsync(needsAssetBundle());
-    expect(asyncEngine.findComponent('g', NeedsAsset)!.sawAssetAtLoad).toBe(true);
-    asyncEngine.dispose();
+/** Counts `dispose` on the three things `Scene.unload` frees. */
+function watch(geometry: BoxGeometry, material: MeshBasicMaterial, texture: Texture) {
+  const counts = { geometry: 0, material: 0, texture: 0 };
+  geometry.addEventListener('dispose', () => { counts.geometry++; });
+  material.addEventListener('dispose', () => { counts.material++; });
+  texture.addEventListener('dispose', () => { counts.texture++; });
+  return counts;
+}
 
-    assetReady = false;
-    const syncEngine = new Engine();
-    syncEngine.addPreloadProvider(async () => { await delay(10); assetReady = true; });
-    syncEngine.loadScene(needsAssetBundle()); // instantiates immediately
-    expect(syncEngine.findComponent('g', NeedsAsset)!.sawAssetAtLoad).toBe(false);
-    syncEngine.dispose();
+describe('who owns a resource', () => {
+  /**
+   * The case this whole mechanism exists for. `brick.material.xml` compiles to one module-scope
+   * value, and every scene that references it imports the same one — so the first scene to
+   * unload must not free it. Before `shared()`, it did.
+   */
+  it('leaves a shared asset alone when a scene that used it unloads', async () => {
+    const geometry = shared(new BoxGeometry(1, 1, 1));
+    const texture = shared(new Texture());
+    const material = shared(new MeshBasicMaterial({ map: texture }));
+    const counts = watch(geometry, material, texture);
+
+    const First = sceneOf((s) => { s.add(new Mesh(geometry, material)); });
+    const Second = sceneOf((s) => { s.add(new Mesh(geometry, material)); });
+
+    await SceneManager.load(First);
+    await SceneManager.unload(First);
+    expect(counts).toEqual({ geometry: 0, material: 0, texture: 0 });
+
+    // And the second scene still has something to render with.
+    await SceneManager.load(Second);
+    expect(counts).toEqual({ geometry: 0, material: 0, texture: 0 });
+  });
+
+  /** The other half: what the scene itself built is still freed, or a scene switch leaks. */
+  it('frees what the scene built for itself', async () => {
+    const geometry = new BoxGeometry(1, 1, 1);
+    const texture = new Texture();
+    const material = new MeshBasicMaterial({ map: texture });
+    const counts = watch(geometry, material, texture);
+
+    const Level = sceneOf((s) => { s.add(new Mesh(geometry, material)); });
+    await SceneManager.load(Level);
+    await SceneManager.unload(Level);
+
+    expect(counts).toEqual({ geometry: 1, material: 1, texture: 1 });
+  });
+
+  it('marks a value without changing what it is', () => {
+    const geometry = new BoxGeometry(1, 1, 1);
+    expect(shared(geometry)).toBe(geometry);
+    expect(isShared(geometry)).toBe(true);
+    expect(isShared(new BoxGeometry(1, 1, 1))).toBe(false);
   });
 });
 
-/**
- * A `@property({ type: ValueType.Prefab })` field receives a PrefabAsset whose `.spawn()`
- * instantiates a build-time-embedded prefab — the primitive behind spawners.
- */
-@component({ name: 'PrefabSpawner', description: 'Spawns N copies of a prefab on load' })
-class PrefabSpawner extends Component {
-  @property({ type: ValueType.Prefab, description: 'prefab to spawn' }) prefab: PrefabAsset | null = null;
-  @property({ type: ValueType.Int, description: 'how many to spawn' }) count = 3;
-  readonly spawned: Object3D[] = [];
-  override onLoad(): void {
-    for (let i = 0; i < this.count; i++) if (this.prefab) this.spawned.push(this.prefab.spawn({ parent: this.node, position: [i, 0, 0] }));
-  }
-  override onDestroy(): void {
-    for (const s of this.spawned) this.engine.destroy(s);
-    this.spawned.length = 0;
+/** A stand-in for `Model` and `AudioClip`: the base class is what both are. */
+class Counted extends Asset<string> {
+  fetches = 0;
+  protected override async fetch(): Promise<string> {
+    this.fetches++;
+    await Promise.resolve();
+    return `loaded:${this.url}`;
   }
 }
 
-const cube = '<Prefab><Mesh><Attachments><BoxGeometry /><MeshStandardMaterial color="#888" /></Attachments></Mesh></Prefab>';
-const resolver: ResourceResolver = (request) => (request === 'cube.prefab.xml' ? { path: request, contents: cube } : null);
-const compileSpawner = (): CompileResult =>
-  compileSceneXml(
-    `<Scene><Object3D id="spawner"><Components><PrefabSpawner prefab="cube.prefab.xml" count="3" /></Components></Object3D></Scene>`,
-    { path: '/scene.xml', resolve: resolver },
-  );
+describe('an asset that arrives later', () => {
+  it('says what to do when it is read too early, instead of returning undefined', () => {
+    const asset = new Counted('hero.glb');
+    expect(asset.isLoaded).toBe(false);
+    expect(() => asset.value).toThrow(/loadAssets/);
+  });
 
-describe('prefab property kind', () => {
-  it('embeds the referenced prefab (round-trip safe) and hands the component a PrefabAsset whose spawn() builds a live subtree', () => {
-    const r = compileSpawner();
-    if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
-    expect(r.scene.prefabs).toHaveLength(1);
-    const round = deserializeBundle(bundleScene(r.scene));
-    expect(round.components.find((c) => c.type === 'PrefabSpawner')!.props.prefab).toEqual({ prefab: 0 });
+  it('fetches once however many things ask at once', async () => {
+    const asset = new Counted('hero.glb');
+    await Promise.all([asset.load(), asset.load(), loadAssets(asset)]);
+    expect(asset.fetches).toBe(1);
+    expect(asset.value).toBe('loaded:hero.glb');
+  });
 
-    const engine = new Engine();
-    engine.loadScene(round);
-    const spawner = engine.findComponent('spawner') as PrefabSpawner;
-    expect(spawner.prefab).toBeInstanceOf(PrefabAsset);
-    expect(spawner.spawned).toHaveLength(3);
-    let meshes = 0;
-    engine.scene.traverse((o) => { if (o.type === 'Mesh') meshes++; });
-    expect(meshes).toBe(3);
+  it('loads a whole list in parallel — what a generated scene calls', async () => {
+    const model = new Counted('hero.glb');
+    const clip = new Counted('step.ogg');
+    await loadAssets(model, clip);
+    expect(model.isLoaded && clip.isLoaded).toBe(true);
+  });
 
-    engine.disposeScene(); // reload hygiene: spawned instances torn down too
-    let after = 0;
-    engine.scene.traverse((o) => { if (o.type === 'Mesh') after++; });
-    expect(after).toBe(0);
+  it('is loadable again after being disposed', async () => {
+    const asset = new Counted('hero.glb');
+    await asset.load();
+    asset.dispose();
+    expect(asset.isLoaded).toBe(false);
+    await asset.load();
+    expect(asset.fetches).toBe(2);
+  });
+
+  /**
+   * A texture is not an `Asset` — three.js hands it over before the image lands, so nothing has
+   * to wait for it. A scene that *does* wait shows no untextured first frame, so `loadAssets`
+   * takes one anyway.
+   */
+  it('waits for a texture too, and for an untracked object harmlessly', async () => {
+    const texture = new Texture();
+    await expect(loadAssets(texture, new BoxGeometry(1, 1, 1))).resolves.toBeUndefined();
   });
 });

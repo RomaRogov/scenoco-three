@@ -1,0 +1,15 @@
+{
+  "name": "@scenoco-three/example-smoke",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@scenoco-three/box2d": "*",
+    "@scenoco-three/core": "*",
+    "@scenoco-three/ui": "*"
+  }
+}

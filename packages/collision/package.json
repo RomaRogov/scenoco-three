@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/collision",
   "version": "0.4.0",
-  "description": "Lightweight non-physics overlap detection for SceNoCo: <BoxTrigger>/<SphereTrigger> volumes + a TriggerSystem dispatching onTriggerEnter/onTriggerExit",
+  "description": "Detection-only collision for SceNoCo, API-identical to @scenoco-three/rapier.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -15,7 +15,10 @@
   "files": [
     "dist"
   ],
-  "sideEffects": true,
+  "sideEffects": [
+    "./dist/contacts.js",
+    "./src/contacts.ts"
+  ],
   "keywords": [
     "three",
     "threejs",

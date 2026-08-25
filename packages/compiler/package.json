@@ -1,48 +1,38 @@
 {
   "name": "@scenoco-three/compiler",
   "version": "0.4.0",
-  "description": "SceNoCo build-time compiler, CLI and watcher",
+  "description": "Build-time half of SceNoCo: finds components by scanning the workspace and reads their serialized fields from the TypeScript source.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "scenoco": "./dist/cli/index.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
     }
   },
   "files": [
     "dist"
   ],
-  "keywords": [
-    "three",
-    "threejs",
-    "scene",
-    "components",
-    "ecs",
-    "xml",
-    "dsl",
-    "compiler",
-    "gamedev"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js",
-    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.4.0",
-    "@xml-tools/ast": "^5.0.5",
-    "@xml-tools/parser": "^1.0.11",
-    "chokidar": "^4.0.3",
-    "esbuild": "^0.25.12",
+    "typescript": "^7.0.2",
     "saxes": "^6.0.0"
+  },
+  "//peerDependencies": "three is read, not bundled: the tag vocabulary comes from its declarations and the colour diagnostics from its own parser. A project compiling SceNoCo documents has it by definition.",
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "bin": {
+    "scenoco": "./dist/bin.js"
   }
 }

@@ -1,43 +1,45 @@
-// `@scenoco-three/particles` — particle systems / VFX for SceNoCo, built on
-// three.quarks (a batched, general-purpose particle engine for three.js).
-//
-//   • `<ParticleSystem>` — a component with Unity Shuriken-style settings. Author
-//     it inline (flat Main/Emission/Shape/Renderer props) or point `src=` at a
-//     `.particle.xml` file (its own grammar + XSD, with over-lifetime modules) or
-//     a `.quarks.json` exported from the quarks.art editor.
-//   • `ParticleRenderSystem` — the `@system` that owns the scene's single
-//     three.quarks `BatchedRenderer`, builds a system per component, and steps
-//     it each frame. Auto-runs when the scene has a `<ParticleSystem>` (the
-//     System seam, like the physics add-ons) and, like them, only in play mode.
-//
-// Importing this module registers the component and the particle enums (decorator
-// + enumOf side effects), hence the package is `sideEffects`.
-//
-// It deliberately does NOT reach the `.particle.xml` compiler: that is build-time
-// code, and importing it here would pin it — and its diagnostic strings — into
-// every game bundle (invariant 2). It lives behind the separate
-// `@scenoco-three/particles/compiler` entry, which only `scenoco` loads.
-
+/**
+ * `@scenoco-three/particles` — particle systems / VFX for SceNoCo, on three.quarks.
+ *
+ * ```xml
+ * <!-- assets/vfx/fire.particle.xml -->
+ * <ParticleSystem duration="3" startLifetime="1.6" startSpeed="4.5" startColor="#ffdd66">
+ *   <Emission rateOverTime="90"><Burst time="0" count="10" /></Emission>
+ *   <Shape type="Cone" radius="0.35" angle="14" />
+ *   <ColorOverLifetime colors="[#ffee88, #ff6622, #661100]" />
+ *   <SizeOverLifetime curve="[0.4, 1, 0.2]" />
+ * </ParticleSystem>
+ * ```
+ *
+ * ```xml
+ * <!-- and in a scene -->
+ * <Group position="y: 1.2">
+ *   <Components>
+ *     <ParticleSystem effect="../vfx/fire.particle.xml" />
+ *   </Components>
+ * </Group>
+ * ```
+ *
+ * An effect is an **asset**, like a geometry or a material — one file, referenced by however
+ * many emitters want it. The `<ParticleSystem>` component plays one; `ParticleRenderer` is the
+ * scene system that batches and steps them all.
+ *
+ * ### What went away in v2
+ *
+ * The package used to own its own document format: a `registerSrcCompiler` seam, a build-time
+ * `./compiler` entry, an XSD, a hand-written `.particle.xml` parser, and a second inline way to
+ * spell the same effect on the component. All of it is gone. The compiler reads
+ * {@link ParticleConfig}'s own TypeScript declaration to decide what a document may say, so an
+ * attribute exists because a field does — and the only thing left that no type could express,
+ * the Unity module names, is eight lines in the compiler.
+ */
 export { ParticleSystem } from './ParticleSystem.js';
-export { ParticleRenderSystem } from './ParticleRenderSystem.js';
-export { configToParameters, type ParticleConfig } from './config.js';
-export { ParticleShape, ParticleRenderMode, SimulationSpace, ParticleBlending } from './enums.js';
-
-/** The tags this package registers — for the compiler/Vite `registerPackages`. */
-export const sceneTags = ['ParticleSystem'] as const;
-
-/**
- * Package-owned XSDs for this package's `src=` document formats, shipped at the
- * package root (see package.json `files`). `scenoco export` copies them into the
- * project's schema dir so a `.particle.xml` can wire IDE validation via
- * `xsi:noNamespaceSchemaLocation="particle.xsd"`. Plain filenames (never loaded
- * at runtime) — the CLI resolves them against this package's directory.
- */
-export const schemas = ['particle.xsd'] as const;
-
-/**
- * This package ships a build-time entry (`@scenoco-three/particles/compiler`)
- * describing its `src=` document format. A plain boolean, so the compiler knows
- * to load that subpath without probing for a module that may not exist.
- */
-export const hasSrcDocument = true;
+export { ParticleRenderer } from './ParticleRenderer.js';
+export {
+  configToParameters,
+  type ParticleBlending,
+  type ParticleConfig,
+  type ParticleRenderMode,
+  type ParticleShape,
+  type SimulationSpace,
+} from './config.js';

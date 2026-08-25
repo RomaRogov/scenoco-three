@@ -1,0 +1,51 @@
+<Scene>
+  <Systems>
+    <Physics2D gravity="x: 0; y: -9.81" />
+  </Systems>
+
+  <PerspectiveCamera id="camera" fov="50" near="0.1" far="100" position="y: 1.5; z: 11">
+    <Canvas>
+      <Panel anchor="stretchTop" height="56" background="#111827" opacity="0.85"
+             layout="horizontal" alignY="center" gap="16" padding="16">
+        <Text id="title" text="SceNoCo v2" fontSize="22" color="#38bdf8" />
+        <Text id="readout" text="bounces 0" fontSize="18" color="#e2e8f0" />
+      </Panel>
+
+      <Panel anchor="bottomRight" x="24" y="24" width="220" height="64"
+             background="#1f2937" radius="12" layout="vertical"
+             alignX="center" alignY="center" padding="12">
+        <Text text="anchor=bottomRight" fontSize="14" color="#94a3b8" />
+      </Panel>
+    </Canvas>
+  </PerspectiveCamera>
+
+  <AmbientLight intensity="0.55" />
+  <DirectionalLight intensity="1.4" position="x: 4; y: 8; z: 6" />
+
+  <Mesh id="ground" name="ground" geometry="../geometry/ground.geometry.xml"
+        material="../materials/ground.material.xml" position="y: -3" scale="x: 1; y: 1; z: 1">
+    <Components>
+      <RigidBody2D kind="static" />
+      <BoxCollider2D halfExtents="x: 6; y: 0.25" />
+    </Components>
+  </Mesh>
+
+  <Mesh id="ball" geometry="../geometry/ball.geometry.xml"
+        material="../materials/ball.material.xml" position="x: -1; y: 4">
+    <Components>
+      <RigidBody2D kind="dynamic" bullet="true" />
+      <CircleCollider2D radius="0.4" restitution="0.75" />
+      <BounceCounter readout="#readout" />
+    </Components>
+  </Mesh>
+
+  <Prefab src="crate.prefab.xml" position="x: 2.2; y: 2" />
+  <Prefab src="crate.prefab.xml" position="x: 3.0; y: 4" eulerAngles="z: 20" />
+
+  <Mesh id="spinner" geometry="../geometry/crate.geometry.xml"
+        material="../materials/ball.material.xml" position="x: -4; y: 1.5">
+    <Components>
+      <Hover spin="90" height="1.5" duration="1.6" />
+    </Components>
+  </Mesh>
+</Scene>

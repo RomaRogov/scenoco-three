@@ -1,15 +1,21 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
+    "lib": ["ES2022", "DOM", "ESNext.Decorators"],
     "types": ["node"],
-    "experimentalDecorators": true,
+    "experimentalDecorators": false,
+    "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "isolatedModules": true,
+    // Every type annotation must be strippable: no `enum`, no `namespace`, no parameter
+    // properties. It keeps the source usable by plain type-stripping toolchains (node
+    // --experimental-strip-types, oxc) rather than only by a full compiler, and it mechanically
+    // enforces the rule that an enum is spelled `const X = {…} as const` — see `KeyCode`.
+    "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "ignoreDeprecations": "6.0",
     "skipLibCheck": true,

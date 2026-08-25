@@ -3,8 +3,16 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "dist",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "jsx": "react-jsx"
   },
-  "include": ["src", "app"]
+  "include": [
+    "src",
+    "app"
+  ],
+  "exclude": [
+    "dist"
+  ]
 }

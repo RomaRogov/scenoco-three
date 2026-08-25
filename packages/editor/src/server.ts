@@ -1,793 +1,567 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import chokidar from 'chokidar';
 import react from '@vitejs/plugin-react';
-import { createServer, type Plugin, type ViteDevServer } from 'vite';
+import { createServer, type ViteDevServer } from 'vite';
 import { WebSocketServer } from 'ws';
 import {
-  bundlePrefab,
-  bundleScene,
-  collectedPackageSchemas,
-  compilePrefabXml,
-  compileSceneXml,
-  componentLoadError,
-  detectTagPackages,
-  generateMaterialXsd,
-  generatePrefabXsd,
-  generateXsd,
-  loadComponents,
-  scanComponents,
-  type ComponentLoadError,
-  type PatchEdit,
-  type ResourceResolver,
+  build,
+  findAssets,
+  formatDiagnostic,
+  indexDocument,
+  insertChild,
+  moveElement,
+  removeElement,
+  setAttribute,
+  type ElementAt,
+  type ProjectModel,
 } from '@scenoco-three/compiler';
-import { bundlePlugin } from '@scenoco-three/vite';
-import { Registry } from '@scenoco-three/core';
-import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse, type StructuralOp as EditorStructuralOp } from './protocol.js';
-import { applySaveOps } from './structuralOps.js';
+import { WS_PATH, type EditorCommand, type EditorPush, type EditorResponse } from './protocol.js';
 
 export interface ServerOptions {
-  /** Directories scanned for `@component`/`@node` tags (default `['assets']`). */
-  componentRoots?: string[];
-  /** Tag packages to register (default: the `@scenoco-three/*` deps in package.json). */
-  packages?: string[];
-  /** Fixed port (default: a free OS port). */
+  /** Project root — the directory holding `tsconfig.json` and `assets/`. Defaults to cwd. */
+  root?: string;
+  /** Packages whose tags the documents may use, beyond `three`. */
+  modules?: readonly string[];
+  /** Fixed port. Defaults to a free one the OS picks. */
   port?: number;
-  /** Base directory `componentRoots` are resolved against (default: `process.cwd()`). */
-  cwd?: string;
   /**
-   * Called when no editor page has been connected for a while — either none ever
-   * connected within `initialGraceMs` (a browser that never opened), or the last
-   * open editor disconnected and none reconnected within `idleMs`. Opt-in: when
-   * omitted, the server never self-halts (embedders/tests stay long-lived). The
-   * CLI wires this to a graceful shutdown so no stale editor process is left
-   * running once every tab is closed.
+   * Called when no editor page has been connected for a while — none ever connected within
+   * `initialGraceMs`, or the last one disconnected and none came back within `idleMs`.
+   *
+   * Opt-in, so an embedder or a test stays long-lived. The CLI wires it to a graceful shutdown,
+   * which is what keeps a closed tab from leaving an editor process running for the rest of the
+   * day.
    */
   onIdle?: () => void;
-  /** Idle window after the last editor disconnects before `onIdle` fires (default 5000ms). */
   idleMs?: number;
-  /** Grace for the *first* editor to connect before `onIdle` fires (default 30000ms). */
   initialGraceMs?: number;
 }
 
-/** Relays MCP tool commands to the connected editor page(s) and awaits a reply. */
+/** Relays a command to the connected editor page and awaits its reply. */
 export interface EditorBridge {
   connected(): boolean;
-  send(cmd: EditorCommand): Promise<EditorResponse>;
-  /** Send an unsolicited notification to every connected editor page (e.g. a file change). */
-  push(msg: EditorPush): void;
+  send(command: EditorCommand): Promise<EditorResponse>;
+  push(message: EditorPush): void;
   /**
-   * Resolves `true` as soon as an editor is connected (immediately if one already
-   * is), or `false` after `ms`. The CLI uses this to tell whether a stale tab has
-   * reclaimed a reused port — reconnecting on its own retry loop — before it
-   * decides whether to open a fresh browser tab.
+   * Resolve as soon as an editor page is connected, or `false` after `ms`.
+   *
+   * The CLI waits on this after reclaiming the previous session's port: a tab stranded by an
+   * ungraceful exit is still retrying its socket every second, so giving it a moment to come
+   * back is the difference between reusing the tab and stacking up a new one.
    */
   waitForConnection(ms: number): Promise<boolean>;
-  /** Cancel the idle-shutdown timer (called on an intentional server close). */
-  dispose(): void;
-}
-
-/** Watches the open file + its `src=` deps and pushes change notifications. */
-export interface FileWatcher {
-  /** (Re)arm the watch set after a successful compile of `openFile` with `deps`. */
-  arm(openFile: string, openContents: string, deps: { path: string; contents: string }[]): void;
-  /** Record content the editor itself just wrote, so its own save isn't seen as external. */
-  note(file: string, contents: string): void;
-  setPush(push: (msg: EditorPush) => void): void;
-  /** Send an unsolicited push over the same bridge (component-change notices). */
-  emit(msg: EditorPush): void;
-  close(): Promise<void>;
 }
 
 export interface EditorServer {
-  /** Local URL the editor app is served at. */
   url: string;
-  /** LAN URL (open on another device on the same network). */
-  networkUrl?: string;
   /**
-   * True when the HTTP server bound the *previous* session's port (remembered in
-   * `.scenoco/`) rather than a fresh one — so a tab left stranded by an ungraceful
-   * exit is likely still retrying its WebSocket on this exact port and will
-   * reattach on its own. The CLI uses it to avoid opening a duplicate tab.
+   * The same editor, reachable from another device on the network — a phone, for testing touch.
+   *
+   * Absent when the host has no LAN interface to offer.
+   */
+  networkUrl?: string;
+  port: number;
+  /**
+   * True when this server bound the **previous** session's port rather than a fresh one, so any
+   * tab left over from that session is about to reattach on its own retry loop.
    */
   reusedPort: boolean;
   bridge: EditorBridge;
+  /** What the project's TypeScript declares — the inspector's schema. */
+  model(): ProjectModel;
   close(): Promise<void>;
 }
 
-const appDir = fileURLToPath(new URL('../app', import.meta.url));
-
-/** Loads `src=` resources from disk, relative to the referencing file. */
-const fsResolver: ResourceResolver = (request, referrer) => {
-  const path = resolve(referrer ? dirname(referrer) : '.', request);
-  return existsSync(path) ? { path, contents: readFileSync(path, 'utf8') } : null;
-};
+const appRoot = fileURLToPath(new URL('../app', import.meta.url));
 
 /**
- * (Re)register the project's components (change-aware — a no-op when nothing
- * changed) and, while the registry is healthy, keep the project's `schema/` XSDs
- * in sync. A corrupted component file no longer wipes the registry: the last-good
- * set stays live and the failure is returned for the editor/MCP to surface.
+ * The editor's own dev server.
+ *
+ * It serves the editor page from this package and lets it import the **project's** generated
+ * modules over `/@fs`, which is the arrangement decided when this was ported: riding the
+ * project's own Vite would put a React app inside the game's build.
+ *
+ * Its jobs are few. Compile the project **with provenance** so the page can map a mesh back to
+ * the element that built it. Serve the model and the document text the inspector needs. Take a
+ * save and splice it into the source. Watch, rebuild, and tell the page.
  */
-async function refreshComponents(roots: string[], cwd: string, packages: string[]): Promise<ComponentLoadError | undefined> {
-  await loadComponents(roots, cwd, { packages }).catch(() => {});
-  const error = componentLoadError();
-  if (!error) regenerateSchemas(cwd);
-  return error;
-}
+export async function startEditorServer(options: ServerOptions = {}): Promise<EditorServer> {
+  const root = resolve(options.root ?? process.cwd());
+  let model: ProjectModel | undefined;
 
-/**
- * Rewrite `schema/{scene,prefab,material}.xsd` plus each tag package's XSD from the
- * live registry, so an IDE linked to them tracks component edits without a manual
- * `scenoco export`. Opt-in: only maintains an *existing* `schema/` dir; writes only
- * files whose content changed (no git churn, no watcher feedback loop).
- */
-function regenerateSchemas(cwd: string): void {
-  const dir = resolve(cwd, 'schema');
-  if (!existsSync(dir)) return;
-  writeIfChanged(resolve(dir, 'scene.xsd'), generateXsd());
-  writeIfChanged(resolve(dir, 'prefab.xsd'), generatePrefabXsd());
-  writeIfChanged(resolve(dir, 'material.xsd'), generateMaterialXsd());
-  for (const schema of collectedPackageSchemas()) {
-    try {
-      writeIfChanged(resolve(dir, schema.filename), readFileSync(schema.path, 'utf8'));
-    } catch {
-      /* a package XSD went missing — skip it */
-    }
-  }
-}
-
-function writeIfChanged(path: string, content: string): void {
-  try {
-    if (existsSync(path) && readFileSync(path, 'utf8') === content) return;
-  } catch {
-    /* unreadable — fall through and overwrite */
-  }
-  writeFileSync(path, content);
-}
-
-/**
- * Start the editor's Vite dev server: serves the app, registers all project
- * components/packages, compiles any scene/prefab on demand, and bridges the page
- * to the MCP server over a WebSocket.
- */
-export async function startEditorServer(opts: ServerOptions = {}): Promise<EditorServer> {
-  const cwd = opts.cwd ?? process.cwd();
-  // Convention over configuration: scan `assets/` for components and register the
-  // `@scenoco-three/*` tag packages listed in the project's package.json, so the
-  // editor needs no `--components`/`--packages`.
-  const componentRoots = opts.componentRoots ?? ['assets'];
-  const packages = opts.packages ?? detectTagPackages(cwd);
-  // Prefer the previous session's port so a tab stranded by an ungraceful exit
-  // reconnects on its own retry loop (see `choosePort`); a fixed `opts.port`
-  // (embedders/tests) opts out and always counts as fresh.
-  let chosen = opts.port !== undefined ? { port: opts.port, reused: false } : await choosePort(cwd);
-
-  const watcher = createFileWatcher();
-  // Filled in after `listen()` (URLs aren't resolved until then) and served to the
-  // editor page over `/@scenoco/info`, so the app can show its own LAN URL for
-  // opening on another device on the network.
-  const netInfo: EditorNetInfo = {};
-  const build = (port: number): Promise<ViteDevServer> =>
-    createServer({
-      configFile: false,
-      root: appDir,
-      logLevel: 'warn',
-      // One `three` for the whole dev graph: the editor app, the engine, and tag
-      // packages that bring their own three-based deps (@scenoco-three/ui →
-      // @pmndrs/uikit) must share the class identities (instanceof across copies
-      // silently fails — e.g. uikit's Fullscreen would never size itself). Same
-      // reasoning dedupes React so the editor chrome and react-arborist share one
-      // renderer (hooks throw across copies).
-      resolve: { dedupe: ['three', 'react', 'react-dom'] },
-      server: { host: true, port, strictPort: true, fs: { strict: false } },
-      plugins: [
-        react(), // TSX/JSX for the editor chrome under app/ui/
-        // `import('level2.scene.xml?bundle')` from *game* code must work here the
-        // way it does under a project's own `vite dev`. The editor's own scene
-        // loading goes through `/@scenoco/bundle` (an HTTP endpoint, below), which
-        // leaves `?bundle` module ids with no handler at all — Vite then serves the
-        // raw XML and the import fails on "invalid JS syntax". Level transitions and
-        // restart flows are exactly what `simulate` is for, so the module-graph path
-        // has to be served too, by the same plugin real projects use.
-        // Roots go in absolute: the plugin resolves them against `process.cwd()`,
-        // but the editor's project dir is `cwd` (an option), and the Vite `root`
-        // here is the editor's own app dir — neither of which is the project.
-        bundlePlugin({ componentRoots: componentRoots.map((r) => resolve(cwd, r)), registerPackages: packages }),
-        allComponentsPlugin(componentRoots, packages, cwd, watcher),
-        bundleEndpointPlugin(componentRoots, packages, cwd, watcher),
-        infoEndpointPlugin(netInfo),
-      ],
+  /** Compile the project. Provenance is always on here — that is what an editor is. */
+  const compile = (rescan: boolean): { ok: true } | { ok: false; message: string } => {
+    if (rescan) model = undefined;
+    const result = build({
+      root,
+      // No list means the project's own dependencies decide, which is what `build` does with
+      // an absent `modules` — the editor must accept exactly what `vite dev` accepts.
+      ...(options.modules ? { modules: options.modules } : {}),
+      provenance: true,
+      ...(model ? { model } : {}),
     });
-  let server = await build(chosen.port);
-  try {
-    await server.listen();
-  } catch (e) {
-    // `strictPort` refused the remembered port — another live server raced us onto
-    // it between the bindability probe and `listen()`. Fall back to a fresh free
-    // port (and a fresh tab). A fixed `opts.port` has no fallback, so re-throw.
-    if (opts.port !== undefined) throw e;
-    await server.close().catch(() => {});
-    chosen = { port: await freePort(), reused: false };
-    server = await build(chosen.port);
-    await server.listen();
-  }
-  // Remember the port we actually bound so the next launch can reclaim it.
-  rememberPort(cwd, chosen.port);
+    model = result.model;
+    if (result.diagnostics.length === 0) return { ok: true };
+    return { ok: false, message: result.diagnostics.map((d) => formatDiagnostic(d)).join('\n') };
+  };
 
-  const bridge = attachBridge(server, {
-    ...(opts.onIdle ? { onIdle: opts.onIdle } : {}),
-    ...(opts.idleMs !== undefined ? { idleMs: opts.idleMs } : {}),
-    ...(opts.initialGraceMs !== undefined ? { initialGraceMs: opts.initialGraceMs } : {}),
-  });
-  watcher.setPush((msg) => bridge.push(msg));
-  const url = server.resolvedUrls?.local[0] ?? `http://localhost:${chosen.port}/`;
-  const networkUrl = server.resolvedUrls?.network[0];
-  netInfo.local = url;
-  netInfo.network = networkUrl;
+  const first = compile(true);
+  if (!first.ok) throw new Error(`[scenoco] this project does not compile yet:\n${first.message}`);
+
+  // The same port as last time whenever it is free: a tab the previous session left behind is
+  // retrying this exact URL every second, and reclaiming the port is what lets it come back
+  // instead of being stranded while a duplicate opens beside it.
+  let chosen = options.port !== undefined ? { port: options.port, reused: false } : await choosePort(root);
+
+  const serve = (port: number): Promise<ViteDevServer> =>
+    createServer({
+      root: appRoot,
+      configFile: false,
+      plugins: [react(), editorApi(root, () => model!, compile)],
+      server: {
+        port,
+        // Listen on every interface, so the editor can be opened from a phone on the same
+        // network — which is the only way to try the touch controls on real fingers. It is a
+        // dev server on a local network, and `fs.allow` below still bounds what it will read.
+        host: true,
+        // Strict, so losing the race for the remembered port is an error we can fall back from
+        // rather than a silent move to port+1 that no stranded tab is watching.
+        strictPort: true,
+        // The page imports the project's generated modules by absolute path, so the project has
+        // to be readable. Nothing outside these two roots is.
+        fs: { allow: [appRoot, root] },
+      },
+      // One `three` across the editor and the project, or `instanceof` quietly fails across two
+      // copies and every raycast hit looks like nothing at all.
+      resolve: { dedupe: ['three'] },
+      optimizeDeps: { include: ['react', 'react-dom/client'] },
+    });
+
+  let vite = await serve(chosen.port);
+  try {
+    await vite.listen();
+  } catch (error) {
+    // A caller that asked for a specific port meant it; anything else falls back to a fresh one
+    // (and, with it, a fresh tab — there is nothing waiting on a port we never had).
+    if (options.port !== undefined) throw error;
+    await vite.close().catch(() => {});
+    chosen = { port: await freePort(), reused: false };
+    vite = await serve(chosen.port);
+    await vite.listen();
+  }
+
+  const port = (vite.httpServer!.address() as AddressInfo).port;
+  rememberPort(root, port);
+  const bridge = attachBridge(vite, options);
+
+  watchProject(vite, root, compile, bridge);
+
+  // Vite works out which interface is actually reachable; guessing from `os.networkInterfaces()`
+  // picks a VPN or a container bridge as often as the Wi-Fi.
+  const networkUrl = vite.resolvedUrls?.network[0]?.replace(/\/$/, '');
+
   return {
-    url,
+    url: `http://localhost:${port}`,
     ...(networkUrl ? { networkUrl } : {}),
+    port,
     reusedPort: chosen.reused,
     bridge,
-    close: async () => {
-      bridge.dispose();
-      await watcher.close();
-      await server.close();
+    model: () => model!,
+    async close() {
+      bridge.push({ push: 'shutdown' });
+      await vite.close();
     },
-  };
-}
-
-/** Resolved editor URLs, published to the page over `/@scenoco/info`. */
-interface EditorNetInfo {
-  local?: string;
-  network?: string;
-}
-
-/**
- * A push-based file watcher: tracks the open file plus its `src=` dependencies,
- * and notifies the editor when one changes on disk. Changes whose content matches
- * what we last compiled/wrote are ignored — so the editor's own save (and no-op
- * touches) don't masquerade as external edits.
- */
-function createFileWatcher(): FileWatcher {
-  const w = chokidar.watch([], { ignoreInitial: true, awaitWriteFinish: true });
-  const content = new Map<string, string>(); // abs path → last-known content
-  let openFile = '';
-  let push: (msg: EditorPush) => void = () => {};
-
-  const onChange = (changed: string): void => {
-    const abs = resolve(changed);
-    if (!content.has(abs)) return; // not in our set
-    let text: string;
-    try {
-      text = readFileSync(abs, 'utf8');
-    } catch {
-      return; // deleted mid-event; ignore
-    }
-    if (text === content.get(abs)) return; // our own write or a no-op touch
-    content.set(abs, text);
-    push({ push: 'fileChanged', file: abs, role: abs === openFile ? 'open' : 'dep' });
-  };
-  w.on('change', onChange);
-  w.on('add', onChange);
-
-  return {
-    arm(file, openContents, deps) {
-      const abs = resolve(file);
-      const next = new Map<string, string>([[abs, openContents]]);
-      for (const d of deps) next.set(resolve(d.path), d.contents);
-      for (const old of content.keys()) if (!next.has(old)) w.unwatch(old);
-      for (const p of next.keys()) if (!content.has(p)) w.add(p);
-      content.clear();
-      for (const [k, v] of next) content.set(k, v);
-      openFile = abs;
-    },
-    note(file, contents) {
-      content.set(resolve(file), contents);
-    },
-    emit(msg) {
-      push(msg);
-    },
-    setPush(fn) {
-      push = fn;
-    },
-    close: () => w.close(),
   };
 }
 
 /**
- * Two virtual modules, split so a broken project component can't wipe the core
- * tag registry (the P1 "Background not registered" cascade):
- *  - `virtual:scenoco-runtime`    → `@scenoco-three/core/nodes` + tag packages
- *    (the infrastructure every core scene decodes against; imported first).
- *  - `virtual:scenoco-components` → only the project's component files (fragile —
- *    a broken one throws here, isolated from core/package registration).
- * The components module is invalidated when a component file is added/removed, so
- * a deleted file never lingers as a stale import (the client-cache half of P1).
+ * The port to serve on: last session's if it is free, otherwise a fresh one.
+ *
+ * Sticky by default rather than on request, because the thing it fixes — a restart stacking up a
+ * second tab while the first sits there retrying — happens on every restart.
  */
-function allComponentsPlugin(roots: string[], packages: string[], cwd: string, watcher: FileWatcher): Plugin {
-  const runtimeId = 'virtual:scenoco-runtime';
-  const componentsId = 'virtual:scenoco-components';
-  const resolvedRuntime = '\0' + runtimeId;
-  const resolvedComponents = '\0' + componentsId;
-  const absRoots = roots.map((r) => resolve(cwd, r));
-  const isComponentFile = (file: string): boolean => SOURCE_EXT_RE.test(file) && absRoots.some((r) => resolve(file).startsWith(r));
+async function choosePort(root: string): Promise<{ port: number; reused: boolean }> {
+  const remembered = readPort(root);
+  return remembered === undefined ? { port: await freePort(), reused: false } : { port: remembered, reused: true };
+}
+
+function portFile(root: string): string {
+  return join(root, '.scenoco', 'editor-port');
+}
+
+/** The port the last session bound, if one was recorded. */
+function readPort(root: string): number | undefined {
+  try {
+    const n = Number(readFileSync(portFile(root), 'utf8').trim());
+    return Number.isInteger(n) && n > 0 && n < 65536 ? n : undefined;
+  } catch {
+    return undefined; // no file yet, or unreadable — take a fresh port
+  }
+}
+
+/** Record the port just bound. Best-effort: sticky reuse is a convenience, not a requirement. */
+function rememberPort(root: string, port: number): void {
+  try {
+    mkdirSync(dirname(portFile(root)), { recursive: true });
+    writeFileSync(portFile(root), String(port));
+  } catch {
+    /* couldn't write .scenoco/ — the next launch just takes a fresh port */
+  }
+}
+
+/**
+ * The handful of endpoints the page needs beyond its own modules.
+ *
+ * Everything is scoped under `/@scenoco/`, and every path that names a file is checked to be
+ * inside the project — a dev server that will read any absolute path is a dev server that will
+ * read your SSH key.
+ */
+function editorApi(
+  root: string,
+  model: () => ProjectModel,
+  compile: (rescan: boolean) => { ok: true } | { ok: false; message: string },
+) {
+  const insideProject = (path: string): string | null => {
+    const absolute = resolve(root, path);
+    const rel = relative(root, absolute);
+    return rel && !rel.startsWith('..') && !rel.startsWith(sep) ? absolute : null;
+  };
 
   return {
-    name: 'scenoco:all-components',
-    resolveId: (source) =>
-      source === runtimeId ? resolvedRuntime : source === componentsId ? resolvedComponents : null,
-    load(source) {
-      if (source === resolvedRuntime) {
-        // Core nodes first (so core tags register even if a package throws next), then packages.
-        return ['import "@scenoco-three/core/nodes";', ...packages.map((p) => `import ${JSON.stringify(p)};`)].join('\n');
-      }
-      if (source === resolvedComponents) {
-        return [...scanComponents(roots, cwd).files.keys()].map((f) => `import ${JSON.stringify(`/@fs${f}`)};`).join('\n') || 'export {};';
-      }
-      return null;
-    },
-    configureServer(server) {
-      // Vite's watcher is rooted at the editor app dir, so it only sees component
-      // files once they're in the module graph (already imported). Watch the project
-      // component roots explicitly, so a brand-NEW file's `add` fires too — not just
-      // edits/deletes of already-imported ones.
-      server.watcher.add(absRoots);
-      // A component file changed: rebuild the components module (not the runtime
-      // one) so a new file gets imported and a deleted one isn't imported from a
-      // stale graph. Then *ask* the editor to reload rather than forcing it —
-      // `full-reload` here would throw away unsaved scene edits without warning.
-      // `change` is included, not just add/unlink: editing a class's `@property`
-      // set changes what the inspector must render.
-      let metaSignature = componentMetaSignature();
-      const invalidate = (file: string): void => {
-        if (!isComponentFile(file)) return;
-        const mod = server.moduleGraph.getModuleById(resolvedComponents);
-        if (mod) server.moduleGraph.invalidateModule(mod);
-        // Re-register in this Node process so the signature reflects the edit, then
-        // report whether the *registered property surface* actually moved.
-        void refreshComponents(roots, cwd, packages).then(() => {
-          const next = componentMetaSignature();
-          const metaChanged = next !== metaSignature;
-          metaSignature = next;
-          watcher.emit({ push: 'componentsChanged', metaChanged });
+    name: 'scenoco:editor-api',
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use('/@scenoco/documents', (_req, res) => {
+        // Every document in the project, for the file picker.
+        json(res, findAssets(root).map((a) => ({ kind: a.kind, path: a.relativePath, stem: a.stem })));
+      });
+
+      server.middlewares.use('/@scenoco/model', (_req, res) => {
+        // The inspector's whole schema: field names, types, defaults, doc comments, source
+        // links. Read from the project's TypeScript, so it cannot drift from the code.
+        const { components, systems, tags } = model();
+        json(res, { components, systems, tags });
+      });
+
+      server.middlewares.use('/@scenoco/document', (req, res) => {
+        const path = new URL(req.url ?? '', 'http://x').searchParams.get('path');
+        const absolute = path ? insideProject(path) : null;
+        if (!absolute || !existsSync(absolute)) return fail(res, 404, 'no such document');
+        const text = readFileSync(absolute, 'utf8');
+        json(res, {
+          path,
+          // The generated module the page imports to build the live scene.
+          module: `/@fs${absolute.replace(/\.xml$/, '.gen.ts')}`,
+          text,
+          // The element index, from the **compiler's own parser** — the one whose positions the
+          // provenance stamps were written with. The page reimplementing this was the one thing
+          // guaranteed to drift, and it did: a long or multi-line open tag came out at a
+          // different column, so every node but the short ones failed to match its element.
+          elements: indexDocument(text).map((e) => ({
+            tag: e.tag,
+            line: e.line,
+            column: e.column,
+            // The byte range, so the page can lift an element's source text for a copy.
+            start: e.start,
+            end: e.end,
+            attributes: e.attributes,
+          })),
         });
-      };
-      server.watcher.on('add', invalidate);
-      server.watcher.on('unlink', invalidate);
-      server.watcher.on('change', invalidate);
-    },
-  };
-}
+      });
 
-/** Component source extensions the editor imports (mirrors the compiler's scan). */
-const SOURCE_EXT_RE = /\.[cm]?[jt]sx?$/;
+      server.middlewares.use('/@scenoco/save', (req, res) => {
+        if (req.method !== 'POST') return fail(res, 405, 'POST only');
+        readBody(req, (body) => {
+          const { path, edits } = body as { path?: string; edits?: Edit[] };
+          const absolute = path ? insideProject(path) : null;
+          if (!absolute || !existsSync(absolute)) return fail(res, 404, 'no such document');
 
-/**
- * A stable fingerprint of the registered component *surface*: every component and
- * the property names it exposes. Comparing it across a reload distinguishes an
- * edit that changed what the inspector must render (a `@property` added, removed
- * or renamed) from one that only touched a method body.
- */
-export function componentMetaSignature(): string {
-  return Registry.componentNames()
-    .slice()
-    .sort()
-    .map((name) => {
-      const props = [...(Registry.getComponent(name)?.meta.properties.keys() ?? [])].sort();
-      return `${name}(${props.join(',')})`;
-    })
-    .join('|');
-}
+          const applied = applyEdits(readFileSync(absolute, 'utf8'), edits ?? []);
+          if (applied.problems.length > 0) return fail(res, 409, applied.problems.join('\n'));
+          if (applied.text !== readFileSync(absolute, 'utf8')) writeFileSync(absolute, applied.text);
 
-/** `GET /@scenoco/bundle?file=<abs>` → the compiled runtime bundle (JSON). */
-function bundleEndpointPlugin(roots: string[], packages: string[], cwd: string, watcher: FileWatcher): Plugin {
-  return {
-    name: 'scenoco:bundle-endpoint',
-    async configureServer(server) {
-      // Register components in this Node process so compilation/validation works,
-      // and publish the project's XSDs (if it has a schema/ dir).
-      await refreshComponents(roots, cwd, packages);
-      // POST /@scenoco/save — comment-preserving write-back: structural ops
-      // (reparent/remove/insert) reshape the tree first, then attribute edits patch
-      // the surviving elements. Both keep every untouched byte (comments, formatting).
-      server.middlewares.use((req, res, next) => {
-        if (req.method !== 'POST' || !req.url || !req.url.startsWith('/@scenoco/save')) return next();
-        void readJsonBody(req)
-          .then((body) => {
-            const { file, edits, structuralOps } = (body ?? {}) as { file?: string; edits?: PatchEdit[]; structuralOps?: EditorStructuralOp[] };
-            if (!file || !Array.isArray(edits)) throw new Error('expected { file, edits }');
-            const abs = resolve(cwd, file);
-            // 1) structural ops (id-first; reshape the source), then 2) attribute patch.
-            // An `insertNode` op carries a compiled fragment (the browser has no
-            // compiler) — serialize it to canonical subtree XML here, so the compiler's
-            // XML-based splicer inserts it comment-preservingly.
-            const { text, changed, unresolved: totalUnresolved } = applySaveOps(readFileSync(abs, 'utf8'), edits, structuralOps ?? []);
-            if (totalUnresolved > 0)
-              console.warn(`[scenoco] save: ${totalUnresolved} edit(s) could not be located in ${file}`);
-            if (changed > 0) writeFileSync(abs, text);
-            watcher.note(abs, text); // our own write — don't report it back as an external change
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: true, changed, unresolved: totalUnresolved }));
-          })
-          .catch((e: unknown) => {
-            res.statusCode = 400;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+          // Compiled synchronously so a save that breaks the document says so *here*, with the
+          // diagnostics, rather than as a blank scene a moment later.
+          const built = compile(false);
+          if (!built.ok) return fail(res, 422, built.message);
+          // The fresh index comes back with the text: every position after a splice has moved,
+          // and the page's pending edits address positions.
+          json(res, {
+            text: applied.text,
+            elements: indexDocument(applied.text).map((e) => ({
+              tag: e.tag,
+              line: e.line,
+              column: e.column,
+              start: e.start,
+              end: e.end,
+              attributes: e.attributes,
+            })),
           });
-      });
-
-      // GET /@scenoco/files — the scenes/prefabs under the project's asset roots,
-      // for the start-up file picker (used when the editor is opened with no ?file=).
-      // Isolated to `roots` (default assets/): nothing outside them is listed.
-      server.middlewares.use((req, res, next) => {
-        if (!req.url || !req.url.startsWith('/@scenoco/files')) return next();
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ files: listSceneFiles(roots, cwd) }));
-      });
-
-      server.middlewares.use((req, res, next) => {
-        if (!req.url || !req.url.startsWith('/@scenoco/bundle')) return next();
-        void (async () => {
-          // Pick up any component edits (and re-sync schema/) before compiling, with
-          // last-good fallback — a broken component is reported, not fatal.
-          const compError = await refreshComponents(roots, cwd, packages);
-          try {
-            const file = new URL(req.url!, 'http://x').searchParams.get('file');
-            if (!file) throw new Error('missing ?file=');
-            const abs = resolve(cwd, file);
-            const xml = readFileSync(abs, 'utf8');
-            const isPrefab = abs.endsWith('.prefab.xml');
-            // Track which src= files the compile touches, so we can watch them too.
-            const deps: { path: string; contents: string }[] = [];
-            const trackingResolver: ResourceResolver = (request, referrer) => {
-              const r = fsResolver(request, referrer);
-              if (r) deps.push({ path: r.path, contents: r.contents });
-              return r;
-            };
-            const result = isPrefab
-              ? compilePrefabXml(xml, { path: abs, resolve: trackingResolver })
-              : compileSceneXml(xml, { path: abs, resolve: trackingResolver });
-            if (!result.ok) {
-              res.statusCode = 400;
-              res.setHeader('Content-Type', 'application/json');
-              // A component load failure is the likely root cause of an "unknown tag"
-              // compile error — pass it along so the editor can explain it.
-              res.end(JSON.stringify({ error: 'compile failed', diagnostics: result.diagnostics, componentError: compError?.message }));
-              return;
-            }
-            watcher.arm(abs, xml, deps); // watch this file + its src deps for changes
-            const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
-            res.setHeader('Content-Type', 'application/json');
-            // `componentError` is present when the scene still compiled (stale last-good
-            // registry) but a component file is currently broken — a warning, not fatal.
-            res.end(JSON.stringify({ bundle, provenance: result.provenance, componentError: compError?.message }));
-          } catch (e: unknown) {
-            res.statusCode = 400;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e), componentError: compError?.message }));
-          }
-        })();
+        });
       });
     },
   };
 }
 
+/** One change to a document, addressed the way provenance addresses everything. */
+export type Edit =
+  | { op: 'setAttribute'; at: ElementAt; name: string; value: string | null }
+  | { op: 'removeElement'; at: ElementAt }
+  | { op: 'insertChild'; at: ElementAt; xml: string; index?: number }
+  | { op: 'moveElement'; at: ElementAt; parent: ElementAt; index?: number };
+
 /**
- * `GET /@scenoco/info` → the resolved editor URLs (`{ localUrl, networkUrl }`),
- * so the running page can show its own LAN address for opening the same editor on
- * another device on the network. `networkUrl` is `null` until the server has
- * finished listening (and stays `null` if the host has no LAN interface).
+ * Apply a save.
+ *
+ * One at a time against the running text, because each edit's addresses are computed by the page
+ * from the document it is looking at — so a batch has to be built as a sequence of
+ * already-consistent steps, not as parallel edits into one snapshot.
  */
-function infoEndpointPlugin(info: EditorNetInfo): Plugin {
-  return {
-    name: 'scenoco:info-endpoint',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (!req.url || !req.url.startsWith('/@scenoco/info')) return next();
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ localUrl: info.local ?? null, networkUrl: info.network ?? null }));
-      });
-    },
-  };
+export function applyEdits(source: string, edits: readonly Edit[]): { text: string; problems: string[] } {
+  let text = source;
+  const problems: string[] = [];
+  for (const edit of edits) {
+    const result =
+      edit.op === 'setAttribute'
+        ? setAttribute(text, edit.at, edit.name, edit.value)
+        : edit.op === 'removeElement'
+          ? removeElement(text, edit.at)
+          : edit.op === 'insertChild'
+            ? insertChild(text, edit.at, edit.xml, edit.index)
+            : moveElement(text, edit.at, edit.parent, edit.index);
+    if (result.problem) problems.push(result.problem);
+    text = result.text;
+  }
+  return { text, problems };
 }
 
-/** Options controlling the bridge's idle-shutdown behaviour (see ServerOptions). */
-interface BridgeOptions {
-  onIdle?: () => void;
-  idleMs?: number;
-  initialGraceMs?: number;
+/** Rebuild when the project changes, and tell the page what happened. */
+function watchProject(
+  vite: ViteDevServer,
+  root: string,
+  compile: (rescan: boolean) => { ok: true } | { ok: false; message: string },
+  bridge: EditorBridge,
+): void {
+  // The directory, not a glob. chokidar dropped glob support in v4 — which Vite 8 ships — so
+  // `add('<root>/**/*.xml')` registered a literal path with asterisks in it, matched nothing,
+  // and silently watched nothing at all: editing a document in your own editor changed the file
+  // and the running editor never heard about it. What to care about is decided below anyway.
+  vite.watcher.add(root);
+  let queued: NodeJS.Timeout | undefined;
+  let rescan = false;
+
+  const changed = (path: string): void => {
+    const isDocument = path.endsWith('.xml');
+    const isSource = path.endsWith('.ts') && !path.endsWith('.gen.ts');
+    if (!isDocument && !isSource) return;
+    if (!path.startsWith(root)) return;
+    // Watching the root means seeing installed packages and build output too; neither is
+    // something a person edits, and a rescan of either costs a full recompile.
+    if (path.includes(`${sep}node_modules${sep}`) || path.includes(`${sep}dist${sep}`)) return;
+    rescan ||= isSource;
+
+    clearTimeout(queued);
+    queued = setTimeout(() => {
+      const built = compile(rescan);
+      rescan = false;
+      bridge.push(
+        built.ok
+          ? { push: 'documentChanged', file: relative(root, path) }
+          : { push: 'buildFailed', message: built.message },
+      );
+    }, 40);
+  };
+
+  vite.watcher.on('change', changed);
+  vite.watcher.on('add', changed);
+  vite.watcher.on('unlink', changed);
+}
+
+/** The WebSocket relay, plus the idle self-halt that keeps a closed tab from leaking a process. */
+function attachBridge(vite: ViteDevServer, options: ServerOptions): EditorBridge {
+  const { bridge, register } = createBridgeCore(options);
+  const wss = new WebSocketServer({ noServer: true });
+  vite.httpServer!.on('upgrade', (request, socket, head) => {
+    if (!request.url?.startsWith(WS_PATH)) return;
+    // Vite's own HMR upgrades use a different path and fall through to its handler.
+    wss.handleUpgrade(request, socket, head, (ws) => register(ws as unknown as BridgeSocket));
+  });
+  return bridge;
 }
 
 /**
- * The subset of a `ws` WebSocket the bridge core needs. Kept minimal so the core
- * is testable with a plain fake socket (no real server/network).
+ * The half of an editor socket this file uses — `ws`'s `WebSocket`, and anything a test can fake.
  */
 export interface BridgeSocket {
   readonly readyState: number;
   readonly OPEN: number;
   send(data: string): void;
-  on(event: 'message' | 'close', cb: (data: unknown) => void): void;
+  on(event: 'message', listener: (data: unknown) => void): void;
+  on(event: 'close', listener: () => void): void;
 }
 
-/** One in-flight command: how to settle it, and which socket it was routed to. */
-interface Pending {
-  cmd: EditorCommand;
-  resolve: (r: EditorResponse) => void;
-  reject: (e: Error) => void;
-  /** The editor socket this command is currently awaiting a reply from. */
-  socket: BridgeSocket;
-  timer: ReturnType<typeof setTimeout>;
+/** How the bridge decides the process has nothing left to serve. */
+export interface BridgeOptions {
+  onIdle?: () => void;
+  idleMs?: number;
+  initialGraceMs?: number;
 }
-
-/** How long a relayed command waits for the editor's reply before giving up. */
-const COMMAND_TIMEOUT_MS = 15000;
 
 /**
- * The transport-agnostic bridge core: id-correlated command relay over one or
- * more connected editors, with failover and idle-shutdown. Split from the
- * WebSocket wiring so it can be unit-tested with fake sockets.
+ * Command routing, failover and the idle self-halt, with no server attached.
  *
- * Multiple editors can be connected at once (e.g. the same scene open on a laptop
- * and a phone):
- *  - commands route to the most-recently-connected still-open editor, so opening
- *    a new instance takes over control and closing it hands control back to an
- *    older one that's still open;
- *  - an in-flight command whose editor disconnects fails over to another open
- *    editor instead of erroring, so closing a tab mid-call doesn't drop it;
- *  - pushes broadcast to every open editor.
- *
- * It also self-halts an orphaned process: if no editor is connected for `idleMs`
- * (or none ever connects within `initialGraceMs`), `onIdle` fires — the CLI wires
- * this to a graceful shutdown so no stale editor process lingers after every tab
- * is closed. `onIdle` is opt-in; without it the core never schedules a halt.
+ * Separate from `attachBridge` because these are the rules worth pinning down — which tab a
+ * command goes to, what happens to a command when that tab closes, when the process gives up —
+ * and none of them need a port, a browser, or a compiled project to be true.
  */
-export function createBridgeCore(opts: BridgeOptions = {}): { bridge: EditorBridge; register: (ws: BridgeSocket) => void } {
-  const editors = new Set<BridgeSocket>(); // every live editor, in connect order
+export function createBridgeCore(options: BridgeOptions = {}): {
+  bridge: EditorBridge;
+  register: (ws: BridgeSocket) => void;
+} {
+  /** Every live page, in connect order — the last one is the tab in front of the user. */
+  const sockets = new Set<BridgeSocket>();
   const pending = new Map<string, Pending>();
-  const connectWaiters = new Set<() => void>(); // resolvers awaiting the next connection
+  const waiters = new Set<() => void>();
 
-  const idleMs = opts.idleMs ?? 5000;
-  const initialGraceMs = opts.initialGraceMs ?? 30000; // generous: a cold-starting browser must connect in time
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  let disposed = false; // an intentional close — never (re-)arm a halt after this
-
-  const cancelIdle = (): void => {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = undefined;
+  let idle: NodeJS.Timeout | undefined;
+  const armIdle = (after: number): void => {
+    if (!options.onIdle) return;
+    clearTimeout(idle);
+    idle = setTimeout(() => {
+      if (sockets.size === 0) options.onIdle?.();
+    }, after);
   };
-  const armIdle = (ms: number): void => {
-    if (!opts.onIdle || disposed) return; // opt-in: only a process that wants to self-halt arms this
-    cancelIdle();
-    idleTimer = setTimeout(() => {
-      idleTimer = undefined;
-      opts.onIdle!();
-    }, ms);
-    idleTimer.unref?.(); // never keep the loop alive solely to halt it
-  };
-  // Wait for the first editor; reap a truly orphaned process (browser never opened).
-  armIdle(initialGraceMs);
+  armIdle(options.initialGraceMs ?? 30_000);
 
-  // The control target is the most-recently-connected socket that's still open.
+  /**
+   * The page a command goes to: the most recently connected one still open.
+   *
+   * Newest rather than oldest because that is the tab the person just opened. Opening a second
+   * editor tab and watching the first one answer every tool call is the whole bug.
+   */
   const active = (): BridgeSocket | undefined => {
     let latest: BridgeSocket | undefined;
-    for (const ws of editors) if (ws.readyState === ws.OPEN) latest = ws;
+    for (const ws of sockets) if (ws.readyState === ws.OPEN) latest = ws;
     return latest;
   };
 
-  /** Remove a pending entry (clearing its timeout) and return it, if present. */
-  const take = (id: string): Pending | undefined => {
-    const p = pending.get(id);
-    if (p) {
-      clearTimeout(p.timer);
-      pending.delete(id);
-    }
-    return p;
-  };
-
   const register = (ws: BridgeSocket): void => {
-    editors.add(ws);
-    cancelIdle();
-    for (const wake of [...connectWaiters]) wake(); // a tab (re)attached — release any waiters
+    sockets.add(ws);
+    clearTimeout(idle);
+    for (const wake of [...waiters]) wake(); // a tab attached — release anyone waiting for one
     ws.on('message', (data) => {
-      try {
-        const r = JSON.parse(String(data)) as EditorResponse;
-        take(r.id)?.resolve(r);
-      } catch {
-        /* ignore malformed */
-      }
+      const response = JSON.parse(String(data)) as EditorResponse;
+      const waiting = pending.get(response.id);
+      if (!waiting) return;
+      clearTimeout(waiting.timer);
+      pending.delete(response.id);
+      waiting.resolve(response);
     });
     ws.on('close', () => {
-      editors.delete(ws);
-      // Fail any command awaiting this socket over to another open editor, so an
-      // in-flight tool call survives closing the tab it was routed to; if none
-      // is left, reject it promptly rather than waiting for the timeout.
-      for (const [id, p] of pending) {
-        if (p.socket !== ws) continue;
+      sockets.delete(ws);
+      // Hand anything this tab still owed to another open one, so closing the tab a tool call
+      // happened to be routed to doesn't strand the call for its full timeout.
+      for (const [id, waiting] of pending) {
+        if (waiting.socket !== ws) continue;
         const next = active();
         if (next) {
-          p.socket = next;
-          next.send(JSON.stringify(p.cmd));
+          waiting.socket = next;
+          next.send(JSON.stringify(waiting.command));
         } else {
-          take(id)?.reject(new Error('editor disconnected before responding'));
+          clearTimeout(waiting.timer);
+          pending.delete(id);
+          waiting.reject(new Error('the editor tab closed before answering'));
         }
       }
-      if (editors.size === 0) armIdle(idleMs);
+      if (sockets.size === 0) armIdle(options.idleMs ?? 5_000);
     });
   };
 
   const bridge: EditorBridge = {
-    connected: () => !!active(),
-    send: (cmd) =>
-      new Promise<EditorResponse>((resolve, reject) => {
-        const ws = active();
-        if (!ws) {
-          reject(new Error('no editor connected — open the editor page in a browser first'));
-          return;
-        }
-        const timer = setTimeout(() => {
-          take(cmd.id)?.reject(new Error('editor did not respond in time'));
-        }, COMMAND_TIMEOUT_MS);
-        pending.set(cmd.id, { cmd, resolve, reject, socket: ws, timer });
-        ws.send(JSON.stringify(cmd));
-      }),
-    push: (msg) => {
-      const data = JSON.stringify(msg);
-      for (const ws of editors) if (ws.readyState === ws.OPEN) ws.send(data);
+    connected: () => active() !== undefined,
+    push(message) {
+      const text = JSON.stringify(message);
+      for (const ws of sockets) ws.send(text);
     },
     waitForConnection: (ms) =>
-      new Promise<boolean>((resolve) => {
-        if (active()) return resolve(true);
-        let settled = false;
+      new Promise<boolean>((done) => {
+        if (active()) return done(true);
         const wake = (): void => {
-          if (settled) return;
-          settled = true;
-          connectWaiters.delete(wake);
+          waiters.delete(wake);
           clearTimeout(timer);
-          resolve(true);
+          done(true);
         };
-        connectWaiters.add(wake);
+        waiters.add(wake);
         const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          connectWaiters.delete(wake);
-          resolve(false);
+          waiters.delete(wake);
+          done(false);
         }, ms);
-        timer.unref?.(); // don't keep the process alive just to time out the probe
+        timer.unref(); // never hold the process open just to time this out
       }),
-    dispose: () => {
-      disposed = true;
-      cancelIdle();
+    send(command) {
+      const socket = active();
+      if (!socket) return Promise.reject(new Error('no editor page is open'));
+      return new Promise<EditorResponse>((resolve, reject) => {
+        // A page that never answers must not hang the caller for ever — an agent waiting on a
+        // screenshot has no way to tell "slow" from "gone".
+        const timer = setTimeout(() => {
+          pending.delete(command.id);
+          reject(new Error(`the editor did not answer "${command.type}" within 30s`));
+        }, 30_000);
+        pending.set(command.id, { command, socket, timer, resolve, reject });
+        socket.send(JSON.stringify(command));
+      });
     },
   };
 
   return { bridge, register };
 }
 
-/** Wire the bridge core to the dev server's WebSocket upgrades (our path only). */
-function attachBridge(server: ViteDevServer, opts: BridgeOptions = {}): EditorBridge {
-  const wss = new WebSocketServer({ noServer: true });
-  const { bridge, register } = createBridgeCore(opts);
-  server.httpServer?.on('upgrade', (req, socket, head) => {
-    // Only our path; Vite's HMR upgrades (vite-hmr subprotocol) fall through to it.
-    if (!req.url || !req.url.startsWith(WS_PATH)) return;
-    wss.handleUpgrade(req, socket as never, head, (ws) => register(ws as unknown as BridgeSocket));
-  });
-  return bridge;
+/** A command sent to a page and still awaiting its reply. */
+interface Pending {
+  command: EditorCommand;
+  /** The page it went to — reassigned if that tab closes and another is open. */
+  socket: BridgeSocket;
+  timer: NodeJS.Timeout;
+  resolve: (response: EditorResponse) => void;
+  reject: (error: Error) => void;
 }
 
-/** Read a request's JSON body (for the save endpoint). */
-function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (c) => (data += c));
-    req.on('end', () => {
-      try {
-        resolve(data ? JSON.parse(data) : undefined);
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
-    });
-    req.on('error', reject);
-  });
+// --- plumbing --------------------------------------------------------------------------------
+
+function json(res: { setHeader(k: string, v: string): void; end(s: string): void }, data: unknown): void {
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(data));
 }
 
-/** A scene/prefab source the picker can open, addressed relative to `cwd`. */
-export interface SceneFile {
-  /** Path relative to `cwd` — what the editor passes to `?file=` / `open()`. */
-  file: string;
-  /** Whether it's a scene or a prefab, for the picker's label. */
-  kind: 'scene' | 'prefab';
+function fail(
+  res: { statusCode: number; setHeader(k: string, v: string): void; end(s: string): void },
+  code: number,
+  message: string,
+): void {
+  res.statusCode = code;
+  json(res, { error: message });
 }
 
-/**
- * Every `*.scene.xml` / `*.prefab.xml` under the asset `roots` (default assets/),
- * relative to `cwd`. Isolated to the roots — the walk never escapes them, and
- * build/cache dirs are skipped. Sorted for a stable picker order.
- */
-export function listSceneFiles(roots: string[], cwd: string): SceneFile[] {
-  const found = new Map<string, SceneFile>(); // keyed by file, dedupes overlapping roots
-  const skip = new Set(['node_modules', 'dist', '.scenoco', '.git']);
-  const walk = (dir: string): void => {
-    let entries: import('node:fs').Dirent[];
+function readBody(req: NodeJS.ReadableStream, then: (body: unknown) => void): void {
+  let raw = '';
+  req.on('data', (chunk) => (raw += chunk));
+  req.on('end', () => {
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      then(JSON.parse(raw || '{}'));
     } catch {
-      return; // missing/unreadable root — nothing to list
+      then({});
     }
-    for (const e of entries) {
-      const abs = resolve(dir, e.name);
-      if (e.isDirectory()) {
-        if (!e.name.startsWith('.') && !skip.has(e.name)) walk(abs);
-      } else if (e.name.endsWith('.scene.xml') || e.name.endsWith('.prefab.xml')) {
-        const file = relative(cwd, abs).split(sep).join('/');
-        found.set(file, { file, kind: e.name.endsWith('.prefab.xml') ? 'prefab' : 'scene' });
-      }
-    }
-  };
-  for (const root of roots) walk(resolve(cwd, root));
-  return [...found.values()].sort((a, b) => a.file.localeCompare(b.file));
-}
-
-/** Ask the OS for a free TCP port (avoids Vite's 5173-default collisions). */
-function freePort(): Promise<number> {
-  return new Promise((res, rej) => {
-    const probe = createNetServer();
-    probe.on('error', rej);
-    probe.listen(0, () => {
-      const port = (probe.address() as AddressInfo).port;
-      probe.close(() => res(port));
-    });
   });
 }
 
-/** Where the last editor HTTP port is remembered (under the gitignored `.scenoco/`). */
-function portFile(cwd: string): string {
-  return resolve(cwd, '.scenoco', 'editor-port');
-}
-
-/**
- * The HTTP port to serve on. Reuses the port the previous session bound — read
- * from `.scenoco/editor-port` — when it's free again, so a tab left stranded by
- * an ungraceful exit (crash / `kill -9` / closed terminal, which sends no
- * `shutdown` push) reconnects on its own 1s WebSocket retry with no new tab.
- * When that port is gone (another editor is already using it) or none is
- * remembered, falls back to a fresh free port and reports it as not reused.
- */
-async function choosePort(cwd: string): Promise<{ port: number; reused: boolean }> {
-  const remembered = readPort(cwd);
-  if (remembered !== undefined && (await isBindable(remembered))) return { port: remembered, reused: true };
-  return { port: await freePort(), reused: false };
-}
-
-/** The remembered port, if `.scenoco/editor-port` holds a valid one. */
-export function readPort(cwd: string): number | undefined {
-  try {
-    const n = Number(readFileSync(portFile(cwd), 'utf8').trim());
-    return Number.isInteger(n) && n > 0 && n < 65536 ? n : undefined;
-  } catch {
-    return undefined; // no file yet, or unreadable — no port to reuse
-  }
-}
-
-/** Persist the port just bound (best-effort — sticky reuse is a convenience, not required). */
-export function rememberPort(cwd: string, port: number): void {
-  try {
-    mkdirSync(dirname(portFile(cwd)), { recursive: true });
-    writeFileSync(portFile(cwd), String(port));
-  } catch {
-    /* couldn't write .scenoco/ — next launch just takes a fresh port */
-  }
-}
-
-/** Whether `port` can be bound right now (i.e. the previous server has really let it go). */
-function isBindable(port: number): Promise<boolean> {
-  return new Promise((res) => {
+function freePort(): Promise<number> {
+  return new Promise((done) => {
     const probe = createNetServer();
-    probe.once('error', () => res(false));
-    probe.listen(port, () => probe.close(() => res(true)));
+    probe.listen(0, () => {
+      const { port } = probe.address() as AddressInfo;
+      probe.close(() => done(port));
+    });
   });
 }

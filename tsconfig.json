@@ -1,32 +1,42 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "jsx": "react-jsx",
     "paths": {
       "@scenoco-three/core": ["./packages/core/src/index.ts"],
-      "@scenoco-three/core/internal": ["./packages/core/src/internal.ts"],
-      "@scenoco-three/core/nodes": ["./packages/core/src/nodes/index.ts"],
-      "@scenoco-three/core/nodes/*": ["./packages/core/src/nodes/*"],
-      "@scenoco-three/compiler": ["./packages/compiler/src/index.ts"],
-      "@scenoco-three/vite": ["./packages/vite/src/index.ts"],
-      "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"],
       "@scenoco-three/box2d": ["./packages/box2d/src/index.ts"],
+      "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"],
       "@scenoco-three/collision": ["./packages/collision/src/index.ts"],
-      "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
-      "@scenoco-three/animation": ["./packages/animation/src/index.ts"],
       "@scenoco-three/particles": ["./packages/particles/src/index.ts"],
-      "@scenoco-three/particles/compiler": ["./packages/particles/src/compiler.ts"],
-      "@scenoco-three/editor": ["./packages/editor/src/index.ts"]
+      "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
+      "@scenoco-three/ui": ["./packages/ui/src/index.ts"],
+      "@scenoco-three/postfx": ["./packages/postfx/src/index.ts"]
     }
   },
+  // Everything is ported now. What is still excluded: `app/ui-react` (the v1
+  // React chrome, awaiting rewiring to `PropInfo`) and the v1-era tests; they are
+  // still on disk and
+  // re-enter this list as each one lands. They are kept rather than deleted
+  // because the editor and the Vite plugin are what the remaining phases *port*;
+  // deleting them would turn a port into a rewrite from scratch. v1 core and the
+  // v1 compiler are gone (git history has them) — nothing is left to import.
   "include": [
-    "tests",
-    "packages",
-    "examples",
+    "packages/core",
+    "packages/box2d",
+    "packages/rapier",
+    "packages/collision",
+    "packages/particles",
+    "packages/audio",
+    "packages/ui",
+    "packages/postfx",
+    "packages/vite/src",
+    "tests/core",
+    "tests/compiler",
+    "tests/tooling/cli.test.ts",
+    "tests/tooling/editor.test.ts",
+    "packages/editor/src",
+    "packages/compiler/src",
     "vitest.config.ts"
   ],
-  "exclude": [
-    "**/dist"
-  ]
+  "exclude": ["**/dist"]
 }

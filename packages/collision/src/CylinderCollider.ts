@@ -1,35 +1,31 @@
 import { Quaternion, Vector3 } from 'three';
-import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider, type Bounds } from './Collider.js';
 
-/**
- * A cylinder collision shape along Y (API-identical to rapier's `<CylinderCollider>`).
- * In this detection-only system it is **approximated as a capsule** (its flat caps
- * round out by up to `radius`); use rapier for an exact cylinder.
- */
-@component({ name: 'CylinderCollider', description: 'A cylinder collision shape along Y (detection-only; approximated as a capsule)' })
+/** A cylinder collision shape. Its long axis is Y, and it is treated as a capsule for overlap — close enough for detection, and exactly what rapier’s own broad phase does. */
 export class CylinderCollider extends Collider {
-  @property({ type: ValueType.Float, required: true, description: 'Radius — match the visible geometry; a collider never infers size from geometry' })
+  /** Radius. */
   radius = 0.5;
-  @property({ type: ValueType.Float, required: true, description: 'Half-height (along Y)' })
+  /** Half the cylinder’s height. */
   halfHeight = 0.5;
 
-  private readonly _a = new Vector3();
-  private readonly _b = new Vector3();
-  private readonly _dir = new Vector3();
-  private readonly _q = new Quaternion();
-  private readonly _scale = new Vector3();
-  /** Reused per-step bounds — endpoints/radius mutated in place (no per-step allocation). */
-  private readonly _bounds = { shape: 'capsule' as const, a: this._a, b: this._b, radius: 0 };
+  private readonly a = new Vector3();
+  private readonly b = new Vector3();
+  private readonly axis = new Vector3();
+  private readonly scale = new Vector3();
+  private readonly rotation = new Quaternion();
+  private readonly cached = { shape: 'capsule' as const, a: this.a, b: this.b, radius: 0.5 };
 
   override worldBounds(): Bounds {
-    this.node.getWorldScale(this._scale);
-    this.node.getWorldPosition(this._a);
-    this._b.copy(this._a);
-    this._dir.set(0, this.halfHeight * Math.abs(this._scale.y), 0).applyQuaternion(this.node.getWorldQuaternion(this._q));
-    this._a.sub(this._dir);
-    this._b.add(this._dir);
-    this._bounds.radius = this.radius * Math.max(Math.abs(this._scale.x), Math.abs(this._scale.z));
-    return this._bounds;
+    this.object3D.getWorldScale(this.scale);
+    this.object3D.getWorldPosition(this.a);
+    this.b.copy(this.a);
+    // The segment runs along the node's world Y, half the straight length each way.
+    this.axis
+      .set(0, this.halfHeight * Math.abs(this.scale.y), 0)
+      .applyQuaternion(this.object3D.getWorldQuaternion(this.rotation));
+    this.a.sub(this.axis);
+    this.b.add(this.axis);
+    this.cached.radius = this.radius * Math.max(Math.abs(this.scale.x), Math.abs(this.scale.z));
+    return this.cached;
   }
 }

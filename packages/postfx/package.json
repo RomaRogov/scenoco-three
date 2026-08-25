@@ -1,0 +1,41 @@
+{
+  "name": "@scenoco-three/postfx",
+  "version": "0.4.0",
+  "description": "Render settings and post-processing effects for SceNoCo: ToneMapping, Shadows, Bloom, Vignette.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "postprocessing",
+    "bloom",
+    "gamedev"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^0.4.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.182"
+  }
+}

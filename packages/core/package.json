@@ -1,47 +1,26 @@
 {
   "name": "@scenoco-three/core",
   "version": "0.4.0",
-  "description": "SceNoCo runtime: a component-based scene framework for Three.js (Engine, Component, registry, bundle loader)",
+  "description": "SceNoCo core: components on Object3D, scenes/prefabs as generated classes, and the game loop. Nothing else.",
   "type": "module",
   "license": "MIT",
-  "keywords": [
-    "three",
-    "threejs",
-    "scene",
-    "components",
-    "ecs",
-    "gamedev",
-    "engine"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./internal": {
-      "types": "./dist/internal.d.ts",
-      "import": "./dist/internal.js"
-    },
-    "./nodes": {
-      "types": "./dist/nodes/index.d.ts",
-      "import": "./dist/nodes/index.js"
-    },
-    "./nodes/*": "./dist/nodes/*"
+    }
   },
   "files": [
     "dist"
   ],
-  "//sideEffects": "Built-in node modules self-register on import, and node-augment patches THREE.Object3D.prototype with the component API (getComponent/addComponent/...) — both are side-effect-only imports a bundler could otherwise elide. Everything else is pure, so bundlers can tree-shake unused node tags (and their three classes) when scenes import only the ones they use. Both dist (published) and src (monorepo source-aliased builds, e.g. examples) are listed so the registration/augmentation imports survive tree-shaking either way. NOTE: any future bare side-effect-only module added under core/src outside nodes/** must be added here too.",
+  "//sideEffects": "the augment/* modules patch THREE.Object3D.prototype and THREE.Scene.prototype with the component API \u2014 side-effect-only imports a bundler could otherwise elide. Everything else is pure.",
   "sideEffects": [
-    "./dist/nodes/**",
-    "./src/nodes/**",
-    "./dist/runtime/node-augment.js",
-    "./src/runtime/node-augment.ts"
+    "./dist/runtime/augment/object3d.js",
+    "./dist/runtime/augment/scene.js",
+    "./src/runtime/augment/object3d.ts",
+    "./src/runtime/augment/scene.ts"
   ],
   "scripts": {
     "prebuild": "rm -rf dist",

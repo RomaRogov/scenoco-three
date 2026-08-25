@@ -1,100 +1,323 @@
-import { RawShaderMaterial, ShaderMaterial } from 'three';
-import { describe, expect, it } from 'vitest';
-import { Engine, deserializeBundle } from '@scenoco-three/core';
-import { bundleScene, compileSceneXml, parseUniforms, type ResourceResolver } from '@scenoco-three/compiler';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SceneManager, type SceneType } from '@scenoco-three/core';
+import { build, type BuildResult } from '../../packages/compiler/src/index.js';
+import { makeFixture, type Fixture } from './fixture.js';
 
-function memoryResolver(files: Record<string, string>): ResourceResolver {
-  return (request) => (request in files ? { path: request, contents: files[request]! } : null);
+/**
+ * Textures, models and audio — the resources that live in files nobody authors as XML.
+ *
+ * The rule under all three: a path in an attribute reaches whatever is at that path. An image, a
+ * glTF and a sound are already assets, so the reference is the file itself; a `.texture.xml`
+ * exists for the one case where there are settings to write. What differs between them is only
+ * *when* the bytes have to be there, and that decides whether a scene's `onLoad` is async.
+ */
+let fixture: Fixture;
+let result: BuildResult;
+
+beforeAll(() => {
+  fixture = makeFixture('resources', { particles: true, audio: true });
+
+  fixture.write(
+    'game.ts',
+    `import { Component } from '@scenoco-three/core';
+import { AudioSource } from '@scenoco-three/audio';
+import { ParticleSystem } from '@scenoco-three/particles';
+
+export class Engine extends Component {
+  override start(): void { this.getComponent(AudioSource)?.play(); }
+  restart(): void { this.getComponent(ParticleSystem)?.restart(); }
 }
-const steel = '<MeshStandardMaterial color="#8a8f99" roughness="0.3" metalness="0.85" />';
-type Asset = { tag: string; attrs: Record<string, unknown> };
-const materials = (scene: { attachments: Asset[] }): Asset[] => scene.attachments.filter((a) => a.tag === 'MeshStandardMaterial');
+`,
+  );
 
-describe('material src= resources', () => {
-  it('pulls material attributes from a resource file, with inline attributes overriding it', () => {
-    const r = compileSceneXml(
-      `<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" roughness="0.05" /></Attachments></Mesh></Scene>`,
-      { resolve: memoryResolver({ 'steel.material.xml': steel }) },
-    );
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(materials(r.scene)[0]!.attrs.color).toBe(0x8a8f99); // from file
-    expect(materials(r.scene)[0]!.attrs.metalness).toBe(0.85); // from file
-    expect(materials(r.scene)[0]!.attrs.roughness).toBe(0.05); // inline override
+  // The compiler only ever asks whether a file exists and what its extension is — it never reads
+  // one — so a placeholder is a faithful stand-in for a real asset here.
+  fixture.writeXml('assets/textures/brick.png', 'not really a png');
+  fixture.writeXml('assets/textures/floor.png', 'not really a png');
+  fixture.writeXml('assets/models/hero.glb', 'not really a glb');
+  fixture.writeXml('assets/audio/engine.ogg', 'not really an ogg');
+
+  fixture.writeXml(
+    'assets/textures/floor.texture.xml',
+    '<Texture src="floor.png" colorSpace="SRGBColorSpace" wrapS="RepeatWrapping" anisotropy="8" />',
+  );
+
+  // One material names the image straight; the other goes through the configured texture.
+  fixture.writeXml('assets/materials/brick.material.xml', '<MeshStandardMaterial map="../textures/brick.png" />');
+  fixture.writeXml(
+    'assets/materials/floor.material.xml',
+    '<MeshStandardMaterial map="../textures/floor.texture.xml" roughness="0.8" />',
+  );
+  fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+
+  fixture.writeXml(
+    'assets/vfx/spark.particle.xml',
+    `<ParticleSystem duration="1" startColor="#ffdd66">
+  <Renderer blending="Additive" texture="../textures/brick.png" />
+</ParticleSystem>`,
+  );
+
+  // A prefab that needs a file, so it has to publish what it needs rather than await it.
+  fixture.writeXml(
+    'assets/scenes/enemy.prefab.xml',
+    `<Group>
+  <Prefab src="../models/hero.glb" position="y: 0.5" />
+</Group>`,
+  );
+  // …and one that needs nothing, which must stay plain.
+  fixture.writeXml(
+    'assets/scenes/crate.prefab.xml',
+    `<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/brick.material.xml" />`,
+  );
+
+  fixture.writeXml(
+    'assets/scenes/level.scene.xml',
+    `<Scene>
+  <Mesh id="floor" geometry="../geometry/cube.geometry.xml" material="../materials/floor.material.xml" />
+  <Prefab src="../models/hero.glb" id="hero" position="y: 1" />
+  <Prefab src="enemy.prefab.xml" position="x: 4" />
+  <Prefab src="crate.prefab.xml" position="x: -4" />
+  <Group>
+    <Components>
+      <AudioSource clip="../audio/engine.ogg" loop="true" spatial="true" />
+      <Engine />
+    </Components>
+  </Group>
+</Scene>`,
+  );
+  fixture.writeXml(
+    'assets/scenes/menu.scene.xml',
+    `<Scene>
+  <Prefab src="crate.prefab.xml" />
+</Scene>`,
+  );
+
+  result = build({
+    root: fixture.dir,
+    tsconfig: fixture.tsconfig,
+    modules: ['three', '@scenoco-three/audio', '@scenoco-three/particles'],
+  });
+}, 60_000);
+
+afterAll(() => fixture.dispose());
+
+const read = (path: string) => readFileSync(join(fixture.dir, path), 'utf8');
+
+describe('the build', () => {
+  it('compiles the whole project with no diagnostics', () => {
+    expect(result.diagnostics).toEqual([]);
   });
 
-  it('shares (dedups) identical materials across meshes', () => {
-    const r = compileSceneXml(
-      `<Scene><Mesh id="A"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Attachments></Mesh>
-        <Mesh id="B"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Attachments></Mesh></Scene>`,
-      { resolve: memoryResolver({ 'steel.material.xml': steel }) },
+  it('produces TypeScript that typechecks against the real runtime', () => {
+    // The claim everything else rests on. `sharedTexture`, `sharedModel`, `sharedClip`,
+    // `loadAssets`, `instantiate(model, …)` and `static assets` all have to line up with what
+    // core and the audio package actually declare — and only `tsc` can say whether they do.
+    const tsc = fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url));
+    let output = '';
+    try {
+      execFileSync(process.execPath, [tsc, '--noEmit', '-p', fixture.tsconfig], {
+        encoding: 'utf8',
+        stdio: 'pipe',
+      });
+    } catch (error) {
+      output = String((error as { stdout?: string }).stdout ?? error);
+    }
+    expect(output).toBe('');
+  }, 120_000);
+
+  it('loads the scene in the real runtime, textures and all', async () => {
+    // Headless there is no image to fetch and no audio to decode, and both are deliberately
+    // inert rather than fatal — so a scene built from files still loads and still ticks, which
+    // is what makes any of this testable without a browser.
+    const module = (await import(join(fixture.dir, 'assets/scenes/menu.scene.gen.ts'))) as {
+      MenuScene: SceneType;
+    };
+    const scene = await SceneManager.load(module.MenuScene);
+    expect(scene.isLoaded).toBe(true);
+    expect(scene.children).toHaveLength(1);
+    await SceneManager.unloadAll();
+  }, 60_000);
+});
+
+describe('textures', () => {
+  it('lets a material name an image directly, sharing one texture per file', () => {
+    const code = read('assets/materials/brick.material.gen.ts');
+    // `new URL(…, import.meta.url)` rather than an image import: Vite rewrites this form to the
+    // hashed output path, and it needs no ambient `declare module '*.png'` to typecheck.
+    expect(code).toContain(
+      "const brickTexture = sharedTexture(new URL('../textures/brick.png', import.meta.url).href);",
     );
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(materials(r.scene)).toHaveLength(1); // one shared pooled material
+    expect(code).toContain('map: brickTexture');
   });
 
-  it('reports resource diagnostics: not-found, tag-mismatch, and src without a resolver', () => {
-    const missing = compileSceneXml(`<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="ghost.material.xml" /></Attachments></Mesh></Scene>`, {
-      resolve: memoryResolver({}),
-    });
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.diagnostics[0]!.code).toBe('resource-not-found');
+  it('compiles a texture document to its settings', () => {
+    const code = read('assets/textures/floor.texture.gen.ts');
+    expect(code).toContain("sharedTexture(new URL('floor.png', import.meta.url).href, {");
+    expect(code).toContain('anisotropy: 8,');
+    expect(code).toContain('colorSpace: SRGBColorSpace,');
+    expect(code).toContain('wrapS: RepeatWrapping,');
+  });
 
-    const mismatch = compileSceneXml(`<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="x.xml" /></Attachments></Mesh></Scene>`, {
-      resolve: memoryResolver({ 'x.xml': '<MeshBasicMaterial color="#fff" />' }),
-    });
-    expect(mismatch.ok).toBe(false);
-    if (!mismatch.ok) expect(mismatch.diagnostics[0]!.code).toBe('resource-tag-mismatch');
+  it('reaches a texture document from a material by path, as an import', () => {
+    const code = read('assets/materials/floor.material.gen.ts');
+    // `floor.png`, `floor.texture.xml` and `floor.material.xml` is how anyone would name a
+    // matching set, so the two `floor` exports collide — and the module renames the import
+    // rather than shadowing it.
+    expect(code).toContain(`import { floor as floor$2 } from '../textures/floor.texture.gen.js';`);
+    expect(code).toContain('map: floor$2');
+    expect(code).toContain('export const floor = shared(new MeshStandardMaterial({');
+  });
 
-    const noResolver = compileSceneXml(`<Scene><Mesh id="M"><Attachments><BoxGeometry /><MeshStandardMaterial src="steel.material.xml" /></Attachments></Mesh></Scene>`);
-    expect(noResolver.ok).toBe(false);
-    if (!noResolver.ok) expect(noResolver.diagnostics[0]!.code).toBe('no-resolver');
+  it('needs no waiting — a texture is usable before its image lands', () => {
+    expect(read('assets/scenes/menu.scene.gen.ts')).not.toContain('loadAssets');
   });
 });
 
-const VERT = `void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-const FRAG = `uniform vec3 uColor; uniform float uTime; uniform vec2 uScale; uniform sampler2D uMap;
-  void main() { gl_FragColor = vec4(uColor, 1.0); }`;
-const shaderResolve: ResourceResolver = (req) =>
-  req === 'wave.vert' ? { path: req, contents: VERT } : req === 'wave.frag' ? { path: req, contents: FRAG } : null;
-const shaderScene = (uniforms: string, extra = '') =>
-  `<Scene><Mesh id="m"><Attachments><BoxGeometry /><ShaderMaterial vertex="wave.vert" fragment="wave.frag"${extra}>${uniforms}</ShaderMaterial></Attachments></Mesh></Scene>`;
-const compileShader = (xml: string) => compileSceneXml(xml, { path: 's.xml', resolve: shaderResolve });
-
-describe('shader materials', () => {
-  it('parses GLSL uniforms and collects/validates <Uniform> values against the shader declarations', () => {
-    const parsed = parseUniforms(`uniform highp vec3 uColor; uniform float uWeights[4]; // uniform float uCommented;\nuniform sampler2D uMap;`);
-    expect(parsed.get('uColor')).toBe('vec3');
-    expect(parsed.get('uWeights')).toBe('float'); // arrays reduced to element type
-    expect(parsed.has('uCommented')).toBe(false); // comments ignored
-
-    const good = compileShader(shaderScene(`<Uniform name="uColor" type="color" value="#ff8800" /><Uniform name="uScale" type="vec2" value="2 3" />`));
-    expect(good.ok).toBe(true);
-    // A uniform not declared in the shader, or with a mismatched type, is rejected.
-    expect(compileShader(shaderScene(`<Uniform name="uNope" type="float" value="1" />`)).ok).toBe(false);
-    expect(compileShader(shaderScene(`<Uniform name="uColor" type="vec4" value="1 0 0 1" />`)).ok).toBe(false);
-  });
-
-  it('round-trips uniforms through the bundle and builds a (Raw)ShaderMaterial with the right values', () => {
-    const r = compileShader(shaderScene(`<Uniform name="uColor" type="color" value="#00ff00" /><Uniform name="uMap" type="sampler2D" value="noise.png" />`));
-    if (!r.ok) throw new Error('compile failed');
-    const back = deserializeBundle(bundleScene(r.scene));
-    expect(back.attachments.find((a) => a.tag === 'ShaderMaterial')!.uniforms).toEqual(
-      r.scene.attachments.find((a) => a.tag === 'ShaderMaterial')!.uniforms,
+describe('models', () => {
+  it('spawns a glTF through the same <Prefab src> a prefab document uses', () => {
+    const code = read('assets/scenes/level.scene.gen.ts');
+    expect(code).toContain(
+      "const heroModel = sharedModel(new URL('../models/hero.glb', import.meta.url).href);",
     );
-
-    const engine = new Engine();
-    engine.loadScene(bundleScene(r.scene));
-    const mat = (engine.findObject('m') as unknown as { material: ShaderMaterial }).material;
-    expect(mat).toBeInstanceOf(ShaderMaterial);
-    expect((mat.uniforms.uColor!.value as { getHex(): number }).getHex()).toBe(0x00ff00);
-    engine.dispose();
-
-    const raw = compileShader(shaderScene(`<Uniform name="uColor" type="color" value="#fff" />`, ' raw="true"'));
-    if (!raw.ok) throw new Error('compile failed');
-    const rawEngine = new Engine();
-    rawEngine.loadScene(bundleScene(raw.scene));
-    expect((rawEngine.findObject('m') as unknown as { material: unknown }).material).toBeInstanceOf(RawShaderMaterial);
-    rawEngine.dispose();
+    expect(code).toContain('this.hero = this.instantiate(heroModel, {');
+    expect(code).toContain('hero!: Object3D;');
   });
+
+  it('makes the scene await what it cannot build without', () => {
+    const code = read('assets/scenes/level.scene.gen.ts');
+    expect(code).toContain('override async onLoad(): Promise<void> {');
+    // Its own files, and the ones the prefab it spawns published — in first-reference order,
+    // which is the order the document mentions them.
+    expect(code).toContain('await loadAssets(heroModel, ...EnemyPrefab.assets, engineClip);');
+  });
+
+  it('has a prefab publish its files instead of awaiting them', () => {
+    // `instantiate` is synchronous, so a prefab has nowhere to await — it says what it needs and
+    // whoever spawns it does the waiting.
+    const code = read('assets/scenes/enemy.prefab.gen.ts');
+    expect(code).toContain('static readonly assets = [heroModel] as const;');
+    expect(code).not.toContain('async onLoad');
+  });
+
+  it('leaves a prefab that needs nothing plain, and the scene spawning it synchronous', () => {
+    expect(read('assets/scenes/crate.prefab.gen.ts')).not.toContain('static readonly assets');
+    const menu = read('assets/scenes/menu.scene.gen.ts');
+    expect(menu).toContain('override onLoad(): void {');
+    expect(menu).not.toContain('CratePrefab.assets');
+  });
+});
+
+describe('audio', () => {
+  it('reaches a sound file from a component field typed AudioClip', () => {
+    const code = read('assets/scenes/level.scene.gen.ts');
+    expect(code).toContain(
+      "const engineClip = sharedClip(new URL('../audio/engine.ogg', import.meta.url).href);",
+    );
+    expect(code).toContain('clip: engineClip');
+    expect(code).toContain('loop: true');
+  });
+});
+
+describe('what it refuses', () => {
+  it('reports a file that is not there, rather than emitting a 404', () => {
+    const missing = makeFixture('resources-missing', { audio: true });
+    missing.write('game.ts', `import { Component } from '@scenoco-three/core';\nexport class A extends Component {}\n`);
+    missing.writeXml('assets/materials/x.material.xml', '<MeshStandardMaterial map="../textures/nope.png" />');
+    const { diagnostics } = build({ root: missing.dir, tsconfig: missing.tsconfig });
+    expect(diagnostics[0]?.code).toBe('unknown-asset');
+    missing.dispose();
+  }, 60_000);
+
+  it('reports a texture document with no src', () => {
+    const bad = makeFixture('resources-bad', {});
+    bad.write('game.ts', `import { Component } from '@scenoco-three/core';\nexport class A extends Component {}\n`);
+    bad.writeXml('assets/textures/x.texture.xml', '<Texture colorSpace="SRGBColorSpace" />');
+    const { diagnostics } = build({ root: bad.dir, tsconfig: bad.tsconfig });
+    expect(diagnostics[0]?.code).toBe('missing-src');
+    bad.dispose();
+  }, 60_000);
+
+  it('reports a setting that is the loaded data rather than a setting', () => {
+    const bad = makeFixture('resources-image', {});
+    bad.write('game.ts', `import { Component } from '@scenoco-three/core';\nexport class A extends Component {}\n`);
+    bad.writeXml('assets/textures/y.png', 'not really a png');
+    bad.writeXml('assets/textures/y.texture.xml', '<Texture src="y.png" image="something.png" />');
+    const { diagnostics } = build({ root: bad.dir, tsconfig: bad.tsconfig });
+    expect(diagnostics[0]?.code).toBe('unknown-attribute');
+    bad.dispose();
+  }, 60_000);
+});
+
+describe('a particle effect names an image the same way', () => {
+  it('resolves <Renderer texture> to the shared texture, not a URL string', () => {
+    // `ParticleConfig.renderer.texture` is declared `Texture`, so it is an asset reference like
+    // any other — and the same image used by a material is the same object, uploaded once.
+    const code = read('assets/vfx/spark.particle.gen.ts');
+    expect(code).toContain(
+      "const brickTexture = sharedTexture(new URL('../textures/brick.png', import.meta.url).href);",
+    );
+    expect(code).toContain('texture: brickTexture,');
+  });
+});
+
+describe('a derived string union', () => {
+  it('is read as an enum, and a value that is not one is a build error', () => {
+    // The vocabulary comes from the *type*: `keyof typeof CURVES` is the union, so adding a
+    // curve adds an accepted attribute value with no edit anywhere — no list in the compiler,
+    // no decorator restating it, and a misspelt one caught before `tsc` sees the output.
+    const fixture = makeFixture('resources-enum');
+    fixture.write(
+      'game.ts',
+      `import { Component } from '@scenoco-three/core';
+
+const CURVES = {
+  linear: (t: number) => t,
+  bounceOut: (t: number) => t * t,
+} as const;
+
+export type CurveName = keyof typeof CURVES;
+
+export class Spin extends Component {
+  curve: CurveName = 'linear';
+  turns = 1;
+}
+`,
+    );
+    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+    fixture.writeXml('assets/materials/plain.material.xml', '<MeshBasicMaterial color="#ffffff" />');
+    fixture.writeXml(
+      'assets/scenes/spin.scene.xml',
+      `<Scene>
+  <Mesh geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml">
+    <Components>
+      <Spin curve="bounceOut" turns="2" />
+    </Components>
+  </Mesh>
+</Scene>`,
+    );
+    const ok = build({ root: fixture.dir, tsconfig: fixture.tsconfig });
+    expect(ok.diagnostics).toEqual([]);
+    const code = readFileSync(join(fixture.dir, 'assets/scenes/spin.scene.gen.ts'), 'utf8');
+    expect(code).toContain(`curve: 'bounceOut'`);
+    expect(code).toContain('turns: 2');
+
+    fixture.writeXml(
+      'assets/scenes/spin.scene.xml',
+      `<Scene>
+  <Mesh geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml">
+    <Components>
+      <Spin curve="bouncOut" />
+    </Components>
+  </Mesh>
+</Scene>`,
+    );
+    const bad = build({ root: fixture.dir, tsconfig: fixture.tsconfig, model: ok.model });
+    expect(bad.diagnostics[0]?.code).toBe('bad-enum');
+    expect(bad.diagnostics[0]?.message).toContain('bounceOut');
+    fixture.dispose();
+  }, 120_000);
 });

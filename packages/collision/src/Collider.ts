@@ -1,46 +1,55 @@
-import type { Object3D, Vector3 } from 'three';
-import { Component, property, ValueType } from '@scenoco-three/core';
+import type { Vector3 } from 'three';
+import { Component } from '@scenoco-three/core';
+import { Collision } from './Collision.js';
 
-/** World-space bounds the overlap tests consume (filled by each collider per step). */
-export type Bounds =
-  | { shape: 'box'; center: Vector3; half: Vector3 }
-  | { shape: 'capsule'; a: Vector3; b: Vector3; radius: number };
-
-/**
- * Optional contact callbacks a component may implement — **the exact hooks
- * `@scenoco-three/rapier` dispatches**, so behaviour code (a `Bullet` that
- * despawns `onCollisionEnter`) is identical whether you use rapier or this
- * detection-only system. A non-sensor overlap fires the `onCollision*` pair; a
- * sensor overlap fires `onTrigger*`. Each receives the **other** node.
- */
-export interface ContactHandlers {
-  onCollisionEnter?(other: Object3D): void;
-  onCollisionExit?(other: Object3D): void;
-  onTriggerEnter?(other: Object3D): void;
-  onTriggerExit?(other: Object3D): void;
+/** An axis-aligned box in world space. */
+export interface BoxBounds {
+  shape: 'box';
+  center: Vector3;
+  half: Vector3;
 }
 
+/** A segment with a radius. A sphere is one whose segment has zero length. */
+export interface CapsuleBounds {
+  shape: 'capsule';
+  a: Vector3;
+  b: Vector3;
+  radius: number;
+}
+
+/** World-space bounds the overlap tests consume, filled by each collider once per frame. */
+export type Bounds = BoxBounds | CapsuleBounds;
+
 /**
- * Shared base for the collision shapes — API-identical to rapier's `Collider`
- * (`<BoxCollider>`, `<SphereCollider>`, `<CapsuleCollider>`, `<CylinderCollider>`,
- * `<PlaneCollider>`) so a scene and its component code switch between the two
- * engines by only swapping the import. Concrete shapes implement {@link worldBounds}.
+ * Shared base for the collision shapes — **API-identical to rapier's `Collider`** so a scene
+ * and its component code switch between the two back-ends by swapping the import.
  *
- * **Detection only — no dynamics.** `restitution`/`friction`/`density` are accepted
- * for rapier compatibility but inert here; overlaps drive `onCollisionEnter/Exit`
- * (or `onTriggerEnter/Exit` when `isSensor`). The tags share rapier's names on
- * purpose — importing both packages throws, so a project picks one engine.
+ * **Detection only, no dynamics.** `restitution`, `friction` and `density` are accepted for
+ * that compatibility and are inert here; overlaps drive the contact hooks and nothing moves.
+ *
+ * A collider registers itself with the `Collision` system, so there is nothing to install and
+ * nothing that scans the scene looking for shapes.
+ *
+ * Abstract, so it is machinery rather than a tag a document can write.
  */
 export abstract class Collider extends Component {
-  @property({ type: ValueType.Float, description: 'Bounciness 0..1 (inert in detection-only mode)' })
+  /** Bounciness, 0..1. Inert here; kept so a scene reads the same on either back-end. */
   restitution = 0;
-  @property({ type: ValueType.Float, description: 'Friction 0..1 (inert in detection-only mode)' })
+  /** Friction, 0..1. Inert here. */
   friction = 0.5;
-  @property({ type: ValueType.Float, description: 'Density (inert in detection-only mode)' })
+  /** Density in kg/m³. Inert here. */
   density = 1;
-  @property({ type: ValueType.Bool, description: 'A trigger: reports overlaps via onTriggerEnter (else onCollisionEnter)' })
+  /** A trigger: fires the `onTrigger*` pair instead of `onCollision*`. */
   isSensor = false;
 
-  /** @internal Current world-space bounds, recomputed by the CollisionSystem each step. */
+  /** This collider's bounds in world space, recomputed each frame. */
   abstract worldBounds(): Bounds;
+
+  override awake(): void {
+    this.requireSystem(Collision).add(this);
+  }
+
+  override onDestroy(): void {
+    this.getSystem(Collision)?.remove(this);
+  }
 }

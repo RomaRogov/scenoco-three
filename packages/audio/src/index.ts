@@ -1,15 +1,32 @@
-// `@scenoco-three/audio` — audio for SceNoCo: a `Sound` component (2D + positional)
-// built on core's lazy `engine.audioListener` and the `AssetCache` (an `audio`
-// asset kind + `AudioLoader`). Core has no audio dependency; an app that doesn't
-// import this package opens no `AudioContext`.
-//
-// Importing this module registers the `Sound` component (decorator side effect),
-// which is why the package is marked `sideEffects`.
-export { Sound } from './Sound.js';
-
 /**
- * The tags this package registers — read by the compiler/Vite plugin
- * (`registerPackages`) so a scene that uses `<Sound>` validates and imports the
- * package. The convention for any SceNoCo tag package.
+ * `@scenoco-three/audio` — sound for SceNoCo, spelled the way Unity spells it.
+ *
+ * ```xml
+ * <Scene>
+ *   <Systems>
+ *     <AudioMixer volume="0.8" />
+ *   </Systems>
+ *
+ *   <PerspectiveCamera id="cam" position="z: 10" />
+ *
+ *   <Group position="x: 4">
+ *     <Components>
+ *       <AudioSource clip="../audio/engine.ogg" loop="true" spatial="true" minDistance="2" />
+ *     </Components>
+ *   </Group>
+ * </Scene>
+ * ```
+ *
+ * - `AudioSource` — the component that plays a clip. Unity's fields: `clip`, `playOnAwake`,
+ *   `loop`, `volume`, `pitch`, `minDistance`, `maxDistance`; and `play`, `stop`, `pause`,
+ *   `playOneShot`, `isPlaying`.
+ * - `AudioClip` — a decoded sound file, referenced from a document by path like any other asset.
+ * - `AudioMixer` — the scene's ears and master volume. Optional: the first source creates one.
+ *
+ * Core has no audio dependency, so an app that never imports this opens no `AudioContext`. Nor
+ * does one that imports it and runs headless — there, every source is silent and every method is
+ * a no-op, so a scene with sound in it still loads and still ticks in a test.
  */
-export const sceneTags = ['Sound'] as const;
+export { AudioSource } from './AudioSource.js';
+export { AudioMixer } from './AudioMixer.js';
+export { AudioClip, sharedClip, hasWebAudio } from './AudioClip.js';

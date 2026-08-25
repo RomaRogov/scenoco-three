@@ -1,48 +1,63 @@
-// `@scenoco-three/ui` — in-canvas UI for SceNoCo, built on pmndrs uikit (a
-// flexbox layout + MSDF text + panel renderer where every element is a real
-// THREE.Mesh).
-//
-//   • `<Fullscreen>` — screen-space UI root, a child of the camera node; always
-//     fills the viewport, children are laid out in screen pixels.
-//   • `<Container>` / `<Text>` / `<Image>` — uikit elements as ordinary scene
-//     nodes; attributes are uikit property names/values verbatim. A `<Container>`
-//     outside any UI parent is a world-space UI root, placed with the usual
-//     transform attributes.
-//   • `UIRenderSystem` — the `@system` that applies uikit's renderer settings
-//     and updates each UI root once per frame. Auto-runs when the scene has a
-//     UI element (node-query System seam), in the editor too (`executeInEditor`).
-//
-// Runtime code drives elements with the plain uikit API, e.g.
-//   this.label.setProperties({ text: `SCORE ${score}` })
-// — `Container`/`Text`/`Image`/`Fullscreen` re-export from uikit under their own
-// names. Only uikit's base class `Component` is renamed (`UiKitComponent`), to
-// keep SceNoCo's `Component` unambiguous.
-//
-// Importing this module registers the node tags, enums, and system (decorator
-// side effects), hence the package is `sideEffects`.
-
-export { UiKitComponent, Container, Text, Image, Fullscreen, reversePainterSortStable } from './uikit.js';
-export { INTER_MSDF_CHARSET } from './charset.js';
-export { UIElementNode } from './nodes/UIElementNode.js';
-export { ContainerNode } from './nodes/Container.js';
-export { FullscreenNode } from './nodes/Fullscreen.js';
-export { TextNode } from './nodes/Text.js';
-export { ImageNode } from './nodes/Image.js';
-export { UIRenderSystem } from './UIRenderSystem.js';
-export {
-  FlexDirection,
-  FlexWrap,
-  JustifyContent,
-  AlignItems,
-  AlignSelf,
-  PositionType,
-  Overflow,
-  Display,
-  TextAlign,
-  VerticalAlign,
-  ObjectFit,
-  PointerEvents,
-} from './enums.js';
-
-/** The tags this package registers — for the compiler/Vite `registerPackages`. */
-export const sceneTags = ['Fullscreen', 'Container', 'Text', 'Image'] as const;
+/**
+ * `@scenoco-three/ui` — in-canvas UI for SceNoCo, on pmndrs uikit.
+ *
+ * ```xml
+ * <PerspectiveCamera id="cam" position="z: 10">
+ *   <Canvas>
+ *     <Panel anchor="stretchTop" height="64" background="#111827"
+ *            layout="horizontal" alignY="center" gap="12" padding="16">
+ *       <Text id="score" text="SCORE 0" fontSize="20" color="#ffffff" />
+ *     </Panel>
+ *
+ *     <Panel anchor="center" width="360" height="220" background="#1f2937" radius="12"
+ *            layout="vertical" alignX="center" alignY="center" gap="16" padding="24">
+ *       <Text text="Paused" fontSize="32" color="#ffffff" />
+ *       <Image src="../textures/logo.png" width="96" height="96" />
+ *     </Panel>
+ *   </Canvas>
+ * </PerspectiveCamera>
+ * ```
+ *
+ * ## Placing things
+ *
+ * Every element takes the same five placement attributes, and they are Unity's RectTransform:
+ *
+ * | | |
+ * | --- | --- |
+ * | `anchor` | one of fourteen presets — `topLeft`, `center`, `stretchTop`, `stretch`, … |
+ * | `x` `y` | pixels **in** from the anchored edge (an offset from centre at a centre anchor) |
+ * | `width` `height` | pixels |
+ *
+ * Writing an `anchor` pins the element; leaving it off lets the parent's `layout` place it. A
+ * stretched axis needs no size — the stretch *is* the size, and `x`/`y` become its inset.
+ *
+ * Children stack by `layout` (`vertical` or `horizontal`) and line up by `alignX` and `alignY` —
+ * which always mean horizontally and vertically, whichever way the stack runs. CSS swaps
+ * `justify-content` and `align-items` when the direction changes; nothing here does.
+ *
+ * Everything is a number, a colour, or a short enum. There are no CSS length strings, no
+ * `flexGrow`/`flexBasis`/`alignSelf`, and no `positionType` — a rectangle either has a size or it
+ * stretches, which is all Unity's RectTransform ever says either.
+ *
+ * ## The tags
+ *
+ * - **`Canvas`** — the screen-space root, a child of the camera node. Lays out in screen pixels.
+ * - **`Panel`** — a rectangle that holds and lays out others. On its own, world-space UI.
+ * - **`Text`** — a run of text. `color`, `fontSize`, `fontWeight` and `textAlign` are inherited.
+ * - **`Image`** — a picture; `src` names an image file like a material's `map`.
+ * - **`UIRenderer`** — the system that lays them out. Optional: the first element creates one.
+ *
+ * Each is a real `THREE.Mesh`, so they are ordinary scene nodes: they nest, they carry
+ * `<Components>`, and a component reaches one through an `id` like any other node.
+ */
+export { Canvas, Panel, Text, Image } from './elements.js';
+export { UIRenderer } from './UIRenderer.js';
+export type { Align, Anchor, FontWeight, Layout, RectState, TextAlign } from './rect.js';
+/**
+ * What an element's authored values mean, as uikit properties.
+ *
+ * The mapping is the contract of this package — the anchor presets, the absolute `alignX`/`alignY`
+ * axes, the pixel sizes — so it is exported rather than hidden: an editor previewing a layout and
+ * a test asserting one should both be able to ask.
+ */
+export { toUikitProperties } from './rect.js';

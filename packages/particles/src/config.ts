@@ -5,7 +5,7 @@ import {
   MathUtils,
   MeshBasicMaterial,
   NormalBlending,
-  TextureLoader,
+  type Texture,
 } from 'three';
 import {
   ApplyForce,
@@ -28,7 +28,6 @@ import {
   SphereEmitter,
   Vector3,
   Vector4,
-  type Behavior,
   type ParticleSystemParameters,
 } from 'three.quarks';
 import { defaultParticleTexture } from './particleTexture.js';
@@ -36,47 +35,120 @@ import { defaultParticleTexture } from './particleTexture.js';
 /** Unity's gravity constant — `gravityModifier` multiplies it. */
 const GRAVITY = 9.81;
 
+/** Whether particles follow the emitter or stay where they were born. */
+export type SimulationSpace = 'Local' | 'World';
+
+/** The emitter's shape, named as Unity's `ParticleSystemShapeType` names it. */
+export type ParticleShape =
+  | 'Cone'
+  | 'Sphere'
+  | 'Hemisphere'
+  | 'Circle'
+  | 'Donut'
+  | 'Rectangle'
+  | 'Point';
+
+/** How each particle is drawn, named as Unity's `ParticleSystemRenderMode` names it. */
+export type ParticleRenderMode =
+  | 'Billboard'
+  | 'StretchedBillboard'
+  | 'HorizontalBillboard'
+  | 'VerticalBillboard'
+  | 'Mesh';
+
+/** Sprite blend mode. `Additive` glows; `Alpha` is ordinary transparency. */
+export type ParticleBlending = 'Additive' | 'Alpha';
+
 /**
- * The intermediate particle description — a plain JSON shape produced by both the
- * inline `<ParticleSystem>` component (from its flat props) and the `.particle.xml`
- * compiler (from its Unity module tags). `configToParameters` turns it into a live
- * three.quarks system. Angles/rotations are **degrees**; colors are hex ints; the
- * over-lifetime arrays are evenly-spaced keyframes (a gradient / a curve).
+ * What a particle effect is, as data — the thing a `.particle.xml` compiles to.
+ *
+ * ```xml
+ * <!-- assets/vfx/fire.particle.xml -->
+ * <ParticleSystem duration="3" startLifetime="1.6" startColor="#ffdd66">
+ *   <Emission rateOverTime="90"><Burst time="0" count="10" /></Emission>
+ *   <Shape type="Cone" radius="0.35" angle="14" />
+ *   <ColorOverLifetime colors="[#ffee88, #ff6622]" />
+ *   <SizeOverLifetime curve="[0.4, 1, 0.2]" />
+ * </ParticleSystem>
+ * ```
+ *
+ * The compiler reads *this declaration* to decide what a document may say: an attribute exists
+ * because a field does, and it accepts what the field's type accepts. The tag names — Unity's
+ * `<Emission>`, `<Shape>`, `<ColorOverLifetime>` — are the one thing it cannot derive, so they
+ * are the one thing the compiler keeps a table of.
+ *
+ * Every field is optional, so a partial document is a valid effect; the defaults are the ones
+ * named on {@link configToParameters}. Angles and rotations are **degrees**, as everywhere else
+ * in authored data. The over-lifetime arrays are evenly-spaced keyframes: a gradient, a curve.
  */
 export interface ParticleConfig {
+  /** Length of one emission cycle, in seconds. */
   duration?: number;
+  /** Restart the cycle when it ends. */
   looping?: boolean;
+  /** On the first cycle, start as if a full duration had already run. */
   prewarm?: boolean;
+  /** Seconds each particle stays alive. */
   startLifetime?: number;
+  /** Initial speed along the emission direction. */
   startSpeed?: number;
+  /** Initial particle size. */
   startSize?: number;
+  /** Initial roll, in degrees. */
   startRotation?: number;
-  startColor?: number;
+  /** Initial particle colour. */
+  startColor?: Color;
+  /** Multiplier on Unity's gravity, applied over each particle's life. */
   gravityModifier?: number;
-  simulationSpace?: string;
+  /** `Local`: particles follow the emitter. `World`: they stay where they were born. */
+  simulationSpace?: SimulationSpace;
+  /** Particles emitted per second. */
   rateOverTime?: number;
+  /** One-off emissions at a given time in the cycle. */
   bursts?: Array<{ time: number; count: number }>;
-  shape?: { type?: string; radius?: number; angle?: number; arc?: number };
-  renderer?: { renderMode?: string; blending?: string; texture?: string };
-  /** Color (+alpha) over lifetime — evenly-spaced hex-color keyframes. */
-  colorOverLifetime?: number[];
-  /** Size multiplier over lifetime — evenly-spaced value keyframes. */
+  /** The volume or surface particles spawn from. */
+  shape?: { type?: ParticleShape; radius?: number; angle?: number; arc?: number };
+  /** How the particles are drawn. */
+  renderer?: {
+    renderMode?: ParticleRenderMode;
+    blending?: ParticleBlending;
+    /**
+     * The sprite each particle is drawn with. Omitted, they use a soft round default.
+     *
+     * Declared `Texture`, so a document reaches an image the same way a material's `map` does —
+     * `<Renderer texture="../textures/spark.png" />` — and the same image used by a material is
+     * the same `Texture` object, uploaded once.
+     */
+    texture?: Texture;
+  };
+  /** Colour over lifetime — evenly-spaced keyframes. */
+  colorOverLifetime?: Color[];
+  /** Size multiplier over lifetime — evenly-spaced keyframes. */
   sizeOverLifetime?: number[];
-  /** Angular velocity over lifetime, degrees/sec. */
+  /** Angular velocity over lifetime, in degrees per second. */
   rotationOverLifetime?: number;
+  /** Turbulence applied over life. */
   noise?: { strength?: number; frequency?: number };
 }
 
-const RENDER_MODE: Record<string, RenderMode> = {
+const RENDER_MODE: Record<ParticleRenderMode, RenderMode> = {
   Billboard: RenderMode.BillBoard,
   StretchedBillboard: RenderMode.StretchedBillBoard,
   HorizontalBillboard: RenderMode.HorizontalBillBoard,
   VerticalBillboard: RenderMode.VerticalBillBoard,
   Mesh: RenderMode.Mesh,
 };
-const BLENDING: Record<string, Blending> = { Additive: AdditiveBlending, Alpha: NormalBlending };
+const BLENDING: Record<ParticleBlending, Blending> = {
+  Additive: AdditiveBlending,
+  Alpha: NormalBlending,
+};
 
-/** Build a live three.quarks system config from the intermediate description. */
+/**
+ * Build the live three.quarks parameters from an effect.
+ *
+ * This is the only place the two vocabularies meet: everything above is Unity's, everything
+ * three.quarks needs — generators, behaviors, emitters, radians — is made here.
+ */
 export function configToParameters(c: ParticleConfig): ParticleSystemParameters {
   const behaviors: NonNullable<ParticleSystemParameters['behaviors']> = [];
   if (c.gravityModifier) {
@@ -84,10 +156,14 @@ export function configToParameters(c: ParticleConfig): ParticleSystemParameters 
   }
   if (c.colorOverLifetime?.length) behaviors.push(new ColorOverLife(gradientFromColors(c.colorOverLifetime)));
   if (c.sizeOverLifetime?.length) behaviors.push(new SizeOverLife(curveFromValues(c.sizeOverLifetime)));
-  if (c.rotationOverLifetime) behaviors.push(new RotationOverLife(new ConstantValue(MathUtils.degToRad(c.rotationOverLifetime))));
-  if (c.noise) behaviors.push(new Noise(new ConstantValue(c.noise.frequency ?? 2), new ConstantValue(c.noise.strength ?? 1)));
+  if (c.rotationOverLifetime) {
+    behaviors.push(new RotationOverLife(new ConstantValue(MathUtils.degToRad(c.rotationOverLifetime))));
+  }
+  if (c.noise) {
+    behaviors.push(new Noise(new ConstantValue(c.noise.frequency ?? 2), new ConstantValue(c.noise.strength ?? 1)));
+  }
 
-  const col = new Color(c.startColor ?? 0xffffff);
+  const color = c.startColor ?? WHITE;
   return {
     duration: c.duration ?? 5,
     looping: c.looping ?? true,
@@ -96,7 +172,7 @@ export function configToParameters(c: ParticleConfig): ParticleSystemParameters 
     startSpeed: new ConstantValue(c.startSpeed ?? 5),
     startSize: new ConstantValue(c.startSize ?? 1),
     startRotation: new ConstantValue(MathUtils.degToRad(c.startRotation ?? 0)),
-    startColor: new ConstantColor(new Vector4(col.r, col.g, col.b, 1)),
+    startColor: new ConstantColor(new Vector4(color.r, color.g, color.b, 1)),
     emissionOverTime: new ConstantValue(c.rateOverTime ?? 10),
     emissionBursts: (c.bursts ?? []).map((b) => ({
       time: b.time,
@@ -107,15 +183,17 @@ export function configToParameters(c: ParticleConfig): ParticleSystemParameters 
     })),
     shape: toEmitter(c.shape ?? {}),
     material: particleMaterial(c.renderer?.blending, c.renderer?.texture),
-    renderMode: RENDER_MODE[c.renderer?.renderMode ?? 'Billboard'] ?? RenderMode.BillBoard,
+    renderMode: RENDER_MODE[c.renderer?.renderMode ?? 'Billboard'],
     renderOrder: 0,
     worldSpace: c.simulationSpace === 'World',
     behaviors,
   };
 }
 
-/** Unity shape → three.quarks emitter (angles/arcs are degrees in the config). */
-function toEmitter(s: { type?: string; radius?: number; angle?: number; arc?: number }) {
+const WHITE = /* @__PURE__ */ new Color(0xffffff);
+
+/** Unity shape → three.quarks emitter. Angles and arcs are degrees in the config. */
+function toEmitter(s: NonNullable<ParticleConfig['shape']>) {
   const radius = s.radius ?? 1;
   const arc = MathUtils.degToRad(s.arc ?? 360);
   switch (s.type) {
@@ -137,12 +215,12 @@ function toEmitter(s: { type?: string; radius?: number; angle?: number; arc?: nu
   }
 }
 
-/** Evenly-spaced hex colors → a three.quarks color gradient (full alpha, fading out at the end). */
-function gradientFromColors(colors: number[]): Gradient {
-  const stops = colors.map((hex, i): [Vector3, number] => {
-    const c = new Color(hex);
-    return [new Vector3(c.r, c.g, c.b), colors.length === 1 ? 0 : i / (colors.length - 1)];
-  });
+/** Evenly-spaced colours → a three.quarks gradient (full alpha, fading out at the end). */
+function gradientFromColors(colors: Color[]): Gradient {
+  const stops = colors.map((color, i): [Vector3, number] => [
+    new Vector3(color.r, color.g, color.b),
+    colors.length === 1 ? 0 : i / (colors.length - 1),
+  ]);
   // Fade alpha to zero over the last third so particles die out softly.
   const alpha: Array<[number, number]> = [
     [1, 0],
@@ -168,14 +246,15 @@ function curveFromValues(values: number[]): PiecewiseBezier {
   return new PiecewiseBezier(segments);
 }
 
-/** The particle sprite material — declared texture, or the soft round default. */
-function particleMaterial(blending?: string, url?: string): MeshBasicMaterial {
+/** The particle sprite material — the declared texture, or the soft round default. */
+function particleMaterial(blending?: ParticleBlending, texture?: Texture): MeshBasicMaterial {
   const material = new MeshBasicMaterial({
-    blending: BLENDING[blending ?? 'Additive'] ?? AdditiveBlending,
+    blending: BLENDING[blending ?? 'Additive'],
     transparent: true,
     depthWrite: false,
   });
-  const map = url ? new TextureLoader().load(url) : defaultParticleTexture();
+  // The document already resolved the file to a shared `Texture`; nothing here loads anything.
+  const map = texture ?? defaultParticleTexture();
   if (map) material.map = map; // omit when headless (no canvas) → no THREE warning
   return material;
 }

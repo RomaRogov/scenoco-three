@@ -1,91 +1,117 @@
-import { Component, component, property, ValueType } from '@scenoco-three/core';
+import { Component } from '@scenoco-three/core';
+import type { ParticleSystem as QuarksSystem } from 'three.quarks';
 import type { ParticleConfig } from './config.js';
-import { ParticleBlending, ParticleRenderMode, ParticleShape, SimulationSpace } from './enums.js';
+import { ParticleRenderer } from './ParticleRenderer.js';
 
 /**
- * A particle system — Unity's Shuriken `ParticleSystem`, as a SceNoCo component.
- * Put it on a node; `ParticleRenderSystem` builds the three.quarks system from
- * its config, parents the emitter under the node, and steps it each frame (play
- * mode only, like physics).
+ * Plays a particle effect on this node — Unity's Shuriken `ParticleSystem`.
  *
- * Two authoring tiers, both Unity-named:
- *  - **Inline** — the flat Main/Emission/Shape/Renderer properties below, for
- *    quick effects.
- *  - **`src="fire.particle.xml"`** — pull a full definition (with over-lifetime
- *    modules) from a separate file that has its own grammar + XSD, or a
- *    `src="fire.quarks.json"` exported from the quarks.art editor. When `src` is
- *    set it defines the whole system and the inline props are ignored.
+ * ```xml
+ * <Group position="y: 1.2">
+ *   <Components>
+ *     <ParticleSystem effect="../vfx/fire.particle.xml" />
+ *   </Components>
+ * </Group>
+ * ```
+ *
+ * The effect itself is an **asset**, exactly like a geometry or a material: it lives in one
+ * `.particle.xml` and every emitter that wants it points at the same file. There is no second,
+ * inline way to write one — the same rule that removed `<Attachments>`, for the same reason.
+ * Tuning the effect is then one edit in one place rather than a search for every copy.
+ *
+ * The emitter joins the scene's `ParticleRenderer` in `awake` and leaves it in `onDestroy`, so
+ * nothing scans the scene for emitters that came or went. Disabling the component pauses it and
+ * leaves its live particles standing; `stop()` clears them.
  */
-@component({ name: 'ParticleSystem', description: 'Unity-style particle system / VFX emitter (rendered by three.quarks)' })
 export class ParticleSystem extends Component {
-  // ── Main module ────────────────────────────────────────────────────────────
-  @property({ type: ValueType.Float, description: 'Length of one emission cycle, in seconds' })
-  duration = 5;
-  @property({ type: ValueType.Bool, description: 'Restart the cycle when it ends' })
-  looping = true;
-  @property({ type: ValueType.Bool, description: 'On the first cycle, start as if already run one full duration' })
-  prewarm = false;
-  @property({ type: ValueType.Float, description: 'Seconds each particle stays alive (Start Lifetime)' })
-  startLifetime = 5;
-  @property({ type: ValueType.Float, description: 'Initial speed along the emission direction (Start Speed)' })
-  startSpeed = 5;
-  @property({ type: ValueType.Float, description: 'Initial particle size (Start Size)' })
-  startSize = 1;
-  @property({ type: ValueType.Float, description: 'Initial roll, in degrees (Start Rotation)' })
-  startRotation = 0;
-  @property({ type: ValueType.Color, description: 'Initial particle color/tint (Start Color)' })
-  startColor = 0xffffff;
-  @property({ type: ValueType.Float, description: 'Downward gravity applied over life (Gravity Modifier)' })
-  gravityModifier = 0;
-  @property({ type: SimulationSpace, description: 'Local: particles follow the emitter. World: they stay where born.' })
-  simulationSpace: string = 'Local';
+  /**
+   * The effect to play. Required: an emitter with nothing to emit is a document that meant to
+   * say something and did not.
+   */
+  effect!: ParticleConfig;
 
-  // ── Emission module (flattened; <Burst> lives in the .particle.xml tier) ─────
-  @property({ type: ValueType.Float, description: 'Particles emitted per second (Rate over Time)' })
-  rateOverTime = 10;
+  /** Start emitting as soon as the component starts. Unity's `playOnAwake`. */
+  playOnAwake = true;
 
-  // ── Shape module ─────────────────────────────────────────────────────────────
-  @property({ type: ParticleShape, description: 'Emitter shape particles spawn from' })
-  shapeType: string = 'Cone';
-  @property({ type: ValueType.Float, description: 'Shape radius (Cone/Sphere/Circle/Donut/…)' })
-  shapeRadius = 1;
-  @property({ type: ValueType.Float, description: 'Cone half-angle in degrees (Shape: Cone)' })
-  shapeAngle = 25;
-  @property({ type: ValueType.Float, description: 'Arc of the shape swept, in degrees' })
-  shapeArc = 360;
+  /** The live three.quarks system. Exists from `awake` until `onDestroy`. */
+  system: QuarksSystem | null = null;
 
-  // ── Renderer module ──────────────────────────────────────────────────────────
-  @property({ type: ParticleRenderMode, description: 'How each particle is drawn' })
-  renderMode: string = 'Billboard';
-  @property({ type: ParticleBlending, description: 'Sprite blend mode (Additive glows; Alpha is normal)' })
-  blending: string = 'Additive';
-  @property({ type: ValueType.String, asset: 'texture', description: 'Sprite texture URL; empty = a soft round default' })
-  texture = '';
+  private renderer: ParticleRenderer | null = null;
+  /**
+   * Whether a disable interrupted playback. Remembered rather than inferred: a system paused by
+   * `pause()` and one paused by being disabled look identical from the outside, and re-enabling
+   * must not restart a stopped one.
+   */
+  private wasPlaying = true;
 
-  /** Set from a `src=` document (`.particle.xml` / `.quarks.json`) before onLoad; overrides the inline props. */
-  private srcConfig?: ParticleConfig;
+  // --- lifecycle -------------------------------------------------------------------------
 
-  override applyConfig(config: unknown): void {
-    this.srcConfig = config as ParticleConfig;
+  override awake(): void {
+    // A document cannot reach here without an effect: `effect!` has no default, so the compiler
+    // reports `missing-attribute`. This is for an emitter built in code. Core catches what a
+    // hook throws and reports it with the component and the node, so the message is the whole
+    // contribution — and the emitter is left inert rather than half-built.
+    if (!this.effect) {
+      throw new Error(
+        'ParticleSystem has no effect. Point it at a .particle.xml: ' +
+          '<ParticleSystem effect="../vfx/fire.particle.xml" />',
+      );
+    }
+    // `requireSystem` rather than `getSystem`: a scene that never declared `<ParticleRenderer>`
+    // still gets one. Declaring it is only ever about ordering it against other systems.
+    this.renderer = this.requireSystem(ParticleRenderer);
+    this.system = this.renderer.createSystem(this);
+    // three.quarks systems emit from the moment they are built.
+    if (!this.playOnAwake) this.stop();
   }
 
-  /** The effective config: the `src=` document if present, else built from the inline props. */
-  toConfig(): ParticleConfig {
-    if (this.srcConfig) return this.srcConfig;
-    return {
-      duration: this.duration,
-      looping: this.looping,
-      prewarm: this.prewarm,
-      startLifetime: this.startLifetime,
-      startSpeed: this.startSpeed,
-      startSize: this.startSize,
-      startRotation: this.startRotation,
-      startColor: this.startColor,
-      gravityModifier: this.gravityModifier,
-      simulationSpace: this.simulationSpace,
-      rateOverTime: this.rateOverTime,
-      shape: { type: this.shapeType, radius: this.shapeRadius, angle: this.shapeAngle, arc: this.shapeArc },
-      renderer: { renderMode: this.renderMode, blending: this.blending, texture: this.texture || undefined },
-    };
+  override onEnable(): void {
+    if (this.wasPlaying) this.play();
+  }
+
+  override onDisable(): void {
+    this.wasPlaying = this.isPlaying;
+    this.pause();
+  }
+
+  override onDestroy(): void {
+    this.renderer?.destroySystem(this);
+    this.renderer = null;
+    this.system = null;
+  }
+
+  // --- playback --------------------------------------------------------------------------
+
+  /** True while the system is emitting or stepping its live particles. */
+  get isPlaying(): boolean {
+    return this.system !== null && !this.system.paused;
+  }
+
+  /** How many particles are alive right now. */
+  get particleCount(): number {
+    return this.system?.particleNum ?? 0;
+  }
+
+  /** Start, or resume after `pause()`. */
+  play(): void {
+    this.system?.play();
+    this.wasPlaying = true;
+  }
+
+  /** Stop emitting and stepping, leaving the live particles where they are. */
+  pause(): void {
+    this.system?.pause();
+  }
+
+  /** Stop emitting and clear every live particle. */
+  stop(): void {
+    this.system?.stop();
+    this.wasPlaying = false;
+  }
+
+  /** Clear the live particles and play the effect from the top. */
+  restart(): void {
+    this.system?.restart();
+    this.wasPlaying = true;
   }
 }

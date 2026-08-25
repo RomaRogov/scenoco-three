@@ -1,49 +1,50 @@
-// `@scenoco-three/box2d` — 2D physics for SceNoCo on planck (a pure-JS Box2D
-// port), built entirely on the public seams: a `Physics2DSystem extends System`,
-// `@component` `RigidBody2D`/`Collider2D`, and a `<Physics2D>` `@attachment`.
-// Core has no physics dependency; an app that doesn't import this package ships
-// no 2D physics. The 3D counterpart is `@scenoco-three/rapier`.
-//
-// Importing this module registers the `RigidBody2D`, the per-shape `*Collider2D`
-// tags, and `Physics2D` (decorator side effects) — hence the package is
-// `sideEffects`.
-//
-// Unlike Rapier, planck is pure JS: there is NO async init — register the tags by
-// importing the package and load the scene directly.
-//
-// The simulation runs in the XY plane: a body's position drives the node's x/y
-// and its angle drives rotation.z. Contacts are delivered to components via
-// duck-typed Unity-style hooks: onCollisionEnter2D / onCollisionExit2D /
-// onTriggerEnter2D / onTriggerExit2D, each receiving the other node.
+/**
+ * `@scenoco-three/box2d` — 2D physics for SceNoCo, on planck (a pure-JS Box2D port).
+ *
+ * Core has no physics dependency: an app that does not import this package ships none. The 3D
+ * counterpart is `@scenoco-three/rapier`.
+ *
+ * ```xml
+ * <Scene>
+ *   <Systems>
+ *     <Physics2D gravity="x: 0; y: -9.81" />
+ *   </Systems>
+ *
+ *   <Mesh id="ball" geometry="…" material="…" position="y: 5">
+ *     <Components>
+ *       <RigidBody2D kind="dynamic" bullet="true" />
+ *       <CircleCollider2D radius="0.3" restitution="1" />
+ *     </Components>
+ *   </Mesh>
+ * </Scene>
+ * ```
+ *
+ * The simulation runs in the **XY plane**: a body's position drives the node's x and y, and its
+ * angle drives `rotation.z`.
+ *
+ * Contacts arrive as typed hooks on any component — `onCollisionEnter2D`, `onCollisionExit2D`,
+ * `onTriggerEnter2D`, `onTriggerExit2D` — each taking the other node. They are declared the way
+ * core declares its own lifecycle hooks, so `override` checks them and a misspelling is a build
+ * error rather than a handler that never fires.
+ *
+ * Unlike Rapier, planck is pure JS: there is no async init, and nothing to await before a scene
+ * loads.
+ */
 
-export { Physics2DSystem } from './Physics2DSystem.js';
-export { RigidBody2D } from './RigidBody2D.js';
-// Each collision shape is its own tag (mirroring lights); `Collider2D` is the
-// shared abstract base the system matches with `instanceof` (not a usable tag).
+// Side effect: merges the contact hooks onto `Component`. Imported here so anything that
+// touches this package can implement them.
+import './contacts.js';
+
+export { Physics2D } from './Physics2D.js';
+export { RigidBody2D, type RigidBody2DKind } from './RigidBody2D.js';
+export { type Contact2DHandlers } from './contacts.js';
+
+// Each shape is its own tag, mirroring how each light is. `Collider2D` is the abstract base
+// they share; it is machinery, not something a document writes.
 export { Collider2D } from './Collider2D.js';
 export { BoxCollider2D } from './BoxCollider2D.js';
 export { CircleCollider2D } from './CircleCollider2D.js';
-export { CapsuleCollider2D, CapsuleDirection2D } from './CapsuleCollider2D.js';
+export { CapsuleCollider2D, type CapsuleDirection2D } from './CapsuleCollider2D.js';
 export { EdgeCollider2D } from './EdgeCollider2D.js';
 export { PolygonCollider2D } from './PolygonCollider2D.js';
 export { ChainCollider2D } from './ChainCollider2D.js';
-export { Physics2D } from './Physics2D.js';
-export { Joint2D, Joint2DKind } from './Joint2D.js';
-export { Joint2DSystem } from './Joint2DSystem.js';
-
-/**
- * The XML tags this package registers — read by the compiler/Vite plugin
- * (`registerPackages`) so a scene that uses them validates and imports the
- * package. The convention for any SceNoCo tag package.
- */
-export const sceneTags = [
-  'RigidBody2D',
-  'BoxCollider2D',
-  'CircleCollider2D',
-  'CapsuleCollider2D',
-  'EdgeCollider2D',
-  'PolygonCollider2D',
-  'ChainCollider2D',
-  'Physics2D',
-  'Joint2D',
-] as const;

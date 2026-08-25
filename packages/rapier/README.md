@@ -149,7 +149,7 @@ Depends on `@scenoco-three/core` and `@dimforge/rapier3d-compat` (Rapier WASM); 
 exists** — so importing this package is the only thing that adds 3D physics (and its WASM) to
 a build. Drop the import and nothing physics-related ships.
 
-See the [repository](../../README.md) and [docs/physics-plan.md](../../docs/physics-plan.md).
+See the [repository README](../../README.md).
 
 ## License
 

@@ -1,14 +1,12 @@
 import { CircleShape, type Shape } from 'planck';
-import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider2D } from './Collider2D.js';
 
-/** A 2D circle collision shape (planck). */
-@component({ name: 'CircleCollider2D', description: 'A 2D circle collision shape (planck); attaches to the node’s RigidBody2D.' })
+/** A 2D circle collision shape. */
 export class CircleCollider2D extends Collider2D {
-  @property({ type: ValueType.Float, required: true, description: 'Radius — match the visible geometry; a collider never infers size from geometry' })
+  /** Radius. Match it to the visible geometry; a collider never infers one. */
   radius = 0.5;
 
-  toShape(): Shape {
+  override toShape(): Shape {
     return new CircleShape(this.radius);
   }
 }

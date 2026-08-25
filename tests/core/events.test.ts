@@ -1,76 +1,74 @@
-import { Object3D } from 'three';
-import { describe, expect, it } from 'vitest';
-import { Component, Engine, Event, component } from '@scenoco-three/core';
+import { afterEach, describe, expect, it } from 'vitest';
+import { Component, Event, SceneManager } from '@scenoco-three/core';
+import { Clock, resetEngine, sceneOf } from './helpers.js';
 
-/** A brick that announces its own destruction — the emitter side of the idiom. */
-@component({ name: 'EventBrick', description: 'Emits when destroyed' })
-class EventBrick extends Component {
-  readonly destroyed = new Event<[EventBrick]>();
-  hit(): void {
-    this.destroyed.emit(this);
-    this.destroy();
-  }
+afterEach(resetEngine);
+
+class Brick extends Component {
+  points = 10;
+  /** A class field, not a string name — every subscriber is checked by the compiler. */
+  readonly destroyed = new Event<[Brick]>();
+  hit() { this.destroyed.emit(this); }
 }
 
-/** Counts bricks. Knows nothing about EventBrick beyond the event it listens to. */
-@component({ name: 'EventScore', description: 'Counts destroyed bricks' })
-class EventScore extends Component {
+class Scoreboard extends Component {
+  bricks: Brick[] = [];
   score = 0;
-  readonly onBrick = (): void => {
-    this.score += 10;
-  };
+  override start() { for (const brick of this.bricks) this.listen(brick.destroyed, this.onBrick); }
+  private onBrick = (brick: Brick) => { this.score += brick.points; };
 }
 
-describe('Event — typed, symbol-based component signals', () => {
-  it('delivers to every listener in order and stops after off/once', () => {
+describe('typed events', () => {
+  it('delivers to every listener in subscription order', () => {
     const event = new Event<[number]>();
     const seen: string[] = [];
-    const first = (n: number): void => void seen.push(`first:${n}`);
-    event.on(first);
-    event.once((n) => seen.push(`once:${n}`));
+    event.on((n) => seen.push(`a${n}`));
+    event.on((n) => seen.push(`b${n}`));
     event.emit(1);
-    event.emit(2); // `once` is gone; `first` still subscribed
-    event.off(first);
-    event.emit(3); // nothing left
-    expect(seen).toEqual(['first:1', 'once:1', 'first:2']);
-    expect(event.listenerCount).toBe(0);
+    expect(seen).toEqual(['a1', 'b1']);
   });
 
-  it('survives a listener that unsubscribes or subscribes mid-emit', () => {
-    const event = new Event();
+  it('survives a listener unsubscribing mid-dispatch', () => {
+    const event = new Event<[]>();
     const seen: string[] = [];
-    const b = (): void => void seen.push('b');
-    const a = (): void => {
-      seen.push('a');
-      event.off(b); // mutating during dispatch must not skip the snapshot
-      event.on(() => seen.push('c'));
-    };
-    event.on(a);
-    event.on(b);
+    const second = () => seen.push('second');
+    event.on(() => { event.off(second); seen.push('first'); });
+    event.on(second);
     event.emit();
-    expect(seen).toEqual(['a', 'b']); // b still ran this round, c starts next round
-    event.emit(); // listeners are now [a, c]; a's newly-added c waits for the round after
-    expect(seen).toEqual(['a', 'b', 'a', 'c']);
+    // The dispatch iterates a snapshot, so the removal takes effect from the next emit.
+    expect(seen).toEqual(['first', 'second']);
+    event.emit();
+    expect(seen).toEqual(['first', 'second', 'first']);
   });
 
-  it('unsubscribes a component listener when it is destroyed, so a dead component is never called', () => {
-    const engine = new Engine({ autoStart: false });
-    const brickNode = new Object3D();
-    const scoreNode = new Object3D();
-    engine.scene.add(brickNode, scoreNode);
-    const brick = engine.addComponent(brickNode, EventBrick);
-    const score = engine.addComponent(scoreNode, EventScore);
-    score.listen(brick.destroyed, score.onBrick);
+  it('once() fires a single time', () => {
+    const event = new Event<[]>();
+    let calls = 0;
+    event.once(() => calls++);
+    event.emit();
+    event.emit();
+    expect(calls).toBe(1);
+  });
 
-    brick.destroyed.emit(brick);
-    expect(score.score).toBe(10);
+  it('unsubscribes a listening component when it is destroyed', async () => {
+    let brick!: Brick;
+    let board!: Scoreboard;
+    await SceneManager.load(sceneOf((scene) => {
+      brick = scene.createObject('brick').addComponent(Brick);
+      board = scene.createObject('hud').addComponent(Scoreboard);
+      board.bricks = [brick];
+    }));
 
-    // Destruction is deferred: the subscription drops when the engine flushes.
-    score.destroy();
-    engine.tick(1 / 60);
+    const clock = new Clock();
+    clock.frame();
+    brick.hit();
+    expect(board.score).toBe(10);
+
+    board.destroy();
+    clock.frame();
+    brick.hit();
+    // A destroyed listener can never be called by an event it outlived.
+    expect(board.score).toBe(10);
     expect(brick.destroyed.listenerCount).toBe(0);
-    brick.destroyed.emit(brick);
-    expect(score.score).toBe(10); // the destroyed listener did not run
-    engine.dispose();
   });
 });

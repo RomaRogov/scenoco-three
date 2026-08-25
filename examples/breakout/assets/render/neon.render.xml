@@ -1,0 +1,14 @@
+<!-- The look every level shares: a filmic curve so the emissive bricks do not clip flat, a haze
+     at the far end of the field, and enough bloom to make them read as neon rather than plastic.
+
+     Each child is one thing that decides how the frame looks, and it is on because the element
+     is here — there is no value that means "off". Tuning the game's look is this one file.
+
+     `threshold` is the one to understand: it is how bright a pixel has to be before it glows,
+     where 1 is white. At 1 only what is brighter than white blooms, which in this scene was the
+     ball and nothing else. At 0.5 the emissive paddle and the lit brick faces come in too. -->
+<Render>
+  <Fog color="#05070d" near="20" far="46" />
+  <ToneMapping curve="ACESFilmicToneMapping" exposure="1.05" />
+  <Bloom strength="0.5" radius="0.45" threshold="0.5" />
+</Render>

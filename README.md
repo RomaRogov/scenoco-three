@@ -1,184 +1,127 @@
 # SceNoCo
 
-**Scene · Node · Component** — a component-based scene framework for [Three.js](https://threejs.org).
+**Scene · Node · Component** — a Unity-shaped scene and component layer for
+[Three.js](https://threejs.org), whose scenes are XML documents.
 
-Scenes are plain XML files with a strict, validated schema. Behaviour is Unity/Cocos-style
-components written in TypeScript. At build time, scenes compile into compact binary-friendly
-bundles — **the browser runtime contains no XML and no parser**.
-
-The design rests on one idea: **the scene is a file, and the toolchain is a single source
-of truth.** Component classes declare their XML surface with decorators; the validator,
-compiler, and XSD/docs exporters are all generated views of the same registry, so the
-schema can never drift from the runtime. A side benefit of that discipline — files plus a
-validator with line-numbered, fix-it diagnostics — is that the standard edit → check → fix
-loop works on scenes, which makes the framework an excellent target for tooling and agents.
-But you don't need any of that: it's a component scene framework for Three.js, usable as one.
+A document is **compiled at build time into a TypeScript module beside it**. So the browser gets
+ordinary typed code — `tsc` checks every reference in it, a bad `#id` is a type error with a
+real file and line, and no XML, parser or registry ships to the browser at all.
 
 ```xml
-<Scene>
-  <Mesh id="Turbine_01" position="y: 1">
-    <CylinderGeometry radiusTop="0.4" radiusBottom="0.4" height="2" />
-    <MeshStandardMaterial color="#8888aa" roughness="0.3" metalness="0.8" />
+<!-- assets/scenes/level-1.scene.xml -->
+<Scene camera="#camera" background="#05070d" render="../render/neon.render.xml">
+  <Systems>
+    <Physics2D gravity="x: 0; y: 0" />
+  </Systems>
+
+  <PerspectiveCamera id="camera" position="y: 8.5; z: 24">
     <Components>
-      <Rotator speed="2" />
-      <Oscillator id="turbine_osc" amplitude="0.5" frequency="0.5" />
+      <CameraFit mode="contain" width="21" height="19.5" distance="24" />
+    </Components>
+  </PerspectiveCamera>
+
+  <Mesh id="paddle" geometry="../geometry/paddle.geometry.xml"
+        material="../materials/paddle.material.xml" position="y: 1">
+    <Components>
+      <Paddle speed="16" halfRange="7.4" />
+      <RigidBody2D kind="kinematic" />
+      <BoxCollider2D halfExtents="x: 1.6; y: 0.225" restitution="1" />
     </Components>
   </Mesh>
 
-  <Mesh id="Indicator" position="x: 2.5; y: 1">
-    <SphereGeometry radius="0.3" />
-    <Components>
-      <Follow source="#turbine_osc" scale="2" />   <!-- typed component reference -->
-      <LookAt target="#Turbine_01" />              <!-- node reference -->
-    </Components>
-  </Mesh>
+  <Prefab src="brick.prefab.xml" position="x: -2.55; y: 13.9">
+    <Override target="#brick" hits="2" />
+  </Prefab>
 </Scene>
 ```
 
 ```ts
-import { Component, component, property } from '@scenoco-three/core';
+import { Component } from '@scenoco-three/core';
 
-@component({ name: 'Rotator', description: 'Rotates the host node around its Y axis' })
-export class Rotator extends Component {
-  @property({ type: 'float', description: 'Radians per second' })
-  speed = 1;
+/** Moves the paddle. A public field is an attribute; extending Component is the registration. */
+export class Paddle extends Component {
+  speed = 16;
+  halfRange = 7.4;
 
   override update(dt: number): void {
-    this.node.rotation.y += this.speed * dt; // this.node IS a THREE.Object3D
+    this.object3D.position.x += this.speed * dt; // this.object3D IS a THREE.Object3D
   }
 }
 ```
 
-That's the whole job: the validator, compiler, XSD, docs — and the scene bundles — pick the
-component up automatically. No registration wiring.
+There is no decorator, no registry and nothing to import for a component to exist. The build
+finds it by reading your workspace with the TypeScript checker, and its attributes *are* its
+public fields — so the document format cannot drift from the code, because there is no second
+copy of the truth anywhere.
 
 ## Why
 
-- **Familiar by design.** Tags and attributes mirror Three.js verbatim (`<BoxGeometry width>`,
-  `<MeshStandardMaterial roughness>`); the component API mirrors Unity/Cocos
-  (`getComponent`, `onLoad`/`start`/`update`, `enabled`, `destroy`). If you know Three.js
-  and a component engine, you already know the conventions.
-- **Scenes are files; the validator is the toolchain.** `scenoco validate` is "tsc for
-  scenes": `file:line:col` diagnostics with did-you-mean suggestions, all generated from the
-  same registry as the runtime. A generated XSD gives any XML-aware IDE autocomplete and
-  inline validation; a generated `scene-api.json` is a compact, machine-readable description
-  of every tag/component (with the now-mandatory descriptions) for editor tooling and agents/RAG.
-- **Optimized runtime, Cocos-style.** XML compiles to a flat, indexed bundle: interned
-  string pool, default-value elision via bitmasks, special-cased transforms,
-  integer-encoded references. ~73% smaller than the naive compiled JSON — and the XML
-  parser/validator never ship to the browser.
-- **Usage-based shipping (tree-shakeable).** A scene bundle imports exactly the modules it
-  uses — components *and* node tags. The runtime entry registers nothing on its own, so a
-  scene of `<Mesh><BoxGeometry/></Mesh>` ships those two node modules, not the whole palette;
-  unused tags (and their three classes) never reach the bundle. Physics lives in a separate
-  package on a public `System` seam — import no physics, ship no physics.
+- **Familiar by design.** Tags and attributes mirror three.js verbatim (`<BoxGeometry width>`,
+  `<MeshStandardMaterial roughness>`), because the vocabulary is read from three's own
+  declarations — a three.js upgrade that adds a parameter adds an attribute for free. The
+  component API mirrors Unity (`getComponent`, `awake`/`start`/`update`, `enabled`, `destroy`,
+  `dontDestroyOnLoad`). If you know three.js and a component engine, you know this.
+- **The output is code you can read.** A scene compiles to a class whose `onLoad` constructs the
+  tree — no bundle, no decoder, no reflection. Land in it from a stack trace and you can see
+  what the XML said.
+- **The compiler is the check.** `file:line:col` diagnostics with the exact text to write
+  instead: a misspelt component names the nearest real one, `color="tomato"` answers with the
+  hex, a positional vector answers with the keyed form. One pass reports everything.
+- **One spelling per value.** Keyed axes, `#rrggbb`, degrees. Where a second spelling is
+  plausible the compiler reads it and rejects it *with the answer*, so there is nothing to
+  choose between while authoring.
+- **Import no physics, ship no physics.** Physics, UI, particles, audio and post-processing are
+  separate packages on public seams. Core is `three`-peer-only and knows about none of them.
 
 ## Packages
 
 | Package | What it is |
 | --- | --- |
-| [`@scenoco-three/core`](packages/core) | Runtime: `Engine`, `Component`, decorators, registry, bundle deserializer, Three.js node factories. No XML anywhere. |
-| [`@scenoco-three/compiler`](packages/compiler) | Build-time: XML parser, validator, scene compiler, bundler, XSD/docs exporters, component discovery, file watcher, and the `scenoco` CLI. |
-| [`@scenoco-three/vite`](packages/vite) | Vite plugin: `import scene from './x.scene.xml?bundle'` — compiles in Node, ships the bundle + the components the scene uses. |
-| [`@scenoco-three/editor`](packages/editor) | Local visual editor + **MCP server** (`open_file` / `screenshot` / `playback` / `simulate` / `inspect`) driving the one live browser tab — the "eyes and hands" for a multimodal agent. Build-time only. |
-| [`@scenoco-three/rapier`](packages/rapier) | Optional **3D physics** add-on: `<Physics>` setting + `<RigidBody>`/`<Collider>` components (Rapier) on the public `System` seam. Import it, or ship no physics. |
-| [`@scenoco-three/box2d`](packages/box2d) | Optional **2D physics** add-on: `<Physics2D>` setting + `<RigidBody2D>`/`<Collider2D>` components (planck/Box2D), with Unity-style `onCollisionEnter2D`/`onTriggerEnter2D` hooks. Same `System` seam; pure JS (no WASM). |
-| [`@scenoco-three/collision`](packages/collision) | Optional **detection-only collision** add-on: the *same tags and hooks as rapier* (`<RigidBody>`/`<*Collider>`, `onCollisionEnter`/`onTriggerEnter`) with inert dynamics — overlap events without a physics solver; switch to real physics by swapping one import. Zero deps. |
-| [`@scenoco-three/audio`](packages/audio) | Optional **audio** add-on: a `<Sound>` component (2D + positional 3D) on core's lazy `AudioListener` + the `AssetCache`. Import it, or open no `AudioContext`. |
-| [`@scenoco-three/animation`](packages/animation) | Optional **animation** add-on: a declarative `<Tween>` (easing/looping, zero-dep) + an `<Animator>` that plays a model's premade glTF clips (Unity `Animator` API). |
-| [`@scenoco-three/particles`](packages/particles) | Optional **particles/VFX** add-on: a Unity-Shuriken-style `<ParticleSystem>` rendered by [three.quarks](https://github.com/Alchemist0823/three.quarks) (batched) — inline props for quick effects, or `src="fire.particle.xml"` for a full definition with its own grammar + XSD. |
+| [`@scenoco-three/core`](packages/core) | Runtime: `Component`, `System`, `Effect`, `SceneManager`, `Engine`, the `Object3D`/`Scene` augmentations, input, coroutines, assets. |
+| [`@scenoco-three/compiler`](packages/compiler) | Build time: the parser, the workspace scan, the emitters, diagnostics, the `scenoco` CLI and watcher. The format is documented in [`DSL.md`](packages/compiler/DSL.md). |
+| [`@scenoco-three/vite`](packages/vite) | The Vite plugin: compile on start, recompile on change. ~160 lines. |
+| [`@scenoco-three/editor`](packages/editor) | The local visual editor, and an observation-only MCP server. |
+| [`@scenoco-three/box2d`](packages/box2d) | 2D physics (planck): `<Physics2D>`, `<RigidBody2D>`, `<*Collider2D>`, Unity-style contact hooks. |
+| [`@scenoco-three/rapier`](packages/rapier) | 3D physics (Rapier), same shapes. |
+| [`@scenoco-three/collision`](packages/collision) | Detection only, with rapier's exact tags — swap one import to switch. Zero deps. |
+| [`@scenoco-three/ui`](packages/ui) | In-canvas UI on pmndrs uikit: `<Canvas>`, `<Panel>`, `<Text>`, `<Image>`, placed the way Unity's RectTransform places things. |
+| [`@scenoco-three/particles`](packages/particles) | Unity-Shuriken-shaped `<ParticleSystem>` on three.quarks; effects are `.particle.xml` documents. |
+| [`@scenoco-three/audio`](packages/audio) | `<AudioSource>`, 2D and positional. |
+| [`@scenoco-three/postfx`](packages/postfx) | Render settings: `<ToneMapping>`, `<Shadows>`, `<Bloom>`, `<Vignette>` — the tags a `.render.xml` holds. |
 
-## Start a new project
+## The document kinds
 
-```bash
-scenoco init my-app   # scaffold an empty project: one scene (camera + light) + Vite wiring
-cd my-app && npm install
-npm run dev           # http://localhost:5173
-npm run validate      # "tsc for scenes"
+`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.particle.xml` · `*.material.xml` ·
+`*.geometry.xml` · `*.texture.xml`. Each compiles to a `.gen.ts` beside it (a build artifact —
+gitignore it). A prefab exports `XPrefab`, a scene exports `XScene`.
 
-scenoco new           # list every asset kind this project can create
-scenoco new component Ball
-scenoco which Mesh    # what a tag is: attributes, what it requires, what it holds
-```
-
-One optional extra: `scenoco export` writes the XSDs + `scene-api.json` if you want XML
-autocomplete in your IDE. It is not part of the scaffold — a game framework should not
-assume it.
-
-Like a new Unity or Cocos scene, `init` gives you a camera and a light and nothing
-else; `scenoco new <kind> <name>` is how content arrives. The kinds are generated —
-`particle` shows up once a project depends on `@scenoco-three/particles`.
-
-The project convention is **zero-config**: components and scenes live
-under `assets/` (auto-discovered — the validator, XSD, and docs pick them up with no
-registration), and any `@scenoco-three/*` tag package in your `package.json` (physics, audio,
-particles, …) is registered automatically by the CLI, the Vite plugin, and the editor.
+`scenoco new` lists the kinds this project can create and writes a starter that compiles.
 
 ## Quick start (this repo)
 
 ```bash
 npm install
-npm run examples:dev    # examples/breakout at :5173 (Box2D physics, DOM HUD, particles)
-npm test                # vitest — zone folders under tests/{core,compiler,tooling,packages,editor}
-npm run smoke:build     # real singlefile `vite build`; asserts prod-only runtime plumbing survives
-npm run build           # build every package in dependency order
-npm run typecheck       # cross-package tsc --noEmit
+npm run examples:dev   # examples/breakout — three levels, Box2D, in-canvas HUD, bloom
+npm test               # vitest — zone folders under tests/{core,compiler,packages,tooling}
+npm run build          # every package, in dependency order
+npm run typecheck      # cross-package tsc --noEmit
 ```
-
-> **Before tagging a release, run `npm run smoke:build`** (or a real `vite build` on each example
-> and open the output). Dev (`vite`) and the editor don't tree-shake or bundle the way a
-> production build does, so a class of bug — a side-effect module dropped by tree-shaking, a
-> module-evaluation-order hazard — is invisible until a real `vite build`. `smoke:build` guards
-> that gap automatically; it's cheap enough to run in CI.
 
 Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md) (repo map) and
-[`CONVENTIONS.md`](CONVENTIONS.md) (editing rules).
-
-CLI (after `npm run build`; run from a project root — components in `assets/` and tag
-packages in `package.json` are picked up with no flags):
-
-```bash
-cd examples/breakout
-node ../../packages/compiler/dist/cli/index.js validate assets/scenes/breakout.scene.xml
-node ../../packages/compiler/dist/cli/index.js bundle   assets/scenes/brick.prefab.xml -o brick.bundle.json
-node ../../packages/compiler/dist/cli/index.js export   --out schema
-```
+[`CONVENTIONS.md`](CONVENTIONS.md) (editing rules). The design reasoning is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Documentation
 
-Each package documents its own surface in `packages/*/README.md` (linked from the table
-above).
-
-For the scene language itself, ask the CLI rather than a file: `scenoco which` lists everything
-registered in your project, and `scenoco which <Name>` details one tag or component —
-attributes, defaults, what it requires, what references it. It is rendered from the same
-registry as the runtime and the validator, so it cannot go stale.
-
-`scenoco export`, run inside a project (e.g. `examples/breakout`), writes the machine-readable
-form of the same model — `schema/scene-api.json` plus XSDs for every document kind (`scene.xsd`,
-`prefab.xsd`, `material.xsd`, and any tag package's own, e.g. particles' `particle.xsd`). Those
-are for XML-aware IDEs; to look something up, `scenoco which` is the shorter path.
+- [`packages/compiler/DSL.md`](packages/compiler/DSL.md) — the document format: every value
+  form, every block, every diagnostic.
+- `packages/*/README.md` — each package documents its own surface.
+- The API surface is documented where it lives: the doc comments in
+  `packages/core/src/index.ts` are the tour.
 
 ## Status
 
-**`0.3.0`** — a hardening release driven by shipping real games on the framework; pre-1.0, so
-the surface may still evolve. See [CHANGELOG.md](CHANGELOG.md) for the full list.
-
-On top of the 0.2.0 feature set (asset pipeline, custom shaders, pointer events + touch input,
-multi-camera, execution order, deterministic RNG, physics joints + collision hooks, audio and
-animation add-ons), 0.3.0 adds: a **zero-config project convention** (components/scenes under
-`assets/`; tag packages auto-registered from `package.json` by the CLI, Vite plugin, and
-editor); two new add-on packages — **`@scenoco-three/collision`** (detection-only, rapier's
-exact API) and **`@scenoco-three/particles`** (three.quarks VFX with a validated
-`.particle.xml` format); **in-canvas UI** (**`@scenoco-three/ui`**: flexbox
-`<Fullscreen>`/`<Container>`/`<Text>`/`<Image>` scene tags rendered by pmndrs uikit,
-attributes = uikit properties verbatim); the **`src=` sub-document
-seam** (a package declares its own validated file format from a build-time entry, and
-`Component.applyConfig` receives the compiled blob at runtime); runtime `@system` attachment for spawn-only scenes; Unity-shaped
-`PrefabRef.spawn` placement and type-only component queries; `scenoco export` publishing
-**all four document XSDs**; and an editor that **survives broken component code** (last-good
-registry, error banner, auto-reload) with a start-up file picker and a pinned MCP port. Now
-**10 packages**.
+Pre-1.0; the surface still moves. See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

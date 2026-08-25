@@ -1,4 +1,4 @@
-import { KeyCode, MouseButton, type InputManager } from '@scenoco-three/core';
+import { Input, KeyCode, MouseButton } from '@scenoco-three/core';
 import type { CameraRig } from './cameraRig.js';
 
 /**
@@ -8,10 +8,13 @@ import type { CameraRig } from './cameraRig.js';
 export class DesktopControls {
   private readonly look = 0.0025; // radians per pixel
 
-  constructor(
-    private readonly rig: CameraRig,
-    private readonly input: InputManager,
-  ) {}
+  private readonly rig: CameraRig;
+  /** v2's input is one singleton attached to the canvas, not a per-engine manager. */
+  private readonly input = Input;
+
+  constructor(rig: CameraRig) {
+    this.rig = rig;
+  }
 
   /** Advance one frame (call after `engine.tick`). */
   update(dt: number): void {

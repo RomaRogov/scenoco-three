@@ -1,0 +1,158 @@
+import type { SncDiagnostic } from '../dsl/diagnostics.js';
+
+/**
+ * Builds one generated TypeScript module.
+ *
+ * It exists to make the output *readable*, which is the price of generating code at all: a
+ * developer who lands in `brick.prefab.gen.ts` from a stack trace has to be able to see what
+ * the XML said. So imports are collected and printed once at the top, names are deduplicated
+ * per module, and a local rename only happens when two modules genuinely export the same name.
+ */
+export class TsModule {
+  readonly diagnostics: SncDiagnostic[] = [];
+
+  /** module specifier → exported name → local name. */
+  private readonly imports = new Map<string, Map<string, string>>();
+  /** Modules imported purely for their side effect, printed before the named imports. */
+  private readonly sideEffects = new Set<string>();
+  /** Every local name in the module, so a collision is renamed rather than shadowed. */
+  private readonly taken = new Set<string>();
+  /** Module-scope declarations printed between the imports and the body. */
+  private readonly hoisted: string[] = [];
+  private readonly lines: string[] = [];
+  private indentation = 0;
+
+  private readonly banner: string;
+
+  constructor(banner: string) {
+    this.banner = banner;
+  }
+
+  /** Record a needed import and return the local name to write. */
+  require(module: string, name: string): string {
+    let byName = this.imports.get(module);
+    if (!byName) this.imports.set(module, (byName = new Map()));
+    const existing = byName.get(name);
+    if (existing) return existing;
+
+    let local = name;
+    for (let n = 2; this.taken.has(local); n++) local = `${name}$${n}`;
+    this.taken.add(local);
+    byName.set(name, local);
+    return local;
+  }
+
+  /**
+   * Import a module for its side effect alone: `import '@scenoco-three/core';`.
+   *
+   * Generated graph code calls `addComponent`, `instantiate` and `eulerAngles`, which are
+   * augmentations on `THREE.Object3D` rather than members of it. Without this import the
+   * generated file neither typechecks nor runs — the methods are simply not there.
+   */
+  sideEffect(module: string): this {
+    this.sideEffects.add(module);
+    return this;
+  }
+
+  /** Claim a local identifier that is not an import — a const, a class, a variable. */
+  declare(preferred: string): string {
+    let name = sanitizeIdentifier(preferred);
+    for (let n = 2; this.taken.has(name); n++) name = `${sanitizeIdentifier(preferred)}$${n}`;
+    this.taken.add(name);
+    return name;
+  }
+
+  /**
+   * Write a module-scope declaration, above the class or const this module is building.
+   *
+   * A file asset lands here: `const heroModel = sharedModel(new URL('./hero.glb', …).href)`.
+   * It has to be one named value rather than the expression repeated at each use, because the
+   * scene also has to name it in `loadAssets(…)` — and because a reader should see the file
+   * list at the top of the module.
+   */
+  hoist(text: string): this {
+    this.hoisted.push(text);
+    return this;
+  }
+
+  line(text = ''): this {
+    this.lines.push(text ? '  '.repeat(this.indentation) + text : '');
+    return this;
+  }
+
+  /** Write `header` then an indented `body`, then the closing text. */
+  block(header: string, body: () => void, close = '}'): this {
+    this.line(header);
+    this.indentation++;
+    body();
+    this.indentation--;
+    this.line(close);
+    return this;
+  }
+
+  report(diagnostic: SncDiagnostic): void {
+    this.diagnostics.push(diagnostic);
+  }
+
+  reportAll(diagnostics: readonly SncDiagnostic[]): void {
+    this.diagnostics.push(...diagnostics);
+  }
+
+  /** The finished module source. */
+  render(): string {
+    const out: string[] = [this.banner, ''];
+    for (const module of [...this.sideEffects].sort()) {
+      // A named import from the same module already evaluates it, so printing both is one line
+      // of noise in every generated file that happens to name a class from core.
+      if (this.imports.has(module)) continue;
+      out.push(`import '${module}';`);
+    }
+    for (const module of [...this.imports.keys()].sort(sortImports)) {
+      const byName = this.imports.get(module)!;
+      const clauses = [...byName.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, local]) => (name === local ? name : `${name} as ${local}`));
+      out.push(`import { ${clauses.join(', ')} } from '${module}';`);
+    }
+    if (this.imports.size > 0 || this.sideEffects.size > 0) out.push('');
+    if (this.hoisted.length > 0) out.push(...this.hoisted, '');
+    out.push(...this.lines);
+    // One trailing newline, never two — the file is regenerated constantly and a stable byte
+    // sequence is what keeps a watch loop from rewriting an unchanged file.
+    return `${out.join('\n').replace(/\n+$/, '')}\n`;
+  }
+}
+
+/** Packages first, then relative paths — the order a person would write them in. */
+function sortImports(a: string, b: string): number {
+  const relative = (s: string) => (s.startsWith('.') ? 1 : 0);
+  return relative(a) - relative(b) || a.localeCompare(b);
+}
+
+const RESERVED = new Set([
+  'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do',
+  'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import',
+  'in', 'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try',
+  'typeof', 'var', 'void', 'while', 'with', 'let', 'static', 'yield', 'await', 'implements',
+  'interface', 'package', 'private', 'protected', 'public',
+]);
+
+/** A legal, non-reserved TypeScript identifier derived from an authored name. */
+export function sanitizeIdentifier(text: string): string {
+  const cleaned = text.replace(/[^A-Za-z0-9_$]/g, '_').replace(/^[0-9]/, (d) => `_${d}`);
+  const name = cleaned || '_';
+  return RESERVED.has(name) ? `${name}_` : name;
+}
+
+/** `brick-wall` → `BrickWall`; the class name a document's file name produces. */
+export function pascalCase(text: string): string {
+  const parts = text.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const joined = parts.map((p) => p[0]!.toUpperCase() + p.slice(1)).join('');
+  return sanitizeIdentifier(joined || 'Asset');
+}
+
+/** `brick-wall` → `brickWall`; the const name a geometry or material document produces. */
+export function camelCase(text: string): string {
+  const pascal = pascalCase(text);
+  return sanitizeIdentifier(pascal[0]!.toLowerCase() + pascal.slice(1));
+}

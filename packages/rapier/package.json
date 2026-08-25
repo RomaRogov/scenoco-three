@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/rapier",
   "version": "0.4.0",
-  "description": "Rapier physics for SceNoCo: <Physics> setting + RigidBody/Collider components on the EngineSystem seam",
+  "description": "3D physics for SceNoCo on Rapier: a Physics system, RigidBody, and the collider shapes.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -28,7 +28,10 @@
     "access": "public"
   },
   "//sideEffects": "Importing the package registers its @component/@setting tags (decorator side effects), so it must not be tree-shaken away when imported for registration.",
-  "sideEffects": true,
+  "sideEffects": [
+    "./dist/contacts.js",
+    "./src/contacts.ts"
+  ],
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

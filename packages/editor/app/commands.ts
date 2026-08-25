@@ -21,7 +21,11 @@ export class UndoStack {
   private readonly undoables: Command[] = [];
   private readonly redoables: Command[] = [];
 
-  constructor(private readonly onChange?: () => void) {}
+  private readonly onChange: (() => void) | undefined;
+
+  constructor(onChange?: () => void) {
+    this.onChange = onChange;
+  }
 
   /** Apply a command and record it, merging into the previous one if keys match. */
   run(cmd: Command): void {

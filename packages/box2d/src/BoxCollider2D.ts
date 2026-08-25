@@ -1,15 +1,18 @@
 import { BoxShape, type Shape } from 'planck';
-import { component, property, ValueType } from '@scenoco-three/core';
+import { Vector2 } from 'three';
 import { Collider2D } from './Collider2D.js';
 
-/** A 2D axis-aligned box collision shape (planck). */
-@component({ name: 'BoxCollider2D', description: 'A 2D box collision shape (planck); attaches to the node’s RigidBody2D.' })
+/** A 2D box collision shape. */
 export class BoxCollider2D extends Collider2D {
-  @property({ type: ValueType.Vec2, required: true, description: 'Half-extents (x, y) — half the visible size; a collider never infers size from geometry' })
-  halfExtents = [0.5, 0.5];
+  /**
+   * Half the box's size — half the *visible* size, if it is meant to match the mesh.
+   *
+   * A collider never infers its size from the geometry beside it. The two are separate assets
+   * now, and a collider that guessed would be wrong the moment either changed.
+   */
+  halfExtents = new Vector2(0.5, 0.5);
 
-  toShape(): Shape {
-    const [hx, hy] = this.halfExtents;
-    return new BoxShape(hx!, hy!);
+  override toShape(): Shape {
+    return new BoxShape(this.halfExtents.x, this.halfExtents.y);
   }
 }

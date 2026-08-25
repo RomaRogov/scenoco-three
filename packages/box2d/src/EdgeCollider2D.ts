@@ -1,17 +1,15 @@
 import { EdgeShape, Vec2, type Shape } from 'planck';
-import { component, property, ValueType } from '@scenoco-three/core';
+import { Vector2 } from 'three';
 import { Collider2D } from './Collider2D.js';
 
-/** A 2D edge (one-sided line segment) collision shape (planck) — handy for static ground. */
-@component({ name: 'EdgeCollider2D', description: 'A 2D edge (line segment) collision shape (planck).' })
+/** A 2D one-sided line segment — the cheap way to build static ground. */
 export class EdgeCollider2D extends Collider2D {
-  @property({ type: ValueType.Vec2, required: true, description: 'Segment start (x, y) — explicit; a collider never infers size from geometry' })
-  from = [-0.5, 0];
+  /** One end, in the body's local space. */
+  from = new Vector2(-0.5, 0);
+  /** The other end. */
+  to = new Vector2(0.5, 0);
 
-  @property({ type: ValueType.Vec2, required: true, description: 'Segment end (x, y)' })
-  to = [0.5, 0];
-
-  toShape(): Shape {
-    return new EdgeShape(new Vec2(this.from[0]!, this.from[1]!), new Vec2(this.to[0]!, this.to[1]!));
+  override toShape(): Shape {
+    return new EdgeShape(new Vec2(this.from.x, this.from.y), new Vec2(this.to.x, this.to.y));
   }
 }

@@ -1,17 +1,14 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider } from './Collider.js';
 
-/** A Rapier capsule collision shape (axis-aligned along Y) — native Rapier primitive. */
-@component({ name: 'CapsuleCollider', description: 'A Rapier capsule collision shape; attaches to the node’s RigidBody.' })
+/** A 3D capsule — the usual shape for a character. Its long axis is Y. */
 export class CapsuleCollider extends Collider {
-  @property({ type: ValueType.Float, required: true, description: 'Radius of the hemispherical caps — match the visible geometry; a collider never infers size from geometry' })
+  /** Radius of the cylinder and of the caps. */
   radius = 0.5;
-
-  @property({ type: ValueType.Float, required: true, description: 'Half the distance between the cap centers (along Y)' })
+  /** Half the length of the straight section, not counting the caps. */
   halfHeight = 0.5;
 
-  shapeDesc(): RAPIER.ColliderDesc {
+  override shapeDesc(): RAPIER.ColliderDesc {
     return RAPIER.ColliderDesc.capsule(this.halfHeight, this.radius);
   }
 }

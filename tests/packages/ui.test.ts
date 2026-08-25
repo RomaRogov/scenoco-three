@@ -1,178 +1,293 @@
-import { describe, expect, it } from 'vitest';
-import { Engine } from '@scenoco-three/core';
-import { bundleScene, compileSceneXml } from '@scenoco-three/compiler';
-import { getNodeDef } from '@scenoco-three/core/internal';
-import { Container, Fullscreen, INTER_MSDF_CHARSET, Text, UIRenderSystem } from '@scenoco-three/ui';
+import { Group, PerspectiveCamera, Scene, Color } from 'three';
+import { afterEach, describe, expect, it } from 'vitest';
+import { SceneManager, type SceneType } from '@scenoco-three/core';
+import { Canvas, Panel, Text, UIRenderer, toUikitProperties } from '@scenoco-three/ui';
+import { Clock, resetEngine } from '../core/helpers.js';
 
-const compile = (xml: string) => {
-  const r = compileSceneXml(xml);
-  if (!r.ok) throw new Error('compile failed: ' + r.diagnostics.map((d) => d.message).join('; '));
-  return r.scene;
-};
+afterEach(resetEngine);
 
-describe('@scenoco-three/ui: scene tags', () => {
-  it('compiles UI tags to uikit instances, auto-runs UIRenderSystem, and ticks headless', () => {
-    const scene = compile(`
-      <Scene>
-        <PerspectiveCamera id="cam" position="0 0 5" fit="none">
-          <Fullscreen id="hud" flexDirection="row" justifyContent="space-between" padding="20">
-            <Container id="pill" backgroundColor="#0a0e16" borderRadius="10">
-              <Text id="score" text="SCORE 0" fontSize="26" color="#4af0e0" />
-            </Container>
-          </Fullscreen>
-        </PerspectiveCamera>
-      </Scene>`);
-    const engine = new Engine();
-    engine.loadScene(bundleScene(scene));
-
-    const hud = engine.findObject('hud');
-    expect(hud).toBeInstanceOf(Fullscreen);
-    expect(engine.findObject('pill')).toBeInstanceOf(Container);
-    const score = engine.findObject('score');
-    expect(score).toBeInstanceOf(Text);
-
-    // The node-query system auto-started and tracks every uikit element.
-    const sys = engine.getSystem(UIRenderSystem);
-    expect(sys).toBeDefined();
-    expect(sys!.nodes.length).toBe(3);
-
-    // Authored attributes arrived as uikit properties, verbatim.
-    expect((score as Text).properties.value.fontSize).toBe(26);
-    expect((hud as Fullscreen).properties.value.justifyContent).toBe('space-between');
-
-    // Headless tick: no renderer, so Fullscreen layout is skipped — must not throw.
-    engine.tick(1 / 60);
-
-    // Runtime updates use the plain uikit API.
-    (score as Text).setProperties({ text: 'SCORE 10' });
-    expect((score as Text).properties.value.text).toBe('SCORE 10');
-    engine.dispose();
-  });
-
-  it('a world-space <Container> root outside any UI parent lays out on tick', () => {
-    const scene = compile(`
-      <Scene>
-        <Container id="panel" position="0 1 0" flexDirection="column" gap="8">
-          <Text text="hello" />
-        </Container>
-      </Scene>`);
-    const engine = new Engine();
-    engine.loadScene(bundleScene(scene));
-    const panel = engine.findObject('panel')!;
-    expect(panel).toBeInstanceOf(Container);
-    expect(panel.position.y).toBe(1); // a root keeps its authored transform
-    engine.tick(1 / 60); // update(delta) runs on the root — must not throw
-    engine.dispose();
-  });
-});
-
-/**
- * MSDF text can only draw glyphs baked into the atlas, and the bundled Inter
- * subset is small enough that ordinary typography falls outside it. Unsupported
- * characters used to surface only as a runtime `console.warn`, so a title screen
- * shipped with empty boxes in it and nothing in the build said so.
- */
-describe('@scenoco-three/ui: <Text> charset', () => {
-  it('rejects characters the font cannot draw, naming each one', () => {
-    const r = compileSceneXml(`<Scene><Text text="Level 1 — Ready… 100% × 2" /></Scene>`);
-    const d = r.ok ? undefined : r.diagnostics.find((x) => x.code === 'unsupported-glyph');
-    expect(d?.message).toContain('U+2014'); // em-dash
-    expect(d?.message).toContain('U+2026'); // ellipsis
-    expect(d?.message).toContain('U+00D7'); // multiplication sign
-    // The ASCII spelling of the same line is fine — the fix is in the message.
-    expect(compileSceneXml(`<Scene><Text text="Level 1 - Ready... 100% x 2" /></Scene>`).ok).toBe(true);
-  });
-
-  // The charset is transcribed into a constant (a decorator can't await a font),
-  // so it is only trustworthy if something compares it to the real thing.
-  it('matches the charset actually baked into the bundled font', async () => {
-    type FontInfo = { info: { charset: string[] } };
-    type Weight = FontInfo | (() => FontInfo | Promise<FontInfo>);
-    // The package exports each weight either directly or behind a lazy thunk,
-    // depending on the resolved condition — take it whichever way it comes.
-    const { inter } = (await import('@pmndrs/msdfonts/inter')) as { inter: Record<string, Weight> };
-    for (const weight of ['light', 'medium', 'semi-bold', 'bold']) {
-      const entry = inter[weight]!;
-      const font = await (typeof entry === 'function' ? entry() : entry);
-      expect(font.info.charset.join(''), weight).toBe(INTER_MSDF_CHARSET);
+function sceneOf(build: (scene: Scene) => void): SceneType {
+  return class extends Scene {
+    override onLoad(): void {
+      build(this);
     }
-  });
-});
+  };
+}
 
 /**
- * This package's whole promise is that an attribute name here *is* the uikit
- * property name, so the uikit docs apply verbatim and `setProperties` in a
- * component reads the same as the XML. Nothing enforced it, and one name had
- * already drifted: `backgroundOpacity` (a uikit v0 property) survived the 1.x
- * upgrade in our schema but not in uikit's.
+ * What an element's authored values mean in uikit terms.
  *
- * uikit validates by parsing a zod schema and **ignores** keys it doesn't know —
- * no throw, no warning — so the attribute compiled, validated, shipped, and did
- * nothing. Both example games authored translucent HUD panels that rendered
- * fully opaque, and the only way to notice was to look.
+ * Read from the element's own state rather than from uikit's `properties` signal, which holds
+ * the *computed* result after layout and inheritance and stays empty until the element is
+ * attached to a root with a renderer. This is the mapping this package is responsible for.
  */
-describe('@scenoco-three/ui: attribute names are uikit property names', () => {
-  it('declares nothing uikit would silently ignore', async () => {
-    // Each tag against **its own** schema, not Container's: the classes differ by
-    // more than a few properties (`objectFit` is real, but only on Image).
-    const tags: [tag: string, module: string][] = [
-      ['Container', 'container'],
-      ['Fullscreen', 'fullscreen'],
-      ['Text', 'text'],
-      ['Image', 'image'],
-    ];
-    for (const [tag, module] of tags) {
-      const m = (await import(`@pmndrs/uikit/dist/components/${module}.js`)) as Record<string, unknown>;
-      const schema = m[`${tag}PropertiesSchema`] as { unwrap(): { shape: Record<string, unknown> } };
-      const uikitProperties = new Set(Object.keys(schema.unwrap().shape));
-      expect(uikitProperties.size, tag).toBeGreaterThan(100); // the schema really was read
+function uikitProps(element: { _rect: Parameters<typeof toUikitProperties>[0] }): Record<string, unknown> {
+  return toUikitProperties(element._rect);
+}
 
-      const def = getNodeDef(tag)!;
-      // `text`/`src` are our own tag-shaped spellings of uikit constructor input,
-      // not layout properties; everything else must be a real uikit property.
-      const ours = Object.keys(def.attrs).filter((a) => !['text', 'src'].includes(a));
-      expect(ours.filter((a) => !uikitProperties.has(a)), tag).toEqual([]);
+describe('placement', () => {
+  it('pins to a corner with insets measured inward', () => {
+    const panel = new Panel();
+    panel.anchor = 'topRight';
+    panel.x = 24;
+    panel.y = 16;
+    panel.width = 200;
+
+    const props = uikitProps(panel);
+    expect(props.positionType).toBe('absolute');
+    // Inward from the anchored edge, so both numbers are positive and neither is a coordinate.
+    expect(props.positionRight).toBe(24);
+    expect(props.positionTop).toBe(16);
+    expect(props.positionLeft).toBeUndefined();
+    expect(props.width).toBe(200);
+  });
+
+  it('centres with auto margins between two insets', () => {
+    const panel = new Panel();
+    panel.anchor = 'center';
+
+    const props = uikitProps(panel);
+    expect(props.marginLeft).toBe('auto');
+    expect(props.marginRight).toBe('auto');
+    expect(props.marginTop).toBe('auto');
+    expect(props.marginBottom).toBe('auto');
+  });
+
+  it('shifts a centred element by exactly the offset', () => {
+    const panel = new Panel();
+    panel.anchor = 'center';
+    panel.y = -40; // forty above centre
+
+    // The box centres within [top, height - bottom], so doubling one inset moves the centre by
+    // the offset — which is what keeps `y` meaning the same thing at every anchor.
+    const props = uikitProps(panel);
+    expect(props.positionTop).toBe(0);
+    expect(props.positionBottom).toBe(80);
+  });
+
+  it('stretches an axis and takes x as its inset on both sides', () => {
+    const panel = new Panel();
+    panel.anchor = 'stretchTop';
+    panel.x = 12;
+    panel.height = 64;
+
+    const props = uikitProps(panel);
+    expect(props.positionLeft).toBe(12);
+    expect(props.positionRight).toBe(12);
+    expect(props.positionTop).toBe(0);
+    expect(props.height).toBe(64);
+    // A stretched axis has no width to give: the stretch is the width.
+    expect(props.width).toBeUndefined();
+  });
+
+  it('leaves an element in its parent’s flow when no anchor is written', () => {
+    const panel = new Panel();
+    panel.width = 100;
+
+    const props = uikitProps(panel);
+    expect(props.positionType).not.toBe('absolute');
+    expect(props.width).toBe(100);
+  });
+
+  it('does not depend on the order the attributes were written in', () => {
+    const a = new Panel();
+    a.anchor = 'bottomLeft';
+    a.x = 8;
+    a.width = 120;
+
+    const b = new Panel();
+    b.width = 120;
+    b.x = 8;
+    b.anchor = 'bottomLeft';
+
+    const [pa, pb] = [uikitProps(a), uikitProps(b)];
+    for (const key of ['positionType', 'positionLeft', 'positionBottom', 'width']) {
+      expect(pb[key], key).toEqual(pa[key]);
     }
   });
 });
 
+describe('laying out children', () => {
+  /**
+   * The point of `alignX`/`alignY`: they mean horizontally and vertically whatever the stacking
+   * direction is. CSS swaps which of `justify-content` and `align-items` does which, and that
+   * swap is the usual reason a flexbox layout comes out sideways.
+   */
+  it('maps alignX to the horizontal axis whichever way the stack runs', () => {
+    const column = new Panel();
+    column.layout = 'vertical';
+    column.alignX = 'center';
+    expect(uikitProps(column).alignItems).toBe('center');
+    expect(uikitProps(column).justifyContent).toBe('flex-start');
+
+    const row = new Panel();
+    row.layout = 'horizontal';
+    row.alignX = 'center';
+    expect(uikitProps(row).justifyContent).toBe('center');
+    expect(uikitProps(row).alignItems).toBe('flex-start');
+  });
+
+  it('carries gap and padding straight through', () => {
+    const panel = new Panel();
+    panel.gap = 12;
+    panel.padding = 24;
+    expect(uikitProps(panel).gap).toBe(12);
+    expect(uikitProps(panel).padding).toBe(24);
+  });
+});
+
+describe('appearance and text', () => {
+  it('names the background and the text colour separately', () => {
+    const panel = new Panel();
+    panel.background = new Color(0x111827);
+    panel.color = new Color(0xffffff);
+    panel.radius = 12;
+
+    const props = uikitProps(panel);
+    // `background` fills the rectangle; `color` is the text colour every label inside inherits.
+    expect(props.backgroundColor).toBeInstanceOf(Color);
+    expect(props.borderRadius).toBe(12);
+    expect(props.color).toBeInstanceOf(Color);
+  });
+
+  it('reads and writes text the same way a document and game code do', () => {
+    const label = new Text();
+    label.text = 'SCORE 0';
+    expect(label.text).toBe('SCORE 0');
+    expect(uikitProps(label).text).toBe('SCORE 0');
+
+    label.text = 'SCORE 12';
+    expect(uikitProps(label).text).toBe('SCORE 12');
+  });
+});
+
+describe('reaching uikit', () => {
+  /**
+   * The mapping above is a pure function; this is the wiring. Assigning an attribute has to push
+   * the *whole* set onto uikit, which is what makes the result independent of write order and
+   * makes `label.text = …` from game code the same path a document takes.
+   */
+  it('pushes the whole property set to uikit on every assignment', () => {
+    const panel = new Panel();
+    const seen: Array<Record<string, unknown>> = [];
+    const target = panel as unknown as { setProperties(p: Record<string, unknown>): void };
+    const original = target.setProperties.bind(target);
+    target.setProperties = (props) => {
+      seen.push(props);
+      original(props);
+    };
+
+    panel.anchor = 'bottomRight';
+    panel.x = 16;
+
+    expect(seen).toHaveLength(2);
+    // The second write carries the anchor from the first, not just the value that changed.
+    expect(seen[1]).toMatchObject({ positionType: 'absolute', positionRight: 16 });
+  });
+});
+
+describe('the renderer system', () => {
+  it('is created on demand by the first element in the scene', async () => {
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const panel = new Panel();
+        s.add(panel);
+      }),
+    );
+    expect(scene.getSystem(UIRenderer)).toBeInstanceOf(UIRenderer);
+  });
+
+  it('finds its scene through however many parents it took to get there', async () => {
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        // Built detached and added afterwards, the way a prefab builds its subtree.
+        const holder = new Group();
+        const panel = new Panel();
+        holder.add(panel);
+        s.add(holder);
+      }),
+    );
+    expect(scene.getSystem(UIRenderer)).toBeInstanceOf(UIRenderer);
+  });
+
+  it('ticks headless without a renderer, so a scene with UI still runs in a test', async () => {
+    await SceneManager.load(
+      sceneOf((s) => {
+        const camera = new PerspectiveCamera();
+        s.add(camera);
+        s.mainCamera = camera;
+        const canvas = new Canvas();
+        camera.add(canvas);
+        const panel = new Panel();
+        panel.anchor = 'stretchTop';
+        panel.height = 64;
+        canvas.add(panel);
+      }),
+    );
+    expect(() => new Clock().frames(3)).not.toThrow();
+  });
+});
+
 /**
- * The pattern that replaced `backgroundOpacity`, pinned because it is now what
- * both example games and the package README tell people to write. The risk it
- * carries is that an absolutely-positioned background is easy to get subtly
- * wrong — sized to its own content instead of the parent, or in front of the
- * text rather than behind it — and either failure is invisible except on screen.
+ * A UI layout is presentation, not simulation.
+ *
+ * It is arithmetic over the current state, so it is as valid on a paused frame as a running one
+ * — which is what lets an editor sitting in edit mode show a HUD without starting the game.
+ * Physics deliberately has no such pass: stepping a world twice in a frame is not free.
  */
-describe('@scenoco-three/ui: translucent panel behind opaque text', () => {
-  it('an inset background fills its parent and stays behind the content', () => {
-    const scene = compile(`
-      <Scene>
-        <Container id="pill" flexDirection="row" gap="8"
-                   paddingTop="10" paddingBottom="10" paddingLeft="16" paddingRight="16">
-          <Container id="bg" positionType="absolute"
-                     positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
-                     backgroundColor="#0a0e16" opacity="0.7" borderRadius="10" />
-          <Text id="label" text="SCORE 1234" fontSize="26" />
-        </Container>
-      </Scene>`);
-    const engine = new Engine();
-    engine.loadScene(bundleScene(scene));
-    for (let i = 0; i < 4; i++) engine.tick(1 / 60); // let yoga settle
+describe('laying out on a frame that is not simulated', () => {
+  it('offers a layout pass the simulation does not have to run', async () => {
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const camera = new PerspectiveCamera();
+        s.add(camera);
+        camera.add(new Canvas());
+      }),
+    );
+    const ui = scene.getSystem(UIRenderer)!;
+    expect(typeof ui.layout).toBe('function');
+    expect(() => ui.layout(1 / 60)).not.toThrow(); // headless: lays out, draws nothing
+  });
+});
 
-    const size = (id: string) => (engine.findObject(id) as unknown as Container).size.value;
-    const pill = size('pill');
-    expect(pill?.[0]).toBeGreaterThan(0); // laid out at all
-    // Inset on all four sides means "the whole parent", padding included — a
-    // background that shrank to its own (empty) content would be 0×0.
-    expect(size('bg')).toEqual(pill);
+/**
+ * `setActive(false)` has to hide a UI element.
+ *
+ * Core hides a node by clearing `visible`; uikit decides what to draw from its own `display`
+ * property and paints every panel through one shared instanced mesh that never looks at a
+ * container's `visible` flag. The two did not meet, so hiding a full-screen panel did nothing at
+ * all — and since a `<Canvas>` hangs in front of the camera, a "hidden" 80%-opaque banner dimmed
+ * the entire game with nothing in the scene graph to show for it.
+ */
+describe('hiding an element', () => {
+  const displayOf = (element: object): unknown =>
+    (element as { properties: { peek(): { display?: unknown } } }).properties.peek().display;
 
-    // Declared first, so it draws under its siblings rather than over the text.
-    const children = engine.findObject('pill')!.children.map((c) => c.sceneId);
-    expect(children.indexOf('bg')).toBeLessThan(children.indexOf('label'));
+  it('follows the node’s active state', async () => {
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const camera = new PerspectiveCamera();
+        s.add(camera);
+        const canvas = new Canvas();
+        camera.add(canvas);
+        const panel = new Panel();
+        panel.name = 'banner';
+        canvas.add(panel);
+      }),
+    );
+    const ui = scene.getSystem(UIRenderer)!;
+    const panel = scene.getObjectByName('banner')!;
 
-    // And the opacity is the background's alone — the text never inherits it,
-    // which is the entire reason for the extra element.
-    expect((engine.findObject('label') as unknown as Text).properties.value.opacity).toBe(1);
-    engine.dispose();
+    ui.layout(1 / 60);
+    expect(displayOf(panel)).toBe('flex');
+
+    panel.setActive(false);
+    ui.layout(1 / 60);
+    expect(displayOf(panel)).toBe('none');
+
+    // And back: `setProperties` merges, so a `display` left from an inactive moment would stick.
+    panel.setActive(true);
+    ui.layout(1 / 60);
+    expect(displayOf(panel)).toBe('flex');
   });
 });

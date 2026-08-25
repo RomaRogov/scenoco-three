@@ -1,134 +1,194 @@
-import { Object3D } from 'three';
-import { describe, expect, it } from 'vitest';
-import { Component, Engine, executeInEditor } from '@scenoco-three/core';
+import { Object3D, Scene } from 'three';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Component, SceneManager, Time } from '@scenoco-three/core';
+import { Clock, resetEngine, sceneOf } from './helpers.js';
 
-class Probe extends Component {
-  events: string[] = [];
-  override onLoad(): void { this.events.push('onLoad'); }
-  override onEnable(): void { this.events.push('onEnable'); }
-  override start(): void { this.events.push('start'); }
-  override update(dt: number): void { this.events.push(`update:${dt}`); }
-  override onDisable(): void { this.events.push('onDisable'); }
-  override onDestroy(): void { this.events.push('onDestroy'); }
+afterEach(resetEngine);
+
+/** Records every hook it receives, so a test can assert on the whole ordering at once. */
+class Tracer extends Component {
+  label = 'tracer';
+  log: string[] = [];
+  override awake() { this.log.push('awake'); }
+  override onEnable() { this.log.push('onEnable'); }
+  override start() { this.log.push('start'); }
+  override update() { this.log.push('update'); }
+  override lateUpdate() { this.log.push('lateUpdate'); }
+  override onDisable() { this.log.push('onDisable'); }
+  override onDestroy() { this.log.push('onDestroy'); }
 }
 
-@executeInEditor
-class EditorProbe extends Probe {}
-
 describe('component lifecycle', () => {
-  it('runs onLoad/onEnable on attach, start on first tick, and applies constructor props before onLoad', () => {
-    const engine = new Engine();
-    class WithProps extends Probe {
+  it('wakes and enables during load, and starts on the first tick', async () => {
+    let tracer!: Tracer;
+    await SceneManager.load(sceneOf((scene) => {
+      tracer = scene.createObject('subject').addComponent(Tracer);
+    }));
+
+    // `start` waits for a tick, as it does in Unity — `awake` may still be spawning siblings.
+    expect(tracer.log).toEqual(['awake', 'onEnable']);
+
+    new Clock().frame();
+    expect(tracer.log).toEqual(['awake', 'onEnable', 'start', 'update', 'lateUpdate']);
+  });
+
+  it('runs every awake in a subtree before any start in it', async () => {
+    const order: string[] = [];
+    class Noisy extends Component {
+      label = '';
+      override awake() { order.push(`awake:${this.label}`); }
+      override start() { order.push(`start:${this.label}`); }
+    }
+    await SceneManager.load(sceneOf((scene) => {
+      const parent = scene.createObject('parent');
+      const child = new Object3D();
+      child.addComponent(Noisy, { label: 'child' });
+      parent.addComponent(Noisy, { label: 'parent' });
+      parent.add(child);
+    }));
+    new Clock().frame();
+
+    expect(order.slice(0, 2).sort()).toEqual(['awake:child', 'awake:parent']);
+    expect(order.slice(2).sort()).toEqual(['start:child', 'start:parent']);
+  });
+
+  it('applies init before awake, so a component never wakes on a stale default', async () => {
+    let seen = '';
+    class Reader extends Component {
       label = 'default';
-      seenAtLoad = '';
-      override onLoad(): void { super.onLoad(); this.seenAtLoad = this.label; }
+      override awake() { seen = this.label; }
     }
-    const c = engine.addComponent(new Object3D(), WithProps, { label: 'custom' });
-    expect(c.events).toEqual(['onLoad', 'onEnable']);
-    expect(c.seenAtLoad).toBe('custom'); // props applied before onLoad
-    engine.tick(0.016);
-    expect(c.events).toEqual(['onLoad', 'onEnable', 'start', 'update:0.016']);
+    await SceneManager.load(sceneOf((scene) => {
+      scene.createObject().addComponent(Reader, { label: 'authored' });
+    }));
+    expect(seen).toBe('authored');
   });
 
-  it('skips start/update while disabled and fires onEnable/onDisable on toggle', () => {
-    const engine = new Engine();
-    const probe = engine.addComponent(new Object3D(), Probe);
-    probe.enabled = false;
-    engine.tick(0.016);
-    expect(probe.events).toEqual(['onLoad', 'onEnable', 'onDisable']);
-    probe.enabled = true;
-    engine.tick(0.016);
-    expect(probe.events).toEqual(['onLoad', 'onEnable', 'onDisable', 'onEnable', 'start', 'update:0.016']);
+  it('fires onDisable/onEnable when `enabled` is toggled, without a second awake', async () => {
+    let tracer!: Tracer;
+    await SceneManager.load(sceneOf((scene) => {
+      tracer = scene.createObject().addComponent(Tracer);
+    }));
+    const clock = new Clock();
+    clock.frame();
+    tracer.log.length = 0;
+
+    tracer.enabled = false;
+    clock.frame();
+    expect(tracer.log).toEqual(['onDisable']);
+
+    tracer.enabled = true;
+    clock.frame();
+    expect(tracer.log).toEqual(['onDisable', 'onEnable', 'update', 'lateUpdate']);
   });
 
-  it('engine.destroy() defers teardown to end of tick, then tears down the subtree, idempotently', () => {
-    const engine = new Engine();
-    const root = new Object3D();
-    const child = new Object3D();
-    root.add(child);
-    engine.scene.add(root);
-    const onRoot = engine.addComponent(root, Probe);
-    const onChild = engine.addComponent(child, Probe);
+  it('stops ticking a subtree deactivated with setActive, and resumes it', async () => {
+    let tracer!: Tracer;
+    let root!: Object3D;
+    await SceneManager.load(sceneOf((scene) => {
+      root = scene.createObject('root');
+      const child = new Object3D();
+      tracer = child.addComponent(Tracer);
+      root.add(child);
+    }));
+    const clock = new Clock();
+    clock.frame();
 
-    engine.destroy(root);
-    // Deferred (Unity-style): marked at once but still attached, onDestroy not yet fired.
-    for (const p of [onRoot, onChild]) expect(p.events).not.toContain('onDestroy');
-    expect(engine.scene.children).toContain(root);
+    root.setActive(false);
+    expect(tracer.isActiveAndEnabled).toBe(false);
+    tracer.log.length = 0;
+    clock.frame();
+    expect(tracer.log).toEqual([]);
 
-    engine.tick(0.016);
-    // Flushed at end of tick: onDestroy fired, detached, and never updated (skipped while pending).
-    for (const p of [onRoot, onChild]) {
-      expect(p.events).toContain('onDestroy');
-      expect(p.events.filter((e) => e.startsWith('update'))).toHaveLength(0);
-    }
-    expect(engine.scene.children).not.toContain(root);
-    expect(() => engine.destroy(root)).not.toThrow(); // idempotent
-  });
-  it('runs every pending start before any update (Unity Start semantics)', () => {
-    const engine = new Engine();
-    const log: string[] = [];
-    class A extends Component {
-      override start(): void { log.push('A.start'); }
-      override update(): void { log.push('A.update'); }
-    }
-    class B extends Component {
-      override start(): void { log.push('B.start'); }
-      override update(): void { log.push('B.update'); }
-    }
-    engine.addComponent(new Object3D(), A);
-    engine.addComponent(new Object3D(), B);
-    engine.tick(0.016);
-    expect(log).toEqual(['A.start', 'B.start', 'A.update', 'B.update']);
-    engine.dispose();
+    root.setActive(true);
+    clock.frame();
+    expect(tracer.log).toEqual(['onEnable', 'update', 'lateUpdate']);
   });
 
-  it('a component spawned during update runs no phase that tick; start + update come next tick', () => {
-    const engine = new Engine();
-    class Spawner extends Component {
-      spawned?: Probe;
-      override update(): void {
-        this.spawned ??= this.engine.addComponent(new Object3D(), Probe);
+  it('defers destruction to the end of the frame', async () => {
+    const order: string[] = [];
+    class Suicidal extends Component {
+      override update() {
+        order.push('update');
+        this.object3D.destroy();
       }
+      override onDestroy() { order.push('onDestroy'); }
     }
-    const spawner = engine.addComponent(new Object3D(), Spawner);
-    engine.tick(0.016);
-    const spawned = spawner.spawned!;
-    expect(spawned.events).toEqual(['onLoad', 'onEnable']); // loaded synchronously, but silent this tick
-    engine.tick(0.016);
-    expect(spawned.events).toEqual(['onLoad', 'onEnable', 'start', 'update:0.016']);
-    engine.dispose();
+    class Witness extends Component {
+      override lateUpdate() { order.push('lateUpdate'); }
+    }
+    await SceneManager.load(sceneOf((scene) => {
+      scene.createObject().addComponent(Suicidal);
+      scene.createObject().addComponent(Witness);
+    }));
+    new Clock().frame();
+
+    // The whole frame completes before anything is torn down.
+    expect(order).toEqual(['update', 'lateUpdate', 'onDestroy']);
   });
 
-  it('a component destroyed during another component update is skipped that same tick', () => {
-    const engine = new Engine();
-    // A killer that destroys the victim on its own first update. Execution order is
-    // insertion order, so inserting the killer first makes it run before the victim.
-    class Killer extends Component {
-      target!: Probe;
-      override update(): void { this.engine.destroyComponent(this.target); }
+  it('tears a subtree down depth-first and detaches it from the graph', async () => {
+    const destroyed: string[] = [];
+    class Marker extends Component {
+      label = '';
+      override onDestroy() { destroyed.push(this.label); }
     }
-    const killer = engine.addComponent(new Object3D(), Killer);
-    const victim = engine.addComponent(new Object3D(), Probe);
-    killer.target = victim;
+    let root!: Object3D;
+    let scene!: Scene;
+    await SceneManager.load(sceneOf((s) => {
+      scene = s;
+      root = s.createObject('root');
+      root.addComponent(Marker, { label: 'root' });
+      const child = new Object3D();
+      child.addComponent(Marker, { label: 'child' });
+      root.add(child);
+    }));
 
-    engine.tick(0.016);
-    // Victim was marked before its turn in the update loop → never updated, and torn down at flush.
-    expect(victim.events.filter((e) => e.startsWith('update'))).toHaveLength(0);
-    expect(victim.events).toContain('onDestroy');
-    engine.dispose();
+    root.destroy();
+    new Clock().frame();
+
+    expect(destroyed).toEqual(['child', 'root']);
+    expect(root.parent).toBe(null);
+    expect(scene.componentCount).toBe(0);
   });
-});
 
-describe('editor mode (Unity scene-view style)', () => {
-  it('leaves normal components inert but runs @executeInEditor components', () => {
-    const engine = new Engine({ editor: true });
-    const normal = engine.addComponent(new Object3D(), Probe);
-    const editorAware = engine.addComponent(new Object3D(), EditorProbe);
-    expect(normal.events).toEqual([]); // no hooks for a normal component
-    expect(editorAware.events).toEqual(['onLoad', 'onEnable']);
-    engine.tick(0.016);
-    expect(normal.events).toEqual([]); // still inert
-    expect(editorAware.events).toContain('start'); // @executeInEditor ticks
-    expect(editorAware.events).toContain('update:0.016');
+  it('takes fixed steps at the fixed rate regardless of frame length', async () => {
+    class Stepper extends Component {
+      steps = 0;
+      seen: number[] = [];
+      override fixedUpdate(dt: number) { this.steps++; this.seen.push(dt); }
+    }
+    Time.fixedDeltaTime = 0.02;
+    let stepper!: Stepper;
+    await SceneManager.load(sceneOf((scene) => {
+      stepper = scene.createObject().addComponent(Stepper);
+    }));
+
+    const clock = new Clock();
+    // The first frame has no previous timestamp, so it gets a nominal 1/60 delta rather than
+    // the one asked for — not enough for a step, and banked into the accumulator.
+    clock.frame(0.02);
+    expect(stepper.steps).toBe(0);
+    clock.frame(0.1);   // 0.1 + the banked 1/60 → five whole steps
+    expect(stepper.steps).toBe(5);
+    // `fixedUpdate` always sees exactly `fixedDeltaTime`, never the frame's delta.
+    expect(new Set(stepper.seen)).toEqual(new Set([0.02]));
+  });
+
+  it('keeps a throwing hook from taking the frame down', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    class Broken extends Component {
+      override update(): void { throw new Error('boom'); }
+    }
+    let survivor!: Tracer;
+    await SceneManager.load(sceneOf((scene) => {
+      scene.createObject().addComponent(Broken);
+      survivor = scene.createObject().addComponent(Tracer);
+    }));
+
+    expect(() => new Clock().frame()).not.toThrow();
+    expect(survivor.log).toContain('update');
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
   });
 });

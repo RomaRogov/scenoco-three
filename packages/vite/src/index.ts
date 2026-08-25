@@ -1,206 +1,160 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
-import {
-  builtinNodeModule,
-  bundlePrefab,
-  bundleScene,
-  collectAssetRefs,
-  compilePrefabXml,
-  compileSceneXml,
-  componentLoadError,
-  detectTagPackages,
-  formatDiagnostic,
-  loadComponents,
-  type ResourceResolver,
-} from '@scenoco-three/compiler';
-import type { Plugin } from 'vite';
+import { resolve } from 'node:path';
+import { build, formatDiagnostic, type ProjectModel } from '@scenoco-three/compiler';
+import type { Plugin, ViteDevServer } from 'vite';
 
-/**
- * Vite plugin: `import scene from './x.scene.xml?bundle'`.
- *
- * At build/serve time (in Node) the scene XML is validated and compiled into an
- * optimized SceNoCo bundle — the browser receives the bundle data plus imports
- * of **exactly the component modules the scene uses**, nothing else:
- *
- *   // generated module for x.scene.xml?bundle
- *   import '/abs/path/components/Rotator.ts';   // ← used by this scene
- *   import '/abs/path/components/Follow.ts';    // ← used by this scene
- *   export default [1, [...strings], [...asset]];
- *
- * So loading a scene automatically registers its components in the runtime
- * Registry (decorator side effect), unused components are never shipped, and
- * no XML parser/validator/compiler reaches the browser.
- *
- * Component discovery is shared with the CLI (`loadComponents` in
- * @scenoco-three/compiler): files containing `@component({ name: '…' })` under
- * `componentRoots` are compiled and registered in the Node process so the
- * validator can check the scene, and the same scan maps each component name to
- * the file the browser must import.
- */
-export interface BundlePluginOptions {
+export interface ScenocoOptions {
+  /** Project root — the directory holding `tsconfig.json` and `assets/`. Defaults to Vite's root. */
+  root?: string;
+  /** Defaults to `<root>/tsconfig.json`. */
+  tsconfig?: string;
   /**
-   * Directories (relative to the Vite project cwd) scanned for files declaring
-   * `@component` / `@node` / … tags. Defaults to `['assets']`.
+   * Packages whose tags the documents may use, beyond `three` — `@scenoco-three/box2d`,
+   * `@scenoco-three/ui`. A package is only readable when the project actually imports it
+   * somewhere, so this is the list, not a guess.
    */
-  componentRoots?: string[];
-  /**
-   * npm packages that register tags on import (e.g. `['@scenoco-three/rapier']`).
-   * Their tags are validated like any other, and a scene that uses one imports
-   * the package; scenes that don't, don't. Defaults to the `@scenoco-three/*`
-   * dependencies in the project's package.json (auto-detected).
-   */
-  registerPackages?: string[];
+  modules?: readonly string[];
 }
 
-export function bundlePlugin(options: BundlePluginOptions = {}): Plugin {
-  const componentRoots = options.componentRoots ?? ['assets'];
-  const registerPackages = options.registerPackages ?? detectTagPackages();
-  let isServe = false;
+/**
+ * Compiles every SceNoCo document in the project, and keeps them compiled while you edit.
+ *
+ * ```ts
+ * // vite.config.ts
+ * import { scenoco } from '@scenoco-three/vite';
+ * export default { plugins: [scenoco({ modules: ['three', '@scenoco-three/box2d'] })] };
+ * ```
+ *
+ * ```ts
+ * // and in your app
+ * import { Breakout } from './assets/scenes/breakout.scene.gen.js';
+ * await SceneManager.load(Breakout);
+ * ```
+ *
+ * ### What this used to do
+ *
+ * v1's plugin was two hundred lines. It served each scene as a virtual module behind
+ * `import scene from './x.scene.xml?bundle'`, compiled the XML to a JSON bundle, worked out which
+ * component modules that scene used and emitted an import for each so the decorator registry
+ * would be populated, then found every asset URL inside the bundle and rewrote it into a Vite
+ * asset import so the URLs would be hashed.
+ *
+ * None of that has anything to describe any more. A document compiles to an ordinary `.ts` file
+ * beside it, so a scene is imported by its name and the bundler's own graph decides what ships —
+ * unused components are dropped because nothing imports them, not because a plugin worked out
+ * that nothing used them. Asset URLs are `new URL(…, import.meta.url)`, which Vite already
+ * rewrites. What is left is running the compiler at the right moments, which is this file.
+ */
+export function scenoco(options: ScenocoOptions = {}): Plugin {
+  let root: string;
+  let tsconfig: string;
+  /** The last scan, reused while only documents change. */
+  let model: ProjectModel | undefined;
+
+  const compile = (rescan: boolean): void => {
+    // A document's vocabulary comes from the project's TypeScript, so a change there can change
+    // what a document means — but scanning is the expensive half, so it only happens when the
+    // TypeScript actually changed.
+    if (rescan) model = undefined;
+    const result = build({
+      root,
+      tsconfig,
+      ...(options.modules ? { modules: options.modules } : {}),
+      ...(model ? { model } : {}),
+    });
+    model = result.model;
+    if (result.diagnostics.length > 0) {
+      throw new Error(
+        `[scenoco] ${result.diagnostics.length} problem(s) in this project's documents:\n` +
+          result.diagnostics.map((d) => formatDiagnostic(d)).join('\n'),
+      );
+    }
+  };
 
   return {
-    name: 'scenoco:bundle',
+    name: 'scenoco',
 
-    // Emit sourcemaps for production builds by default: a scene bug otherwise
-    // surfaces as a crash on a single minified line with two-letter names and no
-    // way back to source. This is a plugin default — a project's own vite.config
-    // (or the singlefile build, which sets `sourcemap: 'inline'`) overrides it.
-    // `dedupe: ['three']` keeps one three in the module graph even when a tag
-    // package brings its own three-based deps (instanceof across two three
-    // copies silently fails — the standard three-ecosystem safeguard).
-    config() {
-      return { build: { sourcemap: true }, resolve: { dedupe: ['three'] } };
+    config(config) {
+      return {
+        // One `three` in the graph, always. A tag package brings its own three-based
+        // dependencies, and `instanceof` across two copies of three silently returns false —
+        // the standard three-ecosystem safeguard, and the kind of bug that costs a day.
+        resolve: { dedupe: ['three'] },
+        // A scene bug otherwise surfaces as a crash on one minified line with two-letter names
+        // and no way back to the document. A project's own config still wins.
+        build: { sourcemap: config.build?.sourcemap ?? true },
+      };
     },
 
     configResolved(config) {
-      isServe = config.command === 'serve';
+      root = resolve(options.root ?? config.root);
+      tsconfig = options.tsconfig ?? resolve(root, 'tsconfig.json');
     },
 
-    async load(id) {
-      if (!id.endsWith('.xml?bundle')) return null;
-      const file = id.slice(0, -'?bundle'.length);
-      const xml = readFileSync(file, 'utf8');
+    /**
+     * Before Vite resolves a single import.
+     *
+     * `import { Breakout } from './breakout.scene.gen.js'` has to find a file, so the documents
+     * are compiled here rather than lazily: a missing generated file would surface as an
+     * unresolved import naming a path nobody wrote, instead of the diagnostic that explains it.
+     */
+    buildStart() {
+      compile(true);
+    },
 
-      // Register project components in this Node process (validator needs the
-      // full set for checks and "did you mean" suggestions) and get the
-      // name → file map for the usage-based imports below.
-      const scan = await loadComponents(componentRoots, undefined, { packages: registerPackages }).catch(
-        (e: unknown) => {
-          const msg = e instanceof Error ? e.message : String(e);
-          this.error(`failed to load tag modules from [${componentRoots.join(', ')}]: ${msg}`);
-        },
-      );
-      // A component set that failed to transpile registers nothing, so compiling
-      // against it would report every component and custom tag as unknown. Say
-      // what actually broke — one import in one file — not the cascade.
-      const failure = componentLoadError();
-      if (failure) {
-        this.error(`components in [${componentRoots.join(', ')}] failed to load:\n${failure.message}`);
-      }
-
-      // Recompile when any component file changes (a property change affects
-      // validation and compiled output), not just when the XML changes.
-      for (const componentFile of scan.files.keys()) this.addWatchFile(componentFile);
-
-      // Track `src=` resource files (materials, future prefabs) the same way.
-      const resolveAndWatch: ResourceResolver = (request, referrer) => {
-        const resolved = fsResolver(request, referrer);
-        if (resolved) this.addWatchFile(resolved.path);
-        return resolved;
-      };
-
-      // `.prefab.xml` compiles to a standalone prefab bundle (for
-      // `engine.instantiate`); any other XML is a scene.
-      const isPrefab = file.endsWith('.prefab.xml');
-      const result = isPrefab
-        ? compilePrefabXml(xml, { path: file, resolve: resolveAndWatch })
-        : compileSceneXml(xml, { path: file, resolve: resolveAndWatch });
-      if (!result.ok) {
-        const lines = result.diagnostics.map((d) => formatDiagnostic(d, file)).join('\n');
-        this.error(`${isPrefab ? 'prefab' : 'scene'} failed to compile:\n${lines}`);
-      }
-
-      // Usage-based imports: only the modules that register the component types
-      // and node/geometry/material/setting tags this scene/prefab actually uses.
-      // A module is either a project file (absolute path → /@fs import) or a bare
-      // package specifier (a tag package, or a @scenoco-three/core built-in
-      // subpath). Unused tags (and their three classes) never ship.
-      const projectFiles = new Set<string>(); // absolute paths
-      const bareSpecifiers = new Set<string>(); // package specifiers
-      const addModule = (mod: string | undefined) => {
-        if (!mod) return;
-        if (isAbsolute(mod)) projectFiles.add(mod);
-        else bareSpecifiers.add(mod);
-      };
-      const addTag = (tag: string) => {
-        const mod = scan.byTag.get(tag);
-        if (mod) addModule(mod);
-        else {
-          const builtin = builtinNodeModule(tag);
-          if (builtin) bareSpecifiers.add(builtin);
-        }
-      };
-      // Walk the scene and every embedded prefab (referenced by `prefab` props):
-      // a spawned prefab registers its own components/tags, so they must ship too.
-      const collectModules = (scene: typeof result.scene): void => {
-        for (const c of scene.components) {
-          addModule(scan.byName.get(c.type));
-          // Ship any @system(c.type) that lives in its own module too, so a
-          // stand-alone system (e.g. a custom physics/AI processor) isn't
-          // silently dropped and left dead when its component is used.
-          for (const systemFile of scan.byComponentSystem.get(c.type) ?? []) addModule(systemFile);
-        }
-        for (const n of scene.nodes) addTag(n.tag);
-        for (const a of scene.attachments) addTag(a.tag);
-        for (const p of scene.prefabs ?? []) collectModules(p);
-      };
-      collectModules(result.scene);
-
-      const imports = [
-        ...[...projectFiles].map((f) => `import ${JSON.stringify(asImportSpecifier(f, isServe))};`),
-        ...[...bareSpecifiers].map((spec) => `import ${JSON.stringify(spec)};`),
-      ].join('\n');
-
-      const bundle = isPrefab ? bundlePrefab(result.scene) : bundleScene(result.scene);
-
-      // Asset URLs (textures/models) are runtime fetches. Rewrite each that
-      // resolves to a local file into a Vite asset import, so it is served in
-      // dev, hashed/emitted in the build, and watched for HMR. URLs that don't
-      // resolve to a file (absolute http(s), /public paths) are left untouched.
-      let bundleCode = JSON.stringify(bundle);
-      const assetImports: string[] = [];
-      for (const [i, ref] of collectAssetRefs(result.scene).entries()) {
-        const assetPath = resolveAssetFile(ref.url, file);
-        if (!assetPath) continue;
-        this.addWatchFile(assetPath);
-        const binding = `__asset_${i}`;
-        assetImports.push(`import ${binding} from ${JSON.stringify(asImportSpecifier(assetPath, isServe))};`);
-        // Replace every occurrence of the interned URL (incl. embedded prefab pools).
-        bundleCode = bundleCode.split(JSON.stringify(ref.url)).join(binding);
-      }
-
-      return `${imports}\n${assetImports.join('\n')}\nexport default ${bundleCode};`;
+    configureServer(server) {
+      watch(server, root, compile);
     },
   };
 }
 
-/** Resolve an asset URL to a local file (relative to the scene), or null if it isn't one. */
-function resolveAssetFile(url: string, sceneFile: string): string | null {
-  if (/^[a-z]+:\/\//i.test(url) || url.startsWith('/')) return null; // absolute URL or /public path
-  const path = resolve(dirname(sceneFile), url);
-  return existsSync(path) ? path : null;
-}
-
 /**
- * Dev server needs the `/@fs/` protocol for absolute paths that may live
- * outside the Vite root; the production build resolves plain absolute paths.
+ * Recompile while you edit.
+ *
+ * XML files are not in Vite's module graph — nothing imports them — so the watcher has to be told
+ * about them. The generated files *are*, and `build` only rewrites one whose content actually
+ * changed, so an edit that changes nothing does not restart the HMR graph for nothing.
  */
-function asImportSpecifier(filePath: string, isServe: boolean): string {
-  const normalized = filePath.replace(/\\/g, '/');
-  if (!isServe) return normalized;
-  return normalized.startsWith('/') ? `/@fs${normalized}` : `/@fs/${normalized}`;
+function watch(server: ViteDevServer, root: string, compile: (rescan: boolean) => void): void {
+  // The **directory**, not a glob. chokidar 4 dropped glob support, so `add('<root>/**/*.xml')`
+  // registers a literal path with asterisks in it and watches nothing — which looks like it
+  // works, because Vite already watches the root for its own reasons, right up until a document
+  // lands in a directory that did not exist when the server started. Then that file is compiled
+  // once at startup and never again, and you are editing a document with no effect.
+  server.watcher.add(root);
+
+  let queued: NodeJS.Timeout | undefined;
+  let rescan = false;
+
+  const changed = (path: string): void => {
+    const isDocument = path.endsWith('.xml');
+    const isSource = path.endsWith('.ts') && !path.endsWith('.gen.ts');
+    if (!isDocument && !isSource) return;
+    rescan ||= isSource;
+
+    // Saving a file often lands as several events, and a scan is the expensive part — so the
+    // work is done once the writes have stopped rather than once per event.
+    clearTimeout(queued);
+    queued = setTimeout(() => {
+      try {
+        compile(rescan);
+        rescan = false;
+      } catch (error) {
+        // Reported to the browser overlay rather than thrown: a typo in a document must not take
+        // the dev server down, and the next save should fix it in place.
+        server.ws.send({
+          type: 'error',
+          err: { message: error instanceof Error ? error.message : String(error), stack: '' },
+        });
+        console.error(error instanceof Error ? error.message : String(error));
+      }
+    }, 40);
+  };
+
+  server.watcher.on('change', changed);
+  server.watcher.on('add', changed);
+  server.watcher.on('unlink', changed);
 }
 
-const fsResolver: ResourceResolver = (request, referrer) => {
-  const path = resolve(referrer ? dirname(referrer) : '.', request);
-  return existsSync(path) ? { path, contents: readFileSync(path, 'utf8') } : null;
-};
+// TC39 standard-decorator lowering for game code (oxc cannot do it). Core's `@serialize` and
+// `@executeInEditMode` are the only decorators left, but a project using either needs this.
+export { standardDecorators } from './decorators.js';

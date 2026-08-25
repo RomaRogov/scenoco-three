@@ -1,288 +1,423 @@
 import {
-  AmbientLight, Box3, Color, DirectionalLight, PerspectiveCamera, Sphere, Vector3, type Camera, type Object3D,
+  AmbientLight,
+  Box3,
+  Color,
+  DirectionalLight,
+  Object3D,
+  PerspectiveCamera,
+  Scene,
+  Vector3,
+  WebGLRenderer,
+  type Camera,
 } from 'three';
-import {
-  Engine,
-  KEY_CODES,
-  MouseButton,
-  PrefabAsset,
-  Registry,
-  VEC3_FORMAT,
-  bundleKind,
-  keyCodeFromName,
-  parseVecText,
-  type Bundle,
-  type CameraFitConfig,
-  type Component,
-  type KeyCode,
-} from '@scenoco-three/core';
-import type { SceneProvenance } from '@scenoco-three/compiler';
-import type { EditOp, EditorResult, NodeRef, PreviewFrame, SimStep, StructuralOp } from '../src/protocol.js';
-import { SceneDocument } from './document.js';
-import { componentName, isEditorOnly, registeredMeta, round, toDeg } from './meta.js';
+import { Engine, Input, SceneManager, type PrefabType, type SceneType } from '@scenoco-three/core';
+import type { PreviewFrame, SimStep } from '../src/protocol.js';
 
 export type EditorMode = 'edit' | 'play';
 
+/** Where to point the editor camera and how far back to sit — what framing works out. */
+export interface FocusTarget {
+  center: Vector3;
+  distance: number;
+}
+
 /**
- * Owns the engine and the edit ⇄ play lifecycle. In **edit** mode the scene shows
- * its authored pose through an editor-controlled camera (Engine `editor:true`); in
- * **play** mode a fresh `editor:false` engine runs the real gameplay through the
- * scene's own camera. The engine is recreated on each switch.
+ * The live scene, and everything that can be done to it.
+ *
+ * Two modes, and the difference is only who drives. In **edit** the scene is loaded but not
+ * ticked, and an editor camera flies around it; in **play** the scene's own `mainCamera` renders
+ * and `SceneManager` ticks. Both look at the same objects — there is no separate preview build,
+ * which is what makes "it looked right in the editor" mean something.
  */
 export class EditorSession {
-  engine: Engine;
+  readonly canvas: HTMLCanvasElement;
+  /**
+   * A real core `Engine`, with its frame loop left stopped.
+   *
+   * The editor drives `SceneManager` itself, so it needs none of the loop — but it does need to
+   * *be* the host, because a system reaches the renderer through `Engine.current`. Building a
+   * bare `WebGLRenderer` instead left that null, and the symptom was a scene whose `<Canvas>` HUD
+   * simply never appeared: `UIRenderer` had nothing to size the screen with and skipped it, with
+   * nothing anywhere saying why.
+   */
+  readonly engine: Engine;
+  readonly renderer: WebGLRenderer;
+  /** The camera the editor flies. Edit mode renders through it. */
+  readonly editorCamera: PerspectiveCamera;
+
+  scene: Scene | null = null;
   mode: EditorMode = 'edit';
   playing = false;
-  /** The editor camera (edit mode only). */
-  editorCamera?: PerspectiveCamera;
-  /** A reused framing camera for play-mode previews of scenes/prefabs that have no camera of their own. */
-  private previewCamera?: PerspectiveCamera;
-  /** Fired after the engine/scene changes, so the host rebinds camera + panels. */
-  onChange?: () => void;
-  /** Fired when a watched file changes on disk (the open file or a `src=` dep). */
-  onExternalChange?: (file: string, role: 'open' | 'dep') => void;
+  /** The class the open module exports, so the scene can be rebuilt from scratch. */
+  private sceneClass: SceneType | null = null;
+  /** Raised whenever the loaded scene is replaced, so the host can rebind to it. */
+  onChange: (() => void) | null = null;
+
+  /** One editor-owned stand-in per scene camera, for the UI overlay pass. */
+  private readonly overlays = new WeakMap<Camera, Camera>();
+  private showUi = false;
+
+  private clock = 0;
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    // Constructed, never started: `Engine` owns the renderer, input and canvas sizing, and the
+    // editor owns the frame loop.
+    this.engine = new Engine({ canvas, container: canvas.parentElement ?? document.body });
+    this.renderer = this.engine.renderer;
+    this.editorCamera = new PerspectiveCamera(50, 1, 0.1, 2000);
+    this.editorCamera.position.set(6, 5, 10);
+    this.editorCamera.lookAt(0, 0, 0);
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
   /**
-   * A project component file changed. Picking up new `@property` metadata needs a
-   * full page reload (re-importing the module would re-run its decorator), which
-   * discards unsaved scene edits — so the host decides, rather than reloading here.
-   * `metaChanged` is true when the registered property surface actually moved.
+   * Load a document from its generated module.
+   *
+   * The same module the game imports, served straight out of the project — so the editor is
+   * looking at the real thing rather than at a rendering of a description of it.
+   *
+   * A scene loads as itself. A prefab is a node, not a scene, so it opens on a stage: an
+   * otherwise empty scene holding one instance of it, lit well enough to see. That is Unity's
+   * prefab mode, and it is the only way a document whose root is a `Mesh` can be looked at at
+   * all — the alternative is finding a scene that happens to spawn one.
    */
-  onComponentsChanged?: (metaChanged: boolean) => void;
-  /**
-   * Fired when a gameplay frame throws (a component hook / system error). The host
-   * shows it in the same "component code has an error" banner; the session stays
-   * alive (playback paused) so a fix + HMR reload recovers, rather than the RAF
-   * loop dying or the MCP session wedging.
-   */
-  onRuntimeError?: (message: string) => void;
+  async open(moduleUrl: string): Promise<void> {
+    await SceneManager.unloadAll();
+    const module = (await import(/* @vite-ignore */ moduleUrl)) as Record<string, unknown>;
+    const exported = Object.values(module).filter((value): value is new () => object => typeof value === 'function');
+    const SceneClass = exported.find(
+      (value): value is SceneType => Scene.prototype.isPrototypeOf(value.prototype),
+    );
+    const PrefabClass = exported.find(
+      (value): value is PrefabType<Object3D> => Object3D.prototype.isPrototypeOf(value.prototype),
+    );
+    if (!SceneClass && !PrefabClass) throw new Error(`${moduleUrl} exports no scene or prefab class`);
 
-  private bundle?: Bundle;
-  /**
-   * The unsaved inspector edits, overlaid onto freshly-instantiated **play/preview**
-   * engines so gameplay reflects them even before a save (edit mode already shows
-   * them via the live SceneDocument). The host keeps this in sync with the document's
-   * net edits, and re-applies it after a stop to restore the edit view.
-   */
-  private edits: EditOp[] = [];
-  /** Structural op-log (reparent/remove) overlaid onto play/preview engines, like `edits`. */
-  private structural: StructuralOp[] = [];
-  /** Source path of the open scene/prefab — the target of `save`. */
-  filePath?: string;
-  /** Editor provenance for the open file (prefab/material origins), for the document. */
-  provenance?: SceneProvenance;
-
-  constructor(private readonly canvas: HTMLCanvasElement) {
-    this.engine = this.makeEngine(true);
-  }
-
-  private makeEngine(editor: boolean): Engine {
-    return new Engine({ canvas: this.canvas, autoStart: false, editor, preserveDrawingBuffer: true });
-  }
-
-  /** The current unsaved edit overlay — the host re-applies it after a stop to restore the edit view. */
-  get pendingEdits(): EditOp[] {
-    return this.edits;
-  }
-  /** Keep the play/preview overlay in sync with the document's net edits. */
-  setEdits(edits: EditOp[]): void {
-    this.edits = edits;
-  }
-  /** Keep the play/preview structural overlay in sync with the document's op-log. */
-  setStructural(ops: StructuralOp[]): void {
-    this.structural = ops;
-  }
-  /** The current structural op-log — the host replays it onto the edit engine after a stop. */
-  get pendingStructural(): StructuralOp[] {
-    return this.structural;
-  }
-
-  /** Fetch + load a scene/prefab (edit mode). Returns a small summary. */
-  async open(path: string): Promise<{ file: string; kind: 'scene' | 'prefab'; nodes: number; componentError?: string }> {
-    this.edits = []; // a freshly loaded file starts with no overlay (the doc is rebuilt clean)
-    this.structural = [];
-    const res = await fetch(`/@scenoco/bundle?file=${encodeURIComponent(path)}`);
-    const data = (await res.json()) as
-      | { bundle: Bundle; provenance: SceneProvenance; componentError?: string }
-      | { error: string; componentError?: string };
-    if (!res.ok || !('bundle' in data) || !Array.isArray(data.bundle)) {
-      const message = (data as { error?: string }).error ?? 'failed to open file';
-      const componentError = (data as { componentError?: string }).componentError;
-      throw new Error(componentError ? `${message}\n\n${componentError}` : message);
-    }
-    this.bundle = data.bundle;
-    this.provenance = data.provenance;
-    this.filePath = path;
-    this.toEdit();
-    const summary = { file: path, kind: bundleKind(this.bundle) === 'prefab' ? ('prefab' as const) : ('scene' as const), nodes: count(this.engine.scene) };
-    return data.componentError ? { ...summary, componentError: data.componentError } : summary;
-  }
-
-  /** Write attribute edits + structural ops back to the source file (comment-preserving). */
-  async save(edits: EditOp[], structuralOps: StructuralOp[] = []): Promise<{ changed: number; unresolved: number }> {
-    if (!this.filePath) throw new Error('no file open to save');
-    const res = await fetch('/@scenoco/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file: this.filePath, edits, structuralOps }),
-    });
-    const data = (await res.json()) as { changed: number; unresolved: number; error?: string };
-    if (!res.ok) throw new Error(data.error ?? 'save failed');
-    // Pick up the recompiled bundle from the just-saved XML so play/stop run the
-    // saved scene — without re-instantiating the live edit engine (no camera/
-    // selection reset). The doc is marked saved by the host, clearing the overlay.
-    await this.refreshBundle();
-    return data;
-  }
-
-  /** Re-fetch the compiled bundle for the open file (after a save), updating the play baseline. */
-  private async refreshBundle(): Promise<void> {
-    if (!this.filePath) return;
-    try {
-      const res = await fetch(`/@scenoco/bundle?file=${encodeURIComponent(this.filePath)}`);
-      const data = (await res.json()) as { bundle?: Bundle };
-      if (res.ok && Array.isArray(data.bundle)) this.bundle = data.bundle;
-    } catch {
-      /* keep the current baseline — worst case play uses the pre-save bundle until next open */
-    }
-  }
-
-  /** Start (or resume) gameplay. */
-  run(): void {
-    if (this.mode === 'play') {
-      this.playing = true; // resume from pause
-      return;
-    }
-    this.swap(false);
-    this.playing = true;
+    this.sceneClass = SceneClass ?? stageFor(PrefabClass!);
+    this.scene = await SceneManager.load(this.sceneClass);
+    this.resize(); // the scene's camera only exists now, and it is the one play mode renders through
     this.onChange?.();
   }
+
+  // --- the scene's UI, while editing ---------------------------------------------------------
+
+  /**
+   * Whether the editor draws the scene's screen-space UI over the viewport.
+   *
+   * A `<Canvas>` is a child of the *scene's* camera and sizes itself to it, so from the editor
+   * camera a HUD is a small rectangle floating in world space near a camera you are usually
+   * looking away from. Play mode has been the only place it is legible, which makes laying one
+   * out a matter of pressing Play, looking, pressing Stop.
+   *
+   * Switching this on draws it in a second pass instead: a camera matching the one the UI was
+   * built for, over the top of the finished frame, clearing nothing. Nothing about the scene
+   * graph changes — the Canvas stays the child of its camera, where the document put it and
+   * where the hierarchy shows it.
+   */
+  get uiInEditor(): boolean {
+    return this.showUi;
+  }
+
+  set uiInEditor(on: boolean) {
+    this.showUi = on;
+  }
+
+  /**
+   * Draw the UI over the finished frame.
+   *
+   * `render` takes any `Object3D` as its root, so passing the UI root draws that subtree and
+   * nothing else — no layer masks to keep in step as uikit builds and drops meshes during
+   * layout, and no second copy of the scene.
+   *
+   * The camera is a copy rather than the scene's own. A render pass writes to the camera it is
+   * given — `matrixWorldInverse`, the projection matrix — and an editor-only overlay has no
+   * business leaving fingerprints on the camera the document declared. The copy takes its world
+   * matrix and its projection, so the UI lands exactly where it was laid out to land.
+   */
+  private renderUiOverlay(): void {
+    const autoClear = this.renderer.autoClear;
+    this.renderer.autoClear = false;
+    for (const root of this.uiRoots()) {
+      const owner = root.parent as Camera | null;
+      if (!owner?.isCamera) continue;
+      this.renderer.render(root, this.overlayFor(owner));
+    }
+    this.renderer.autoClear = autoClear;
+  }
+
+  /** A stand-in for one of the scene's cameras, kept in step with it and owned by the editor. */
+  private overlayFor(owner: Camera): Camera {
+    let copy = this.overlays.get(owner);
+    if (!copy) {
+      copy = owner.clone(false) as Camera; // no children: the UI subtree is rendered, not copied
+      this.overlays.set(owner, copy);
+    }
+    copy.copy(owner, false); // projection parameters — fov, aspect, near, far
+    // The owner's `matrix` is local to its parent; its `matrixWorld` is where it actually is,
+    // and the overlay has no parent to inherit from.
+    copy.matrixAutoUpdate = false;
+    copy.matrixWorldAutoUpdate = false;
+    copy.matrix.copy(owner.matrixWorld);
+    copy.matrixWorld.copy(owner.matrixWorld);
+    copy.matrixWorldNeedsUpdate = false;
+    return copy;
+  }
+
+  /**
+   * The screen-space UI roots in the scene.
+   *
+   * Identified by the fields a uikit `Fullscreen` alone carries, rather than by importing uikit:
+   * a project that uses no UI must not drag the package in, and the editor has no business
+   * depending on one tag package over another.
+   */
+  private uiRoots(): Object3D[] {
+    const found: Object3D[] = [];
+    for (const child of this.scene?.children ?? []) {
+      if (!(child as Partial<Camera>).isCamera) continue;
+      for (const grandchild of child.children) {
+        if ('pixelSize' in grandchild && 'sizeX' in grandchild && 'sizeY' in grandchild) {
+          found.push(grandchild);
+        }
+      }
+    }
+    return found;
+  }
+
+  // --- transport ---------------------------------------------------------------------------
+
+  /**
+   * Start the simulation on the scene as it is now — including everything moved since it loaded.
+   *
+   * The systems get told to re-read the scene graph first. Edit mode is a whole session of
+   * writing transforms from outside the simulation, and a physics world does not watch for that:
+   * without this, a crate dragged across the level plays with its collider still where the
+   * document put it, and things bounce off empty space.
+   */
+  run(): void {
+    for (const system of this.scene?.systems ?? []) system.syncTransforms?.();
+    this.mode = 'play';
+    this.playing = true;
+    SceneManager.resetFrameClock();
+  }
+
   pause(): void {
     this.playing = false;
   }
-  /** Advance gameplay by a single frame while paused (no-op outside play mode). */
-  step(dt = 1 / 60): void {
-    if (this.mode !== 'play') return;
-    this.runTick(dt); // bypass the play+paused gate in tick()
-  }
-  stop(): void {
-    this.toEdit();
-  }
-
-  /** Advance one frame: edit always renders; play advances only while playing. */
-  tick(dt: number): void {
-    this.runTick(this.mode === 'play' && !this.playing ? 0 : dt);
-  }
 
   /**
-   * Drive the engine one frame, catching any error a component hook / system
-   * throws so a single bad frame can't kill the RAF loop or the MCP session.
-   * On failure it pauses playback (so the failing frame isn't re-run every RAF)
-   * and surfaces the error to the host banner. Returns the error message, if any.
-   */
-  private runTick(dt: number, engine: Engine = this.engine): string | undefined {
-    try {
-      engine.tick(dt);
-      return undefined;
-    } catch (e) {
-      this.playing = false;
-      const message = e instanceof Error ? (e.stack ?? e.message) : String(e);
-      this.onRuntimeError?.(message);
-      return message;
-    }
-  }
-
-  /**
-   * Capture the current view as a PNG data URL from an explicit framing:
-   * `camera` is a position in the scene DSL's vector grammar ("y: 6; z: 12"), or
-   * "fit" to auto-frame the whole scene. `frame` states the output format — see
-   * {@link PreviewFrame}.
-   */
-  async preview(opts: { camera: string; lookAt?: string; frame: PreviewFrame }): Promise<string> {
-    await this.settleForCapture();
-
-    // Particles only emit under their play-mode render system — render a short
-    // throwaway play burst so a VFX prefab isn't previewed empty while authoring.
-    if (this.mode === 'edit' && this.hasParticles()) return this.particlePreview(opts);
-
-    const restore = this.frameShot(opts);
-    try {
-      // Guarded — a bad frame won't wedge the session.
-      return this.captureFrame(this.engine, opts.frame, () => void this.runTick(0));
-    } finally {
-      restore();
-    }
-  }
-
-  /**
-   * Hold a capture until whatever is still loading has arrived and the layout has
-   * stopped moving.
+   * Stop, and put the scene back as the document describes it — Unity's Stop, which discards
+   * everything play mode did.
    *
-   * Everything else in a `simulate` batch is synchronous, which is the point — an
-   * agent drives the game to an exact condition and samples it there. But a
-   * synchronous batch can never let a *promise* settle, and uikit resolves its MSDF
-   * font through a dynamic `import()`. So on a fresh page the first captures came
-   * back with text unmeasured (flex children collapsed to zero width) and no way,
-   * from a single shot, to tell that apart from a real layout bug. Stepping more
-   * frames could not help: the frames were the thing that wasn't yielding.
-   *
-   * The wait is therefore *awaited real time*, not more frames, and it is a
-   * precondition of capturing rather than a step an agent has to know to write —
-   * a screenshot nobody asked to be flaky shouldn't need an incantation.
-   *
-   * Gameplay does not advance meanwhile: `playing` is held false, so the host RAF
-   * loop ticks at `dt` 0 (see {@link tick}) and only layout catches up. Two
-   * consecutive identical layout signatures end the wait; {@link SETTLE_TIMEOUT_MS}
-   * bounds it, so a genuinely animating HUD costs one timeout and still captures.
+   * Rebuilt rather than merely halted, because a run has to start from the same place every
+   * time. Without it a second `simulate` batch begins wherever the first one left off, and two
+   * identical batches disagree — which is precisely the property an agent is relying on when it
+   * drives a scene to a condition and looks at it.
    */
-  private async settleForCapture(engine: Engine = this.engine): Promise<void> {
-    const wasPlaying = this.playing;
+  async stop(): Promise<void> {
     this.playing = false;
-    try {
-      const deadline = performance.now() + SETTLE_TIMEOUT_MS;
-      let previous: string | undefined;
-      let stable = 0;
-      while (performance.now() < deadline) {
-        this.runTick(0, engine);
-        // A pending font is "not settled" no matter how still the boxes look: an
-        // unmeasured Text is stable at zero size, which is exactly the false
-        // steady state this gate exists to see through.
-        const signature = pendingFonts(engine) > 0 ? undefined : uiSignature(engine);
-        if (signature !== undefined && signature === previous && ++stable >= 2) return;
-        if (signature !== previous) stable = 0;
-        previous = signature;
-        // A macrotask, not a microtask: an in-flight module/network response only
-        // gets to run between tasks.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-    } finally {
-      this.playing = wasPlaying;
-    }
+    this.mode = 'edit';
+    if (!this.sceneClass) return;
+    await SceneManager.unloadAll();
+    this.scene = await SceneManager.load(this.sceneClass);
+    this.resize(); // a rebuilt scene brings a fresh camera with a default aspect
+    this.clock = 0;
+    SceneManager.resetFrameClock();
+    this.onChange?.();
   }
 
-  /** Current property values at a scene id — see {@link telemetryFor}. */
-  telemetry(id: string): unknown {
-    return telemetryFor(this.engine, id);
+  /** Advance by exactly one step — the frame-by-frame inspection a bug needs. */
+  step(dt = 1 / 60): void {
+    this.clock += dt * 1000;
+    SceneManager.tick(this.clock);
+    Input.endFrame();
   }
 
   /**
-   * Execute a batch of player-simulation steps in order against the live engine —
-   * transport, frame stepping, synthetic key/mouse/gamepad input, and preview/
-   * telemetry captures. No real-time loop interleaves, so an agent can drive the
-   * game to a precise condition and sample it there. Injected input is committed
-   * on the next `step`, so the usual order is input → step → preview/telemetry.
-   * Returns the captures in step order.
+   * One frame of the editor's own loop.
    *
-   * The one await is inside each `preview` — {@link settleForCapture}, which lets
-   * pending loads land before a shot is taken. Gameplay is held still across it,
-   * so what a step advances is still only what the batch asked for.
-   *
-   * `frame` is the batch's capture format, applied to every `preview` step — see
-   * {@link PreviewFrame} for why it is stated once here rather than per step.
+   * `Input.endFrame` runs whether or not the scene stepped, and that is the point: `Engine` calls
+   * it from the loop the editor does not use, so nothing else would. Without it `getKeyDown` is
+   * true for ever after one press and `mouseDelta` keeps its last value — a camera that never
+   * stops turning once you have turned it, and a one-frame edge that fires on every frame.
    */
-  async simulate(steps: SimStep[], frame: PreviewFrame): Promise<EditorResult[]> {
-    const out: EditorResult[] = [];
+  tick(dt: number): void {
+    if (this.playing) this.step(dt);
+    else {
+      // Edit mode ticks nothing, which leaves anything presentational stale — a UI layout most
+      // visibly. Systems that can be brought up to date without simulating say so.
+      for (const system of this.scene?.systems ?? []) system.layout?.(dt);
+      Input.endFrame();
+    }
+    this.render();
+  }
+
+  render(camera: Camera = this.renderCamera()): void {
+    if (!this.scene) return;
+    this.renderer.render(this.scene, camera);
+    // Only in edit mode: play renders through the scene's own camera, where the UI is already
+    // in front of it, and a run has to show exactly what the game shows — once.
+    if (this.showUi && this.mode === 'edit') this.renderUiOverlay();
+  }
+
+  /** Play renders through the scene's camera; edit through the editor's. */
+  renderCamera(): Camera {
+    return this.mode === 'play' && this.scene?.mainCamera ? this.scene.mainCamera : this.editorCamera;
+  }
+
+  /**
+   * Match the drawing buffer and **both** cameras to the canvas.
+   *
+   * `Engine.resize` sizes the buffer and the scene's camera, and it is the very code the game
+   * runs — so it is called rather than reimplemented. But the editor never starts the engine's
+   * loop, which is what would normally keep calling it: the constructor's one call happens before
+   * any scene is loaded, so `mainCamera` does not exist yet and never gets an aspect. Play mode
+   * then renders the game through a camera still at aspect 1 and every sphere is an ellipse.
+   *
+   * The editor's own camera is not the engine's business, so it is handled here.
+   */
+  private resize(): void {
+    this.engine.resize();
+    const { clientWidth: w, clientHeight: h } = this.canvas;
+    this.editorCamera.aspect = w / Math.max(h, 1);
+    this.editorCamera.updateProjectionMatrix();
+  }
+
+  /**
+   * Put the editor camera where it can see everything, and say what to look at.
+   *
+   * The **point** comes back rather than the camera being aimed here, because the camera rig owns
+   * orientation: it accumulates yaw and pitch and writes them every frame, so a `lookAt` from
+   * outside is overwritten on the very next one. Framing that positioned the camera perfectly and
+   * then pointed it somewhere else was exactly that bug.
+   */
+  frameAll(): FocusTarget | null {
+    if (!this.scene) return null;
+    // Only what the document authored. The gizmo's helper is a child of the scene too, and its
+    // picker plane is 100000 units across: framing that put the camera millions of units out, and
+    // since the handles scale with camera distance, each press of the key made the next one worse.
+    const box = new Box3();
+    for (const child of this.scene.children) {
+      if (child.userData.scenocoEditorOnly) continue;
+      box.union(new Box3().setFromObject(child));
+    }
+    return box.isEmpty() ? null : this.focus(box);
+  }
+
+  /** What it takes to see one node: where it is, and from how far. */
+  frameNode(node: Object3D): FocusTarget | null {
+    const box = new Box3().setFromObject(node);
+    return box.isEmpty() ? null : this.focus(box);
+  }
+
+  /**
+   * Measure, rather than move.
+   *
+   * The camera's *angle* belongs to whoever is flying it, and framing must not take it — so this
+   * answers only the half a bounding box can answer, and `CameraRig.frameOn` decides where that
+   * puts the camera given where it currently looks.
+   */
+  private focus(box: Box3): FocusTarget {
+    const center = box.getCenter(new Vector3());
+    // A floor of half a unit, so framing a point light or an empty group doesn't put the camera
+    // inside it.
+    const radius = Math.max(box.getSize(new Vector3()).length() / 2, 0.5);
+    const fit = radius / Math.sin((this.editorCamera.fov * Math.PI) / 360);
+    return { center, distance: fit * 1.2 }; // a fifth of a radius of air around the subject
+  }
+
+  // --- what an agent asks for ---------------------------------------------------------------
+
+  /**
+   * Render one PNG from an arbitrary viewpoint.
+   *
+   * A capture camera rather than the editor's own: a shot must not move what the person at the
+   * keyboard is looking at, and two shots of the same run have to be comparable.
+   */
+  preview(frame: PreviewFrame, at: string, lookAt?: string): string {
+    if (!this.scene) throw new Error('no scene is open');
+
+    const usingScene = frame.ui && this.scene.mainCamera;
+    const camera = usingScene
+      ? (this.scene.mainCamera as PerspectiveCamera)
+      : new PerspectiveCamera(50, frame.width / frame.height, 0.1, 2000);
+
+    const previous = {
+      position: camera.position.clone(),
+      quaternion: camera.quaternion.clone(),
+      aspect: camera.aspect,
+    };
+    const target = pointOf(lookAt) ?? new Vector3();
+    const eye = at === 'fit' ? this.fitPoint(camera, target) : pointOf(at);
+    if (!eye) throw new Error(`camera="${at}" is not a point — write "y: 6; z: 12", or "fit"`);
+    camera.position.copy(eye);
+    camera.lookAt(target);
+    // Always, including the scene's own camera: it is framed for the editor viewport, and
+    // rendering it into a differently-shaped buffer stretches everything in the shot.
+    camera.aspect = frame.width / frame.height;
+    camera.updateProjectionMatrix();
+
+    const { width, height } = this.renderer.domElement;
+    this.renderer.setSize(frame.width, frame.height, false);
+    this.renderer.render(this.scene, camera);
+    const dataUrl = this.canvas.toDataURL('image/png');
+    this.renderer.setSize(width, height, false);
+
+    // Put the camera back: a capture is an observation, and an observation that moves the thing
+    // it observed is not one.
+    camera.position.copy(previous.position);
+    camera.quaternion.copy(previous.quaternion);
+    camera.aspect = previous.aspect;
+    camera.updateProjectionMatrix();
+    return dataUrl;
+  }
+
+  /** A viewpoint that fits the whole scene, for `camera="fit"`. */
+  private fitPoint(camera: PerspectiveCamera, target: Vector3): Vector3 {
+    const box = new Box3().setFromObject(this.scene!);
+    const center = box.isEmpty() ? new Vector3() : box.getCenter(new Vector3());
+    target.copy(center);
+    const radius = box.isEmpty() ? 5 : Math.max(box.getSize(new Vector3()).length() / 2, 0.5);
+    const distance = (radius / Math.sin((camera.fov * Math.PI) / 360)) * 1.2;
+    return center.clone().addScaledVector(new Vector3(0.6, 0.5, 1).normalize(), distance);
+  }
+
+  /**
+   * Read the state at an `id` the document declared.
+   *
+   * The generated scene class carries a typed field per `id`, so this is a property lookup —
+   * there is no registry to consult and no name index to keep.
+   */
+  telemetry(id: string): unknown {
+    const node = (this.scene as unknown as Record<string, Object3D | undefined>)?.[id];
+    if (!node || typeof node !== 'object' || !('isObject3D' in node)) {
+      throw new Error(`no id "${id}" in this document`);
+    }
+    return {
+      id,
+      type: node.type,
+      name: node.name,
+      position: node.position.toArray(),
+      eulerAngles: node.eulerAngles.toArray(),
+      scale: node.scale.toArray(),
+      visible: node.visible,
+      active: node.activeInHierarchy,
+      components: node.components.map((component) => ({
+        type: component.constructor.name,
+        enabled: component.enabled,
+        ...readable(component),
+      })),
+    };
+  }
+
+  /** Run a batch of steps in order, collecting whatever each one produced. */
+  async simulate(
+    steps: readonly SimStep[],
+    frame: PreviewFrame,
+  ): Promise<Array<{ kind: 'image' | 'json'; value: unknown }>> {
+    const out: Array<{ kind: 'image' | 'json'; value: unknown }> = [];
     for (const step of steps) {
-      const input = this.engine.input;
       switch (step.do) {
         case 'play':
           this.run();
@@ -291,613 +426,147 @@ export class EditorSession {
           this.pause();
           break;
         case 'stop':
-          this.stop();
+          await this.stop();
           break;
-        case 'step': {
-          const frames = Math.max(0, Math.floor(step.frames ?? 1));
-          const dt = step.dt ?? 1 / 60;
-          for (let i = 0; i < frames; i++) {
-            // A throwing frame surfaces as a result (not a bare transport error)
-            // and stops the batch, leaving the session alive for the agent to inspect.
-            const error = this.runTick(dt);
-            if (error) { out.push({ kind: 'json', data: { error } }); return out; }
-          }
+        case 'step':
+          for (let i = 0; i < (step.frames ?? 1); i++) this.step(step.dt ?? 1 / 60);
           break;
-        }
-        // Key names arrive as untyped strings over the wire, so they are resolved
-        // against KeyCode here: a misspelling comes back as an error the agent can
-        // read, instead of a keypress that silently never lands.
-        case 'press': {
-          const key = this.toKeyCode(step.key, out);
-          if (!key) return out;
-          input.injectKey(key, true);
-          input.injectKey(key, false);
+        case 'press':
+          this.key('keydown', step.key);
+          this.step();
+          this.key('keyup', step.key);
           break;
-        }
-        case 'keyDown': {
-          const key = this.toKeyCode(step.key, out);
-          if (!key) return out;
-          input.injectKey(key, true);
+        case 'keyDown':
+          this.key('keydown', step.key);
           break;
-        }
-        case 'keyUp': {
-          const key = this.toKeyCode(step.key, out);
-          if (!key) return out;
-          input.injectKey(key, false);
+        case 'keyUp':
+          this.key('keyup', step.key);
           break;
-        }
-        case 'click': {
-          if (step.x !== undefined && step.y !== undefined) input.injectMouseMove(step.x, step.y);
-          const b = step.button === 'right' ? MouseButton.Right : step.button === 'middle' ? MouseButton.Middle : MouseButton.Left;
-          input.injectMouseButton(b, true);
-          input.injectMouseButton(b, false);
+        case 'click':
+          this.pointer('pointerdown', step.x, step.y, step.button);
+          this.pointer('pointerup', step.x, step.y, step.button);
           break;
-        }
         case 'move':
-          input.injectMouseMove(step.x ?? 0, step.y ?? 0, step.dx ?? 0, step.dy ?? 0);
-          break;
-        case 'gamepad':
-          input.injectGamepad(step.index ?? 0, { ...(step.buttons ? { buttons: step.buttons } : {}), ...(step.axes ? { axes: step.axes } : {}) });
+          this.pointer('pointermove', step.x, step.y);
           break;
         case 'preview':
-          out.push({ kind: 'image', dataUrl: await this.preview({ camera: step.camera, ...(step.lookAt ? { lookAt: step.lookAt } : {}), frame }) });
+          out.push({ kind: 'image', value: this.preview(frame, step.camera, step.lookAt) });
           break;
         case 'telemetry':
-          out.push({ kind: 'json', data: this.telemetry(step.id) });
+          out.push({ kind: 'json', value: this.telemetry(step.id) });
           break;
       }
     }
     return out;
   }
 
-  // ── capture ──────────────────────────────────────────────────────────────────
-
   /**
-   * Render one frame of `engine` in `frame`'s format and return it as a PNG data
-   * URL, then put everything back exactly as it was.
+   * Synthetic input is a real DOM event.
    *
-   * Three things are staged for the shot and undone after it, because each of
-   * them is a way a preview silently lies about the game:
-   *  - **size** — the engine renders at `frame.width × frame.height` device
-   *    pixels instead of whatever the editor window happens to be, so a capture
-   *    is reproducible and doesn't change meaning when the user resizes a panel;
-   *  - **fit** — every camera that will draw gets `frame.fit` for that aspect, so
-   *    a portrait capture of a `fit="contain"` scene shows what portrait players
-   *    see, not the editor's landscape framing stretched;
-   *  - **UI** — hidden when `frame.ui` is false. Showing it needs no staging:
-   *    {@link frameShot} already picked the camera that hosts it.
-   *
-   * `render` is the caller's own draw (a guarded tick), run once everything is
-   * staged. Restoration is unconditional: a throwing frame must not leave the
-   * live editor stuck at the capture's size.
+   * `Input` listens to the page, so there is nothing to fake and no test-only path through it —
+   * an agent's key press travels the same route a person's does, which is the only way a
+   * simulated run tells you anything about the real one.
    */
-  private captureFrame(engine: Engine, frame: PreviewFrame, render: () => void): string {
-    const restore: (() => void)[] = [];
-    try {
-      engine.renderSize = { width: frame.width, height: frame.height };
-      restore.push(() => (engine.renderSize = undefined));
-      for (const camera of engine.renderList()) restore.push(applyFit(camera, frame));
-      if (!frame.ui) restore.push(hideScreenSpace(engine));
-      // Settle frames before the real one, all at dt 0 so no gameplay time
-      // passes. A capture size is not the size the last frame was drawn at, and
-      // the UI takes a few frames to catch up with that: the engine adopts a new
-      // size at *render* time (after the systems have already run), so the first
-      // frame is what tells the layout its new viewport, and uikit then needs
-      // another before its meshes match what it computed. Capturing any earlier
-      // yields a HUD at the previous frame's scale — or, from a cold size, an
-      // invisible one. Cheap insurance: an unchanged size makes these no-ops.
-      for (let i = 0; i < UI_SETTLE_FRAMES; i++) this.runTick(0, engine);
-      render();
-      return this.canvas.toDataURL('image/png');
-    } finally {
-      // Undo in reverse, then render once more at the canvas's own size so the
-      // editor viewport is left showing the scene, not the last capture.
-      for (const undo of restore.reverse()) undo();
-      this.runTick(0);
-    }
+  private key(type: 'keydown' | 'keyup', name: string): void {
+    const code = keyCodeFor(name);
+    window.dispatchEvent(new KeyboardEvent(type, { code, key: name, bubbles: true }));
   }
 
-  /**
-   * Point a camera at what this shot should show, make it the render camera, and
-   * return the undo for anything that must not outlive the capture.
-   *
-   * **Which** camera is the whole trick. A `<Fullscreen>` HUD is a child of a
-   * camera node (the engine's rule) and lays itself out against *that* camera, so
-   * a shot framed through any other one shows the HUD sitting in world space in
-   * front of a camera nobody is looking through — off to the side, or missing.
-   * With the UI in the shot we therefore borrow the HUD's own camera and pose
-   * that, which makes the layout right by construction and is the honest answer
-   * anyway: the player's HUD is the one on the player's camera.
-   *
-   * (Re-parenting the HUD onto a preview camera instead does not work — uikit
-   * rebuilds its own hierarchy on add, and the *second* capture comes back
-   * without a HUD.)
-   *
-   * Without UI — or with no camera hosting any — nothing is borrowed and the
-   * editor/preview camera frames the shot exactly as before.
-   */
-  private frameShot(opts: { camera: string; lookAt?: string; frame: PreviewFrame }): () => void {
-    const engine = this.engine;
-    const host = opts.frame.ui ? screenSpaceHost(engine) : undefined;
-    if (!host) {
-      if (this.mode === 'edit') {
-        if (this.editorCamera) poseCamera(this.editorCamera, opts, engine.scene);
-      } else {
-        // Play mode: honor the camera override (P2) and give a camera-less lone
-        // prefab a default framed camera + backdrop, so it isn't a blank frame.
-        this.framePlayPreview(opts);
-      }
-      return () => {};
-    }
-
-    const previousMain = engine.mainCamera;
-    const position = host.position.clone();
-    const quaternion = host.quaternion.clone();
-    poseCamera(host, opts, engine.scene);
-    engine.mainCamera = host;
-    return () => {
-      host.position.copy(position);
-      host.quaternion.copy(quaternion);
-      engine.mainCamera = previousMain;
-    };
-  }
-
-  // ── internals ────────────────────────────────────────────────────────────────
-
-  /**
-   * Resolve a wire key name to a `KeyCode`, or push an error result and return
-   * undefined — the caller then abandons the batch. Listing the valid names in
-   * the error is what makes it actionable: the caller is usually an agent that
-   * guessed a spelling ('SPACE', 'ArrowUp') rather than a person reading docs.
-   */
-  private toKeyCode(name: string, out: EditorResult[]): KeyCode | undefined {
-    const key = keyCodeFromName(name);
-    if (key) return key;
-    out.push({ kind: 'json', data: { error: `Unknown key "${name}". Valid KeyCode names: ${KEY_CODES.join(', ')}` } });
-    return undefined;
-  }
-
-  private toEdit(): void {
-    this.swap(true);
-    this.mode = 'edit';
-    this.playing = false;
-    this.editorCamera = this.frameCamera();
-    this.onChange?.();
-  }
-
-  private swap(editor: boolean): void {
-    this.engine.dispose();
-    this.engine = this.makeEngine(editor);
-    this.editorCamera = undefined;
-    this.mode = editor ? 'edit' : 'play';
-    this.applyBundle();
-  }
-
-  private applyBundle(): void {
-    if (!this.bundle) return;
-    applyBundleToEngine(this.engine, this.bundle);
-    // Play/preview run the *edited* scene: overlay the current unsaved edits onto the
-    // fresh instances. Edit mode is skipped — its live SceneDocument applies edits
-    // through the real document instead, so undo/dirty state stays correct.
-    if (this.mode !== 'edit') {
-      this.applyStructuralOverlay(this.engine);
-      this.applyEditOverlay(this.engine);
-    }
-  }
-
-  /** Re-apply the unsaved edit overlay onto a freshly-instantiated engine (play/preview). */
-  private applyEditOverlay(engine: Engine): void {
-    if (this.edits.length === 0) return;
-    const graph = engine.getSceneGraph();
-    if (graph) new SceneDocument(graph, this.provenance).applyEdits(this.edits);
-  }
-
-  /**
-   * Reparent/remove nodes on a fresh engine to match the structural op-log, so
-   * play/preview reflect unsaved reparents. `insertNode` needs the compiler, so it
-   * only shows after a save (recompile) — see the docs. Resolves nodes by id/path.
-   */
-  private applyStructuralOverlay(engine: Engine): void {
-    for (const op of this.structural) {
-      if (op.op === 'moveNode') {
-        const node = resolveInEngine(engine, op.target);
-        const parent = op.parent.path?.length === 0 ? engine.scene : resolveInEngine(engine, op.parent);
-        if (node && parent) parent.add(node);
-      } else if (op.op === 'removeNode') {
-        resolveInEngine(engine, op.target)?.removeFromParent();
-      } else if (op.op === 'insertNode') {
-        // A pasted subtree: spawn the fragment live (no recompile) — the same
-        // roundtrip-free path the edit engine uses, so play/preview match.
-        const parent = op.parent.path?.length === 0 ? engine.scene : resolveInEngine(engine, op.parent);
-        if (parent) engine.spawnSubtree(op.fragment, parent, op.index);
-      }
-    }
-  }
-
-  /** Editor camera framing the scene from a 3/4 angle. */
-  private frameCamera(): PerspectiveCamera {
-    const cam = new PerspectiveCamera(50, this.canvas.clientWidth / this.canvas.clientHeight || 1, 0.01, 50000);
-    frameCameraTo(cam, this.engine.scene);
-    this.engine.mainCamera = cam;
-    return cam;
-  }
-
-  /** Any live `ParticleSystem` component in the scene — VFX that only emits under its play-mode render system. */
-  private hasParticles(): boolean {
-    const ctor = Registry.getComponent('ParticleSystem')?.ctor;
-    return ctor ? this.engine.getComponentsOfType(ctor).length > 0 : false;
-  }
-
-  /**
-   * Frame a preview for the current play scene: honor a `camera`/`lookAt` override
-   * (P2 — worked only in edit mode before), and give a scene with no camera of its
-   * own (a lone prefab) a default framed camera + neutral backdrop so it isn't a
-   * blank white frame. Left untouched when the scene has its own camera and no override.
-   */
-  private framePlayPreview(opts: { camera: string; lookAt?: string }): void {
-    const fit = opts.camera === 'fit';
-    const camPos = fit ? undefined : capturePoint(opts.camera);
-    const lookAt = fit ? undefined : capturePoint(opts.lookAt);
-    if (this.engine.mainCamera && !fit && !camPos && !lookAt) return; // scene's own camera, no explicit framing — leave it
-    const cam = (this.previewCamera ??= new PerspectiveCamera(50, 1, 0.01, 50000));
-    poseCamera(cam, opts, this.engine.scene);
-    cam.updateProjectionMatrix();
-    this.engine.mainCamera = cam; // not one of the scene's cameras → a render override
-    if (!this.engine.scene.background) this.engine.scene.background = new Color(0x15181f);
-  }
-
-  /**
-   * Render a particle-bearing file in a throwaway play engine advanced a few
-   * frames, so its VFX is actually visible when previewed while authoring (in edit
-   * mode the particle render system never runs, so the effect shows empty). The
-   * edit session's own engine is left untouched; the next frame re-renders it.
-   */
-  private particlePreview(opts: { camera: string; lookAt?: string; frame: PreviewFrame }): string {
-    const engine = new Engine({ canvas: this.canvas, autoStart: false, editor: false, preserveDrawingBuffer: true });
-    try {
-      if (this.bundle) applyBundleToEngine(engine, this.bundle);
-      this.applyEditOverlay(engine); // preview unsaved edits too
-      const cam = new PerspectiveCamera(50, opts.frame.width / opts.frame.height, 0.01, 50000);
-      poseCamera(cam, opts, engine.scene);
-      cam.updateProjectionMatrix();
-      engine.mainCamera = cam;
-      return this.captureFrame(engine, opts.frame, () => {
-        for (let i = 0; i < PARTICLE_PREVIEW_FRAMES; i++) engine.tick(1 / 60);
-      });
-    } finally {
-      engine.dispose();
-    }
+  private pointer(type: string, x?: number, y?: number, button?: 'left' | 'right' | 'middle'): void {
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        clientX: rect.left + (x ?? rect.width / 2),
+        clientY: rect.top + (y ?? rect.height / 2),
+        button: button === 'right' ? 2 : button === 'middle' ? 1 : 0,
+        pointerId: 1,
+      }),
+    );
   }
 }
 
-/** Resolve a NodeRef to a live object in `engine`: by `id`, else by structural path. */
-export function resolveInEngine(engine: Engine, ref: NodeRef): Object3D | undefined {
-  if (ref.id !== undefined) return engine.findObject(ref.id) ?? undefined;
-  if (!ref.path) return undefined;
-  let cur: Object3D = engine.scene;
-  for (const ordinal of ref.path) {
-    const next = cur.children.filter((c) => !isEditorOnly(c))[ordinal];
-    if (!next) return undefined;
-    cur = next;
+/** `"y: 6; z: 12"` — the document's own vector grammar, so an agent learns one. */
+export function pointOf(text?: string): Vector3 | undefined {
+  if (!text || text === 'fit') return undefined;
+  const point = new Vector3();
+  let wrote = false;
+  for (const part of text.split(';')) {
+    const [axis, value] = part.split(':');
+    const n = Number(value?.trim());
+    if (!axis || !Number.isFinite(n)) continue;
+    const key = axis.trim() as 'x' | 'y' | 'z';
+    if (key === 'x' || key === 'y' || key === 'z') {
+      point[key] = n;
+      wrote = true;
+    }
   }
-  return cur;
-}
-
-/** Frames to advance a particle preview so the effect has visibly emitted. */
-const PARTICLE_PREVIEW_FRAMES = 30;
-
-/** Frames a capture settles for before it is taken — see the call site in `captureFrame`. */
-const UI_SETTLE_FRAMES = 3;
-
-/** Upper bound on the wall-clock wait in `settleForCapture` — a HUD that never stops moving still gets captured. */
-const SETTLE_TIMEOUT_MS = 2000;
-
-/**
- * uikit's `Text` publishes its resolved MSDF font as `fontSignal`, `undefined`
- * until the font's dynamic `import()` lands. Duck-typed on purpose: the editor
- * has no dependency on `@scenoco-three/ui` (tag packages are the project's
- * choice, not the editor's), and this is the one bit of their state a capture
- * has to wait on.
- */
-export function pendingFonts(engine: Engine): number {
-  let pending = 0;
-  engine.scene.traverse((o) => {
-    const signal = (o as { fontSignal?: { value?: unknown } }).fontSignal;
-    if (signal && typeof signal === 'object' && signal.value == null) pending++;
-  });
-  return pending;
+  return wrote ? point : undefined;
 }
 
 /**
- * A fingerprint of where the UI currently *is*: each uikit root's world bounds
- * plus its descendant count. The count matters as much as the bounds — glyph
- * meshes are added to the tree as text is measured, so a reflow that leaves the
- * outer box the same size still shows up here.
- */
-function uiSignature(engine: Engine): string {
-  const box = new Box3();
-  const parts: string[] = [];
-  for (const { object } of screenSpaceRoots(engine)) {
-    let count = 0;
-    object.traverse(() => count++);
-    box.setFromObject(object);
-    const extent = box.isEmpty() ? 'empty' : [...box.min.toArray(), ...box.max.toArray()].map((n) => n.toFixed(4)).join(',');
-    parts.push(`${count}@${extent}`);
-  }
-  return parts.join(';');
-}
-
-/**
- * Give `camera` the capture's fit mode for the duration of one shot, and return
- * the undo.
+ * A `KeyCode` member name as the DOM spells it.
  *
- * The engine already re-fits every render camera to the current aspect each
- * tick — all this does is swap in the requested mode first, so the shot answers
- * "how would this camera frame the scene at this size under *this* rule". The
- * camera's authored design region is what it fits against; a camera that has
- * none (an editor or preview camera) gets the capture's own size, which makes
- * the design aspect equal the capture aspect and every mode a no-op — correct,
- * since there is nothing to adapt to. `_fitAspect` is cleared on both the way in
- * and the way out, or the engine would skip re-fitting an aspect it thinks it
- * already applied.
+ * `Space` is `Space`, `W` is `KeyW`, `LeftArrow` is `ArrowLeft` — one small table, because the
+ * two vocabularies genuinely differ and an agent should write the one the engine documents.
  */
-function applyFit(camera: Camera, frame: PreviewFrame): () => void {
-  const data = camera.userData as { fit?: CameraFitConfig; baseFov?: number; _fitAspect?: number };
-  const previous = { fit: data.fit, baseFov: data.baseFov, fov: (camera as PerspectiveCamera).fov };
-  data.fit = {
-    mode: frame.fit,
-    designWidth: previous.fit?.designWidth ?? frame.width,
-    designHeight: previous.fit?.designHeight ?? frame.height,
+function keyCodeFor(name: string): string {
+  const special: Record<string, string> = {
+    Space: 'Space',
+    LeftArrow: 'ArrowLeft',
+    RightArrow: 'ArrowRight',
+    UpArrow: 'ArrowUp',
+    DownArrow: 'ArrowDown',
+    Return: 'Enter',
+    Escape: 'Escape',
+    Tab: 'Tab',
+    LeftShift: 'ShiftLeft',
+    LeftControl: 'ControlLeft',
   };
-  data._fitAspect = undefined;
-  return () => {
-    data.fit = previous.fit;
-    data.baseFov = previous.baseFov;
-    data._fitAspect = undefined;
-    const perspective = camera as PerspectiveCamera;
-    if (perspective.isPerspectiveCamera) {
-      perspective.fov = previous.fov;
-      perspective.updateProjectionMatrix();
-    }
-  };
+  if (special[name]) return special[name]!;
+  if (/^[A-Z]$/.test(name)) return `Key${name}`;
+  if (/^Alpha[0-9]$/.test(name)) return `Digit${name.slice(5)}`;
+  return name;
 }
 
-/** Instantiate a bundle into `engine`: a prefab gets neutral preview lights + backdrop; a scene loads as-is. */
-function applyBundleToEngine(engine: Engine, bundle: Bundle): void {
-  if (bundleKind(bundle) === 'prefab') {
-    engine.instantiate(bundle);
-    // Editor-only preview lights — flagged so the Hierarchy/picking ignore them.
-    const ambient = new AmbientLight(0xffffff, 0.6);
-    ambient.userData.scenocoEditorOnly = true;
-    engine.scene.add(ambient);
-    const key = new DirectionalLight(0xffffff, 2);
-    key.position.set(3, 5, 4);
-    key.userData.scenocoEditorOnly = true;
-    engine.scene.add(key);
-    if (!engine.scene.background) engine.scene.background = new Color(0x15181f);
-  } else {
-    engine.loadScene(bundle);
-  }
-}
-
-/**
- * Position `cam` to frame `scene` from a 3/4 angle; returns the scene center it
- * looks at. Takes any camera — a shot with UI is framed through the scene's own,
- * which may be orthographic (its frustum is fixed, so only the pose moves).
- */
-function frameCameraTo(cam: Camera, scene: Object3D): Vector3 {
-  const box = contentBounds(scene);
-  const sphere = box.isEmpty() ? new Sphere(new Vector3(), 1) : box.getBoundingSphere(new Sphere());
-  const center = sphere.center;
-  const radius = sphere.radius || 1;
-  // Back off along the fixed 3/4 direction far enough that the bounding sphere
-  // fits the camera's *own* vertical fov — a borrowed scene camera is rarely the
-  // 50° the editor camera happens to use, and assuming it crops a narrow one.
-  const halfFov = (((cam as PerspectiveCamera).fov || 50) * Math.PI) / 360;
-  cam.position.copy(center).addScaledVector(new Vector3(0.6, 0.45, 1).normalize(), (radius / Math.sin(halfFov)) * 1.2);
-  cam.lookAt(center);
-  return center;
-}
-
-/**
- * World bounds of the scene's **content**, which is what "frame the whole scene"
- * means — camera subtrees and editor-only helpers excluded.
- *
- * Anything parented to a camera (a `<Fullscreen>` HUD, a camera-mounted
- * viewmodel) is screen furniture that follows the camera, not a place in the
- * world: including it makes the framing self-referential, and with a HUD it runs
- * away — each auto-frame moves the camera, which moves the HUD, which grows the
- * bounds, until the scene is a dot and then nothing at all. Selection outlines
- * and preview lights are excluded for the same reason they are hidden from the
- * Hierarchy: they are the editor, not the game.
- */
-function contentBounds(root: Object3D): Box3 {
-  const box = new Box3();
-  root.updateMatrixWorld(true);
-  const walk = (parent: Object3D): void => {
-    for (const child of parent.children) {
-      if (isEditorOnly(child) || isCamera(child)) continue;
-      box.expandByObject(child);
-      walk(child);
-    }
-  };
-  walk(root);
-  return box;
-}
-
-const isCamera = (o: Object3D): boolean => (o as Object3D & { isCamera?: boolean }).isCamera === true;
-
-/**
- * The screen-space layer: everything parented to a camera. Defined structurally
- * rather than by asking a UI package, so a `<Fullscreen>` HUD, a camera-mounted
- * viewmodel and any future camera-relative content are all covered.
- */
-function screenSpaceRoots(engine: Engine): { object: Object3D; host: Camera }[] {
-  const roots: { object: Object3D; host: Camera }[] = [];
-  engine.scene.traverse((o) => {
-    if (!isCamera(o)) return;
-    for (const child of o.children) if (!isEditorOnly(child)) roots.push({ object: child, host: o as Camera });
-  });
-  return roots;
-}
-
-/** The camera hosting the screen-space layer, if any — the one a shot with UI is framed through. */
-function screenSpaceHost(engine: Engine): Camera | undefined {
-  return screenSpaceRoots(engine)[0]?.host;
-}
-
-/** Take the screen-space layer out of the shot; returns the undo. */
-function hideScreenSpace(engine: Engine): () => void {
-  const hidden = screenSpaceRoots(engine).filter((r) => r.object.visible);
-  for (const { object } of hidden) object.visible = false;
-  return () => {
-    for (const { object } of hidden) object.visible = true;
-  };
-}
-
-/** Point `cam` at what the shot asks for: `"fit"` auto-frames the scene, else an explicit position (+ look-at). */
-function poseCamera(cam: Camera, opts: { camera: string; lookAt?: string }, scene: Object3D): void {
-  if (opts.camera === 'fit') {
-    frameCameraTo(cam, scene);
-    return;
-  }
-  const position = capturePoint(opts.camera);
-  const lookAt = capturePoint(opts.lookAt);
-  if (position) cam.position.copy(position);
-  if (lookAt) cam.lookAt(lookAt);
-  else if (position) cam.lookAt(contentBounds(scene).getCenter(new Vector3()));
-}
-
-// ── value helpers (telemetry → JSON) ─────────────────────────────────────────────
-
-function propValues(component: Component): Record<string, unknown> {
-  const meta = registeredMeta(component);
+/** A component's own public values — what a document could have written, read back. */
+function readable(component: object): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  if (!meta) return out;
-  for (const [name] of meta.properties) out[name] = jsonValue((component as unknown as Record<string, unknown>)[name]);
+  for (const [key, value] of Object.entries(component)) {
+    if (key.startsWith('_')) continue;
+    if (value === null || ['number', 'string', 'boolean'].includes(typeof value)) out[key] = value;
+    else if (value instanceof Vector3) out[key] = value.toArray();
+  }
   return out;
 }
-function jsonValue(v: unknown): unknown {
-  if (v == null || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return v ?? null;
-  if (Array.isArray(v)) return v.map(jsonValue);
-  if (v instanceof PrefabAsset) return v.describe(); // a `prefab` prop → its label, not "[object Object]"
-  const o = v as { isVector3?: boolean; isVector2?: boolean; isColor?: boolean; isEuler?: boolean; isObject3D?: boolean; x?: number; y?: number; z?: number; sceneId?: string; getHexString?: () => string };
-  if (o.isVector3) return axes(o.x!, o.y!, o.z!);
-  if (o.isVector2) return { x: o.x, y: o.y };
-  if (o.isEuler) return axes(toDeg(o.x!), toDeg(o.y!), toDeg(o.z!));
-  if (o.isColor) return `#${o.getHexString!()}`;
-  // `#id`, the way a node reference is written in XML — and the way a *component*
-  // reference already read back, two lines down. Bare, the two disagreed about
-  // the same kind of thing.
-  if (o.isObject3D) return o.sceneId ? `#${o.sceneId}` : '(node)';
-  // A component reference → its scene #id (what the agent correlates on), falling
-  // back to the class name only when the target has no id.
-  if ('node' in (o as object) && 'engine' in (o as object)) {
-    const c = v as Component;
-    return c.id !== undefined ? `#${c.id}` : (componentName(c) ?? '(component)');
-  }
-  return String(v);
-}
-/**
- * A vector read back from the scene, **named by axis** — `{"x": 0, "y": 0.5, "z": 0}`.
- *
- * The DSL writes vectors as named axes (`position="y: 1.5"`) precisely so nobody
- * has to hold an index order in their head; a reading that comes back as
- * `[0, 0.5, 0]` hands that job straight back, and a caller correlating a
- * screenshot with a telemetry sample is doing spatial reasoning, which is exactly
- * when a mis-ordered axis is easiest to believe. An object rather than the DSL's
- * text form because this side is JSON: `t.transform.position.y` stays directly
- * comparable across two samples, which is what telemetry is *for*.
- */
-const axes = (x: number, y: number, z: number) => ({ x, y, z });
-const arr = (v: { x: number; y: number; z: number }) => axes(round(v.x), round(v.y), round(v.z));
 
 /**
- * Current property values at `id`, as plain JSON — what `inspect` returns.
+ * A scene that holds one instance of a prefab — the stage a prefab is edited on.
  *
- * Nodes and components share one scene-wide id namespace (a `#ref` resolves against
- * either), so this resolves either kind: a **node** id reports the node's transform
- * plus every component on it; a **component** id reports that component alone, plus
- * the transform of the node hosting it — a component's state is rarely meaningful
- * without knowing where it is.
- *
- * Only `@property` fields are reported: they are the component's declared surface,
- * the same set the inspector and the XML expose. A plain runtime field is private
- * working memory and deliberately absent.
- *
- * Every reading is stamped with `frame` and `time` (the engine's `frameCount` and
- * scaled `time`). A `simulate` batch returns its captures as a flat ordered list, so
- * without the stamp two samples of the same id are indistinguishable — the stamp is
- * what ties a reading to the point in the run that produced it, and what makes
- * "it moved 1.2 units over 30 frames" a statement the numbers support. It is
- * present on a miss too: *when* an id stopped resolving is itself an assertion
- * about a thing that was destroyed.
- *
- * Exported as a free function (like `resolveInEngine`) so it can be tested against a
- * headless Engine without constructing a renderer-backed session.
+ * The lights and the background are the editor's, not the document's, so they carry the
+ * `scenocoEditorOnly` flag every other editor-drawn helper does: the hierarchy, picking and
+ * framing all skip them, and nothing the person sees in the tree came from anywhere but the
+ * prefab they opened.
  */
-export function telemetryFor(engine: Engine, id: string): unknown {
-  // Frames ticked and simulated seconds elapsed — the "when" of this reading.
-  const when = { frame: engine.frameCount, time: round(engine.time) };
-  const node = engine.findObject(id);
-  if (node) {
-    const components: Record<string, Record<string, unknown>> = {};
-    for (const c of engine.getComponents(node)) {
-      // Surface the component's scene id (if any), alongside its @property values.
-      components[componentName(c) ?? c.constructor.name] = { ...(c.id !== undefined ? { id: c.id } : {}), ...propValues(c) };
+function stageFor(Prefab: PrefabType<Object3D>): SceneType {
+  return class PrefabStage extends Scene {
+    override onLoad(): void {
+      this.instantiate(Prefab);
+      this.background = new Color(0x15181f);
+      for (const light of [ambient(), key()]) {
+        light.userData.scenocoEditorOnly = true;
+        this.add(light);
+      }
     }
-    return { ...when, id, type: node.type, transform: transformOf(node), components };
-  }
-
-  // Not a node — try the component id index, which engine.findComponent resolves
-  // directly. Its own node fallback cannot fire here, since findObject already missed.
-  const component = engine.findComponent(id);
-  if (component) {
-    const host = component.node;
-    return {
-      ...when,
-      id,
-      kind: 'component',
-      type: componentName(component) ?? component.constructor.name,
-      node: { ...(host.sceneId !== undefined ? { id: host.sceneId } : {}), type: host.type },
-      transform: transformOf(host),
-      properties: propValues(component),
-    };
-  }
-
-  return { ...when, error: `no node or component with id "${id}"` };
-}
-
-/** A node's authored-shaped transform for telemetry (eulers in degrees, like the XML). */
-function transformOf(node: Object3D): Record<string, unknown> {
-  return {
-    position: arr(node.position),
-    eulerAngles: arr(node.eulerAngles),
-    scale: arr(node.scale),
-    visible: node.visible,
   };
 }
 
-/**
- * A point given to a capture (`camera`, `lookAt`), read with **the scene DSL's own
- * vector grammar** — `parseVecText`, the same function the compiler and the
- * inspector use. So `"y: 6; z: 12"` means here exactly what it means in the XML the
- * agent just wrote, and the positional `"0 6 12"` keeps working as it always has.
- *
- * Two grammars for one concept was the whole problem: the keyed form used to parse
- * as garbage, get filtered out, and return `undefined` — which {@link poseCamera}
- * reads as "no position given", so the shot came back framed from wherever the
- * camera happened to be, with nothing said. A malformed vector now throws and the
- * message teaches the grammar, the way an unknown `KeyCode` already does.
- */
-export function capturePoint(s?: string): Vector3 | undefined {
-  if (!s) return undefined;
-  const parsed = parseVecText(s, VEC3_FORMAT);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return new Vector3(parsed.value[0], parsed.value[1], parsed.value[2]);
+function ambient(): AmbientLight {
+  return new AmbientLight(0xffffff, 0.6);
 }
-function count(root: Object3D): number {
-  let n = 0;
-  root.traverse(() => n++);
-  return n;
+
+function key(): DirectionalLight {
+  const light = new DirectionalLight(0xffffff, 2);
+  light.position.set(3, 5, 4);
+  return light;
 }

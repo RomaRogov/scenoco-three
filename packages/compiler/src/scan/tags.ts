@@ -1,0 +1,289 @@
+import {
+  SignatureKind,
+  SymbolFlags,
+  type Checker,
+  type Symbol as TsSymbol,
+  type Type,
+} from 'typescript/unstable/sync';
+import * as ast from 'typescript/unstable/ast';
+import type { PropInfo, TagFamily, TagInfo } from '../model.js';
+import { baseChainOf } from './ast-utils.js';
+import { propOf } from './shape.js';
+import type { Workspace } from './workspace.js';
+
+/** Which base class puts a tag in which family, checked nearest-first. */
+const FAMILIES: ReadonlyArray<readonly [string, TagFamily]> = [
+  ['Object3D', 'node'],
+  ['BufferGeometry', 'geometry'],
+  ['Material', 'material'],
+  ['Texture', 'texture'],
+  // Fog is neither a node nor a resource: it is a property of the scene with a constructor
+  // worth writing as an element. `Fog` and `FogExp2` are unrelated classes, so both are named.
+  ['Fog', 'fog'],
+  ['FogExp2', 'fog'],
+];
+
+/**
+ * Classes that are real exports but not authorable tags: abstract bases, internal helpers,
+ * and the loader-fed types a document cannot construct from attributes.
+ *
+ * `Texture` used to be here for the last reason — its first constructor parameter is an
+ * `image`, which no attribute can supply. A `.texture.xml` names the image file instead and the
+ * emitter builds the texture through a loader, so the class is a vocabulary now: `wrapS` and
+ * `colorSpace` are attributes because `Texture` declares them. The subclasses below stay out,
+ * because each of them needs real decoded data rather than a URL.
+ */
+const NOT_A_TAG = new Set([
+  'Object3D',
+  'BufferGeometry',
+  'InstancedBufferGeometry',
+  'Material',
+  'CompressedTexture',
+  'DepthTexture',
+  'FramebufferTexture',
+  'Camera',
+  'Light',
+  'LightShadow',
+]);
+
+/**
+ * Build the tag vocabulary by reading the declarations of the modules a project imports.
+ *
+ * This is what replaced `nodes/**` — five hundred lines of hand-written tag definitions that
+ * restated, for every class, the constructor `three` already declares. `<BoxGeometry width=…>`
+ * is legal now because `three` exports a constructible `BoxGeometry` whose first parameter is
+ * called `width`. A three.js upgrade that adds a parameter adds an attribute for free, and one
+ * that renames a parameter is a build error rather than an attribute that silently does
+ * nothing.
+ *
+ * @param modules module specifiers to read, in priority order. A later module may not
+ * shadow an earlier one's tag — a duplicate is reported rather than silently resolved.
+ */
+export function scanTags(workspace: Workspace, modules: readonly string[] = ['three']): TagInfo[] {
+  const { checker, project } = workspace;
+  const resolved = resolveAll(workspace, modules);
+  const tags: TagInfo[] = [];
+  const claimed = new Map<string, string>();
+
+  for (const specifier of modules) {
+    const moduleSymbol = resolved.get(specifier);
+    if (!moduleSymbol) continue;
+    for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+      const tag = describeTag(exported, specifier, checker);
+      if (!tag) continue;
+      const owner = claimed.get(tag.name);
+      if (owner) {
+        throw new Error(
+          `[scenoco] the tag <${tag.name}> is exported by both "${owner}" and "${specifier}". ` +
+            'Two packages cannot claim one tag name; rename one, or drop a dependency.',
+        );
+      }
+      claimed.set(tag.name, specifier);
+      tags.push(tag);
+    }
+  }
+  void project;
+  return tags.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Describe one exported symbol as a tag, or skip it. */
+function describeTag(symbol: TsSymbol, module: string, checker: Checker): TagInfo | undefined {
+  if (NOT_A_TAG.has(symbol.name)) return undefined;
+  // A tag name is a class name, so it starts with a capital. This also drops the hundreds of
+  // constants (`FrontSide`, `AddEquation`) that share the module.
+  if (!/^[A-Z]/.test(symbol.name)) return undefined;
+
+  const staticType = checker.getTypeOfSymbol(symbol);
+  if (!staticType) return undefined;
+  const signatures = checker.getSignaturesOfType(staticType, SignatureKind.Construct);
+  const signature = signatures[0];
+  // Not constructible: an interface, a type alias, a plain function.
+  if (!signature || signature.isAbstract) return undefined;
+
+  const instance = checker.getReturnTypeOfSignature(signature);
+  if (!instance) return undefined;
+
+  const chain = baseChainOf(instance, checker);
+  // The class's own name counts: `CanvasTexture` is a texture because `Texture` is in its base
+  // chain, and `Texture` is one because it *is* `Texture`. Only the family lookup sees this —
+  // `bases` below stays the real ancestry, which is what everything else reads.
+  const family = FAMILIES.find(([base]) => base === symbol.name || chain.includes(base))?.[1];
+  if (!family) return undefined;
+
+  const parameters = signature
+    .getParameters()
+    .map((parameter) => propOf(parameter, checker))
+    // A parameter the DSL cannot express is not an error on its own — it simply cannot be
+    // authored, and the emitter passes `undefined` in its slot.
+    .map((parameter, index) => ({ ...parameter, name: parameter.name || `arg${index}` }));
+
+  return {
+    name: symbol.name,
+    family,
+    module,
+    parameters,
+    properties: settableProperties(instance, signature, checker, family),
+    bases: chain,
+  };
+}
+
+/**
+ * The properties a document may set after construction.
+ *
+ * For a material this is the whole story: three.js takes one parameters object, so the
+ * constructor has nothing useful to offer and every attribute is a property. For a node it is
+ * the extras a constructor does not cover — `castShadow`, `renderOrder`, `zoom`.
+ */
+function settableProperties(
+  instance: Type,
+  signature: ReturnType<Checker['getSignaturesOfType']>[number],
+  checker: Checker,
+  family: TagFamily,
+): PropInfo[] {
+  if (family === 'material') return materialParameters(signature, checker);
+  if (family === 'geometry') return [];
+
+  const constructorNames = new Set(signature.getParameters().map((p) => p.name));
+  const props: PropInfo[] = [];
+  for (const symbol of checker.getPropertiesOfType(instance)) {
+    if (constructorNames.has(symbol.name)) continue;
+    if (!isAuthorable(symbol.name)) continue;
+    if (!isWritable(symbol)) continue;
+    const prop = propOf(symbol, checker);
+    if (prop.shape === 'unsupported') continue;
+    // `readonly System[]` and friends: the type prints its own readonly-ness, and assigning to
+    // one in generated code would not compile.
+    if (prop.type.startsWith('readonly ')) continue;
+    props.push(prop);
+  }
+  return props.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A material's attributes come from its parameters *interface*, not its instance.
+ *
+ * The instance carries a hundred and more members — internals, `is…` brands, methods — while
+ * `MeshStandardMaterialParameters` is exactly the set three.js considers authorable. Reading
+ * the interface is therefore both smaller and more faithful than filtering the class.
+ */
+function materialParameters(
+  signature: ReturnType<Checker['getSignaturesOfType']>[number],
+  checker: Checker,
+): PropInfo[] {
+  const parameter = signature.getParameters()[0];
+  if (!parameter) return [];
+  const type = checker.getTypeOfSymbol(parameter);
+  if (!type) return [];
+  const resolved = checker.getNonNullableType(type) ?? type;
+  return checker
+    .getPropertiesOfType(resolved)
+    .map((symbol) => propOf(symbol, checker))
+    .filter((prop) => prop.shape !== 'unsupported')
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Whether a property can actually be assigned.
+ *
+ * A getter with no setter is a *derived* value — `scene`, `componentCount`, `activeInHierarchy`
+ * — and offering one as an attribute produces generated code that does not compile. The symbol's
+ * own flags answer this, which matters: resolving every property's declaration to look for a
+ * `readonly` modifier would be a round-trip per property per tag, and there are thousands.
+ */
+function isWritable(symbol: TsSymbol): boolean {
+  const isGetter = (symbol.flags & SymbolFlags.GetAccessor) !== 0;
+  const isSetter = (symbol.flags & SymbolFlags.SetAccessor) !== 0;
+  return !isGetter || isSetter;
+}
+
+/** Members that are state rather than settings, or that a document has no way to write. */
+function isAuthorable(name: string): boolean {
+  if (name.startsWith('_') || name.startsWith('is')) return false;
+  return !NEVER_AUTHORED.has(name);
+}
+
+const NEVER_AUTHORED = new Set([
+  'children',
+  'parent',
+  'id',
+  'uuid',
+  'type',
+  'matrix',
+  'matrixWorld',
+  'modelViewMatrix',
+  'normalMatrix',
+  'up',
+  'userData',
+  'animations',
+  'shadow',
+  'geometry',
+  'material',
+  // Core's own augmentation of `Object3D`. `components` is the attached list, which a document
+  // fills with a `<Components>` block; `activeSelf`/`activeInHierarchy` are what `active` reads
+  // back as. All three are state, and offering them as attributes invites a document to write
+  // the answer instead of the question.
+  'components',
+  'activeSelf',
+  'activeInHierarchy',
+  // The engine's own members. Three of them are attributes under a different name, from the
+  // closed `SCENE_ATTRIBUTES` list — `<Scene camera="#id" render="…" dontDestroyOnLoad="true">`
+  // — and the rest are state a document reads back rather than writes. Keeping every one of
+  // them out of the *scanned* surface is what makes that surface exactly three.js's own, which
+  // is the promise the whole DSL rests on: an attribute on a three.js class is a property
+  // three.js declares.
+  'mainCamera',
+  'render',
+  'dontDestroyOnLoad',
+  'disposeOnUnload',
+  'runtime',
+  'componentCount',
+  // `scene` is readonly on every node, and a `readonly` *field* is invisible to the accessor
+  // check below — TypeScript models it as a plain property. Offering it produced generated code
+  // that did not compile.
+  'scene',
+  // Placement, which every tag takes through the shared attribute set instead.
+  'position',
+  'rotation',
+  'quaternion',
+  'scale',
+  'eulerAngles',
+]);
+
+/**
+ * The module symbol for every specifier, resolved through the project's own imports.
+ *
+ * A module symbol has to be reached from a real import in a real file — there is no
+ * "resolve this specifier" entry point. Each specifier is looked up on its own, so a project
+ * that imports `three` in one file and a tag package in another is fine; requiring one file to
+ * import all of them made a two-file project look like a missing dependency.
+ *
+ * A specifier nothing imports is an error rather than an empty vocabulary, because the symptom
+ * otherwise is every tag from that package reported as `unknown-tag`.
+ *
+ * This bites in a way worth naming: a project can use `<RigidBody2D>` in a document and never
+ * mention box2d in TypeScript, because tags are only ever written in XML. Depending on a package
+ * in `package.json` is not enough — the checker resolves a module through an import in a real
+ * file, and there is nothing else to resolve it from. So the message says exactly what to write.
+ */
+function resolveAll(
+  workspace: Workspace,
+  modules: readonly string[],
+): Map<string, TsSymbol> {
+  const resolved = new Map<string, TsSymbol>();
+  const missing: string[] = [];
+  for (const specifier of modules) {
+    const symbol = workspace.resolveModule(specifier);
+    if (symbol) resolved.set(specifier, symbol);
+    else missing.push(specifier);
+  }
+  if (missing.length > 0) {
+    const imports = missing.map((m) => `import '${m}';`).join('\n');
+    throw new Error(
+      `[scenoco] no file in this project imports ${missing.join(', ')}.\n\n` +
+        'A tag package is read through a real import, and tags are only ever written in XML — so ' +
+        'depending on one in package.json is not enough on its own. Add a file that imports ' +
+        `them, e.g. src/tags.ts:\n\n${imports}\n`,
+    );
+  }
+  return resolved;
+}

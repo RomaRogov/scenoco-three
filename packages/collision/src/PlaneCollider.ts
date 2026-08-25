@@ -1,29 +1,32 @@
 import { Vector2, Vector3 } from 'three';
-import { component, property, ValueType } from '@scenoco-three/core';
 import { Collider, type Bounds } from './Collider.js';
 
-/** A plane trigger is a thin box in the XZ plane (matches rapier's PlaneCollider, a thin cuboid). */
-const THICKNESS = 0.001;
-
 /**
- * A flat XZ collision shape — a thin box (API-identical to rapier's
- * `<PlaneCollider>`, which is also a thin cuboid, not an infinite half-space).
+ * A flat ground plane, in the XZ plane.
+ *
+ * Not infinite: a truly infinite plane makes a fallen object impossible to find, and rapier's
+ * `<PlaneCollider>` is a thin box for the same reason. The two match.
  */
-@component({ name: 'PlaneCollider', description: 'A flat XZ ground collision shape (thin cuboid; detection-only)' })
 export class PlaneCollider extends Collider {
-  @property({ type: ValueType.Vec2, required: true, description: 'Half-extents in X and Z — cover the playable area explicitly; a collider never infers size from geometry' })
+  /** Half the plane's extent on X and Z. */
   halfExtents = new Vector2(5, 5);
 
-  private readonly _center = new Vector3();
-  private readonly _half = new Vector3();
-  private readonly _scale = new Vector3();
-  /** Reused per-step bounds — center/half mutated in place (no per-step allocation). */
-  private readonly _bounds = { shape: 'box' as const, center: this._center, half: this._half };
+  private readonly center = new Vector3();
+  private readonly scale = new Vector3();
+  private readonly half = new Vector3();
+  private readonly cached: Bounds = { shape: 'box', center: this.center, half: this.half };
 
   override worldBounds(): Bounds {
-    this.node.getWorldPosition(this._center);
-    this.node.getWorldScale(this._scale);
-    this._half.set(Math.abs(this._scale.x) * this.halfExtents.x, THICKNESS, Math.abs(this._scale.z) * this.halfExtents.y);
-    return this._bounds;
+    this.object3D.getWorldPosition(this.center);
+    this.object3D.getWorldScale(this.scale);
+    this.half.set(
+      Math.abs(this.scale.x) * this.halfExtents.x,
+      THICKNESS,
+      Math.abs(this.scale.z) * this.halfExtents.y,
+    );
+    return this.cached;
   }
 }
+
+/** Thin enough not to be seen, thick enough that nothing tunnels through it. */
+const THICKNESS = 0.05;

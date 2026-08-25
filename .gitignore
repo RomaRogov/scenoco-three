@@ -8,6 +8,11 @@ demo/
 schema/
 *.log
 
+# Compiled documents. A `.gen.ts` sits beside the `.xml` it came from and is rewritten on every
+# build — the XML is the source of truth, so committing both would mean reviewing the same change
+# twice and resolving conflicts in generated code.
+*.gen.ts
+
 # OS / editor
 .DS_Store
 

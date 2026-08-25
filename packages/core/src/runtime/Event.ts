@@ -5,20 +5,23 @@
  * Deliberately **not** a string-keyed bus (`emit('brick-destroyed')`). An event
  * is a class field, so the compiler checks the name, the argument types, and
  * every subscriber; a typo is a build error rather than a listener that silently
- * never fires. Shaped like a C# event / a Cocos `EventTarget`, minus the strings.
+ * never fires. Shaped like a C# event, minus the strings.
  *
  *   class Brick extends Component {
+ *     points = 10;
  *     readonly destroyed = new Event<[Brick]>();
- *     hit() { this.destroyed.emit(this); this.node.destroy(); }
+ *     hit() { this.destroyed.emit(this); this.object3D.destroy(); }
  *   }
  *
  *   class Scoreboard extends Component {
- *     @property({ type: [Brick], description: 'Bricks to score' }) bricks: Brick[] = [];
- *     override onLoad() { for (const b of this.bricks) this.listen(b.destroyed, this.onBrick); }
- *     private onBrick = (brick: Brick) => { this.score += 10; };
+ *     /** Bricks to score. *␀/
+ *     bricks: Brick[] = [];
+ *     score = 0;
+ *     override start() { for (const b of this.bricks) this.listen(b.destroyed, this.onBrick); }
+ *     private onBrick = (brick: Brick) => { this.score += brick.points; };
  *   }
  *
- * References point **down** (a `@property` ref into the thing you own); events
+ * References point **down** (a field holding the thing you own); events
  * travel **up and out**. That is what keeps two components from importing each
  * other — the cycle that a component graph otherwise grows into.
  *

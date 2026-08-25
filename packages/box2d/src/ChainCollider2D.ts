@@ -1,22 +1,20 @@
 import { ChainShape, Vec2, type Shape } from 'planck';
-import { component, property, ValueType } from '@scenoco-three/core';
+import { Vector2 } from 'three';
 import { Collider2D } from './Collider2D.js';
 
-/** A 2D chain (polyline) collision shape (planck) — a free-form static boundary. */
-@component({ name: 'ChainCollider2D', description: 'A 2D chain (polyline) collision shape (planck).' })
+/**
+ * A 2D chain of line segments — terrain, a track, any long static outline that a polygon
+ * cannot be because it is not convex.
+ */
 export class ChainCollider2D extends Collider2D {
-  @property({ type: [ValueType.Vec2], required: true, description: 'Chain vertices, e.g. "[-0.5 0,0.5 0]" — explicit; a collider never infers size from geometry' })
-  points: number[][] = [
-    [-0.5, 0],
-    [0.5, 0],
-  ];
-
-  @property({ type: ValueType.Bool, description: 'Close the chain into a loop' })
+  /** The points the chain runs through, in the body's local space. */
+  points: Vector2[] = [new Vector2(-0.5, 0), new Vector2(0.5, 0)];
+  /** Join the last point back to the first. */
   loop = false;
 
-  toShape(): Shape {
+  override toShape(): Shape {
     return new ChainShape(
-      this.points.map(([x, y]) => new Vec2(x!, y!)),
+      this.points.map((p) => new Vec2(p.x, p.y)),
       this.loop,
     );
   }
