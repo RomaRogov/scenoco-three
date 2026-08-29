@@ -67,6 +67,24 @@ describe('prefabs', () => {
     expect(crate.rotation.y).toBeCloseTo(Math.PI / 2);
   });
 
+  it('lets the caller\'s placement win over the prefab\'s own', async () => {
+    // A prefab document's root carries a transform, and the generated `onLoad` writes it. If that
+    // ran last, every `instantiate(prefab, { position })` would quietly land at the prefab's
+    // authored spot — a scatter of fourteen crates would be one pile at the origin.
+    class Anchored extends Mesh {
+      override onLoad(): void {
+        this.position.set(0, 0.2, 0);
+        this.scale.setScalar(0.4);
+      }
+    }
+    let crate!: Anchored;
+    await SceneManager.load(sceneOf((scene) => {
+      crate = scene.instantiate(Anchored, { position: new Vector3(3, 0, -2), scale: 2 });
+    }));
+    expect(crate.position.toArray()).toEqual([3, 0, -2]);
+    expect(crate.scale.x).toBe(2);
+  });
+
   it('builds each instance from the definition, so instances never share state', async () => {
     let a!: Crate;
     let b!: Crate;

@@ -1,9 +1,16 @@
 {
   "name": "@scenoco-three/collision",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Detection-only collision for SceNoCo, API-identical to @scenoco-three/rapier.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/collision"
+  },
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/collision#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -37,7 +44,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.4.0"
+    "@scenoco-three/core": "^0.5.0"
   },
   "peerDependencies": {
     "three": ">=0.160.0"

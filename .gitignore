@@ -21,8 +21,14 @@ schema/
 .scenoco/
 .playwright-mcp/
 
-# Design & planning docs (kept locally, not published)
-ARCHITECTURE.md
-CHANGELOG.md
+# Working notes, kept local. The design reasoning that *is* public lives in ARCHITECTURE.md,
+# DSL-REVIEW.md and WHY.md; the measurements live in bench/.
+AGENT-DX-PLAN.md
+CORE-IMPROVEMENTS.md
+LORA-PLAN.md
 docs/
 agentic/
+
+# Other agents' local config
+.aider.conf.yml
+.clinerules

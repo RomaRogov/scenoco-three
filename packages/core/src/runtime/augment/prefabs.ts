@@ -78,7 +78,9 @@ proto.instantiate = function <T extends Object3D>(
   }
 
   const prefab = new source();
-  if (init) place(prefab, init);
+  // Settings first: a prefab builds itself out of its own fields, so `instantiate(Crate, { size })`
+  // has to be readable by the `onLoad` that turns `size` into a scale.
+  if (init) settle(prefab, init);
 
   // Built while detached, so the whole subtree arrives in one `add` and `awake` runs once per
   // component, with the prefab's transform already final.
@@ -93,6 +95,17 @@ proto.instantiate = function <T extends Object3D>(
   }
   prefab._built = true;
 
+  // Placement lands **after** `onLoad`, and that ordering is the whole point of it.
+  //
+  // A prefab document's root element carries its own transform, and the generated `onLoad` writes
+  // it — so applying the caller's placement first meant the document quietly overwrote it, and
+  // every `instantiate(Crate, { position })` in a scatter put its crate at the prefab's authored
+  // spot instead. Fourteen crates in one pile, and nothing in the code that asked for fourteen
+  // positions to suggest why. Unity's `Instantiate(prefab, position, rotation)` wins over the
+  // prefab's own transform, and so does this. Still before the `add`, so it is final before any
+  // `awake` — which is what `Watcher` in the prefab tests pins down.
+  if (init) place(prefab, init);
+
   // Overrides land here: the prefab's contents exist, and nothing in it has woken up yet, so a
   // value written now is the value every `awake` below sees. After the `add` it would already
   // be too late for anything read in `awake`, which is most of what a component caches.
@@ -104,15 +117,31 @@ proto.instantiate = function <T extends Object3D>(
 } as Object3D['instantiate'];
 
 /**
- * Apply placement and settings to a freshly-made node.
+ * Everything in an init that is **not** placement: the prefab's own fields.
+ *
+ * Applied before `onLoad`, because that is what a prefab builds itself out of —
+ * `instantiate(Crate, { size: 0.5 })` works by `onLoad` reading `size`.
+ */
+function settle(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): void {
+  const { name, position, eulerAngles, scale, visible, ...settings } = init;
+  void name;
+  void position;
+  void eulerAngles;
+  void scale;
+  void visible;
+  Object.assign(node, settings);
+}
+
+/**
+ * Where a freshly-made node goes.
  *
  * Destructured rather than `Object.assign`-ed wholesale: `position` and `scale` are live
  * `Vector3`s three.js hands out once per node, and `eulerAngles` is a degrees view with a
- * setter — replacing any of them outright would detach the node from its own transform.
- * Placement is copied into the existing objects; the rest is plain assignment.
+ * setter — replacing any of them outright would detach the node from its own transform. These
+ * are copied into the existing objects.
  */
 function place(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): void {
-  const { name, position, eulerAngles, scale, visible, ...settings } = init;
+  const { name, position, eulerAngles, scale, visible } = init;
   if (name !== undefined) node.name = name;
   if (position !== undefined) node.position.copy(position);
   if (eulerAngles !== undefined) node.eulerAngles = eulerAngles;
@@ -121,5 +150,4 @@ function place(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): vo
     else node.scale.copy(scale);
   }
   if (visible !== undefined) node.visible = visible;
-  Object.assign(node, settings);
 }

@@ -1,9 +1,7 @@
 <!-- NEON GRID
-       1111111
-       1111111
-       .11111.
-     1 = one hit, 2 = two, 3 = three. A brick's toughness is the only thing a level says about
-     it: one prefab, one override, and the material follows from the number. -->
+     A digit in the wall's map is how many hits that brick takes — 1, 2 or 3 — and anything
+     else is a gap. Toughness is the only thing a level says about a brick: one prefab, and
+     the material follows from the number. -->
 <Scene camera="#camera" background="#05070d" render="../render/neon.render.xml">
   <Systems>
     <!-- No gravity: the ball keeps whatever speed it was given. -->
@@ -28,23 +26,11 @@
     <Override target="#ball" speed="14" />
   </Prefab>
 
-  <Prefab src="brick.prefab.xml" position="x: -7.65; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: -5.10; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: -2.55; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: 0.00; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: 2.55; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: 5.10; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: 7.65; y: 13.90" />
-  <Prefab src="brick.prefab.xml" position="x: -7.65; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: -5.10; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: -2.55; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: 0.00; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: 2.55; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: 5.10; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: 7.65; y: 12.90" />
-  <Prefab src="brick.prefab.xml" position="x: -5.10; y: 11.90" />
-  <Prefab src="brick.prefab.xml" position="x: -2.55; y: 11.90" />
-  <Prefab src="brick.prefab.xml" position="x: 0.00; y: 11.90" />
-  <Prefab src="brick.prefab.xml" position="x: 2.55; y: 11.90" />
-  <Prefab src="brick.prefab.xml" position="x: 5.10; y: 11.90" />
+  <!-- The wall. The map is the data, and the loop that places it is a component —
+       repetition is logic, not thirty elements that differ by two numbers. -->
+  <Group position="y: 13.9">
+    <Components>
+      <BrickField brick="brick.prefab.xml" rows="[1111111, 1111111, .11111.]" />
+    </Components>
+  </Group>
 </Scene>

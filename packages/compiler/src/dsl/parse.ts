@@ -28,10 +28,6 @@ export type ParseResult =
  * pass, because the vocabulary comes from the TypeScript program rather than from a schema
  * file this parser could hold.
  */
-function truncate(text: string, max = 30): string {
-  return text.length <= max ? text : `${text.slice(0, max)}…`;
-}
-
 export function parseDocument(xml: string, file?: string): ParseResult {
   const parser = new SaxesParser({ fileName: file ?? 'document' });
   const diagnostics: SncDiagnostic[] = [];
@@ -75,9 +71,15 @@ export function parseDocument(xml: string, file?: string): ParseResult {
       line: parser.line,
       column: parser.column + 1,
       code: 'text-content',
-      message:
-        `<${top.tag}> contains the text "${truncate(trimmed)}". Every value in a SceNoCo ` +
-        'document is an attribute; there is nothing that reads text between tags.',
+      // A fence is the one stray text worth naming outright. It is what a model writing this
+      // file leaves behind when it wraps its answer in markdown, it is by far the most common
+      // way a generated document fails to parse, and the fix — delete the line — has nothing
+      // to do with the attribute rule the general message explains.
+      message: isFence(trimmed)
+        ? `<${top.tag}> contains "${truncate(trimmed)}", which looks like a markdown code ` +
+          'fence. Delete the line: a document holds XML and nothing else.'
+        : `<${top.tag}> contains the text "${truncate(trimmed)}". Every value in a SceNoCo ` +
+          'document is an attribute; there is nothing that reads text between tags.',
       ...(file ? { file } : {}),
     });
   });
@@ -105,4 +107,13 @@ export function parseDocument(xml: string, file?: string): ParseResult {
     };
   }
   return { ok: true, root };
+}
+
+/** ```, ```xml, ~~~ — a fence, with or without its language tag. */
+function isFence(text: string): boolean {
+  return /^(```|~~~)[a-z]*$/i.test(text);
+}
+
+function truncate(text: string, max = 30): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }

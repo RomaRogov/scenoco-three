@@ -1,0 +1,3 @@
+<!-- A capsule 1 across and 2 tall overall, as Unity's is: a 1-tall barrel with a
+     hemisphere on each end. -->
+<CapsuleGeometry radius="0.5" height="1" capSegments="8" radialSegments="16" />

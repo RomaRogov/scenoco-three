@@ -1,0 +1,9 @@
+<!-- One crate. The root element IS the node, so a scattered crate is a real mesh with no wrapper
+     — which is what lets the carrier `attach` it straight onto the stack. -->
+<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/crate.material.xml"
+      position="y: 0.2" scale="0.4">
+  <Components>
+    <Pickup value="1" spin="60" />
+    <BoxCollider halfExtents="x: 0.25; y: 0.25; z: 0.25" isSensor="true" />
+  </Components>
+</Mesh>

@@ -75,6 +75,26 @@ describe('scenoco new', () => {
     expect(err.join('\n')).toContain('already exists');
   });
 
+  /**
+   * The primitives are the shapes a scene is built from, and the numbers on them are the
+   * contract: a cube one unit on a side, a cylinder two tall as Unity's is. Anything that
+   * writes them wrong makes every mesh that names one the wrong size.
+   */
+  it('writes the whole set of primitives, sized as Unity sizes them', async () => {
+    expect(await cli('new', 'geometry')).toBe(0);
+    const read = (name: string) =>
+      readFileSync(join(fixture.dir, `assets/geometry/${name}.geometry.xml`), 'utf8');
+    expect(read('cube')).toContain('<BoxGeometry width="1" height="1" depth="1" />');
+    expect(read('sphere')).toContain('radius="0.5"');
+    expect(read('cylinder')).toContain('height="2"');
+    expect(read('plane')).toContain('<PlaneGeometry width="10" height="10" />');
+    // Run twice, and it says so rather than failing on the files it already wrote.
+    err.length = 0;
+    expect(await cli('new', 'geometry')).toBe(0);
+    expect(err.join('\n')).toBe('');
+    expect(await cli('check', '--modules', 'three')).toBe(0);
+  }, 120_000);
+
   it('lists the kinds when asked for one that is not', async () => {
     expect(await cli('new', 'shader', 'water')).toBe(1);
     expect(err.join('\n')).toContain('material');

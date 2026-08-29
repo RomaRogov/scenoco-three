@@ -114,17 +114,16 @@ Contacts are queued during the step and dispatched after it, so a hook may safel
 brick (or any scene object) without corrupting the in-progress simulation.
 
 ```ts
-@component({ name: 'Brick' })
 export class Brick extends Component {
-  onCollisionEnter2D(other: Object3D) {
-    if (this.engine.getComponents(other).some((c) => c instanceof Ball)) this.engine.destroy(this.node);
+  override onCollisionEnter2D(other: Object3D) {
+    if (other.getComponent(Ball)) this.object3D.destroy();
   }
 }
 ```
 
 ## How it works
 
-A `@system(RigidBody2D)` (`Physics2DSystem`) reconciles a planck `World` from the live
+A `System` (`Physics2DSystem`) reconciles a planck `World` from the live
 component set and writes body transforms back to the XY plane of each `Object3D`. `planck` is
 isolated here; **core stays physics-free**.
 

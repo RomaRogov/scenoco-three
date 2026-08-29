@@ -7,7 +7,7 @@ import {
 } from 'typescript/unstable/sync';
 import * as ast from 'typescript/unstable/ast';
 import type { PropInfo, TagFamily, TagInfo } from '../model.js';
-import { baseChainOf } from './ast-utils.js';
+import { baseChainOf, classDeclarationOf, docOf, resolveAlias } from './ast-utils.js';
 import { propOf } from './shape.js';
 import type { Workspace } from './workspace.js';
 
@@ -60,7 +60,7 @@ const NOT_A_TAG = new Set([
  * shadow an earlier one's tag — a duplicate is reported rather than silently resolved.
  */
 export function scanTags(workspace: Workspace, modules: readonly string[] = ['three']): TagInfo[] {
-  const { checker, project } = workspace;
+  const { checker } = workspace;
   const resolved = resolveAll(workspace, modules);
   const tags: TagInfo[] = [];
   const claimed = new Map<string, string>();
@@ -71,6 +71,14 @@ export function scanTags(workspace: Workspace, modules: readonly string[] = ['th
     for (const exported of checker.getExportsOfModule(moduleSymbol)) {
       const tag = describeTag(exported, specifier, checker);
       if (!tag) continue;
+      // What the class says about itself, for the classes *we* ship. three's hundred are
+      // documented on three's own site, and resolving a declaration per tag to fetch a comment
+      // nobody reads here would be a round trip each. A `<Cube>` is worth the round trip: what
+      // it is — one unit on a side — is the whole reason to reach for it.
+      if (specifier !== 'three') {
+        const description = docOfClass(exported, workspace, checker);
+        if (description) tag.description = description;
+      }
       const owner = claimed.get(tag.name);
       if (owner) {
         throw new Error(
@@ -82,7 +90,6 @@ export function scanTags(workspace: Workspace, modules: readonly string[] = ['th
       tags.push(tag);
     }
   }
-  void project;
   return tags.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -122,7 +129,7 @@ function describeTag(symbol: TsSymbol, module: string, checker: Checker): TagInf
     family,
     module,
     parameters,
-    properties: settableProperties(instance, signature, checker, family),
+    properties: settableProperties(instance, signature, checker, family, module),
     bases: chain,
   };
 }
@@ -139,6 +146,7 @@ function settableProperties(
   signature: ReturnType<Checker['getSignaturesOfType']>[number],
   checker: Checker,
   family: TagFamily,
+  module: string,
 ): PropInfo[] {
   if (family === 'material') return materialParameters(signature, checker);
   if (family === 'geometry') return [];
@@ -148,6 +156,7 @@ function settableProperties(
   for (const symbol of checker.getPropertiesOfType(instance)) {
     if (constructorNames.has(symbol.name)) continue;
     if (!isAuthorable(symbol.name)) continue;
+    if (!declaredByItsOwnPackage(symbol, module)) continue;
     if (!isWritable(symbol)) continue;
     const prop = propOf(symbol, checker);
     if (prop.shape === 'unsupported') continue;
@@ -195,6 +204,41 @@ function isWritable(symbol: TsSymbol): boolean {
   const isSetter = (symbol.flags & SymbolFlags.SetAccessor) !== 0;
   return !isGetter || isSetter;
 }
+
+/**
+ * Whether a property is really this class's, or something another package bolted on.
+ *
+ * three.js's interfaces are open, and a library that augments `Object3D` adds its members to
+ * every node in the vocabulary. uikit does exactly that for its pointer-event plumbing, and the
+ * result was seven attributes — `pointerEventsType`, `ancestorsHaveListeners`,
+ * `interactableDescendants` — offered on every light, mesh and group in the project. They
+ * compile, so nothing caught them. They are simply not attributes of a light, and noise like
+ * that is expensive precisely where the DSL promises there is none: it is what a small model
+ * reads as the vocabulary.
+ *
+ * So the promise is stated in code rather than only in a comment: **an attribute on a class is
+ * a property that class's own package declares.** three, the engine's own deliberate
+ * augmentation, the project's source, and the package that exports the tag all count as its
+ * own; anything else does not.
+ */
+function declaredByItsOwnPackage(symbol: TsSymbol, module: string): boolean {
+  const declarations = symbol.declarations;
+  if (declarations.length === 0) return true;
+  return declarations.some((declaration) => {
+    const path = String(declaration.path);
+    const at = path.lastIndexOf(NODE_MODULES);
+    // Not installed: the project's own source, or a workspace package it is built from.
+    if (at === -1) return true;
+    const rest = path.slice(at + NODE_MODULES.length);
+    const segments = rest.split('/');
+    const owner = rest.startsWith('@') ? segments.slice(0, 2).join('/') : (segments[0] ?? '');
+    return OWN_PACKAGES.has(owner) || owner.startsWith('@scenoco-three/') || owner === module;
+  });
+}
+
+const NODE_MODULES = 'node_modules/';
+/** three itself, its types, and nothing else by default. */
+const OWN_PACKAGES = new Set(['three', '@types/three']);
 
 /** Members that are state rather than settings, or that a document has no way to write. */
 function isAuthorable(name: string): boolean {
@@ -265,6 +309,18 @@ const NEVER_AUTHORED = new Set([
  * in `package.json` is not enough — the checker resolves a module through an import in a real
  * file, and there is nothing else to resolve it from. So the message says exactly what to write.
  */
+/** The class's own doc comment, first paragraph, as the inspector and `describe` show it. */
+function docOfClass(symbol: TsSymbol, workspace: Workspace, checker: Checker): string | undefined {
+  const declared = resolveAlias(symbol, checker);
+  const node = classDeclarationOf(declared, workspace.project);
+  if (!node) return undefined;
+  for (const handle of declared.declarations) {
+    const file = workspace.project.program.getSourceFile(handle.path);
+    if (file) return docOf(file, node);
+  }
+  return undefined;
+}
+
 function resolveAll(
   workspace: Workspace,
   modules: readonly string[],

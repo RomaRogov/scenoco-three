@@ -43,11 +43,6 @@ export function emitSpawn(scope: EmitScope, element: SncElement, parent: string,
   // the field an `id` produces has to be typed with something the generated file can name.
   const placed = scope.place(element, isModel ? scope.module.require('three', 'Object3D') : local);
 
-  // Whatever the prefab itself needs, the scene spawning it has to wait for as well — a
-  // prefab cannot await, because `instantiate` is synchronous. Only when it publishes a list:
-  // a prefab that needs nothing declares nothing, so the common document stays synchronous.
-  if (asset.kind === 'prefab' && asset.waits) scope.assets.inherit(local);
-
   const entries: string[] = [];
   for (const [attribute, text] of element.attributes) {
     if (attribute === 'src' || attribute === 'id' || attribute === PERSIST) continue;

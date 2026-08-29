@@ -47,16 +47,15 @@ Any component on a collider's node may implement these — a solid pair fires th
 a **sensor** pair (either collider `isSensor`) fires `onTrigger*`. Each receives the **other** node:
 
 ```ts
-import { Component, component } from '@scenoco-three/core';
+import { Component } from '@scenoco-three/core';
 import type { Object3D } from 'three';
 
-@component({ name: 'Bullet', description: 'Despawns on impact' })
+/** Despawns on impact. Extending Component is the whole registration. */
 export class Bullet extends Component {
-  onCollisionEnter(other: Object3D): void {
-    this.engine.destroy(other); // hit something solid
-    this.engine.destroy(this.node);
+  override onCollisionEnter(other: Object3D): void {
+    other.destroy();            // hit something solid
+    this.object3D.destroy();    // both deferred to the end of the frame
   }
-  onTriggerEnter(_other: Object3D): void {}
 }
 ```
 
@@ -76,8 +75,8 @@ code moves between the two engines with no changes.
 ```
 
 The `CollisionSystem` **auto-runs** while the scene (or a spawned prefab) holds any collider — no
-manual registration — and stops on scene unload. It runs on core's `System` seam via
-`@system(Collider)`, exactly like the physics add-ons.
+manual registration — and stops on scene unload. It runs on core's `System` seam, registering
+itself from a collider's `awake`, exactly like the physics add-ons.
 
 ## License
 

@@ -1,0 +1,9 @@
+<!-- One thing to tap. The root element IS the node this prefab produces — a Mesh, so a spawned
+     target is a real mesh with no wrapper around it. -->
+<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/target.material.xml"
+      eulerAngles="x: 20; z: 15" scale="0.9">
+  <Components>
+    <Target points="1" spin="120" />
+    <Faller speed="3.2" floor="-5.5" />
+  </Components>
+</Mesh>

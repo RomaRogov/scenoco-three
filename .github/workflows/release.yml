@@ -1,0 +1,46 @@
+name: Release
+
+# Publishes every package at the version in its `package.json`. Tag and push to fire it:
+#   git tag v0.5.0 && git push origin v0.5.0
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      # Dependency order: everything peers on core, and vite/editor sit on the compiler.
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pkg in core compiler collision box2d rapier ui postfx particles audio vite editor create-scenoco; do
+            dir="packages/$pkg"
+            [ -d "$dir" ] || continue
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "· $name@$version already published — skipping"
+            else
+              echo "→ publishing $name@$version"
+              npm publish -w "$dir" --provenance --access public
+            fi
+          done

@@ -1,0 +1,21 @@
+name: A diagnostic could be better
+description: The compiler caught it, but did not tell you what to write instead.
+labels: [diagnostics]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A rejection that does not carry the answer is a defect here, not a nitpick — the whole
+        design bets on the compiler teaching rather than just refusing.
+  - type: textarea
+    id: got
+    attributes:
+      label: What the compiler said
+      render: text
+    validations: { required: true }
+  - type: textarea
+    id: wanted
+    attributes:
+      label: What would have unblocked you
+      description: Ideally the exact text you eventually had to write.
+    validations: { required: true }

@@ -291,3 +291,54 @@ describe('hiding an element', () => {
     expect(displayOf(panel)).toBe('flex');
   });
 });
+
+describe('moving an element after the scene is running', () => {
+  /**
+   * A UI element is a class and its attributes are its properties, so moving one is assigning to
+   * it — the same rule every other node in the framework follows. Worth pinning because it is the
+   * thing a HUD does that a document cannot: a health bar that follows a character, a marker that
+   * tracks a target, a joystick that appears under a thumb.
+   */
+  it('moves when x and y are assigned mid-run', async () => {
+    let panel!: Panel;
+    await SceneManager.load(
+      sceneOf((scene) => {
+        const camera = new PerspectiveCamera();
+        scene.add(camera);
+        scene.mainCamera = camera;
+        scene.addSystem(UIRenderer);
+        const canvas = new Canvas();
+        camera.add(canvas);
+        panel = new Panel();
+        panel.anchor = 'topLeft';
+        panel.width = 80;
+        panel.height = 80;
+        panel.x = 10;
+        panel.y = 10;
+        canvas.add(panel);
+      }),
+    );
+    new Clock().frame();
+    expect(uikitProps(panel).positionLeft).toBe(10);
+    expect(uikitProps(panel).positionTop).toBe(10);
+
+    panel.x = 140;
+    panel.y = 220;
+    expect(uikitProps(panel).positionLeft).toBe(140);
+    expect(uikitProps(panel).positionTop).toBe(220);
+  });
+
+  it('re-anchors, so an element can change which corner it hangs from', async () => {
+    const panel = new Panel();
+    panel.anchor = 'topLeft';
+    panel.x = 12;
+    panel.y = 12;
+    expect(uikitProps(panel).positionLeft).toBe(12);
+
+    panel.anchor = 'bottomRight';
+    const props = uikitProps(panel);
+    expect(props.positionLeft).toBeUndefined();
+    expect(props.positionRight).toBe(12);
+    expect(props.positionBottom).toBe(12);
+  });
+});

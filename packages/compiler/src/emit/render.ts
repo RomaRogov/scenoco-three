@@ -1,5 +1,5 @@
 import type { ComponentInfo, ProjectModel } from '../model.js';
-import { nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
+import { fieldsItTakes, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
@@ -143,7 +143,9 @@ function emitEffect(
           element,
           'unknown-attribute',
           `<${effect.name}> has no field "${attribute}".` +
-            (suggestion ? ` Did you mean "${suggestion}"?` : ''),
+            (suggestion
+              ? ` Did you mean "${suggestion}"?`
+              : fieldsItTakes(effect.fields.map((f) => f.name))),
         ),
       );
       continue;

@@ -1,9 +1,16 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "SceNoCo core: components on Object3D, scenes/prefabs as generated classes, and the game loop. Nothing else.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/core#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -15,7 +22,19 @@
   "files": [
     "dist"
   ],
-  "//sideEffects": "the augment/* modules patch THREE.Object3D.prototype and THREE.Scene.prototype with the component API \u2014 side-effect-only imports a bundler could otherwise elide. Everything else is pure.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "component",
+    "scene-graph",
+    "game-engine",
+    "gamedev"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "//sideEffects": "the augment/* modules patch THREE.Object3D.prototype and THREE.Scene.prototype with the component API — side-effect-only imports a bundler could otherwise elide. Everything else is pure.",
   "sideEffects": [
     "./dist/runtime/augment/object3d.js",
     "./dist/runtime/augment/scene.js",

@@ -1,0 +1,12 @@
+{
+  "name": "@scenoco-three/example-collector",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "dependencies": {
+    "@scenoco-three/collision": "*",
+    "@scenoco-three/core": "*",
+    "@scenoco-three/ui": "*"
+  }
+}

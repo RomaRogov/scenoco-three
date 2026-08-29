@@ -40,7 +40,7 @@ prompt).
 | `open_file` | `path` | Opens a `.scene.xml` / `.prefab.xml` in edit mode. |
 | `screenshot` | `camera`, `lookAt?`, `width`, `height`, `fit`, `ui` | A **PNG** of the current view, at exactly the size and camera fit you state, with or without the HUD. |
 | `playback` | `state` | `play` / `pause` / `stop` — enter play mode (components, systems, physics) / freeze / return to the authored scene. |
-| `inspect` | `id` | **JSON** of current property values at a scene `id` — a **node** (its transform + every component on it) or a **component** (its `@property` values + its host node's transform). Nodes and components share one id namespace. |
+| `inspect` | `id` | **JSON** of current property values at a scene `id` — a **node** (its transform + every component on it) or a **component** (its authored field values + its host node's transform). Nodes and components share one id namespace. |
 
 Values read back in the same vocabulary the scene XML is written in: vectors are
 named by axis (`{"x": 0, "y": 1.5, "z": 0}`), eulers are **degrees**, colours are
@@ -105,7 +105,7 @@ browser UI** without ever touching MCP, or wire **only** the MCP server to an ag
 share one live session but neither requires the other.
 
 See the [repository](../../README.md), [ARCHITECTURE.md](../../ARCHITECTURE.md), and the
-[agentic guide](../../agentic/SCENOCO-AGENTIC-GUIDE.md).
+[measurements](../../bench/README.md).
 
 ## License
 

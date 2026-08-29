@@ -37,6 +37,20 @@ export function nearestName(input: string, candidates: readonly string[]): strin
   return best !== undefined && bestDist <= threshold ? best : undefined;
 }
 
+/**
+ * What the thing *does* take, for when the near-miss check found nothing to suggest.
+ *
+ * A misspelling gets "did you mean"; an attribute borrowed from somewhere else gets nothing, and
+ * "has no field" on its own is a dead end — the class is in a package, not in the project, so
+ * there is nowhere for a reader to look it up. Naming the vocabulary is the answer, and it is
+ * only affordable where the vocabulary is small: a component, a system, an effect.
+ */
+export function fieldsItTakes(names: readonly string[], limit = 12): string {
+  if (names.length === 0) return ' It takes no attributes.';
+  const shown = names.slice(0, limit).join(', ');
+  return ` It takes: ${shown}${names.length > limit ? ', …' : ''}.`;
+}
+
 function editDistance(a: string, b: string): number {
   const m = a.length;
   const n = b.length;

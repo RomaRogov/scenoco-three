@@ -19,10 +19,11 @@ export interface AssetKind {
    * spelling reaches a `.particle.xml`. That correspondence is what makes an asset reference
    * one rule rather than three special cases, so it is declared here beside the kind.
    *
-   * A prefab has none: it compiles to a *class* that a document spawns with `<Prefab src="…">`
-   * rather than naming in an attribute. A scene compiles to a class too, but one that *is*
-   * named in an attribute — `SceneManager.load` takes it, so a field declared `SceneType` is
-   * how a level says which level comes next.
+   * A prefab and a scene both compile to a *class*, and both are named the same way: a field
+   * declared `PrefabType` is filled by `brick.prefab.xml` and spawned with `instantiate`, a
+   * field declared `SceneType` by `level-2.scene.xml` and loaded with `SceneManager.load`.
+   * That is how a component lays out the repetitive half of a level — a grid of bricks is a
+   * loop over one prefab reference, not sixty near-identical elements.
    */
   type?: string;
 }
@@ -73,6 +74,7 @@ export const ASSET_KINDS: readonly AssetKind[] = [
   },
   {
     kind: 'prefab',
+    type: 'PrefabType',
     extension: '.prefab.xml',
     description: 'A reusable node, spawned with <Prefab src="…"> or instantiate()',
     dir: 'assets/scenes',

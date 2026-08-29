@@ -1,9 +1,16 @@
 {
   "name": "@scenoco-three/rapier",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "3D physics for SceNoCo on Rapier: a Physics system, RigidBody, and the collider shapes.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/rapier"
+  },
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/rapier#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -38,7 +45,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.4.0",
+    "@scenoco-three/core": "^0.5.0",
     "@dimforge/rapier3d-compat": "^0.19.0"
   },
   "peerDependencies": {

@@ -1,10 +1,16 @@
 {
   "name": "scenoco-workspace",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "SceNoCo workspace (core + compiler + vite packages)",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git"
+  },
+  "homepage": "https://github.com/RomaRogov/scenoco-three#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "workspaces": [
     "packages/core",
     "packages/compiler",

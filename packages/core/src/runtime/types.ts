@@ -34,6 +34,21 @@ type IsIdentical<X, Y, Then, Else> = (<G>() => G extends X ? 1 : 2) extends <G>(
   : Else;
 
 /**
+ * True for a value a document can name, false for behaviour it cannot.
+ *
+ * Both are functions, which is why this is not simply `extends Function`. A method or a
+ * callback field is behaviour: there is no attribute that could fill it. A **class** is a
+ * value — a prefab, a scene — and a field holding one is filled by a path, exactly as a
+ * geometry or a material is. Excluding those was what stopped a component from being handed
+ * the thing it repeats.
+ */
+type IsValue<V> = V extends Function
+  ? V extends abstract new (...args: never[]) => unknown
+    ? true
+    : false
+  : true;
+
+/**
  * The keys of `T` that hold plain, assignable data: not methods, not `readonly` fields, not
  * getters without a setter.
  *
@@ -43,9 +58,9 @@ type IsIdentical<X, Y, Then, Else> = (<G>() => G extends X ? 1 : 2) extends <G>(
  * for a guaranteed crash.
  */
 type AuthorableKeys<T> = {
-  [K in keyof T]-?: T[K] extends Function
-    ? never
-    : IsIdentical<{ [Q in K]: T[K] }, { -readonly [Q in K]: T[K] }, K, never>;
+  [K in keyof T]-?: IsValue<T[K]> extends true
+    ? IsIdentical<{ [Q in K]: T[K] }, { -readonly [Q in K]: T[K] }, K, never>
+    : never;
 }[keyof T];
 
 /**

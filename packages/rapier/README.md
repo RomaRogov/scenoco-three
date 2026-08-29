@@ -122,17 +122,16 @@ queue during the step and dispatched **after** it returns, so a hook may safely 
 (or any scene object) without corrupting the in-progress simulation.
 
 ```ts
-@component({ name: 'Coin' })
 export class Coin extends Component {
-  onTriggerEnter(other: Object3D) {
-    if (this.engine.getComponents(other).some((c) => c instanceof Player)) this.engine.destroy(this.node);
+  override onTriggerEnter(other: Object3D) {
+    if (other.getComponent(Player)) this.object3D.destroy();
   }
 }
 ```
 
 ## How it works (the `System` seam)
 
-A `@system(RigidBody)` (`PhysicsSystem`) reconciles a Rapier `World` from the live component
+A `System` (`PhysicsSystem`) reconciles a Rapier `World` from the live component
 set: it creates/destroys bodies and colliders as components appear/disappear, steps the world
 in `fixedStep`, and writes each body's transform back to its `Object3D`. Config comes from the
 `<Physics>` attachment, read via `engine.findAttachment(Physics)`. `@dimforge/rapier3d-compat`

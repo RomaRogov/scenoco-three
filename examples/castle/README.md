@@ -1,0 +1,30 @@
+# Castle
+
+An empty field, lit, with a camera looking at the middle of it. The primitives, four materials, no
+components, no scripts. It exists to be **filled in** — by a person, or by a model with the
+editor's eyes.
+
+```bash
+npm --prefix examples/castle run dev
+```
+
+The shapes are ordinary geometry documents, written by `scenoco new geometry` and sized as Unity
+sizes them. A mesh names one, and `scale` says how big this one is:
+
+```xml
+<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/stone.material.xml"
+      position="y: 2" scale="x: 24; y: 4; z: 1" />
+```
+
+| | |
+| --- | --- |
+| `cube` | 1 × 1 × 1 |
+| `sphere` | 1 across |
+| `cylinder` `capsule` | 1 across, **2 tall** |
+| `cone` | 1 across, 1 tall |
+| `quad` | 1 × 1, upright |
+| `plane` | 10 × 10, upright — lay it flat with `eulerAngles="x: -90"` |
+
+This is the fixture the benchmark's `castle` run builds into: it snapshots the project, hands a
+local model the editing tools plus `look`, and puts everything back afterwards. The two sizes in
+bold are the ones that get built wrong every time — see that benchmark's `FINDINGS.md` §14.

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How the format works
+    url: https://github.com/RomaRogov/scenoco-three/blob/main/packages/compiler/DSL.md
+    about: Every value form, every block, and every diagnostic the compiler can emit.
+  - name: Why the framework exists
+    url: https://github.com/RomaRogov/scenoco-three/blob/main/WHY.md
+    about: The argument, and what it is deliberately not trying to be.

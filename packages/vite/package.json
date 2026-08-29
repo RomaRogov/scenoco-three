@@ -1,9 +1,16 @@
 {
   "name": "@scenoco-three/vite",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Vite plugin for SceNoCo XML scene bundling",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/vite"
+  },
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/vite#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -33,7 +40,7 @@
     "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/compiler": "^0.4.0"
+    "@scenoco-three/compiler": "^0.5.0"
   },
   "peerDependencies": {
     "vite": ">=5"

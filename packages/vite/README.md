@@ -16,8 +16,8 @@ import { defineConfig } from 'vite';
 import { bundlePlugin } from '@scenoco-three/vite';
 
 export default defineConfig({
-  // Zero-config: scans assets/ for @component / @node / @attachment modules and
-  // auto-registers every @scenoco-three/* tag package from your package.json.
+  // Zero-config: compiles every document under assets/, and picks up the tag
+  // vocabulary of each @scenoco-three/* package in your package.json.
   plugins: [bundlePlugin()],
 });
 ```

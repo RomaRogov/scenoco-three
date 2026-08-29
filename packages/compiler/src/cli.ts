@@ -3,7 +3,7 @@ import { dirname, relative, resolve } from 'node:path';
 import { ASSET_KINDS, type AssetKind } from './assets.js';
 import { build } from './build.js';
 import { formatDiagnostic } from './dsl/diagnostics.js';
-import { templateFor } from './templates.js';
+import { PRIMITIVES, templateFor } from './templates.js';
 
 /**
  * `scenoco` — the command line over the compiler.
@@ -99,7 +99,11 @@ async function compile(args: readonly string[], options: { watch: boolean; dryRu
 
 /** Scaffold one document from its starter template. */
 function create(args: readonly string[]): number {
-  const [kind, name, ...rest] = args;
+  // A flag is never a name: `scenoco new geometry --root .` asks for the primitives in that
+  // directory, not for a document called "--root".
+  const [kind, ...tail] = args;
+  const name = tail[0]?.startsWith('-') ? undefined : tail[0];
+  const rest = name === undefined ? tail : tail.slice(1);
   const kinds = ASSET_KINDS.map((k) => k.kind);
 
   if (!kind || !kinds.includes(kind as AssetKind['kind'])) {
@@ -110,24 +114,44 @@ function create(args: readonly string[]): number {
     );
     return 1;
   }
+  // `scenoco new geometry` with no name means the whole set of primitives. Unity has its built-in
+  // meshes; a SceNoCo project has these documents, and needing seven commands to get a cube and a
+  // cylinder is the sort of friction that ends with someone typing numbers into a mesh instead.
+  if (!name && kind === 'geometry') return createAll(Object.keys(PRIMITIVES), parseFlags(rest));
   if (!name) {
     console.error(`scenoco new ${kind} <name>`);
     return 1;
   }
 
   const flags = parseFlags(rest);
-  const template = templateFor(kind as AssetKind['kind'], name);
+  return write(kind as AssetKind['kind'], name, flags) ? 0 : 1;
+}
+
+/** Every primitive geometry, skipping any the project already has. */
+function createAll(names: readonly string[], flags: Flags): number {
+  let written = 0;
+  for (const name of names) {
+    const template = templateFor('geometry', name);
+    if (existsSync(resolve(flags.root, template.path))) continue;
+    if (write('geometry', name, flags)) written += 1;
+  }
+  if (written === 0) console.log('scenoco: every primitive geometry is already there.');
+  return 0;
+}
+
+/** Write one starter document. False when it was refused. */
+function write(kind: AssetKind['kind'], name: string, flags: Flags): boolean {
+  const template = templateFor(kind, name);
   const path = resolve(flags.root, template.path);
   if (existsSync(path)) {
     // Never silently: a starter document overwriting real work is unrecoverable.
     console.error(`scenoco new: ${relative(flags.root, path)} already exists.`);
-    return 1;
+    return false;
   }
-
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, template.contents);
   console.log(`scenoco: created ${relative(flags.root, path)}`);
-  return 0;
+  return true;
 }
 
 function parseFlags(args: readonly string[]): Flags {
@@ -150,6 +174,7 @@ function help(): void {
   scenoco watch [dir]     compile, then recompile as documents and components change
   scenoco check [dir]     compile without writing — for CI
   scenoco new <kind> <name>
+  scenoco new geometry    the primitives: ${Object.keys(PRIMITIVES).join(', ')}
 
 Options
   --root <dir>            project root (default: the current directory)

@@ -1,5 +1,5 @@
 import type { ComponentInfo, TagInfo } from '../model.js';
-import { nearestName } from '../dsl/diagnostics.js';
+import { fieldsItTakes, nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue } from '../dsl/value.js';
 import { moduleFor, type EmitScope } from './scope.js';
@@ -169,7 +169,10 @@ function readFields(
       scope.report(
         element,
         'unknown-attribute',
-        `${what} has no field "${attribute}".` + (suggestion ? ` Did you mean "${suggestion}"?` : ''),
+        `${what} has no field "${attribute}".` +
+          (suggestion
+            ? ` Did you mean "${suggestion}"?`
+            : fieldsItTakes(info.fields.map((f) => f.name))),
       );
       continue;
     }

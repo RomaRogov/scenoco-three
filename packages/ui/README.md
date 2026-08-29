@@ -34,12 +34,11 @@ Drive elements from a normal component with node references and the plain uikit
 API:
 
 ```ts
-import { Component, component, property, ValueType } from '@scenoco-three/core';
+import { Component } from '@scenoco-three/core';
 import type { Text } from '@scenoco-three/ui';
 
-@component({ name: 'Scoreboard', description: 'Updates the HUD score' })
+/** Updates the HUD score. A public field is an attribute; no decorator declares it. */
 export class Scoreboard extends Component {
-  @property({ type: ValueType.Node, description: 'Text element showing the score' })
   scoreLabel: Text | null = null;
 
   addPoints(points: number): void {
@@ -75,8 +74,8 @@ Nested elements are positioned by flexbox — not by transform attributes.
 
 ## Runtime
 
-`UIRenderSystem` — registered `@system({ nodes: UiKitComponent, executeInEditor: true })`
-— auto-runs whenever the scene contains a UI element. It applies uikit's
+`UIRenderSystem` — a core `System`, registered by the first UI element to wake —
+auto-runs whenever the scene contains one. It applies uikit's
 required renderer settings, injects the renderer into `Fullscreen` roots, and
 calls `update(delta)` once per frame on each UI **root** (an element whose
 parent is not itself a UI element). It runs in the editor too, so layout is

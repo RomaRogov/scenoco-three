@@ -1,9 +1,16 @@
 {
   "name": "@scenoco-three/editor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Local visual editor for SceNoCo scenes, with an observation-only MCP server so an agent can see and drive the same live scene.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/editor"
+  },
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/editor#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "bin": {
     "scenoco-editor": "./dist/cli/index.js"
   },
@@ -38,8 +45,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "@scenoco-three/compiler": "^0.4.0",
-    "@scenoco-three/core": "^0.4.0",
+    "@scenoco-three/compiler": "^0.5.0",
+    "@scenoco-three/core": "^0.5.0",
     "@vitejs/plugin-react": "^6.0.3",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",

@@ -94,7 +94,14 @@ export class AssetScope {
   reference(href: string): string | undefined {
     const found = this.resolve(href);
     if (!found) return undefined;
-    if (found.kind !== 'file') return this.module.require(found.module, found.name);
+    if (found.kind !== 'file') {
+      const local = this.module.require(found.module, found.name);
+      // Whatever a prefab needs, whoever names it waits for. True of a `<Prefab src=>` spawn
+      // and of a component field holding the prefab to spawn later — same list, same reason:
+      // `instantiate` is synchronous, so a prefab has nowhere to await.
+      if (found.kind === 'prefab' && found.waits) this.inherit(local);
+      return local;
+    }
 
     const existing = this.files.get(found.href);
     if (existing) return existing;

@@ -1,0 +1,23 @@
+name: Bug report
+description: Something compiled wrong, ran wrong, or the diagnostic was unhelpful.
+labels: [bug]
+body:
+  - type: textarea
+    id: document
+    attributes:
+      label: The document
+      description: The XML that reproduces it, trimmed to the smallest thing that still misbehaves.
+      render: xml
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+      description: If the compiler said something, paste it verbatim — the message is the feature, and a bad message is a valid bug on its own.
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "@scenoco-three/compiler 0.5.0, three 0.184.0, node 22"
+    validations: { required: true }

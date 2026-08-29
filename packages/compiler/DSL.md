@@ -55,6 +55,7 @@ text to write instead — it never accepts both.
 | several | `bricks="[#b1, #b2]"` | |
 | an asset | `geometry="../geometry/brick.geometry.xml"` | |
 | a scene | `nextLevel="level-2.scene.xml"` — a field declared `SceneType` | |
+| a prefab | `brick="brick.prefab.xml"` — a field declared `PrefabType` | |
 | a file | `map="../textures/brick.png"` | |
 
 A bracketed list works for **every** kind of value, not only references: `bricks="[#b1, #b2]"`,
@@ -62,12 +63,61 @@ A bracketed list works for **every** kind of value, not only references: `bricks
 type decides — `Object3D[]`, `Color[]`, `Vector3[]` — and each entry is read exactly as a lone
 value of that type would be.
 
-A field declared `SceneType` holds a *scene class*, which is what `SceneManager.load` takes:
+A document kind that compiles to a *class* is referenced the same way. `SceneType` holds a scene
+class, which is what `SceneManager.load` takes; `PrefabType` holds a prefab class, which is what
+`instantiate` takes:
 
 ```ts
 export class Goal extends Component {
   nextLevel!: SceneType;                          // authored as a path
   finish() { void SceneManager.load(this.nextLevel); }
+}
+```
+
+### The primitives
+
+`scenoco new geometry` writes the shapes a scene is built from into `assets/geometry`, sized as
+Unity sizes them — a cube one unit on a side, a sphere one across — so a mesh names one and
+`scale` says how big *this* one is:
+
+```xml
+<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/stone.material.xml"
+      position="y: 2" scale="x: 24; y: 4; z: 1" />
+```
+
+| | |
+| --- | --- |
+| `cube` | 1 × 1 × 1 |
+| `sphere` | 1 across |
+| `cylinder` `capsule` | 1 across, **2 tall** |
+| `cone` | 1 across, 1 tall |
+| `quad` | 1 × 1, upright |
+| `plane` | 10 × 10, upright — lay it flat with `eulerAngles="x: -90"` |
+
+They are documents rather than tags because a node tag is a three.js class, and three.js has no
+`Cube`. What a primitive is here is the *numbers*.
+
+**This is where repetition goes.** A wall of sixty bricks is not sixty elements and not a tag
+that generates them — it is data plus a loop, with the thing being repeated still named in the
+document:
+
+```xml
+<Group position="y: 13.9">
+  <Components>
+    <BrickField brick="brick.prefab.xml" rows="[1111111, 1111111, .11111.]" />
+  </Components>
+</Group>
+```
+
+```ts
+export class BrickField extends Component {
+  brick!: PrefabType;
+  rows: string[] = [];
+  override awake() {
+    for (const [row, cells] of this.rows.entries())
+      for (const [column, cell] of [...cells].entries())
+        if (cell !== '.') this.object3D.instantiate(this.brick, { position: at(row, column) });
+  }
 }
 ```
 

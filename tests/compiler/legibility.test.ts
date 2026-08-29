@@ -117,6 +117,12 @@ describe('nothing is silently ignored', () => {
     expect(codes(diagnostics)).toContain('text-content');
     expect(first(diagnostics)?.message).toContain('every value in a SceNoCo document is an attribute'.slice(6));
   });
+
+  it('names a markdown fence for what it is, since that is what a model leaves behind', () => {
+    const { diagnostics } = emit('scene', '<Scene><Group>```xml</Group></Scene>');
+    expect(codes(diagnostics)).toContain('text-content');
+    expect(first(diagnostics)?.message).toContain('markdown code fence');
+  });
 });
 
 describe('a document means one thing regardless of attribute order', () => {
@@ -141,6 +147,23 @@ describe('ids are handles, wherever they are', () => {
     expect(code).toContain('hud!: Group;');
     expect(code).toContain('scoreboard!: Brick;');
     expect(code).toContain('this.scoreboard = this.hud.addComponent(Brick, { points: 5 });');
+  });
+});
+
+describe('a near miss is answered, and so is a wild guess', () => {
+  it('suggests the field when the attribute is a misspelling', () => {
+    const { diagnostics } = emit('scene', `<Scene><Group><Components><Brick pints="3" /></Components></Group></Scene>`);
+    expect(codes(diagnostics)).toEqual(['unknown-attribute']);
+    expect(first(diagnostics)?.message).toContain('Did you mean "points"?');
+  });
+
+  it('names the whole vocabulary when the attribute came from somewhere else', () => {
+    // Borrowed from another class rather than mistyped, so there is nothing to suggest — and
+    // the component lives in a package, where a reader cannot go looking. Naming what it does
+    // take is the only answer that leaves something to do.
+    const { diagnostics } = emit('scene', `<Scene><Group><Components><Brick strength="1" /></Components></Group></Scene>`);
+    expect(codes(diagnostics)).toEqual(['unknown-attribute']);
+    expect(first(diagnostics)?.message).toContain('It takes: points, tint.');
   });
 });
 

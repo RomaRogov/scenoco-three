@@ -16,14 +16,15 @@ Drag or use ←/→ (or A/D) to move the paddle, click or press space to launch.
 | --- | --- |
 | `assets/render/neon.render.xml` | the look every level shares: fog, tone curve, bloom |
 | `assets/scenes/hud.scene.xml` | the HUD **and the run it reports on** — a scene marked `dontDestroyOnLoad`, so a level load does not touch it |
-| `assets/scenes/level-{1,2,3}.scene.xml` | one document per level: the look, the lights, the camera, and where the bricks go |
+| `assets/scenes/level-{1,2,3}.scene.xml` | one document per level: the look, the lights, the camera, and the wall's map |
 | `assets/scenes/arena.prefab.xml` | the walls, paddle, ball and floor sensor every level shares |
 | `assets/scenes/brick.prefab.xml` | one brick — all three tiers |
 | `src/Progress.ts` | score, lives, which level, and the readout showing them |
 | `src/GameState.ts` | one level's rules, as a scene service |
+| `src/BrickField.ts` | reads a level's map and places the wall |
 | `src/Ball.ts` `src/Paddle.ts` `src/Brick.ts` | one job each |
 
-Four things carry most of the weight, and each is a feature doing exactly what it is for:
+A few things carry most of the weight, and each is a feature doing exactly what it is for:
 
 - **The HUD is a persistent scene.** `main.ts` loads it additively; `<Scene dontDestroyOnLoad>`
   keeps it. The score outlives the level because the object holding it is never rebuilt — no
@@ -35,10 +36,17 @@ Four things carry most of the weight, and each is a feature doing exactly what i
   takes one, so a field declared `SceneType` is filled by a path like any other asset reference.
   It is declared in the HUD, which no level imports, so nothing is circular.
 
-- **One brick prefab, three tiers.** A level says `<Override target="#brick" hits="2" />` and
-  nothing else; the prefab names all three materials once and the brick picks the one its
-  toughness earns. `<Override target="#ball" speed="18" />` on the shared arena is how level
-  three is faster than level one.
+- **One brick prefab, three tiers.** A level says `hits="2"` — through an `<Override
+  target="#brick">` on a lone spawn, or a `2` in a wall's map — and nothing else; the prefab
+  names all three materials once and the brick picks the one its toughness earns. `<Override
+  target="#ball" speed="18" />` on the shared arena is how level three is faster than level one.
+
+- **A wall is data and a loop.** `<BrickField brick="brick.prefab.xml" rows="[.22222.,
+  2111112, …]" />`. The map used to sit above each level as a comment while thirty near-identical
+  `<Prefab>` elements repeated it below; the comment was always the readable version, so it is
+  the data now. What makes that possible is that a prefab is nameable — a field declared
+  `PrefabType` is filled by a path, exactly as a geometry or a material is — so the thing being
+  repeated is still authored in the document and the loop lives where loops live.
 
 - **The camera states a frame, not a fov.** `<CameraFit mode="contain" width="21" height="19.5">`,
   so a phone in portrait letterboxes instead of cropping the side walls.
@@ -56,9 +64,6 @@ the persistent `Progress` in `start()` — the phase after the whole document is
 
 Kept as written rather than tidied away, because each one is a gap worth closing:
 
-- **A level with seventy bricks is seventy elements.** One `<Prefab>` per brick, and the tier is
-  an `<Override>` child, so a grid is generated rather than written. Something like Tiled's
-  layer — a repeated placement with a grid of values — would collapse most of a level document.
 - **An `<Override>` cannot be given a name.** The three tiers are `hits="1|2|3"` at every site;
   a named preset (v1 called them variants) would say `tier="hard"` once per brick and keep the
   meaning in the prefab.

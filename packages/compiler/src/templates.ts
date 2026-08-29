@@ -20,7 +20,9 @@ const TEMPLATES: Record<AssetKind['kind'], (name: string) => string> = {
 <Texture src="${name}.png" colorSpace="SRGBColorSpace" />
 `,
 
-  geometry: (name) => `<!-- ${name}: a shared geometry. Reference it from a mesh with
+  geometry: (name) =>
+    PRIMITIVES[name] ??
+    `<!-- ${name}: a shared geometry. Reference it from a mesh with
      geometry="../geometry/${name}.geometry.xml" — every mesh that names it shares one. -->
 <BoxGeometry width="1" height="1" depth="1" />
 `,
@@ -70,6 +72,51 @@ const TEMPLATES: Record<AssetKind['kind'], (name: string) => string> = {
   <AmbientLight intensity="0.6" />
   <DirectionalLight intensity="1.2" position="x: 3; y: 5; z: 2" />
 </Scene>
+`,
+};
+
+/**
+ * The primitives, sized as Unity sizes them.
+ *
+ * Unity's built-in meshes are in the engine; here they are ordinary geometry documents, because
+ * that is what a shape is in this framework — there is no `<Cube>` tag and there should not be
+ * one, since a node tag is a three.js class and three.js has no `Cube`. What these are is the
+ * *numbers*: a cube one unit on a side, a sphere one across, so a mesh that names one is sized
+ * with `scale` and nothing has to be worked out.
+ *
+ * `scenoco new geometry` writes the lot; `scenoco new geometry cube` writes one.
+ *
+ * A `<PlaneGeometry>` stands upright in XY, as three.js builds it. Unity's plane is pre-rotated
+ * and ours is not — laying it flat is `eulerAngles="x: -90"` on the mesh, which is one attribute
+ * and is the truth rather than a rotation hidden inside the asset.
+ */
+export const PRIMITIVES: Readonly<Record<string, string>> = {
+  cube: `<!-- A cube, 1 x 1 x 1. Scale the mesh to size it:
+     <Mesh geometry="../geometry/cube.geometry.xml" material="…" scale="x: 8; y: 4; z: 1" /> -->
+<BoxGeometry width="1" height="1" depth="1" />
+`,
+  sphere: `<!-- A sphere 1 across — radius 0.5, as Unity's is. -->
+<SphereGeometry radius="0.5" widthSegments="32" heightSegments="16" />
+`,
+  cylinder: `<!-- A cylinder 1 across and 2 tall, as Unity's is, standing on Y.
+     Two tall: scale="y: 3" makes it 6 tall, not 3. -->
+<CylinderGeometry radiusTop="0.5" radiusBottom="0.5" height="2" radialSegments="32" />
+`,
+  capsule: `<!-- A capsule 1 across and 2 tall overall, as Unity's is: a 1-tall barrel with a
+     hemisphere on each end. -->
+<CapsuleGeometry radius="0.5" height="1" capSegments="8" radialSegments="16" />
+`,
+  cone: `<!-- A cone 1 across and 1 tall, point up. -->
+<ConeGeometry radius="0.5" height="1" radialSegments="32" />
+`,
+  quad: `<!-- A 1 x 1 sheet, standing upright in XY and facing +Z, as three.js builds it.
+     Lay it flat with eulerAngles="x: -90" on the mesh. -->
+<PlaneGeometry width="1" height="1" />
+`,
+  plane: `<!-- A 10 x 10 sheet — Unity's plane size — standing upright in XY.
+     A ground is this one laid flat:
+     <Mesh geometry="../geometry/plane.geometry.xml" material="…" eulerAngles="x: -90" scale="6" /> -->
+<PlaneGeometry width="10" height="10" />
 `,
 };
 

@@ -51,7 +51,7 @@ beforeAll(() => {
   fixture = makeFixture('authoring');
   fixture.write(
     'components.ts',
-    `import { Component, System, type SceneType } from '@scenoco-three/core';
+    `import { Component, System, type PrefabType, type SceneType } from '@scenoco-three/core';
 import { Color, Mesh, Object3D, Vector3 } from 'three';
 
 /** Scores a brick. */
@@ -67,6 +67,13 @@ export class Rules extends System {
   spawns: Object3D[] = [];
   pointsPerHit = 50;
   nextLevel!: SceneType;
+}
+
+/** Lays out the repetitive half of a level, which is a loop rather than sixty elements. */
+export class Field extends Component {
+  cell!: PrefabType;
+  cells: PrefabType[] = [];
+  columns = 7;
 }
 
 export class Palette extends Component {
@@ -315,6 +322,24 @@ describe('lists and references', () => {
     );
     expect(codes(diagnostics)).toEqual(['bad-number']);
     expect(diagnostics[0]!.message).toContain('fast');
+  });
+
+  it('fills a PrefabType field with a path, so a component can spawn what a document names', () => {
+    const { code, diagnostics } = emit(
+      'scene',
+      `<Scene>
+         <Group>
+           <Components>
+             <Field cell="brick.prefab.xml" cells="[brick.prefab.xml]" columns="9" />
+           </Components>
+         </Group>
+       </Scene>`,
+    );
+    expect(diagnostics).toEqual([]);
+    // The class itself, imported — the same value `<Prefab src>` spawns, reached the same way a
+    // geometry or a scene is. A component holding it can `instantiate` it as many times as it
+    // likes, which is where a grid of bricks belongs.
+    expect(code).toContain('node1.addComponent(Field, { cell: BrickPrefab, cells: [BrickPrefab], columns: 9 })');
   });
 
   it('spawns a prefab and loads a scene, and will not confuse the two', () => {
