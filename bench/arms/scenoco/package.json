@@ -1,0 +1,26 @@
+{
+  "name": "bench-arm-scenoco",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "scenoco build && vite build",
+    "check": "scenoco build && tsc --noEmit",
+    "describe": "scenoco describe",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^0.5.1",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@scenoco-three/compiler": "^0.5.2",
+    "@scenoco-three/editor": "^0.5.0",
+    "@scenoco-three/vite": "^0.5.1",
+    "@types/three": "^0.184.0",
+    "typescript": "^7.0.0",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,12 +1,9 @@
 /**
  * `@scenoco-three/core` — a Unity-shaped scene and component layer for Three.js.
  *
- * Importing this module installs the augmentations: from here on every `THREE.Object3D` can
- * carry components and every `THREE.Scene` can load, unload and run an event cycle. There is
- * no wrapper type to learn and nothing to unwrap — a `Mesh` is still a `Mesh`, with the whole
- * three.js API on it.
- *
- * ## The whole model, in four nouns
+ * Importing this module installs the augmentations: every `THREE.Object3D` can carry components
+ * and every `THREE.Scene` can load, unload and run an event cycle. There is no wrapper type and
+ * nothing to unwrap — a `Mesh` is still a `Mesh`, with the whole three.js API on it.
  *
  * | | is | lives on | you write |
  * | --- | --- | --- | --- |
@@ -17,7 +14,7 @@
  *
  * ```ts
  * import { Component, SceneManager } from '@scenoco-three/core';
- * import { Mesh, Scene } from 'three';
+ * import { Scene } from 'three';
  *
  * class Spinner extends Component {
  *   speed = 1;                                     // a public field is a setting
@@ -35,30 +32,26 @@
  *
  * ## The rules
  *
- * **Nothing is addressed by a string.** Components are found by class, scenes are loaded by
- * class, keys are named by `KeyCode`, events are typed `Event` fields. If you are about to
- * write a string literal that names a *thing*, there is a typed answer for it. Strings are for
- * text a person reads.
+ * **Nothing is addressed by a string.** Components are found by class, scenes loaded by class,
+ * keys named by `KeyCode`, events are typed `Event` fields. Strings are for text a person reads.
  *
- * **Components never declare a constructor.** `addComponent(Type, init)` constructs, then
- * applies `init`, then wakes — so a component always wakes up configured. Class field
- * initializers run after `super()`, which is why a constructor taking settings would have
- * every one of them silently overwritten by the subclass's own defaults.
+ * **Components never declare a constructor.** `addComponent(Type, init)` constructs, applies
+ * `init`, then wakes, so a component always wakes up configured. Field initializers run after
+ * `super()`, which is why a constructor taking settings would have them silently overwritten.
  *
- * **`awake` for your own state, `start` for reaching other components.** Nothing has been
- * started when `awake` runs, so a `start` that depends on another `start` is a bug.
+ * **`awake` for your own state, `start` for reaching other components.** Nothing has started
+ * when `awake` runs, so a `start` that depends on another `start` is a bug.
  *
- * **Every destroy is deferred** to the end of the frame — components, objects and systems
- * alike. Destroying inside a hook is therefore always safe, and every phase skips a doomed
- * thing from the moment it is marked.
+ * **Every destroy is deferred** to the end of the frame — components, objects and systems alike.
+ * Destroying inside a hook is always safe, and every phase skips a doomed thing at once.
  *
- * **Authored data is in degrees.** `Object3D.eulerAngles` is the degrees view; radians exist
- * only on the live `THREE.Euler` underneath.
+ * **Angles you set are degrees.** `Object3D.eulerAngles` is the degrees view; radians exist only
+ * on the live `THREE.Euler` underneath.
  *
  * ## The frame
  *
- * `SceneManager.tick(timestamp)` runs the phases in this order. Systems run after every
- * component in the matching phase, which is the ordering physics needs.
+ * `SceneManager.tick(timestamp)` runs the phases in order. Systems run after every component in
+ * the matching phase, which is the ordering physics needs.
  *
  * ```text
  * once, on the first frame: component.start → system.start
@@ -70,20 +63,16 @@
  *
  * ## What outlives a scene
  *
- * `SceneManager.load` replaces everything — except what said otherwise.
- * `SceneManager.dontDestroyOnLoad(node)` moves a node into a persistent scene that is ticked
- * and drawn over the active one; `scene.dontDestroyOnLoad = true` exempts a whole scene, which
- * is the shape that cannot end up duplicated, since `loadAdditive` of a loaded scene is a
- * no-op. `SceneManager.findObjectOfType` searches every loaded scene, which is how a new level
- * reaches what survived the last one.
+ * `SceneManager.load` replaces everything except what said otherwise:
+ * `dontDestroyOnLoad(node)` moves a node into a persistent scene that is ticked and drawn over
+ * the active one, and `scene.dontDestroyOnLoad = true` exempts a whole scene.
+ * `SceneManager.findObjectOfType` searches every loaded scene, which is how a new level reaches
+ * what survived the last one.
  *
  * ## What is deliberately absent
  *
  * No engine object, no registry, no wire format, no reflection, no queries, no tags, no
- * `sendMessage`. A component is a class extending `Component`, and that is the whole
- * registration: the build finds it by reading the workspace with the TypeScript API, the way
- * Unity reads a MonoBehaviour. Scene, prefab, geometry, material and particle documents
- * compile to TypeScript that constructs Three.js objects directly.
+ * `sendMessage`. A class extending `Component` is the whole registration.
  */
 // The `Object3D` augmentation, split by concern: each file declares the members it implements.
 import './runtime/augment/object3d.js';
@@ -132,11 +121,12 @@ export { Tweens, type TweenTicker, type TweenStarter } from './runtime/Tweens.js
 export { Time } from './runtime/Time.js';
 
 // Typed events: how components signal each other without importing each other. A class
-// field, never a string name — the compiler checks every subscriber.
+// field, never a string name — every subscriber is type-checked.
 export { Event } from './runtime/Event.js';
 
 export { Input } from './input/Input.js';
 export { KeyCode, MouseButton } from './input/KeyCode.js';
+export { AXES, AXIS_NAMES, BUTTON_NAMES, type Axis, type Button } from './input/axes.js';
 
 export {
   Coroutine,

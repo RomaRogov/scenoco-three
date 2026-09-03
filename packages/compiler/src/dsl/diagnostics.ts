@@ -14,6 +14,15 @@ export interface SncDiagnostic {
   message: string;
   /** Set when the problem is in a referenced file (a resource or prefab), not the scene. */
   file?: string;
+  /**
+   * What to run `scenoco describe` on, set only when the message itself is a dead end.
+   *
+   * Carried rather than appended, so the pointer can be printed **once per run** instead of once
+   * per problem. Twenty unknown attributes on the same tag are twenty reasons to look the tag up
+   * and one line's worth of advice; repeating it on every line is how a diagnostic block stops
+   * being read.
+   */
+  ask?: string;
 }
 
 /** tsc-style `file:line:col` rendering, e.g. `scene.xml:12:6  unknown-tag  ...`. */
@@ -37,18 +46,62 @@ export function nearestName(input: string, candidates: readonly string[]): strin
   return best !== undefined && bestDist <= threshold ? best : undefined;
 }
 
+/** One hint, chosen from several, never combined. */
+export interface Hint {
+  /** Appended to the message. Empty when nothing short enough would have helped. */
+  text: string;
+  /** Set instead of `text` when the answer is too big to inline. See {@link SncDiagnostic.ask}. */
+  ask?: string;
+}
+
+/** Above this many attributes, a list stops being an answer and starts being a wall. */
+const INLINE_LIMIT = 12;
+
 /**
- * What the thing *does* take, for when the near-miss check found nothing to suggest.
+ * The most useful thing that fits on the end of one line.
  *
- * A misspelling gets "did you mean"; an attribute borrowed from somewhere else gets nothing, and
- * "has no field" on its own is a dead end — the class is in a package, not in the project, so
- * there is nowhere for a reader to look it up. Naming the vocabulary is the answer, and it is
- * only affordable where the vocabulary is small: a component, a system, an effect.
+ * Three answers in strict order of decisiveness, and exactly one of them is used. A misspelling
+ * gets "did you mean", which is the whole fix. A small vocabulary gets named, because reading it
+ * is cheaper than asking for it. Everything else gets nothing on the line and a pointer in the
+ * summary — `<Mesh>` has thirty-odd attributes, and a truncated list of them tells a reader
+ * neither what is there nor that anything is missing.
+ *
+ * The ordering is the economy: a hint that answers the question makes the pointer redundant, and
+ * emitting both trains the reader to skim past both.
  */
-export function fieldsItTakes(names: readonly string[], limit = 12): string {
-  if (names.length === 0) return ' It takes no attributes.';
-  const shown = names.slice(0, limit).join(', ');
-  return ` It takes: ${shown}${names.length > limit ? ', …' : ''}.`;
+export function hint(options: {
+  /** The near-miss, if the caller found one. */
+  near?: string;
+  /** How to spell it back: a tag reads `<Mesh>`, an attribute reads `"position"`. */
+  as: 'tag' | 'attribute';
+  /** The name whose vocabulary answers this, for `scenoco describe`. */
+  ask: string;
+  /** The full vocabulary, when the caller has it and it might be short enough to name. */
+  takes?: readonly string[];
+}): Hint {
+  const { near, as, ask, takes } = options;
+  if (near !== undefined) {
+    return { text: as === 'tag' ? ` Did you mean <${near}>?` : ` Did you mean "${near}"?` };
+  }
+  if (takes) {
+    if (takes.length === 0) return { text: ' It takes no attributes.' };
+    if (takes.length <= INLINE_LIMIT) return { text: ` It takes: ${takes.join(', ')}.` };
+  }
+  return { text: '', ask };
+}
+
+/**
+ * The distinct things worth looking up across a whole run, in the order they were first hit.
+ *
+ * Deduplicated because the same tag is usually wrong several times in a row, and a summary that
+ * repeats itself is a summary nobody finishes reading.
+ */
+export function whatToLookUp(diagnostics: readonly SncDiagnostic[]): string[] {
+  const seen: string[] = [];
+  for (const d of diagnostics) {
+    if (d.ask !== undefined && !seen.includes(d.ask)) seen.push(d.ask);
+  }
+  return seen;
 }
 
 function editDistance(a: string, b: string): number {

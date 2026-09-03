@@ -7,6 +7,7 @@ import {
   scanEffects,
   scanSystems,
   scanTags,
+  whatToLookUp,
   type ProjectModel,
   type SncDiagnostic,
 } from '../../packages/compiler/src/index.js';
@@ -66,6 +67,44 @@ const first = (diagnostics: SncDiagnostic[]) => diagnostics[0];
 const codes = (diagnostics: SncDiagnostic[]) => diagnostics.map((d) => d.code);
 
 describe('one spelling per value', () => {
+  /**
+   * The hint economy: one answer per problem, and a pointer only where no answer fits.
+   *
+   * A misspelling is worth answering on the line — it *is* the fix. A tag with thirty attributes
+   * is not, and a truncated list of them is worse than nothing, so it defers to the summary.
+   * Emitting both trains a reader to skim past both, which is the failure this ordering exists
+   * to prevent.
+   */
+  it('answers a misspelling on the line, and asks nothing further', () => {
+    const { diagnostics } = emit('scene', `<Scene><Group positon="y: 1" /></Scene>`);
+    const [problem] = diagnostics;
+    expect(problem?.message).toContain('Did you mean "position"?');
+    expect(problem?.ask, 'a hint that answers the question makes the pointer noise').toBeUndefined();
+  });
+
+  it('points at `describe` when the vocabulary is too big to name', () => {
+    // `rotation` is not an attribute here — the DSL spells it `eulerAngles` — so there is no near
+    // miss to offer, and <Mesh> has far too many attributes to list.
+    const { diagnostics } = emit(
+      'scene',
+      `<Scene><Mesh geometry="g.geometry.xml" material="m.material.xml" rotaton="x: 1" /></Scene>`,
+    );
+    const problem = diagnostics.find((d) => d.code === 'unknown-attribute');
+    expect(problem?.message).not.toContain('Did you mean');
+    expect(problem?.ask).toBe('Mesh');
+  });
+
+  it('names each thing to look up once, however often it was wrong', () => {
+    const { diagnostics } = emit(
+      'scene',
+      `<Scene>
+         <Mesh geometry="g.geometry.xml" material="m.material.xml" rotaton="x: 1" />
+         <Mesh geometry="g.geometry.xml" material="m.material.xml" opacty="1" />
+       </Scene>`,
+    );
+    expect(whatToLookUp(diagnostics)).toEqual(['Mesh']);
+  });
+
   it('takes the axis form for a vector and hands back the rewrite for a positional one', () => {
     const bad = emit('scene', `<Scene><Group position="1 2 3" /></Scene>`);
     expect(first(bad.diagnostics)?.code).toBe('bad-vector');

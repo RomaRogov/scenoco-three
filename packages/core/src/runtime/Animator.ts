@@ -11,43 +11,21 @@ import { Component } from './Component.js';
 /**
  * Plays the animation clips a glTF model ships with — Unity's `Animator`.
  *
- * ```xml
- * <Group>
- *   <Prefab src="../models/hero.glb" />
- *   <Components>
- *     <Animator clip="Run" loop="true" speed="1" />
- *   </Components>
- * </Group>
- * ```
- *
  * ```ts
+ * node.addComponent(Animator, { clip: 'Run', loop: true });
+ *
  * class Hero extends Component {
  *   animator!: Animator;
- *   override update() {
- *     this.animator.crossFade(this.moving ? 'Run' : 'Idle', 0.2);
- *   }
+ *   override update() { this.animator.crossFade(this.moving ? 'Run' : 'Idle', 0.2); }
  * }
  * ```
  *
- * `play` is Unity's `Animator.Play`, `crossFade` its `CrossFade`, `speed` its `speed`. The clips
- * come from the model itself: `Model.instantiate` puts them on `Object3D.animations`, three.js's
- * own field for them, and this looks for the nearest node below that has any.
+ * `play` is Unity's `Animator.Play`, `crossFade` its `CrossFade`. The clips come from the model:
+ * instantiating one puts them on `Object3D.animations`, three.js's own field, and this looks for
+ * the nearest node below that has any. Awaiting the model in `onLoad` means they are there by
+ * `start`, so nothing here retries.
  *
- * ### Why this is in core
- *
- * Clips arrive on `Object3D.animations` when a glTF is instantiated, and glTF loading is core's
- * (`Model`, `sharedModel`, `loadAssets`). A player for them in a separate optional package meant
- * a project that loaded an animated model still had to know to install *and* import something
- * else before it could press play on what it already had.
- *
- * ### What it no longer does
- *
- * v1 rebuilt its mixer in `update` every frame until one appeared, because a model streamed in
- * at some unknown point after `start`. A scene now awaits its models before it builds anything,
- * so the clips are there in `start` — the retry, and the whole class of "it worked on the second
- * frame" bug that comes with it, is gone.
- *
- * The mixer only writes transforms, so this runs headless.
+ * The mixer only writes transforms, so it runs headless.
  */
 export class Animator extends Component {
   /** The clip to play on start. Empty means the model's first. */
@@ -87,8 +65,7 @@ export class Animator extends Component {
   override update(deltaTime: number): void {
     if (!this.mixer) return;
     // Assigning `speed` is how a script changes it, so the change has to reach three.js
-    // somewhere. Here, rather than behind a setter, keeps the field a plain field — which is
-    // what makes it an attribute the compiler can read.
+    // somewhere. Here rather than behind a setter, so it stays a plain field.
     if (this.speed !== this.appliedSpeed) {
       this.mixer.timeScale = this.speed;
       this.appliedSpeed = this.speed;

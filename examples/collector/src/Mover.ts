@@ -1,17 +1,14 @@
 import { MathUtils, Vector3 } from 'three';
-import { Component } from '@scenoco-three/core';
-import { Joystick } from './Joystick.js';
+import { Component, Input } from '@scenoco-three/core';
 
 /**
- * Walks where the stick says, and turns to face the way it is going.
+ * Walks where the input says, and turns to face the way it is going.
  *
- * Top-down, so the stick's y drives world z. The turn is eased rather than snapped: a character
- * that pivots instantly reads as a sprite, and one frame of lag is the difference.
+ * Reads `Horizontal` and `Vertical`, so it works the same whether the keyboard or the on-screen
+ * joystick is driving them. Top-down, so `Vertical` drives world z. The turn is eased rather
+ * than snapped: a character that pivots instantly reads as a sprite.
  */
 export class Mover extends Component {
-  /** Wired by `#id` — the joystick living on the camera. */
-  stick!: Joystick;
-
   speed = 6;
   /** Degrees a second the model turns towards its heading. */
   turn = 720;
@@ -22,7 +19,8 @@ export class Mover extends Component {
   moving = false;
 
   override update(dt: number): void {
-    const { x, y } = this.stick.direction;
+    const x = Input.getAxis('Horizontal');
+    const y = Input.getAxis('Vertical');
     this.moving = x !== 0 || y !== 0;
     if (!this.moving) return;
 

@@ -1,0 +1,6 @@
+<!-- One crate. The root element *is* the node, so a spawned crate is this mesh. -->
+<Mesh name="crate" geometry="../geometry/crate.geometry.xml" material="../materials/crate.material.xml">
+  <Components>
+    <Crate />
+  </Components>
+</Mesh>

@@ -1,6 +1,7 @@
 import type { ProjectModel, PropInfo, TagInfo } from '../model.js';
 import type { SncDiagnostic } from '../dsl/diagnostics.js';
-import { nearestName } from '../dsl/diagnostics.js';
+import { PLACEMENT } from './placement.js';
+import { hint, nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
@@ -133,28 +134,40 @@ export function buildConstruction(
 
 function unknownTag(element: SncElement, model: ProjectModel, family: string): SncDiagnostic {
   const candidates = model.tags.filter((t) => t.family === family).map((t) => t.name);
-  const suggestion = nearestName(element.tag, candidates);
+  const tagAdvice = hint({ near: nearestName(element.tag, candidates), as: 'tag', ask: element.tag });
   return {
     line: element.line,
     column: element.column,
     code: 'unknown-tag',
     message:
-      `<${element.tag}> is not a ${family}.` +
-      (suggestion ? ` Did you mean <${suggestion}>?` : ` Expected one of: ${candidates.slice(0, 8).join(', ')}…`),
+      `<${element.tag}> is not a ${family}.${tagAdvice.text}`,
+    ask: tagAdvice.ask,
     ...(element.file ? { file: element.file } : {}),
   };
 }
 
 function unknownAttribute(element: SncElement, attribute: string, tag: TagInfo): SncDiagnostic {
-  const names = [...tag.parameters, ...tag.properties].map((p) => p.name);
-  const suggestion = nearestName(attribute, names);
+  // Placement is consumed by its own pass, so it is absent from the tag's parameters and
+  // properties — which meant `positon` on a <Mesh> got no "did you mean", the one misspelling
+  // most likely to be made. The near-miss search has to see everything the element legally
+  // accepts, not just the half of it this function is responsible for.
+  const names = [
+    ...[...tag.parameters, ...tag.properties].map((p) => p.name),
+    ...Object.keys(PLACEMENT),
+  ];
+  const attrAdvice = hint({
+    near: nearestName(attribute, names),
+    as: 'attribute',
+    ask: tag.name,
+    takes: names,
+  });
   return {
     line: element.line,
     column: element.column,
     code: 'unknown-attribute',
     message:
-      `<${tag.name}> has no attribute "${attribute}".` +
-      (suggestion ? ` Did you mean "${suggestion}"?` : ''),
+      `<${tag.name}> has no attribute "${attribute}".${attrAdvice.text}`,
+    ask: attrAdvice.ask,
     ...(element.file ? { file: element.file } : {}),
   };
 }

@@ -1,32 +1,30 @@
 /**
- * A typed event — the sanctioned way two components talk without importing each
- * other.
+ * A typed event — how two components talk without importing each other.
  *
- * Deliberately **not** a string-keyed bus (`emit('brick-destroyed')`). An event
- * is a class field, so the compiler checks the name, the argument types, and
- * every subscriber; a typo is a build error rather than a listener that silently
- * never fires. Shaped like a C# event, minus the strings.
+ * Deliberately **not** a string-keyed bus. An event is a class field, so TypeScript checks the
+ * name, the argument types and every subscriber; a typo is a build error rather than a listener
+ * that silently never fires. Shaped like a C# event, minus the strings.
  *
- *   class Brick extends Component {
- *     points = 10;
- *     readonly destroyed = new Event<[Brick]>();
- *     hit() { this.destroyed.emit(this); this.object3D.destroy(); }
- *   }
+ * ```ts
+ * class Brick extends Component {
+ *   points = 10;
+ *   readonly destroyed = new Event<[Brick]>();
+ *   hit() { this.destroyed.emit(this); this.object3D.destroy(); }
+ * }
  *
- *   class Scoreboard extends Component {
- *     /** Bricks to score. *␀/
- *     bricks: Brick[] = [];
- *     score = 0;
- *     override start() { for (const b of this.bricks) this.listen(b.destroyed, this.onBrick); }
- *     private onBrick = (brick: Brick) => { this.score += brick.points; };
- *   }
+ * class Scoreboard extends Component {
+ *   bricks: Brick[] = [];
+ *   score = 0;
+ *   override start() { for (const b of this.bricks) this.listen(b.destroyed, this.onBrick); }
+ *   private onBrick = (brick: Brick) => { this.score += brick.points; };
+ * }
+ * ```
  *
- * References point **down** (a field holding the thing you own); events
- * travel **up and out**. That is what keeps two components from importing each
- * other — the cycle that a component graph otherwise grows into.
+ * References point **down**, at the thing you own; events travel **up and out**. That is what
+ * keeps two components from importing each other.
  *
- * Prefer `Component.listen`, which unsubscribes automatically when the listener
- * is destroyed; use `on`/`off` directly only outside a component's lifetime.
+ * Prefer `Component.listen`, which unsubscribes when the listener is destroyed; use `on`/`off`
+ * directly only outside a component's lifetime.
  */
 export class Event<TArgs extends unknown[] = []> {
   private listeners: ((...args: TArgs) => void)[] = [];

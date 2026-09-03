@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/editor",
-  "version": "0.5.0",
-  "description": "Local visual editor for SceNoCo scenes, with an observation-only MCP server so an agent can see and drive the same live scene.",
+  "version": "0.6.0",
+  "description": "The standalone SceNoCo editor: a static site that opens any .scene.xml from a folder or a URL, builds the scene live, and saves back \u2014 a tree, an inspector, gizmos. `scenoco-editor` serves it locally.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -14,25 +14,20 @@
   "bin": {
     "scenoco-editor": "./dist/cli/index.js"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
+  "main": "./dist/cli/index.js",
   "files": [
     "dist",
-    "app"
+    "dist-app"
   ],
   "keywords": [
     "three",
     "threejs",
     "scenoco",
     "editor",
-    "preview",
-    "render",
+    "scene",
+    "xml",
+    "gizmo",
+    "inspector",
     "gamedev"
   ],
   "publishConfig": {
@@ -40,29 +35,30 @@
   },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js && npm run build:app",
+    "build:app": "node scripts/static-model.mjs && node scripts/static-assets.mjs && vite build --config vite.static.config.ts",
+    "preview:app": "vite preview --config vite.static.config.ts --port 5195 --strictPort",
     "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "@scenoco-three/compiler": "^0.5.0",
-    "@scenoco-three/core": "^0.5.0",
+  "dependencies": {},
+  "peerDependencies": {},
+  "devDependencies": {
+    "@scenoco-three/audio": "^0.6.0",
+    "@scenoco-three/box2d": "^0.6.0",
+    "@scenoco-three/collision": "^0.6.0",
+    "@scenoco-three/compiler": "^0.6.0",
+    "@scenoco-three/core": "^0.6.0",
+    "@scenoco-three/particles": "^0.6.0",
+    "@scenoco-three/postfx": "^0.6.0",
+    "@scenoco-three/ui": "^0.6.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.3",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-arborist": "^3.4.0",
     "react-dom": "^18.3.1",
-    "ws": "^8.18.0",
-    "zod": "^4.0.0",
+    "vite": "^8.0.0",
     "zustand": "^5.0.2"
-  },
-  "peerDependencies": {
-    "three": ">=0.160.0",
-    "vite": ">=5"
-  },
-  "devDependencies": {
-    "@types/react": "^18.3.31",
-    "@types/react-dom": "^18.3.7",
-    "@types/ws": "^8.5.13"
   }
 }

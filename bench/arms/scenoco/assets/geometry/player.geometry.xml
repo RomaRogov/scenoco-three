@@ -1,0 +1,2 @@
+<!-- The capsule: 0.8 across, 1.6 tall overall — a 0.8-tall barrel with a hemisphere on each end. -->
+<CapsuleGeometry radius="0.4" height="0.8" capSegments="8" radialSegments="16" />

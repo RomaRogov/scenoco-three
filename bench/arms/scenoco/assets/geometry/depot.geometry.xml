@@ -1,0 +1,2 @@
+<!-- The depot pad: radius 2, 0.1 thick. -->
+<CylinderGeometry radiusTop="2" radiusBottom="2" height="0.1" radialSegments="48" />

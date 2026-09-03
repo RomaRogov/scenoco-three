@@ -28,7 +28,7 @@ declare module 'three' {
      *
      * A component that declares a required Three.js type — `class Flicker extends
      * Component<PointLight>` — can only be added to that type. Attaching it to a `Mesh` is a
-     * compile error on the receiver, not a crash later.
+     * type error on the receiver, not a crash later.
      */
     addComponent<T extends Component>(
       this: OwnerOf<T>,
@@ -101,7 +101,7 @@ proto.addComponent = function (
 
 /**
  * The one place `instanceof` is used for component lookup. As a type predicate it hands the
- * narrowing back to the compiler, so nothing downstream needs a cast.
+ * narrowing back to the type checker, so nothing downstream needs a cast.
  */
 function isType<T extends Component>(component: Component, type: ComponentType<T>): component is T {
   return component instanceof type;

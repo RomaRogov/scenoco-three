@@ -5,17 +5,10 @@ import type { Pass } from 'three/addons/postprocessing/Pass.js';
 /**
  * One thing that decides how a frame is drawn — tone mapping, shadows, bloom.
  *
- * ### Why this is a class and not a property
- *
- * The renderer is not part of the scene graph, so there is no three.js object to hang "this
- * level glows" on. The previous answer was to graft `bloom`, `shadows` and `toneMapping` onto
- * `THREE.Scene` as extra properties, and it was the wrong one twice over: `scene.toneMapping`
- * does not exist in three.js (it is `renderer.toneMapping`), and a scalar with an off-value —
- * `bloom="0"` — makes `bloomRadius` an attribute that silently does nothing.
- *
- * As classes, all of that goes away. An effect is *there* because the document wrote the
- * element, exactly as a component is; its attributes are its own fields; and nothing on a
- * three.js class pretends to be a three.js property.
+ * A class rather than a property on the scene: the renderer is not part of the scene graph, so
+ * there is nothing in three.js to hang "this level glows" on, and hanging it on `Scene` anyway
+ * would mean properties that look like three.js's and are not. An effect exists because you
+ * made one, and its settings are its own fields.
  *
  * Both hooks are optional and an effect usually has one:
  *
@@ -44,7 +37,7 @@ export abstract class Effect {
   apply?(target: { renderer: WebGLRenderer; scene: Scene }): void;
 
   /**
-   * A postprocessing pass to insert into the chain, in document order.
+   * A postprocessing pass to insert into the chain, in order.
    *
    * Called once, when the chain is built. An effect that declares one makes the engine build an
    * `EffectComposer` — and a project whose scenes declare none never loads a byte of three's
@@ -54,26 +47,20 @@ export abstract class Effect {
 }
 
 /**
- * How a scene is drawn: the render document (`*.render.xml`) compiles to one of these, and a
- * scene names it with `<Scene render="…">`.
+ * How a scene is drawn — a set of effects, and the fog.
  *
- * It is an asset rather than a block inside the scene because a *look* is shared — three levels
+ * Its own object rather than a block inside the scene because a *look* is shared: three levels
  * of one game are lit and graded the same way, and the alternative is the same six values
- * copied into three documents, drifting one edit at a time. That is the same reason a material
- * is a file.
+ * copied three times, drifting one edit at a time. The same reason a material is its own thing.
  */
 export class RenderSettings {
-  /** In document order. `apply` runs in that order; passes are chained in it. */
+  /** In order: `apply` runs in it, and passes are chained in it. */
   readonly effects: readonly Effect[];
 
   /**
-   * The scene's fog, if the document declared one — `scene.fog`, set while these settings are
-   * current and cleared when they are not.
-   *
-   * Fog lives here rather than in the scene document for a rule, not a preference: under
-   * `<Scene>` every bare element is a node, because that document *is* the tree. `Fog` is not a
-   * node, so it belongs where the other non-node, non-behaviour things live — beside the tone
-   * curve and the bloom that it works with anyway.
+   * The scene's fog — `scene.fog`, set while these settings are current and cleared when they
+   * are not. It lives here rather than in the tree because it is not a node, and because it is
+   * part of the look it is tuned alongside.
    */
   readonly fog: Fog | FogExp2 | null;
 
@@ -86,11 +73,10 @@ export class RenderSettings {
 /**
  * Which render settings are currently in force, and what changing them costs.
  *
- * A separate object because the bookkeeping is where this goes wrong, and it went wrong exactly
- * once already: three levels naming one render document share **one** `RenderSettings`
- * instance, so remembering only "which settings" and skipping when they match meant every level
- * after the first got no fog — `scene.fog` is state on the scene, not on the renderer, and the
- * second scene is a different scene. What has to be remembered is the *pair*.
+ * A separate object because the bookkeeping is where this goes wrong: three levels can share
+ * **one** `RenderSettings`, so remembering only "which settings" and skipping when they match
+ * left every level after the first with no fog — `scene.fog` is state on the scene, not on the
+ * renderer, and the second scene is a different scene. What has to be remembered is the *pair*.
  */
 export class RenderState {
   private settings: RenderSettings | null = null;
@@ -98,8 +84,8 @@ export class RenderState {
 
   /**
    * Make `scene`'s settings current. Returns true when the **pass chain** has to be rebuilt,
-   * which is only when the document itself changed — a level change that keeps the same look
-   * keeps its chain, and does not flash a frame without the effects.
+   * which is only when the settings themselves changed — a level change that keeps the same
+   * look keeps its chain, and does not flash a frame without the effects.
    */
   apply(renderer: WebGLRenderer, scene: Scene): boolean {
     const settings = scene.render;

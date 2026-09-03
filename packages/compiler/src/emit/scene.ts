@@ -1,4 +1,4 @@
-import { nearestName } from '../dsl/diagnostics.js';
+import { hint, nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue } from '../dsl/value.js';
 import type { EmitScope, Placed } from './scope.js';
@@ -21,12 +21,12 @@ export function applySceneSettings(scope: EmitScope, root: SncElement, out: stri
     const prop = engine ?? tag?.properties.find((p) => p.name === attribute);
     if (!prop) {
       const names = [...(tag?.properties ?? []).map((p) => p.name), ...Object.keys(SCENE_ATTRIBUTES)];
-      const suggestion = nearestName(attribute, names);
+      const advice = hint({ near: nearestName(attribute, names), as: 'attribute', ask: 'Scene' });
       scope.report(
         root,
         'unknown-attribute',
-        `<Scene> has no attribute "${attribute}".` +
-          (suggestion ? ` Did you mean "${suggestion}"?` : ''),
+        `<Scene> has no attribute "${attribute}".${advice.text}`,
+        advice.ask,
       );
       continue;
     }

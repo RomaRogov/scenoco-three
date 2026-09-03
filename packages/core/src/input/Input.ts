@@ -1,5 +1,6 @@
 import { Vector2 } from 'three';
 import { MouseButton, type KeyCode } from './KeyCode.js';
+import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type Axis, type AxisBinding, type Button } from './axes.js';
 
 /**
  * Keyboard, mouse and wheel state, sampled per frame. Mirrors Unity's `Input`.
@@ -9,7 +10,7 @@ import { MouseButton, type KeyCode } from './KeyCode.js';
  * so every component sees the same input for a given frame regardless of update order.
  *
  * Keys are named by {@link KeyCode} — `KeyCode.W`, `KeyCode.Space`, `KeyCode.LeftShift` —
- * so a mistyped binding is a compile error rather than a control that silently never fires.
+ * so a mistyped binding is a type error rather than a control that silently never fires.
  */
 class InputClass {
   /** Pointer position in CSS pixels, relative to the attached element. */
@@ -27,6 +28,13 @@ class InputClass {
   private readonly buttonsHeld = new Set<MouseButton>();
   private readonly buttonsPressed = new Set<MouseButton>();
   private readonly buttonsReleased = new Set<MouseButton>();
+
+  private readonly smoothed = new Map<Axis, number>();
+  private readonly overrides = new Map<Axis, number>();
+  private readonly buttonOverrides = new Map<Button, boolean>();
+  private readonly buttonsDownNamed = new Set<Button>();
+  private readonly buttonsUpNamed = new Set<Button>();
+  private readonly buttonsWereDown = new Set<Button>();
 
   private element: HTMLElement | null = null;
   private readonly lastMouse = new Vector2();
@@ -63,14 +71,134 @@ class InputClass {
   }
 
   /**
-   * A -1..1 axis from a pair of keys, the shape movement code usually wants.
-   * `getAxis(KeyCode.A, KeyCode.D)` gives strafe, `getAxis(KeyCode.S, KeyCode.W)` gives forward.
+   * A named axis, -1..1, smoothed — Unity's `Input.GetAxis`.
    *
-   * Unity's `Input.GetAxis` takes a string naming an entry in the input manager; there is no
-   * such table here, so the two keys are named directly.
+   * `getAxis('Horizontal')` is A/D and the left/right arrows; `getAxis('Vertical')` is W/S and
+   * up/down. The value eases toward the key's target and falls back to 0 when nothing is held,
+   * at Unity's default rates, which is why a character built on it accelerates instead of
+   * snapping. {@link getAxisRaw} is the same axis without the easing.
+   *
+   * `Mouse X`, `Mouse Y` and `Mouse ScrollWheel` report this frame's movement rather than a held
+   * key, scaled the way Unity scales them.
+   *
+   * An axis set with {@link setAxis} answers with that value instead, unsmoothed — the point of
+   * an override is that something else is already deciding the number.
    */
-  getAxis(negative: KeyCode, positive: KeyCode): number {
-    return (this.getKey(positive) ? 1 : 0) - (this.getKey(negative) ? 1 : 0);
+  getAxis(axis: Axis): number {
+    const override = this.overrides.get(axis);
+    if (override !== undefined) return override;
+    if (axis === 'Mouse X') return this.mouseDelta.x * MOUSE_SENSITIVITY;
+    if (axis === 'Mouse Y') return this.mouseDelta.y * MOUSE_SENSITIVITY;
+    if (axis === 'Mouse ScrollWheel') return this.mouseScrollDelta.y * MOUSE_SENSITIVITY;
+    return this.smoothed.get(axis) ?? 0;
+  }
+
+  /**
+   * The same axis without the easing: -1, 0 or 1 for a keyboard entry — Unity's `GetAxisRaw`.
+   *
+   * What movement code that does its own acceleration wants, and what a test wants, since it
+   * reaches its value on the first frame rather than the tenth.
+   */
+  getAxisRaw(axis: Axis): number {
+    const override = this.overrides.get(axis);
+    if (override !== undefined) return override;
+    if (axis === 'Mouse X' || axis === 'Mouse Y' || axis === 'Mouse ScrollWheel') {
+      return this.getAxis(axis);
+    }
+    return this.rawAxis(axis);
+  }
+
+  /** True while a named button is held — Unity's `GetButton`. `getButton('Jump')`. */
+  getButton(button: Button): boolean {
+    const override = this.buttonOverrides.get(button);
+    if (override !== undefined) return override;
+    return this.rawAxis(button) > 0;
+  }
+
+  /** True only on the frame it went down — Unity's `GetButtonDown`. */
+  getButtonDown(button: Button): boolean {
+    return this.buttonsDownNamed.has(button);
+  }
+
+  /** True only on the frame it came up — Unity's `GetButtonUp`. */
+  getButtonUp(button: Button): boolean {
+    return this.buttonsUpNamed.has(button);
+  }
+
+  /**
+   * Drive an axis from somewhere other than the keyboard — a virtual joystick, a gamepad, a
+   * replay. `setAxis('Horizontal', 0.5)` and every component reading that axis sees 0.5.
+   *
+   * It holds until it is changed or released with `null`, because that is what a stick does: it
+   * stays where a thumb leaves it. While an override is set the keys for that axis are ignored,
+   * so an on-screen control and the keyboard cannot fight over one value.
+   */
+  setAxis(axis: Axis, value: number | null): void {
+    if (value === null) this.overrides.delete(axis);
+    else this.overrides.set(axis, value);
+  }
+
+  /**
+   * Drive a named button the same way — an on-screen Jump, or a test.
+   *
+   * The one-frame edges `getButtonDown` and `getButtonUp` report are derived from the change, so
+   * a button held down for three frames still fires `getButtonDown` exactly once.
+   */
+  setButton(button: Button, down: boolean | null): void {
+    if (down === null) this.buttonOverrides.delete(button);
+    else this.buttonOverrides.set(button, down);
+  }
+
+  /** Which axes and buttons are currently being driven from outside. */
+  get overriddenAxes(): Axis[] {
+    return [...this.overrides.keys()];
+  }
+
+  /** The instantaneous -1/0/1 of a keyboard entry, before smoothing and before any override. */
+  private rawAxis(axis: Axis): number {
+    // Typed through the interface rather than the literal: the entries differ in which keys they
+    // carry, and a union of those shapes is not something to read a `.negative` off.
+    const binding: AxisBinding | undefined = AXES[axis as keyof typeof AXES];
+    if (!binding) return 0;
+    const positive =
+      (binding.positive ?? []).some((key) => this.held.has(key)) ||
+      (binding.mouse !== undefined && this.buttonsHeld.has(binding.mouse));
+    const negative = (binding.negative ?? []).some((key) => this.held.has(key));
+    return (positive ? 1 : 0) - (negative ? 1 : 0);
+  }
+
+  /**
+   * Move the smoothed axes one frame, and work out this frame's button edges.
+   *
+   * Called from `SceneManager.tick` before any component runs, so `update` reads a value that
+   * belongs to the frame it is in. Unscaled time on purpose: a game frozen with `timeScale = 0`
+   * still has to notice the key that unfreezes it.
+   *
+   * @internal
+   */
+  advance(deltaTime: number): void {
+    for (const [name, binding] of Object.entries(AXES) as Array<[Axis, AxisBinding]>) {
+      const target = this.rawAxis(name);
+      const current = this.smoothed.get(name) ?? 0;
+      // Unity's `snap`: pushing the other way starts from the middle rather than skidding
+      // through it, so a direction change is immediate even though the ramp is not.
+      const from = target !== 0 && Math.sign(target) !== Math.sign(current) ? 0 : current;
+      const rate = (target === 0 ? binding.gravity : binding.sensitivity) * deltaTime;
+      const next =
+        target === from ? target : from + Math.sign(target - from) * Math.min(rate, Math.abs(target - from));
+      this.smoothed.set(name, next);
+    }
+
+    this.buttonsDownNamed.clear();
+    this.buttonsUpNamed.clear();
+    for (const name of BUTTON_NAMES) {
+      const down = this.getButton(name);
+      const was = this.buttonsWereDown.has(name);
+      if (down && !was) this.buttonsDownNamed.add(name);
+      if (!down && was) this.buttonsUpNamed.add(name);
+      if (down) this.buttonsWereDown.add(name);
+      else this.buttonsWereDown.delete(name);
+    }
   }
 
   /** @internal wire up DOM listeners. Called by `Engine`. */
@@ -125,6 +253,14 @@ class InputClass {
     this.mouseDelta.set(0, 0);
     this.mouseScrollDelta.set(0, 0);
     this.hasMouseSample = false;
+    // Overrides go too: `clear` is "forget everything the player was doing", and a virtual stick
+    // left pushed through a scene reload is a character that walks into a wall on its own.
+    this.smoothed.clear();
+    this.overrides.clear();
+    this.buttonOverrides.clear();
+    this.buttonsDownNamed.clear();
+    this.buttonsUpNamed.clear();
+    this.buttonsWereDown.clear();
   }
 
   // The DOM hands out plain strings and numbers. This class is the boundary where they become

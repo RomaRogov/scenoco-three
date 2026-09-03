@@ -41,7 +41,7 @@ export function pickAt(
  */
 function belongsToEditor(object: Object3D): boolean {
   for (let o: Object3D | null = object; o; o = o.parent) {
-    if (o.userData.scenocoEditorOnly) return true;
+    if (o.userData.scenocoToolOnly) return true;
   }
   return false;
 }

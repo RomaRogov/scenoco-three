@@ -1,7 +1,7 @@
 /**
  * Unity's `KeyCode` names mapped onto DOM `KeyboardEvent.code` values.
  *
- * `Input.getKey(KeyCode.W)` instead of `Input.getKey('KeyW')`: the compiler catches typos,
+ * `Input.getKey(KeyCode.W)` instead of `Input.getKey('KeyW')`: TypeScript catches typos,
  * autocomplete lists what exists, and "find all references to `KeyCode.Space`" works.
  *
  * These are *physical* key positions, not the characters they produce — `KeyCode.W` is the

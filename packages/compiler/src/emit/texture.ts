@@ -1,5 +1,5 @@
 import { fileKindOf } from '../assets.js';
-import { nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
+import { hint, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue, quote, type EmitContext } from '../dsl/value.js';
 import type { ProjectModel, PropInfo } from '../model.js';
@@ -32,12 +32,13 @@ export function emitTexture(
   const module = new TsModule(
     `// GENERATED from ${source} — do not edit.\n// Regenerate with \`scenoco build\`.`,
   );
-  const at = (element: SncElement, code: string, message: string): SncDiagnostic => ({
+  const at = (element: SncElement, code: string, message: string, ask?: string): SncDiagnostic => ({
     line: element.line,
     column: element.column,
     code,
     message,
     ...(source ? { file: source } : {}),
+    ...(ask !== undefined ? { ask } : {}),
   });
 
   if (root.tag !== 'Texture') {
@@ -83,10 +84,14 @@ export function emitTexture(
     if (attribute === 'src' || attribute.includes(':')) continue;
     const prop = byName.get(attribute);
     if (!prop || !SETTABLE.has(attribute)) {
-      const suggestion = nearestName(attribute, [...SETTABLE]);
+      const advice = hint({
+        near: nearestName(attribute, [...SETTABLE]),
+        as: 'attribute',
+        ask: 'Texture',
+        takes: [...SETTABLE],
+      });
       module.report(
-        at(root, 'unknown-attribute', `<Texture> has no setting "${attribute}".` +
-          (suggestion ? ` Did you mean "${suggestion}"?` : '')),
+        at(root, 'unknown-attribute', `<Texture> has no setting "${attribute}".${advice.text}`, advice.ask),
       );
       continue;
     }

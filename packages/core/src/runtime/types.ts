@@ -7,7 +7,7 @@ import type { System } from './System.js';
  * `getComponent(Health)`, `findObjectsOfType(Enemy)`.
  *
  * The Unity equivalent is a `System.Type` argument; here the class itself is the key, so
- * "find all references to `Health`" in your editor finds every lookup of it.
+ * "find all references to `Health`" finds every lookup of it.
  */
 export type ComponentType<T extends Component = Component> = abstract new (...args: never[]) => T;
 
@@ -22,7 +22,7 @@ export type ConstructableComponent<T extends Component = Component> = new () => 
  * `class Flicker extends Component<PointLight>`, plain `Object3D` for `extends Component`.
  *
  * `addComponent` uses this as its `this` type, which is what makes attaching a component to
- * the wrong kind of object a compile error instead of a crash in `awake`.
+ * the wrong kind of object a type error instead of a crash in `awake`.
  */
 export type OwnerOf<T extends Component> = T extends Component<infer TObject> ? TObject : Object3D;
 
@@ -34,13 +34,9 @@ type IsIdentical<X, Y, Then, Else> = (<G>() => G extends X ? 1 : 2) extends <G>(
   : Else;
 
 /**
- * True for a value a document can name, false for behaviour it cannot.
- *
- * Both are functions, which is why this is not simply `extends Function`. A method or a
- * callback field is behaviour: there is no attribute that could fill it. A **class** is a
- * value — a prefab, a scene — and a field holding one is filled by a path, exactly as a
- * geometry or a material is. Excluding those was what stopped a component from being handed
- * the thing it repeats.
+ * True for a value, false for behaviour. Both are functions, which is why this is not simply
+ * `extends Function`: a method or a callback field is behaviour, while a **class** — the prefab
+ * a spawner repeats — is a value, and a field holding one is a setting like any other.
  */
 type IsValue<V> = V extends Function
   ? V extends abstract new (...args: never[]) => unknown
@@ -52,10 +48,9 @@ type IsValue<V> = V extends Function
  * The keys of `T` that hold plain, assignable data: not methods, not `readonly` fields, not
  * getters without a setter.
  *
- * The `readonly` test is what also removes getters, since TypeScript models a getter with no
- * setter as a readonly property. Both matter: `Object.assign`-ing a getter-only property
- * throws at runtime, so letting one into the init type would be a compile-time green light
- * for a guaranteed crash.
+ * The `readonly` test also removes getters, which TypeScript models as readonly properties.
+ * That matters: assigning to a getter-only property throws, so letting one in would be a green
+ * light for a guaranteed crash.
  */
 type AuthorableKeys<T> = {
   [K in keyof T]-?: IsValue<T[K]> extends true
@@ -64,13 +59,9 @@ type AuthorableKeys<T> = {
 }[keyof T];
 
 /**
- * The *authoring surface* of `T`: the settable fields it declares beyond `TBase`, as an
- * optional object. Everything inherited from the base, every method, every `readonly` field
- * and every getter is excluded.
- *
- * What is left is exactly the set of knobs the author meant to expose — which is also what a
- * scene DSL or a visual editor can offer as attributes, derived from the type rather than
- * from a hand-maintained schema.
+ * The settable fields `T` declares beyond `TBase`, as an optional object. Everything inherited
+ * from the base, every method, every `readonly` field and every getter is excluded — what is
+ * left is the set of knobs the class meant to expose, derived from the type itself.
  */
 export type AuthorableFields<T, TBase> = Partial<
   Pick<Omit<T, keyof TBase>, AuthorableKeys<Omit<T, keyof TBase>>>
@@ -87,6 +78,12 @@ export type ComponentInit<T extends Component> = AuthorableFields<T, Component>;
  * already set, so placing it afterwards would be too late.
  */
 export interface PrefabPlacement {
+  /**
+   * An id for this instance, so it can be reached afterwards — `scene.byId('slime3')` — and so
+   * the ids *inside* the prefab are reachable through it: `scene.byId('slime3/body')`. Unique
+   * within the scene; a duplicate throws.
+   */
+  id?: string;
   name?: string;
   position?: Vector3;
   /**
@@ -114,17 +111,15 @@ export interface PrefabPlacement {
  * const brick = scene.instantiate(Brick, { position: somewhere });   // → Brick, a real Mesh
  * ```
  *
- * That is Unity's and Cocos's model: the prefab root is the authored node, so a collider, a
- * rigid body or a material sits exactly where the author put it, with no extra transform in
- * between.
+ * Unity's and Cocos's model: the prefab root *is* the node, so a collider, a rigid body or a
+ * material sits exactly where you put it, with no extra transform in between.
  */
 export type PrefabType<T extends Object3D = Object3D> = new () => T;
 
 /**
  * Everything `instantiate` accepts: the prefab's own settings, plus where to put it.
  *
- * The two halves are flat on purpose — in a scene DSL they arrive as one attribute list
- * (`<Crate position="0 1 0" size="0.5" />`), so the API should not split them either.
+ * Flat on purpose: a caller thinks of "a crate, half size, over there" as one thing to say.
  */
 export type PrefabInit<T extends Object3D> = AuthorableFields<T, Object3D> & PrefabPlacement;
 
@@ -156,9 +151,8 @@ export interface SystemLifecycle {
    * every component in the scene has had `awake`, and after their `start`s.
    *
    * This is where a system reads the scene. `awake` runs while the scene is still being built,
-   * so a system that counted the nodes it serves there would count whatever existed at the
-   * moment it was added; by `start` the document is finished and every component has
-   * registered itself. It is the same promise Unity's `Start` makes, one level up.
+   * so a system counting the nodes it serves would count whatever existed when it was added; by
+   * `start` the scene is complete. The same promise Unity's `Start` makes, one level up.
    */
   start?(): void;
   /** Fixed-timestep tick, after every component's `fixedUpdate`. Step physics here. */
@@ -170,14 +164,10 @@ export interface SystemLifecycle {
   /**
    * Something outside the simulation moved the nodes this system mirrors — re-read them.
    *
-   * A physics world holds its own copy of every body's position, and it is the copy that is
-   * authoritative during a step. Write a node's `position` from anywhere else — an editor gizmo,
-   * a script teleporting a character — and the two disagree: the object is drawn in its new
-   * place and collides in its old one. Unity has the same seam and the same answer,
-   * `Physics2D.SyncTransforms`.
-   *
-   * The editor calls this on every system when entering play mode, which is the moment a whole
-   * session's worth of dragging has to become real.
+   * A physics world holds its own copy of every body's position, and that copy is authoritative
+   * during a step. Move a node from anywhere else — a script teleporting a character, a tool
+   * dragging it — and the two disagree: the object is drawn in its new place and collides in its
+   * old one. Unity has the same seam and the same answer, `Physics2D.SyncTransforms`.
    */
   syncTransforms?(): void;
 
@@ -185,9 +175,8 @@ export interface SystemLifecycle {
    * Bring this system's *presentation* up to date on a frame that is not being simulated.
    *
    * Some systems compute what a thing looks like rather than what it does — a UI layout is the
-   * clear case: it is arithmetic over the current state, not a step of the world. An editor
-   * sitting in edit mode ticks nothing, so a system that only ever updates inside the
-   * simulation goes stale there, and a HUD is invisible until you press Play.
+   * clear case: arithmetic over the current state, not a step of the world. Anything showing a
+   * scene without simulating it needs that arithmetic to have run, or the HUD is not there.
    *
    * Implement it only where running twice in a frame would be harmless. Physics must not.
    */
@@ -208,7 +197,7 @@ export type SystemWith<K extends SystemHook> = System & Required<Pick<SystemLife
 
 /**
  * A scene class. Scenes are identified by their class, never by a name string, so
- * `SceneManager.load(MainMenu)` is checked by the compiler and followed by AST tools.
+ * `SceneManager.load(MainMenu)` is checked by the type checker and followed by refactoring tools.
  */
 export type SceneType<T extends Scene = Scene> = new () => T;
 
@@ -238,7 +227,7 @@ export interface ComponentLifecycle {
 
 /**
  * The name of a lifecycle hook. Derived from the interface, so renaming a hook there is a
- * compile error at every place the engine refers to it rather than a silent behaviour change.
+ * type error at every place the engine refers to it rather than a silent behaviour change.
  */
 export type LifecycleHook = keyof ComponentLifecycle;
 

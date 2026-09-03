@@ -19,8 +19,10 @@ export default defineConfig({
     },
   },
   test: {
-    // Only the ported tests; the v1 suites come back as their packages land.
-    include: ['tests/core/**/*.test.ts', 'tests/compiler/**/*.test.ts', 'tests/packages/box2d.test.ts', 'tests/packages/rapier.test.ts', 'tests/packages/collision.test.ts', 'tests/packages/late-colliders.test.ts', 'tests/packages/particles.test.ts', 'tests/packages/audio.test.ts', 'tests/packages/ui.test.ts', 'tests/tooling/cli.test.ts', 'tests/tooling/editor.test.ts'],
+    // Everything under tests/. This was an explicit allow-list while v1 and v2 shared the repo,
+    // and it outlived that: by the end it named all 38 files individually, so adding a new test
+    // file meant it silently never ran until someone noticed.
+    include: ['tests/**/*.test.ts'],
     environment: 'node',
   },
 });

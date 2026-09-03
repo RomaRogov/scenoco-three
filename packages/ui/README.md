@@ -1,94 +1,84 @@
 # @scenoco-three/ui
 
-In-canvas UI for [SceNoCo](https://github.com/RomaRogov/scenoco-three), built on
-[pmndrs uikit](https://pmndrs.github.io/uikit) — flexbox layout, MSDF text, and
-panel rendering where **every element is a real `THREE.Mesh`**. That makes UI
-elements ordinary scene nodes: they nest in the scene tree, carry
-`<Components>`, are referenced like any node, and show up in the editor's
-hierarchy, inspector, and previews.
+In-canvas UI for [SceNoCo](https://github.com/RomaRogov/scenoco-three), on
+[pmndrs uikit](https://pmndrs.github.io/uikit): MSDF text and panels where **every element is a
+real `THREE.Mesh`**, so UI elements are ordinary scene nodes — they nest in the tree, carry
+`<Components>`, are referenced by `#id` like any node, and show up in the editor and in the
+observer's `outline`.
 
-Attribute names and values are uikit properties **verbatim** — if you know uikit
-or CSS flexbox, you already know the DSL.
+Placement is **Unity's RectTransform**, not CSS: an anchor preset, an offset, a size. Four tags,
+nineteen attributes, and none of them is a flexbox property.
 
 ```xml
-<PerspectiveCamera id="cam" position="y: 7; z: 20" fov="45">
-  <!-- Screen-space HUD: a child of the camera (uikit's convention), always
-       fills the viewport; children are laid out in screen pixels. -->
-  <Fullscreen id="hud" color="#e2e8f0" fontWeight="bold">
-    <Container width="100%" flexDirection="row" justifyContent="space-between" padding="20">
-      <Container flexDirection="row" gap="8" padding="10">
-        <!-- `opacity` is inherited (it would fade the text too), so a translucent
-             panel is its own element behind fully-opaque content. -->
-        <Container positionType="absolute" positionTop="0" positionRight="0" positionBottom="0" positionLeft="0"
-                   backgroundColor="#0a0e16" opacity="0.7" borderRadius="10" />
-        <Text text="SCORE" fontSize="26" />
-        <Text id="score" text="0" fontSize="26" color="#4af0e0" />
-      </Container>
-    </Container>
-    <Components><Scoreboard scoreLabel="#score" /></Components>
-  </Fullscreen>
+<PerspectiveCamera id="camera" position="y: 9; z: 6">
+  <!-- The screen-space root. A child of the camera, always; it fills the viewport, and its
+       children are laid out in screen pixels. -->
+  <Canvas id="hud" padding="20">
+    <Panel anchor="stretchTop" height="56" background="#0f172a" layout="horizontal"
+           alignY="center" gap="28" padding="16">
+      <Text id="scoreText" text="SCORE 0" fontSize="20" color="#ffffff" />
+      <Text id="timeText" text="TIME 45" fontSize="20" color="#ffffff" />
+    </Panel>
+    <Panel anchor="center" width="360" height="80" layout="vertical" alignX="center" alignY="center">
+      <Text id="banner" text="" fontSize="30" fontWeight="bold" color="#f87171" textAlign="center" />
+    </Panel>
+    <Components>
+      <Hud scoreText="#scoreText" timeText="#timeText" banner="#banner" />
+    </Components>
+  </Canvas>
 </PerspectiveCamera>
 ```
-
-Drive elements from a normal component with node references and the plain uikit
-API:
 
 ```ts
 import { Component } from '@scenoco-three/core';
 import type { Text } from '@scenoco-three/ui';
 
-/** Updates the HUD score. A public field is an attribute; no decorator declares it. */
-export class Scoreboard extends Component {
-  scoreLabel: Text | null = null;
+/** A field typed `Text` is a slot the document fills with `#id`; `text` is a plain property. */
+export class Hud extends Component {
+  scoreText!: Text;
+  timeText!: Text;
+  banner!: Text;
 
-  addPoints(points: number): void {
-    this.scoreLabel?.setProperties({ text: String(points) });
+  override update(): void {
+    this.scoreText.text = `SCORE ${this.game.score}`;
   }
 }
 ```
 
 ## Tags
 
-| Tag | uikit class | Notes |
+| Tag | Is | Notes |
 | --- | --- | --- |
-| `<Fullscreen>` | `Fullscreen` | Screen-space root; **must be a child of the camera node**. Children lay out in screen pixels. |
-| `<Container>` | `Container` | Flexbox container (the UI `div`). Outside any UI parent it is a **world-space root**, placed with the usual transform attrs. |
-| `<Text>` | `Text` | MSDF text (`text`, `fontSize`, `fontWeight`, `color`, `textAlign`, …). Text style props inherit through containers, like CSS. |
-| `<Image>` | `Image` | Textured panel (`src` rides the asset pipeline, `objectFit`). |
+| `<Canvas>` | the screen-space root | **A child of the camera node.** Fills the viewport. One per camera. |
+| `<Panel>` | a rectangle that holds and lays out others | Outside a `<Canvas>` it is a world-space panel, placed with `position` / `eulerAngles` / `scale` like any node. |
+| `<Text>` | a run of text | `text`, `fontSize`, `fontWeight` (`normal` / `bold`), `color`, `textAlign` (`left` / `center` / `right`). Inherited from the element above, the way CSS inherits font. |
+| `<Image>` | a picture | `src` names an image file, exactly as a material's `map` does. |
 
-Sizing/spacing attrs accept the CSS forms: a number (`width="250"`), a
-percentage (`width="50%"`), or `auto`. Show/hide with `display="none"`.
-Nested elements are positioned by flexbox — not by transform attributes.
+## Placement
 
-## Interaction
+| Attribute | Meaning |
+| --- | --- |
+| `anchor` | Where in the parent the element hangs: `topLeft`, `top`, `topRight`, `left`, `center`, `right`, `bottomLeft`, `bottom`, `bottomRight`, or a stretch — `stretchTop`, `stretchBottom`, `stretchLeft`, `stretchRight`, `stretch`. Omit it to take the parent's `layout`. |
+| `x`, `y` | Offset from the anchor, in pixels. |
+| `width`, `height` | Size in pixels. A stretched axis takes the parent's. |
+| `layout` | How children line up: `vertical` (default) or `horizontal`. |
+| `alignX`, `alignY` | Where children sit on each axis — `start`, `center`, `end`, `stretch`, `between`. Always horizontal and always vertical, whichever way `layout` runs. |
+| `gap`, `padding` | Between children, and inside the edges, in pixels. |
+| `background`, `backgroundOpacity` | Fill colour (`#rrggbb`) and the fill's own opacity — the HUD bar CSS writes as `#0f172acc`. A `THREE.Color` has no alpha channel, so the transparency is its own number. |
+| `opacity` | The whole element, **inherited**: it fades this element's text and children with it. For a translucent bar behind readable text, use `backgroundOpacity`. |
+| `radius`, `border`, `borderColor` | Corner radius and border, in pixels. |
 
-- `pointerEvents="auto | none | listener"` (CSS semantics): an `auto` element
-  blocks pointer rays, so a HUD panel over the game swallows clicks for
-  gameplay raycasts too — Unity's "UI blocks scene clicks". `<Fullscreen>`
-  itself defaults to `listener` (click-through where empty).
-- SceNoCo's component pointer hooks work on UI nodes like on any mesh — a
-  button is a `<Container id="btn">` plus a component whose
-  `onPointerClick(e)` checks `e.object`'s ancestry.
-- uikit hover/active states and scrolling run off the forwarded canvas events
-  (`@pmndrs/pointer-events`), wired automatically by `UIRenderSystem`.
-
-## Runtime
-
-`UIRenderSystem` — a core `System`, registered by the first UI element to wake —
-auto-runs whenever the scene contains one. It applies uikit's
-required renderer settings, injects the renderer into `Fullscreen` roots, and
-calls `update(delta)` once per frame on each UI **root** (an element whose
-parent is not itself a UI element). It runs in the editor too, so layout is
-live while editing.
-
-Only uikit's base class is renamed (`Component` → `UiKitComponent`, it collides
-with SceNoCo's `Component`); everything else re-exports under its uikit name:
-`Container`, `Text`, `Image`, `Fullscreen`.
+Values read back — in the editor, in `telemetry` — in the same vocabulary.
 
 ## Gotchas
 
-- Keep `three` deduped — two three copies in a bundler graph break `instanceof`
-  and uikit silently stops sizing. The SceNoCo Vite plugin and editor already
-  set `resolve.dedupe: ['three']`.
-- MSDF text ships uikit's default Inter charset; exotic glyphs (`·`, emoji)
-  warn and draw nothing — stick to ASCII or register `fontFamilies`.
+- **The font ships ASCII only.** uikit's default MSDF font is Inter's basic Latin set; a glyph it
+  does not have (an em dash, an arrow, most accents) draws as a small box. Use `-`, not `—`.
+- **A `<Canvas>` that is not under a camera is not on screen.** It is a child of the camera on
+  purpose — that is what puts it where the player sees it.
+- The compiler accepts `position` on a UI element, since every node has one; inside a `<Canvas>`
+  it does nothing, because layout owns the transform. Use `anchor` / `x` / `y`.
+
+## License
+
+MIT

@@ -1,5 +1,6 @@
 import { Scene, type Object3D } from 'three';
 import { Time } from './Time.js';
+import { Input } from '../input/Input.js';
 import type { Component } from './Component.js';
 import type { ComponentType, SceneType } from './types.js';
 
@@ -80,6 +81,11 @@ class SceneManagerClass {
       if (this.loaded.get(other)?.dontDestroyOnLoad) continue;
       await this.unload(other);
     }
+    // Loading the scene that is already loaded is a **restart** — Unity's `LoadScene` of the
+    // current scene, the ordinary way a game says "again". It used to be a no-op, which left
+    // every "press R" reaching for an in-place reset of each component by hand; `loadAdditive`
+    // keeps the no-op, because "make sure the HUD is loaded" must never make a second HUD.
+    if (this.loaded.has(type)) await this.unload(type);
     const scene = await this.loadAdditive(type);
     this.setActiveScene(scene);
     return scene;
@@ -251,6 +257,9 @@ class SceneManagerClass {
     // anything easing off `deltaTime` does not divide by zero.
     const delta = previous === null ? 1 / 60 : Math.max(0, (timestamp - previous) / 1000);
     Time.advance(delta);
+    // Before any component runs, so `update` reads an axis that belongs to this frame. Unscaled,
+    // because a game frozen at `timeScale = 0` still has to notice the key that unfreezes it.
+    Input.advance(Time.unscaledDeltaTime);
 
     // A snapshot: a scene may load or unload another from inside a hook.
     const scenes = [...this.loaded.values()];

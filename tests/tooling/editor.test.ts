@@ -1,9 +1,18 @@
-import { Mesh, PerspectiveCamera, Vector3 } from 'three';
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { BoxGeometry, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3 } from 'three';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CameraRig } from '../../packages/editor/app/cameraRig.js';
 import { SceneDocument } from '../../packages/editor/app/document.js';
-import { applyEdits, createBridgeCore, type BridgeSocket } from '../../packages/editor/src/server.js';
-import type { EditorResponse } from '../../packages/editor/src/protocol.js';
+import { applyEdits } from '../../packages/editor/app/live/edits.js';
+import { buildLive } from '../../packages/editor/app/live/build.js';
+import { joinPath, type Source } from '../../packages/editor/app/live/source.js';
+import { indexDocument as indexInBrowser } from '../../packages/compiler/src/browser.js';
+import { build } from '../../packages/compiler/src/index.js';
+import { SceneManager } from '@scenoco-three/core';
+import * as THREE from 'three';
+import { makeFixture } from '../compiler/fixture.js';
+import { resetEngine } from '../core/helpers.js';
 import { indexDocument } from '../../packages/compiler/src/index.js';
 
 /**
@@ -93,83 +102,6 @@ describe('saving', () => {
     ]);
     expect(problems[0]).toContain('the document changed');
     expect(text).toBe(DOC);
-  });
-});
-
-/**
- * Which tab a command goes to, and when the process gives up.
- *
- * An editor is a process attached to a browser tab it does not control: tabs are opened,
- * duplicated, and closed behind its back. These are the rules that keep that from turning into a
- * command sent to a tab nobody is looking at, or a process left holding its ports all day.
- */
-describe('the editor and its tabs', () => {
-  const OPEN = 1;
-  const CLOSED = 3;
-
-  /** A stand-in for an editor page: records what it was sent, and can reply or close. */
-  function fakePage() {
-    const handlers: { message?: (data: unknown) => void; close?: () => void } = {};
-    const sent: string[] = [];
-    const socket = {
-      readyState: OPEN,
-      OPEN,
-      send: (data: string) => sent.push(data),
-      on: (event: 'message' | 'close', listener: (data: unknown) => void) => {
-        handlers[event] = listener as never;
-      },
-    };
-    return {
-      socket: socket as unknown as BridgeSocket,
-      sent,
-      reply: (response: EditorResponse) => handlers.message?.(JSON.stringify(response)),
-      close: () => {
-        socket.readyState = CLOSED;
-        handlers.close?.();
-      },
-    };
-  }
-
-  it('sends a command to the newest tab, and hands it to another when that tab closes', async () => {
-    const { bridge, register } = createBridgeCore();
-    const first = fakePage();
-    const second = fakePage();
-    register(first.socket);
-    register(second.socket);
-
-    const answer = bridge.send({ id: 'c1', type: 'run' });
-    // Newest, because that is the tab the person just opened — the older one is behind it.
-    expect(second.sent).toHaveLength(1);
-    expect(first.sent).toHaveLength(0);
-
-    second.close(); // closed mid-command: the older tab picks it up rather than the call hanging
-    expect(first.sent).toHaveLength(1);
-
-    first.reply({ id: 'c1', ok: true, result: { kind: 'ok' } });
-    await expect(answer).resolves.toMatchObject({ ok: true });
-  });
-
-  it('rejects a command in flight when the last tab closes', async () => {
-    const { bridge, register } = createBridgeCore();
-    const page = fakePage();
-    register(page.socket);
-    const answer = bridge.send({ id: 'c1', type: 'stop' });
-    page.close();
-    await expect(answer).rejects.toThrow(/closed before answering/);
-  });
-
-  it('halts once every tab is gone, and not while one is open', async () => {
-    const halted = vi.fn();
-    const { register } = createBridgeCore({ onIdle: halted, initialGraceMs: 10_000, idleMs: 20 });
-    const page = fakePage();
-    register(page.socket);
-
-    await new Promise((done) => setTimeout(done, 40));
-    expect(halted).not.toHaveBeenCalled(); // a tab is open — the process has something to serve
-
-    page.close();
-    await new Promise((done) => setTimeout(done, 40));
-    expect(halted).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -361,4 +293,95 @@ describe('undoing a gizmo drag', () => {
     doc.undoLast();
     expect(doc.canUndo).toBe(false); // eight writes, one step
   });
+});
+
+/**
+ * The standalone editor has no compiler behind it: it builds the scene from the XML, with the
+ * compiler's parser and the compiler's model, so what it shows is what the generated module
+ * would have built. Pinned here on the things a person edits — nodes, references, placement,
+ * a prefab and its override — and on the provenance stamps, which are what selection and the
+ * inspector find an element by.
+ */
+describe('the standalone editor builds a scene from XML', () => {
+  afterEach(resetEngine);
+
+  it('constructs nodes with their assets, places them, resolves ids, spawns a prefab with an override', async () => {
+    const fixture = makeFixture('live');
+    try {
+      fixture.write('game.ts', "import 'three';\nexport {};\n"); // the vocabulary is read through a real import
+      const { model } = build({ root: fixture.dir, dryRun: true });
+      const files: Record<string, string> = {
+        'assets/geometry/cube.geometry.xml': '<BoxGeometry width="1" height="1" depth="1" />',
+        'assets/materials/red.material.xml': '<MeshStandardMaterial color="#ff0000" roughness="0.5" />',
+        'assets/scenes/crate.prefab.xml':
+          '<Mesh id="body" geometry="../geometry/cube.geometry.xml" material="../materials/red.material.xml" scale="0.5" />',
+        'assets/scenes/main.scene.xml': `<Scene camera="#cam" background="#0b1120">
+  <PerspectiveCamera id="cam" fov="45" position="y: 3; z: 7" />
+  <Mesh id="player" geometry="../geometry/cube.geometry.xml" material="../materials/red.material.xml"
+        position="x: 1; y: 0.5" eulerAngles="y: 90" scale="2" />
+  <Prefab src="crate.prefab.xml" id="crate1" position="x: 3">
+    <Override target="#body" scale="0.25" />
+  </Prefab>
+</Scene>`,
+      };
+      const source: Source = {
+        label: 'memory',
+        read: async (path) => {
+          if (!(path in files)) throw new Error(`no ${path}`);
+          return files[path]!;
+        },
+        url: async (path) => path,
+        resolve: (from, ref) => joinPath(from.split('/').slice(0, -1).join('/'), ref),
+      };
+      const live = await buildLive('assets/scenes/main.scene.xml', source, model, { ...THREE });
+      expect(live.problems).toEqual([]);
+
+      const scene = await SceneManager.load(live.SceneClass);
+      const player = scene.byId('player', THREE.Mesh)!;
+      expect(player).toBeInstanceOf(THREE.Mesh);
+      expect(player.geometry).toBeInstanceOf(THREE.BoxGeometry);
+      expect((player.material as THREE.MeshStandardMaterial).color.getHexString()).toBe('ff0000');
+      expect(player.position.toArray()).toEqual([1, 0.5, 0]);
+      expect(Math.round(player.eulerAngles.y)).toBe(90);
+      expect(player.scale.toArray()).toEqual([2, 2, 2]);
+      expect(scene.mainCamera).toBe(scene.byId('cam'));
+      expect((scene.background as THREE.Color).getHexString()).toBe('0b1120');
+
+      // The spawn: a real Mesh from the prefab document, placed by the spawn, overridden inside.
+      const crate = scene.byId('crate1', THREE.Mesh)!;
+      expect(crate.position.x).toBe(3);
+      expect(crate.scale.x).toBe(0.25);
+      // A shared asset is one instance, as the compiler's shared module is.
+      expect(crate.geometry).toBe(player.geometry);
+
+      // Provenance is the parser's own position, so the element index finds it.
+      const index = indexInBrowser(files['assets/scenes/main.scene.xml']!);
+      const stamped = player.userData.scenoco as { file: string; line: number; column: number };
+      const element = index.find((e) => e.line === stamped.line && e.column === stamped.column)!;
+      expect(element.tag).toBe('Mesh');
+      expect(stamped.file).toBe('assets/scenes/main.scene.xml');
+    } finally {
+      fixture.dispose();
+    }
+  }, 120_000);
+
+  it('keeps an unknown element in the tree and says why, rather than dropping it', async () => {
+    const fixture = makeFixture('live-unknown');
+    try {
+      fixture.write('game.ts', "import 'three';\nexport {};\n");
+      const { model } = build({ root: fixture.dir, dryRun: true });
+      const source: Source = {
+        label: 'memory',
+        read: async () => '<Scene><Bogus id="x" /></Scene>',
+        url: async (p) => p,
+        resolve: (_f, r) => r,
+      };
+      const live = await buildLive('a.scene.xml', source, model, { ...THREE });
+      const scene = await SceneManager.load(live.SceneClass);
+      expect(scene.byId('x')).toBeInstanceOf(THREE.Object3D);
+      expect(live.problems[0]).toMatch(/<Bogus> is not a node/);
+    } finally {
+      fixture.dispose();
+    }
+  }, 120_000);
 });

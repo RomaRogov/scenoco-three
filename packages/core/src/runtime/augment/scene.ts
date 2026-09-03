@@ -1,7 +1,7 @@
 import { Scene, Object3D, type Camera } from 'three';
 import type { Component } from '../Component.js';
 import { System } from '../System.js';
-import { SceneRuntime } from '../SceneRuntime.js';
+import { SceneRuntime, ownField } from '../SceneRuntime.js';
 import { disposeSceneResources } from '../dispose.js';
 import type { RenderSettings } from '../RenderSettings.js';
 import type {
@@ -83,14 +83,11 @@ declare module 'three' {
     /**
      * How this scene is drawn: tone mapping, shadows, post effects.
      *
-     * Authored as `<Scene render="../render/neon.render.xml">` — a path to a render document,
-     * the same way a mesh names a material. `Engine` applies it while this scene is active and
-     * restores the renderer's defaults for a scene that names none, so one level's look cannot
-     * leak into the next.
+     * `Engine` applies it while this scene is active, and puts the renderer's defaults back for
+     * a scene that has none, so one level's look cannot leak into the next.
      *
-     * This and `camera`, `dontDestroyOnLoad` and `disposeOnUnload` are the **engine's** four
-     * attributes on `<Scene>`; every other attribute a document may write there is a property
-     * `THREE.Scene` itself declares.
+     * This, `camera`, `dontDestroyOnLoad` and `disposeOnUnload` are the four things the engine
+     * adds to a `THREE.Scene`; everything else on it is three.js's own.
      */
     render: RenderSettings | null;
 
@@ -135,7 +132,7 @@ declare module 'three' {
      *
      * This is also how you find *objects*: give the ones you need to look up a marker
      * component (`class Player extends Component {}`) instead of a string tag, and the lookup
-     * becomes a compiler-checked reference your editor can follow.
+     * becomes a type-checked reference tooling can follow.
      */
     findObjectOfType<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T | null;
     /** Every component of `type` anywhere in the scene. Unity's `FindObjectsOfType<T>()`. */
@@ -146,6 +143,27 @@ declare module 'three' {
      * Use it for the objects that exist only to carry components.
      */
     createObject(name?: string, parent?: Object3D): Object3D;
+
+    /**
+     * The node or component an id names, or `null`.
+     *
+     * An id is given at spawn time — `instantiate(Slime, { id: 'slime3' })` — or by whatever
+     * built the scene. Ids inside a spawned prefab are reached through the instance, with `/`:
+     * `byId('slime3/body')` is the node the slime prefab named `body`, and `byId('slime3/brain')`
+     * the component it named `brain`.
+     *
+     * Pass the class to get it typed, and `null` when the id names something else:
+     *
+     * ```ts
+     * const slime = this.scene.byId('slime3', Slime);          // Slime | null
+     * const body = this.scene.byId('slime3/body', Mesh);       // Mesh | null
+     * ```
+     *
+     * This is the way to reach *a specific thing*. `findObjectOfType` is for *a kind of thing*,
+     * and holding a reference is better than either where you can.
+     */
+    byId(path: string): Object3D | Component | null;
+    byId<T>(path: string, type: abstract new (...args: never[]) => T): T | null;
   }
 }
 
@@ -169,7 +187,7 @@ proto.render = null;
  * A module that patches a shared prototype has to survive being evaluated more than once: a dev
  * server re-serving it after an unrelated file changed is enough, and the failure is brutal —
  * `Cannot redefine property: scene` is thrown at import time, so whatever was importing the
- * engine (a scene, in the editor's case) never finishes loading and you are left staring at an
+ * engine never finishes loading and you are left staring at an
  * empty viewport with no obvious cause.
  */
 Object.defineProperty(proto, '_runtime', {
@@ -310,6 +328,22 @@ proto.findObjectsOfType = function <T extends Component>(
 };
 
 // --- spawning -------------------------------------------------------------------------
+
+proto.byId = function (
+  this: Scene,
+  path: string,
+  type?: abstract new (...args: never[]) => unknown,
+): unknown {
+  const [head = '', ...rest] = path.split('/');
+  let current: Object3D | Component | null = this._runtime.ids.get(head) ?? ownField(this, head);
+  for (const segment of rest) {
+    if (!current) break;
+    current = ownField(current, segment);
+  }
+  if (!current) return null;
+  if (type && !(current instanceof type)) return null;
+  return current;
+} as Scene['byId'];
 
 proto.createObject = function (this: Scene, name = 'Object', parent?: Object3D): Object3D {
   const object = new Object3D();

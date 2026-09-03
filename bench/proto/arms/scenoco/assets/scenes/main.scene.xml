@@ -1,0 +1,42 @@
+<!-- The whole project, in one document.
+
+     An element is a class and an attribute is one of its properties — <PerspectiveCamera fov>
+     exists because three.js's PerspectiveCamera has a fov, and <Spinner speed> exists because
+     your Spinner class has a public `speed`. There is no registry and no second list to keep
+     in step.
+
+     The shapes are in assets/geometry, sized as Unity sizes them:
+
+       cube        1 x 1 x 1
+       sphere      1 across
+       cylinder    1 across, 2 tall     — scale="y: 3" is 6 tall, not 3
+       capsule     1 across, 2 tall
+       cone        1 across, 1 tall
+       quad        1 x 1, standing upright
+       plane       10 x 10, standing upright — lay it flat with eulerAngles="x: -90"
+
+     A node's position is the middle of it, so a 1-tall cube resting on the ground is at y: 0.5.
+
+     ── Try this ────────────────────────────────────────────────────────────────────────
+     Change speed="45" below to speed="fast", then run:  npx scenoco check
+     The compiler will name the file, the line, the column and what to write instead. That
+     answer is the reason this framework exists; everything else is machinery. -->
+<Scene camera="#camera" background="#0b1120">
+  <PerspectiveCamera id="camera" fov="45" near="0.1" far="200"
+                     position="y: 3; z: 7" eulerAngles="x: -15" />
+
+  <AmbientLight color="#9db8d8" intensity="0.7" />
+  <DirectionalLight color="#fff4e0" intensity="2" position="x: 4; y: 8; z: 5" />
+
+  <!-- The ground: the 10 x 10 plane, laid flat and scaled to 40 across. -->
+  <Mesh name="ground" geometry="../geometry/plane.geometry.xml"
+        material="../materials/ground.material.xml" eulerAngles="x: -90" scale="4" />
+
+  <!-- A 1 x 1 x 1 cube, resting on the ground, turning. -->
+  <Mesh id="block" name="block" geometry="../geometry/cube.geometry.xml"
+        material="../materials/block.material.xml" position="y: 0.5">
+    <Components>
+      <Spinner speed="45" />
+    </Components>
+  </Mesh>
+</Scene>

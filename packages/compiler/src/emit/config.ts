@@ -1,5 +1,5 @@
 import type { ConfigShape } from '../scan/interfaces.js';
-import { nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
+import { hint, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
@@ -199,10 +199,14 @@ function readAttributes(
     if (attribute.includes(':')) continue; // xmlns and friends
     const field = shape.fields.find((f) => f.name === attribute);
     if (!field) {
-      const suggestion = nearestName(attribute, shape.fields.map((f) => f.name));
+      const advice = hint({
+        near: nearestName(attribute, shape.fields.map((f) => f.name)),
+        as: 'attribute',
+        ask: element.tag,
+        takes: shape.fields.map((f) => f.name),
+      });
       module.report(
-        at(element, 'unknown-attribute', `<${element.tag}> has no attribute "${attribute}".` +
-          (suggestion ? ` Did you mean "${suggestion}"?` : '')),
+        at(element, 'unknown-attribute', `<${element.tag}> has no attribute "${attribute}".${advice.text}`, advice.ask),
       );
       continue;
     }
@@ -214,12 +218,13 @@ function readAttributes(
 
 const byKey = (a: readonly [string, unknown], b: readonly [string, unknown]) => a[0].localeCompare(b[0]);
 
-function at(element: SncElement, code: string, message: string): SncDiagnostic {
+function at(element: SncElement, code: string, message: string, ask?: string): SncDiagnostic {
   return {
     line: element.line,
     column: element.column,
     code,
     message,
     ...(element.file ? { file: element.file } : {}),
+    ...(ask !== undefined ? { ask } : {}),
   };
 }

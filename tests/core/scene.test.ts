@@ -150,3 +150,60 @@ describe('prototype augmentation', () => {
   });
 });
 
+/**
+ * Loading the scene that is already loaded is a restart — Unity's `LoadScene` of the current
+ * scene, the ordinary way a game says "again". It was a no-op, so every "press R" became an
+ * in-place reset of each component by hand, found through the observer by an agent that had
+ * done the natural thing first.
+ */
+describe('loading a loaded scene again', () => {
+  it('rebuilds it from scratch, and leaves loadAdditive a no-op', async () => {
+    let builds = 0;
+    class Level extends Scene {
+      override onLoad(): void {
+        builds++;
+        this.createObject('thing');
+      }
+    }
+    const first = await SceneManager.load(Level);
+    first.createObject('extra');
+    expect(first.children).toHaveLength(2);
+
+    const again = await SceneManager.load(Level);
+    expect(again).not.toBe(first);
+    expect(builds).toBe(2);
+    expect(again.children).toHaveLength(1);
+    expect(first.isLoaded).toBe(false);
+
+    expect(await SceneManager.loadAdditive(Level)).toBe(again);
+    expect(builds).toBe(2);
+  });
+});
+
+/**
+ * The gap a restart leaves, which anything watching from outside can see.
+ *
+ * `load` unloads the old scene and awaits the new one's `onLoad`, so between the two there is no
+ * active scene. Game code cannot observe it — the frame pump runs between frames, never inside
+ * this chain — but a tool driving the scene from outside can, and did: the observer answered
+ * "no scene is open" while a game's own "press R" restart was in flight. This pins the shape of
+ * the gap so the reason for waiting it out stays written down.
+ */
+describe('a restart in flight', () => {
+  it('leaves no active scene until the new one has loaded', async () => {
+    class Slow extends Scene {
+      override async onLoad(): Promise<void> {
+        await new Promise((done) => setTimeout(done, 20));
+      }
+    }
+    await SceneManager.load(Slow);
+    expect(SceneManager.activeScene).toBeInstanceOf(Slow);
+
+    const restart = SceneManager.load(Slow); // as a game writes it: not awaited
+    await new Promise((done) => setTimeout(done, 5));
+    expect(SceneManager.activeScene).toBeNull();
+
+    await restart;
+    expect(SceneManager.activeScene).toBeInstanceOf(Slow);
+  });
+});

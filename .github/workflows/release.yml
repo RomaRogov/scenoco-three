@@ -26,13 +26,13 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      # Dependency order: everything peers on core, and vite/editor sit on the compiler.
+      # Dependency order: everything peers on core, vite/observer sit on the compiler, the editor on the observer.
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for pkg in core compiler collision box2d rapier ui postfx particles audio vite editor create-scenoco; do
+          for pkg in core compiler collision box2d rapier ui postfx particles audio vite observer editor; do
             dir="packages/$pkg"
             [ -d "$dir" ] || continue
             name=$(node -p "require('./$dir/package.json').name")

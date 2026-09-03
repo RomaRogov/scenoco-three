@@ -1,4 +1,4 @@
-<!-- Collector: walk with the thumb stick, sweep up crates, run them to the pad in the middle.
+<!-- Collector: walk with the thumb stick or WASD, sweep up crates, run them to the pad.
 
      One mechanic, thirty seconds, no menu. Everything that decides the run is on <Run>; the
      level is a floor, a depot and a <Scatter> that keeps the crates topped up.
@@ -63,7 +63,7 @@
   <Mesh id="player" geometry="../geometry/capsule.geometry.xml"
         material="../materials/player.material.xml" position="x: 3; y: 0.5; z: 3" scale="0.5">
     <Components>
-      <Mover stick="#stick" speed="6" turn="720" bounds="x: 5.5; y: 0; z: 5.5" />
+      <Mover speed="6" turn="720" bounds="x: 5.5; y: 0; z: 5.5" />
       <Carrier id="carrier" capacity="12" spacing="0.42" offset="0.55" />
       <SphereCollider radius="0.7" isSensor="true" />
     </Components>

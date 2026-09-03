@@ -77,7 +77,10 @@ export const ASSET_KINDS: readonly AssetKind[] = [
     type: 'PrefabType',
     extension: '.prefab.xml',
     description: 'A reusable node, spawned with <Prefab src="…"> or instantiate()',
-    dir: 'assets/scenes',
+    // Where `scenoco init` puts the one it ships, and where every example keeps theirs. This said
+    // `assets/scenes`, so `scenoco new prefab gem` wrote a prefab into the scenes folder and left
+    // the project's own convention to be repaired by hand.
+    dir: 'assets/prefabs',
   },
   {
     kind: 'scene',
@@ -229,6 +232,7 @@ const NOT_TAG_PACKAGES = new Set([
   '@scenoco-three/core',
   '@scenoco-three/compiler',
   '@scenoco-three/vite',
+  '@scenoco-three/observer',
   '@scenoco-three/editor',
 ]);
 

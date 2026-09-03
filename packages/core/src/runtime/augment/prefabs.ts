@@ -25,10 +25,9 @@ declare module 'three' {
      * To duplicate an object that already exists, use `clone()` instead.
      *
      * `configure` is the **override seam**: it runs after the prefab has built itself and
-     * before it enters the scene, which is the one window in which its insides exist but
-     * nothing in it has woken up yet. That is where a spawn reaches into a prefab and changes
-     * something it declared — a label's text, a brick's colour — and it is what a document's
-     * `<Override target="#label" text="…">` compiles to.
+     * before it enters the scene — the one window in which its insides exist but nothing has
+     * woken up yet. That is where a spawn changes something the prefab declared, a label's text
+     * or a brick's colour.
      *
      * ```ts
      * parent.instantiate(BrickPrefab, { position }, (brick) => { brick.hits = 3; });
@@ -74,6 +73,7 @@ proto.instantiate = function <T extends Object3D>(
     configure?.(instance);
     instance._built = true;
     this.add(instance);
+    if (init?.id) instance._runtime?.registerId(init.id, instance);
     return instance;
   }
 
@@ -97,12 +97,12 @@ proto.instantiate = function <T extends Object3D>(
 
   // Placement lands **after** `onLoad`, and that ordering is the whole point of it.
   //
-  // A prefab document's root element carries its own transform, and the generated `onLoad` writes
-  // it — so applying the caller's placement first meant the document quietly overwrote it, and
-  // every `instantiate(Crate, { position })` in a scatter put its crate at the prefab's authored
-  // spot instead. Fourteen crates in one pile, and nothing in the code that asked for fourteen
-  // positions to suggest why. Unity's `Instantiate(prefab, position, rotation)` wins over the
-  // prefab's own transform, and so does this. Still before the `add`, so it is final before any
+  // A prefab sets its own transform in `onLoad`, so applying the caller's placement first meant
+  // the prefab quietly overwrote it, and every `instantiate(Crate, { position })` in a scatter
+  // put its crate at the prefab's own spot instead — fourteen crates in one pile, with nothing in
+  // the code that asked for fourteen positions to suggest why. Unity's
+  // `Instantiate(prefab, position, rotation)` wins over the prefab's transform, and so does this.
+  // Still before the `add`, so it is final before any
   // `awake` — which is what `Watcher` in the prefab tests pins down.
   if (init) place(prefab, init);
 
@@ -112,6 +112,9 @@ proto.instantiate = function <T extends Object3D>(
   configure?.(prefab);
 
   this.add(prefab);
+  // Registered once it is in a scene, because an id is a scene's to keep: `byId` answers for
+  // this scene, and teardown forgets the id along with the node.
+  if (init?.id) prefab._runtime?.registerId(init.id, prefab);
   prefab.onLoaded?.();
   return prefab;
 } as Object3D['instantiate'];
@@ -123,7 +126,8 @@ proto.instantiate = function <T extends Object3D>(
  * `instantiate(Crate, { size: 0.5 })` works by `onLoad` reading `size`.
  */
 function settle(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): void {
-  const { name, position, eulerAngles, scale, visible, ...settings } = init;
+  const { id, name, position, eulerAngles, scale, visible, ...settings } = init;
+  void id;
   void name;
   void position;
   void eulerAngles;

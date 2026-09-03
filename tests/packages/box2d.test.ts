@@ -261,6 +261,30 @@ describe('contacts', () => {
     // The brick is gone; the ground and the world are intact.
     expect(ground.parent).not.toBe(null);
   });
+
+  /** Destroying a body ends its contacts, and the other side hears about it — Unity's behaviour. */
+  it('tells the other side when a body it touched is destroyed', async () => {
+    Time.fixedDeltaTime = 1 / 60;
+    const seen: string[] = [];
+    class Log extends Component {
+      override onTriggerEnter2D(other: Object3D): void { seen.push(`trigger:${other.name}`); }
+      override onTriggerExit2D(other: Object3D): void { seen.push(`untrigger:${other.name}`); }
+    }
+    let slime!: Mesh;
+    await SceneManager.load(sceneOf((s) => {
+      const wall = body(s, 'wall', { kind: 'static' }, { isSensor: true });
+      wall.addComponent(Log);
+      slime = body(s, 'slime', { gravityScale: 0 }, { isSensor: true });
+      slime.position.set(0.5, 0, 0);
+    }));
+    const clock = new Clock();
+    clock.frames(3, 1 / 60);
+    expect(seen).toEqual(['trigger:slime']);
+
+    slime.destroy();
+    clock.frames(3, 1 / 60);
+    expect(seen).toEqual(['trigger:slime', 'untrigger:slime']);
+  });
 });
 
 describe('render interpolation', () => {

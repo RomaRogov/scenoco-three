@@ -69,7 +69,7 @@ declare module 'three' {
      * This node's **own** material, cloned from the shared one on first call — Unity's
      * `Renderer.material` (vs `sharedMaterial`), which exists for exactly this reason.
      *
-     * A compiled material asset is a module-scope singleton, so a prefab spawned fifty times
+     * A shared material is one object, so a prefab spawned fifty times
      * shares one material and mutating it recolours all fifty. That sharing is legible — it is
      * an `import` you can read — but it is still sharing, so this is how one node opts out.
      *
@@ -106,7 +106,7 @@ proto._built = false;
  * A module that patches a shared prototype has to survive being evaluated more than once: a dev
  * server re-serving it after an unrelated file changed is enough, and the failure is brutal —
  * `Cannot redefine property: scene` is thrown at import time, so whatever was importing the
- * engine (a scene, in the editor's case) never finishes loading and you are left staring at an
+ * engine never finishes loading and you are left staring at an
  * empty viewport with no obvious cause.
  */
 Object.defineProperties(proto, {

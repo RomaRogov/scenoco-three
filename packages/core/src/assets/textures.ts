@@ -5,21 +5,17 @@ import { shared } from './shared.js';
 /**
  * The texture for an image URL — one per URL, shared by everything that asks.
  *
- * A texture needs no load barrier: `TextureLoader.load` hands back the `Texture` immediately and
- * fills the image in when it arrives, so a material can be built with it at module scope exactly
- * the way a geometry is. A scene that would rather not show an untextured first frame passes the
- * texture to `loadAssets`, which knows how to wait for it.
+ * A texture needs no load barrier: the `Texture` comes back at once and the image fills in when
+ * it arrives, so a material can be built with it at module scope. A scene that would rather not
+ * show an untextured first frame passes it to `loadAssets`.
  *
  * ```ts
- * // what `brick.material.xml` compiles to when it names an image
  * export const brick = shared(new MeshStandardMaterial({
  *   map: sharedTexture(new URL('../textures/brick.png', import.meta.url).href),
  * }));
  * ```
  *
- * Deduplicated by URL, because two materials naming the same image must not mean two uploads to
- * the GPU. The URL is what a bundler produced for that file, so equal URLs really are the same
- * image.
+ * Deduplicated by URL: two materials naming one image must not mean two uploads to the GPU.
  */
 export function sharedTexture(url: string, settings?: TextureSettings): Texture {
   const existing = cache.get(url);
@@ -37,10 +33,9 @@ export function sharedTexture(url: string, settings?: TextureSettings): Texture 
 /**
  * The `Texture`, with its image on the way.
  *
- * Headless there is no image to fetch — three.js's `ImageLoader` reaches for `document` — so
- * this hands back an empty texture instead of throwing. That matters more than it looks:
- * a generated material calls this at *module scope*, so throwing here would take down every
- * test that imports one, and every server render, before a single line of the scene ran.
+ * With no DOM there is no image to fetch, so this hands back an empty texture rather than
+ * throwing: it is called at *module scope*, where a throw would take down every test and every
+ * server render before a line of the scene ran.
  */
 function load(url: string): Texture {
   if (typeof document === 'undefined') return new Texture();
@@ -56,11 +51,10 @@ function load(url: string): Texture {
 }
 
 /**
- * What a `.texture.xml` may set — three.js's own sampler properties, nothing invented.
+ * The sampler settings a texture accepts — three.js's own, nothing invented.
  *
  * Deliberately not every property on `Texture`: `image`, `source` and `mipmaps` are the loaded
- * data rather than settings, and setting them here would mean a document could contradict the
- * file it names.
+ * data rather than settings, and setting them here would contradict the file.
  */
 export interface TextureSettings {
   colorSpace?: Texture['colorSpace'];

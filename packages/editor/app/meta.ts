@@ -15,7 +15,7 @@ import type { Object3D } from 'three';
  * ancestor, because a ray lands deep inside a helper; that one is in `picking.ts`.
  */
 export function isEditorOnly(object: Object3D): boolean {
-  return object.userData.scenocoEditorOnly === true;
+  return object.userData.scenocoToolOnly === true;
 }
 
 export const round = (n: number): number => Math.round(n * 1000) / 1000;

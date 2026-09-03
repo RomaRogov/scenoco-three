@@ -11,23 +11,18 @@ interface LoadedGltf {
 /**
  * A glTF/GLB model — **a prefab that came from a file**.
  *
- * That is the whole idea, and it is Unity's: dropping an `.fbx` into a Unity project gives you a
- * prefab you `Instantiate()`. Here the same file gives you something `instantiate` takes:
- *
- * ```xml
- * <Prefab src="../models/hero.glb" position="y: 1" id="hero" />
- * ```
+ * That is Unity's idea: an `.fbx` dropped into a project gives you a prefab you `Instantiate()`.
+ * Here the file gives you something `instantiate` takes:
  *
  * ```ts
- * const enemy = this.instantiate(enemyModel, { position: spawn });
+ * const model = new Model('/models/hero.glb');
+ * await loadAssets(model);                       // in onLoad
+ * const enemy = this.instantiate(model, { position: spawn });
  * ```
  *
- * No wrapper node — the model's own root is the node you get, the same rule a `.prefab.xml`
- * follows. Each instance is a `SkeletonUtils` clone, so skinned meshes rebind to their own
- * skeleton while geometry, materials and textures stay shared with every other instance.
- *
- * The bytes have to arrive first, so a scene that references a model awaits it in `onLoad`
- * before building anything — which the compiler writes for you.
+ * No wrapper node — the model's own root is the node you get. Each instance is a
+ * `SkeletonUtils` clone, so skinned meshes rebind to their own skeleton while geometry,
+ * materials and textures stay shared with every other instance.
  */
 export class Model extends Asset<LoadedGltf> {
   /** The animation clips the file ships with, for an `AnimationMixer` to play. Empty until loaded. */
@@ -36,10 +31,8 @@ export class Model extends Asset<LoadedGltf> {
   }
 
   /**
-   * A fresh copy of the model's root, ready to add to the scene.
-   *
-   * `Object3D.instantiate` calls this, so a model and a `.prefab.xml` spawn through the same
-   * verb; call it directly only when you want the node without parenting it anywhere.
+   * A fresh copy of the model's root, ready to add to the scene. `instantiate` on a node calls
+   * this; call it directly only when you want the node without parenting it anywhere.
    */
   instantiate(): Object3D {
     if (!cloneSkinned) {

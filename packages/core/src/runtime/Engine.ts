@@ -1,6 +1,7 @@
 import {
   PerspectiveCamera,
   WebGLRenderer,
+  type Camera,
   type Scene,
   type WebGLRendererParameters,
 } from 'three';
@@ -64,6 +65,8 @@ export class Engine {
   private readonly renderState = new RenderState();
   /** Bumped per chain build, so a slow import cannot install a chain that is already stale. */
   private effectsGeneration = 0;
+  /** Resolves when the chain a scene asked for has landed. See {@link effectsReady}. */
+  private effectsPending: Promise<void> | null = null;
 
   constructor(options: EngineOptions = {}) {
     this.container = options.container ?? document.body;
@@ -188,9 +191,7 @@ export class Engine {
     const camera = scene?.mainCamera;
     if (!scene || !camera) return;
 
-    this.applyRenderSettings(scene);
-    if (this.effects) this.effects.render(scene, camera);
-    else this.renderer.render(scene, camera);
+    this.renderScene(scene, camera);
 
     const overlays = SceneManager.persistentScenes;
     if (overlays.length === 0) return;
@@ -205,19 +206,38 @@ export class Engine {
   }
 
   /**
-   * Make the active scene's render settings current.
+   * Draw one scene through one camera, with that scene's render settings applied.
    *
-   * Applied when the settings *change*, not every frame: assigning `toneMapping` invalidates
-   * every compiled shader, so doing it unconditionally would rebuild the program cache sixty
-   * times a second. A scene that names no settings gets the renderer's defaults back, so one
-   * level's look cannot leak into the next.
+   * Separate from `render` because anything drawing outside the game loop — a preview, a
+   * capture — still has to draw the frame the game would draw. Calling `renderer.render`
+   * directly skips tone mapping and every post pass, which makes a scene look flat with nothing
+   * saying why.
    */
+  renderScene(scene: Scene, camera: Camera): void {
+    this.applyRenderSettings(scene);
+    if (this.effects) this.effects.render(scene, camera);
+    else this.renderer.render(scene, camera);
+  }
+
+  /**
+   * Size the drawing buffer and the post-processing chain together.
+   *
+   * They have to move as one: a composer left at the old size renders its passes at the wrong
+   * scale, and `resize` only ever computes the size from the container. A host capturing a
+   * frame at some other resolution needs to say so directly — and to put it back afterwards.
+   */
+  setFrameSize(width: number, height: number): void {
+    this.renderer.setSize(width, height, false);
+    this.effects?.setSize(width, height);
+  }
+
   /**
    * Make the active scene's render settings current.
    *
-   * The work is `RenderState`'s, which is also where the "has this changed?" bookkeeping lives:
-   * assigning `toneMapping` invalidates every compiled shader, so it must not happen sixty
-   * times a second, and the pass chain must not be rebuilt for a level that shares its look.
+   * Applied when they *change*, not every frame: assigning `toneMapping` invalidates every
+   * shader the renderer has built, so doing it unconditionally rebuilds the program cache sixty
+   * times a second. A scene with no settings gets the defaults back, so one level's look cannot
+   * leak into the next.
    */
   private applyRenderSettings(scene: Scene): void {
     if (!this.renderState.apply(this.renderer, scene)) return;
@@ -238,7 +258,7 @@ export class Engine {
    */
   private buildEffects(effects: readonly Effect[]): void {
     const generation = ++this.effectsGeneration;
-    void EffectChain.create(this.renderer, effects)
+    this.effectsPending = EffectChain.create(this.renderer, effects)
       .then((chain) => {
         // The settings may have changed again, or the engine been disposed, while the import
         // was in flight.
@@ -249,6 +269,20 @@ export class Engine {
       .catch((error: unknown) => {
         console.error('[scenoco] post-processing is unavailable; rendering without it.', error);
       });
+    void this.effectsPending;
+  }
+
+  /**
+   * Resolves once the post-processing chain the active scene asked for is in place.
+   *
+   * The chain is imported on demand, so the first frames after a scene loads are drawn without
+   * it. A game never notices — one frame of no bloom. Anything that draws *once* and looks at
+   * the result does: a screenshot taken immediately after opening a scene shows no post passes
+   * at all, which reads as "the effect I just added does not work" rather than "it has not
+   * loaded yet". Await this before capturing.
+   */
+  async effectsReady(): Promise<void> {
+    await this.effectsPending;
   }
 
   private readonly handleVisibility = (): void => {

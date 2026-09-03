@@ -159,6 +159,21 @@ function emitColor(prop: PropInfo, text: string, context: EmitContext, at: Fail)
     return at('bad-color', `${prop.name}="${text}" is ${other.kind}. In a document write ${prop.name}="${other.hex}".`);
   }
 
+  // `#rrggbbaa` and `#rgba`: valid CSS, and the one near miss three.js does not parse — it warns
+  // to the console and leaves the colour untouched, which is a bug that renders. A colour here is
+  // a `THREE.Color`, and a `THREE.Color` is r, g and b: the alpha has to go somewhere of its own,
+  // so the fix names the property that takes it rather than only the half that is wrong.
+  const alpha = /^#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})$/.exec(value);
+  if (alpha) {
+    const rgb = value.length === 5 ? value.slice(0, 4) : value.slice(0, 7);
+    const opacityProp = prop.name === 'background' ? 'backgroundOpacity' : 'opacity';
+    return at(
+      'bad-color',
+      `${prop.name}="${text}" carries an alpha channel, and a colour has no room for one — ` +
+        `THREE.Color is r, g, b. Write ${prop.name}="${rgb}" ${opacityProp}="${alphaOf(value)}".`,
+    );
+  }
+
   // Not any format three.js understands. If it reads like a misspelt colour name, the nearest
   // one — and its hex, since that is what has to be written — is the whole fix.
   const near = /^[a-zA-Z]+$/.test(value) ? nearestName(value.toLowerCase(), COLOR_NAMES) : undefined;
@@ -168,6 +183,12 @@ function emitColor(prop: PropInfo, text: string, context: EmitContext, at: Fail)
       ? `${prop.name}="${text}" is not a colour. The nearest CSS name is "${near}"; write ${prop.name}="${hexOfName(near)}".`
       : `${prop.name}="${text}" must be a hex colour such as "#38bdf8".`,
   );
+}
+
+/** The alpha of a `#rrggbbaa` or `#rgba` colour, as the 0..1 number the document has to write. */
+function alphaOf(value: string): number {
+  const hex = value.length === 5 ? value.slice(4).repeat(2) : value.slice(7);
+  return Math.round((parseInt(hex, 16) / 255) * 100) / 100;
 }
 
 /** Every CSS colour name three.js knows, straight from its own table. */

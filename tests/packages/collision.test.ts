@@ -150,6 +150,43 @@ describe('overlap detection', () => {
     expect(() => clock.frame()).not.toThrow();
     expect(scene.getSystem(Collision)).toBeTruthy();
   });
+
+  /**
+   * The shape every shooter has: a bullet and a target, both destroyed inside the trigger that
+   * joined them. Whoever else was touching the target hears an exit while its node still exists,
+   * and the frame after is an ordinary frame — the first version dispatched that exit from the
+   * next diff, by which time `object3D` was null, and took the system down for good.
+   */
+  it('ends a pair the frame a collider is destroyed, and keeps going', async () => {
+    class Bullet extends Component {
+      override onTriggerEnter(other: Object3D): void {
+        other.destroy();
+        this.object3D.destroy();
+      }
+    }
+    let bullet!: Object3D;
+    let witness!: Log;
+    await SceneManager.load(sceneOf((s) => {
+      bullet = box(s, 'bullet', new Vector3(-3, 0, 0), { isSensor: true });
+      bullet.removeComponent(Log);
+      bullet.addComponent(Bullet);
+      box(s, 'slime', new Vector3(0.5, 0, 0), { isSensor: true });
+      // Overlapping the slime, and nothing else: it must be told when the slime goes.
+      const wall = box(s, 'wall', new Vector3(1.25, 0, 0), { isSensor: true });
+      witness = wall.getComponent(Log)!;
+    }));
+    const clock = new Clock();
+
+    clock.frame();
+    expect(witness.seen).toEqual(['trigger:slime']);
+
+    bullet.position.set(0, 0, 0);
+    clock.frame();
+    // Both destroyed at the end of that frame; the wall heard the exit, with a real node.
+    expect(witness.seen).toEqual(['trigger:slime', 'untrigger:slime']);
+    expect(() => clock.frames(3)).not.toThrow();
+    expect(witness.seen).toHaveLength(2);
+  });
 });
 
 describe('sphere overlap', () => {

@@ -29,7 +29,7 @@ export type FitMode =
  * </PerspectiveCamera>
  * ```
  *
- * A component rather than attributes on the camera tag, because three.js has no such concept:
+ * A component rather than a camera property, because three.js has no such concept:
  * `camera.fit` would be a SceNoCo idea wearing three.js's clothes, and telling the two apart is
  * the whole reason a document is predictable. Everything the engine adds that three.js has no
  * name for is a class you can see — a component, a system, an effect.
@@ -62,7 +62,7 @@ export class CameraFit extends Component<Camera> {
 
   /**
    * Checked every frame rather than driven by a resize event: the aspect can change without one
-   * — a canvas in a resizable panel, a phone rotating, an editor viewport — and the check is two
+   * — a canvas in a resizable panel, a phone rotating — and the check is two
    * reads and a compare.
    */
   override lateUpdate(): void {

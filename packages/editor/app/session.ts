@@ -10,10 +10,7 @@ import {
   WebGLRenderer,
   type Camera,
 } from 'three';
-import { Engine, Input, SceneManager, type PrefabType, type SceneType } from '@scenoco-three/core';
-import type { PreviewFrame, SimStep } from '../src/protocol.js';
-
-export type EditorMode = 'edit' | 'play';
+import { Engine, SceneManager, type PrefabType, type SceneType } from '@scenoco-three/core';
 
 /** Where to point the editor camera and how far back to sit — what framing works out. */
 export interface FocusTarget {
@@ -57,8 +54,6 @@ export class EditorSession {
   private readonly overlays = new WeakMap<Camera, Camera>();
   private showUi = false;
 
-  private clock = 0;
-
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     // Constructed, never started: `Engine` owns the renderer, input and canvas sizing, and the
@@ -83,21 +78,18 @@ export class EditorSession {
    * prefab mode, and it is the only way a document whose root is a `Mesh` can be looked at at
    * all — the alternative is finding a scene that happens to spawn one.
    */
-  async open(moduleUrl: string): Promise<void> {
+  async open(SceneClass: SceneType): Promise<void> {
     await SceneManager.unloadAll();
-    const module = (await import(/* @vite-ignore */ moduleUrl)) as Record<string, unknown>;
-    const exported = Object.values(module).filter((value): value is new () => object => typeof value === 'function');
-    const SceneClass = exported.find(
-      (value): value is SceneType => Scene.prototype.isPrototypeOf(value.prototype),
-    );
-    const PrefabClass = exported.find(
-      (value): value is PrefabType<Object3D> => Object3D.prototype.isPrototypeOf(value.prototype),
-    );
-    if (!SceneClass && !PrefabClass) throw new Error(`${moduleUrl} exports no scene or prefab class`);
+    this.scene = await SceneManager.load(SceneClass);
+    this.resize();
 
-    this.sceneClass = SceneClass ?? stageFor(PrefabClass!);
-    this.scene = await SceneManager.load(this.sceneClass);
-    this.resize(); // the scene's camera only exists now, and it is the one play mode renders through
+    // One draw to make the scene's render settings current — which is what asks for the post
+    // chain — then wait for it. Without this the first `screenshot` after opening shows no post
+    // passes, because the composer is a dynamic import that has not landed yet, and "no bloom"
+    // is indistinguishable from "the <Bloom> I just wrote does not work".
+    this.render();
+    await this.engine.effectsReady();
+
     this.onChange?.();
   }
 
@@ -151,7 +143,10 @@ export class EditorSession {
   private overlayFor(owner: Camera): Camera {
     let copy = this.overlays.get(owner);
     if (!copy) {
-      copy = owner.clone(false) as Camera; // no children: the UI subtree is rendered, not copied
+      // Through `Object3D` on purpose: `clone(recursive)` is its signature, and `Camera` redeclares
+      // it as `clone(): this`, which drops the parameter the runtime still honours. Cloning
+      // recursively here would copy the UI subtree, which is rendered rather than copied.
+      copy = (owner as Object3D).clone(false) as Camera;
       this.overlays.set(owner, copy);
     }
     copy.copy(owner, false); // projection parameters — fov, aspect, near, far
@@ -186,84 +181,26 @@ export class EditorSession {
   }
 
   // --- transport ---------------------------------------------------------------------------
-
   /**
-   * Start the simulation on the scene as it is now — including everything moved since it loaded.
+   * One frame of a scene that is not running.
    *
-   * The systems get told to re-read the scene graph first. Edit mode is a whole session of
-   * writing transforms from outside the simulation, and a physics world does not watch for that:
-   * without this, a crate dragged across the level plays with its collider still where the
-   * document put it, and things bounce off empty space.
+   * Nothing is simulated here — this editor has no play mode, because behaviour is a project's
+   * TypeScript and this page has none. What still has to happen per frame is presentation: a UI
+   * layout is arithmetic over the current state, and a system that can bring itself up to date
+   * without simulating says so with `layout`.
    */
-  run(): void {
-    for (const system of this.scene?.systems ?? []) system.syncTransforms?.();
-    this.mode = 'play';
-    this.playing = true;
-    SceneManager.resetFrameClock();
-  }
-
-  pause(): void {
-    this.playing = false;
-  }
-
-  /**
-   * Stop, and put the scene back as the document describes it — Unity's Stop, which discards
-   * everything play mode did.
-   *
-   * Rebuilt rather than merely halted, because a run has to start from the same place every
-   * time. Without it a second `simulate` batch begins wherever the first one left off, and two
-   * identical batches disagree — which is precisely the property an agent is relying on when it
-   * drives a scene to a condition and looks at it.
-   */
-  async stop(): Promise<void> {
-    this.playing = false;
-    this.mode = 'edit';
-    if (!this.sceneClass) return;
-    await SceneManager.unloadAll();
-    this.scene = await SceneManager.load(this.sceneClass);
-    this.resize(); // a rebuilt scene brings a fresh camera with a default aspect
-    this.clock = 0;
-    SceneManager.resetFrameClock();
-    this.onChange?.();
-  }
-
-  /** Advance by exactly one step — the frame-by-frame inspection a bug needs. */
-  step(dt = 1 / 60): void {
-    this.clock += dt * 1000;
-    SceneManager.tick(this.clock);
-    Input.endFrame();
-  }
-
-  /**
-   * One frame of the editor's own loop.
-   *
-   * `Input.endFrame` runs whether or not the scene stepped, and that is the point: `Engine` calls
-   * it from the loop the editor does not use, so nothing else would. Without it `getKeyDown` is
-   * true for ever after one press and `mouseDelta` keeps its last value — a camera that never
-   * stops turning once you have turned it, and a one-frame edge that fires on every frame.
-   */
-  tick(dt: number): void {
-    if (this.playing) this.step(dt);
-    else {
-      // Edit mode ticks nothing, which leaves anything presentational stale — a UI layout most
-      // visibly. Systems that can be brought up to date without simulating say so.
-      for (const system of this.scene?.systems ?? []) system.layout?.(dt);
-      Input.endFrame();
-    }
+  frame(dt: number): void {
+    for (const system of this.scene?.systems ?? []) system.layout?.(dt);
     this.render();
   }
 
-  render(camera: Camera = this.renderCamera()): void {
+  render(): void {
     if (!this.scene) return;
-    this.renderer.render(this.scene, camera);
-    // Only in edit mode: play renders through the scene's own camera, where the UI is already
-    // in front of it, and a run has to show exactly what the game shows — once.
-    if (this.showUi && this.mode === 'edit') this.renderUiOverlay();
-  }
-
-  /** Play renders through the scene's camera; edit through the editor's. */
-  renderCamera(): Camera {
-    return this.mode === 'play' && this.scene?.mainCamera ? this.scene.mainCamera : this.editorCamera;
+    // Through the engine, not `renderer.render`: the scene's render document — tone mapping,
+    // bloom, vignette, fog — is applied there, and a viewport that skips it is not showing the
+    // scene the game draws.
+    this.engine.renderScene(this.scene, this.editorCamera);
+    if (this.showUi) this.renderUiOverlay();
   }
 
   /**
@@ -272,8 +209,8 @@ export class EditorSession {
    * `Engine.resize` sizes the buffer and the scene's camera, and it is the very code the game
    * runs — so it is called rather than reimplemented. But the editor never starts the engine's
    * loop, which is what would normally keep calling it: the constructor's one call happens before
-   * any scene is loaded, so `mainCamera` does not exist yet and never gets an aspect. Play mode
-   * then renders the game through a camera still at aspect 1 and every sphere is an ellipse.
+   * any scene is loaded, so `mainCamera` does not exist yet and never gets an aspect; the UI
+   * overlay borrows that camera, and would draw through one at aspect 1.
    *
    * The editor's own camera is not the engine's business, so it is handled here.
    */
@@ -297,11 +234,7 @@ export class EditorSession {
     // Only what the document authored. The gizmo's helper is a child of the scene too, and its
     // picker plane is 100000 units across: framing that put the camera millions of units out, and
     // since the handles scale with camera distance, each press of the key made the next one worse.
-    const box = new Box3();
-    for (const child of this.scene.children) {
-      if (child.userData.scenocoEditorOnly) continue;
-      box.union(new Box3().setFromObject(child));
-    }
+    const box = boxOfAuthored(this.scene);
     return box.isEmpty() ? null : this.focus(box);
   }
 
@@ -329,222 +262,34 @@ export class EditorSession {
 
   // --- what an agent asks for ---------------------------------------------------------------
 
-  /**
-   * Render one PNG from an arbitrary viewpoint.
-   *
-   * A capture camera rather than the editor's own: a shot must not move what the person at the
-   * keyboard is looking at, and two shots of the same run have to be comparable.
-   */
-  preview(frame: PreviewFrame, at: string, lookAt?: string): string {
-    if (!this.scene) throw new Error('no scene is open');
 
-    const usingScene = frame.ui && this.scene.mainCamera;
-    const camera = usingScene
-      ? (this.scene.mainCamera as PerspectiveCamera)
-      : new PerspectiveCamera(50, frame.width / frame.height, 0.1, 2000);
-
-    const previous = {
-      position: camera.position.clone(),
-      quaternion: camera.quaternion.clone(),
-      aspect: camera.aspect,
-    };
-    const target = pointOf(lookAt) ?? new Vector3();
-    const eye = at === 'fit' ? this.fitPoint(camera, target) : pointOf(at);
-    if (!eye) throw new Error(`camera="${at}" is not a point — write "y: 6; z: 12", or "fit"`);
-    camera.position.copy(eye);
-    camera.lookAt(target);
-    // Always, including the scene's own camera: it is framed for the editor viewport, and
-    // rendering it into a differently-shaped buffer stretches everything in the shot.
-    camera.aspect = frame.width / frame.height;
-    camera.updateProjectionMatrix();
-
-    const { width, height } = this.renderer.domElement;
-    this.renderer.setSize(frame.width, frame.height, false);
-    this.renderer.render(this.scene, camera);
-    const dataUrl = this.canvas.toDataURL('image/png');
-    this.renderer.setSize(width, height, false);
-
-    // Put the camera back: a capture is an observation, and an observation that moves the thing
-    // it observed is not one.
-    camera.position.copy(previous.position);
-    camera.quaternion.copy(previous.quaternion);
-    camera.aspect = previous.aspect;
-    camera.updateProjectionMatrix();
-    return dataUrl;
-  }
-
-  /** A viewpoint that fits the whole scene, for `camera="fit"`. */
-  private fitPoint(camera: PerspectiveCamera, target: Vector3): Vector3 {
-    const box = new Box3().setFromObject(this.scene!);
-    const center = box.isEmpty() ? new Vector3() : box.getCenter(new Vector3());
-    target.copy(center);
-    const radius = box.isEmpty() ? 5 : Math.max(box.getSize(new Vector3()).length() / 2, 0.5);
-    const distance = (radius / Math.sin((camera.fov * Math.PI) / 360)) * 1.2;
-    return center.clone().addScaledVector(new Vector3(0.6, 0.5, 1).normalize(), distance);
-  }
-
-  /**
-   * Read the state at an `id` the document declared.
-   *
-   * The generated scene class carries a typed field per `id`, so this is a property lookup —
-   * there is no registry to consult and no name index to keep.
-   */
-  telemetry(id: string): unknown {
-    const node = (this.scene as unknown as Record<string, Object3D | undefined>)?.[id];
-    if (!node || typeof node !== 'object' || !('isObject3D' in node)) {
-      throw new Error(`no id "${id}" in this document`);
-    }
-    return {
-      id,
-      type: node.type,
-      name: node.name,
-      position: node.position.toArray(),
-      eulerAngles: node.eulerAngles.toArray(),
-      scale: node.scale.toArray(),
-      visible: node.visible,
-      active: node.activeInHierarchy,
-      components: node.components.map((component) => ({
-        type: component.constructor.name,
-        enabled: component.enabled,
-        ...readable(component),
-      })),
-    };
-  }
-
-  /** Run a batch of steps in order, collecting whatever each one produced. */
-  async simulate(
-    steps: readonly SimStep[],
-    frame: PreviewFrame,
-  ): Promise<Array<{ kind: 'image' | 'json'; value: unknown }>> {
-    const out: Array<{ kind: 'image' | 'json'; value: unknown }> = [];
-    for (const step of steps) {
-      switch (step.do) {
-        case 'play':
-          this.run();
-          break;
-        case 'pause':
-          this.pause();
-          break;
-        case 'stop':
-          await this.stop();
-          break;
-        case 'step':
-          for (let i = 0; i < (step.frames ?? 1); i++) this.step(step.dt ?? 1 / 60);
-          break;
-        case 'press':
-          this.key('keydown', step.key);
-          this.step();
-          this.key('keyup', step.key);
-          break;
-        case 'keyDown':
-          this.key('keydown', step.key);
-          break;
-        case 'keyUp':
-          this.key('keyup', step.key);
-          break;
-        case 'click':
-          this.pointer('pointerdown', step.x, step.y, step.button);
-          this.pointer('pointerup', step.x, step.y, step.button);
-          break;
-        case 'move':
-          this.pointer('pointermove', step.x, step.y);
-          break;
-        case 'preview':
-          out.push({ kind: 'image', value: this.preview(frame, step.camera, step.lookAt) });
-          break;
-        case 'telemetry':
-          out.push({ kind: 'json', value: this.telemetry(step.id) });
-          break;
-      }
-    }
-    return out;
-  }
-
-  /**
-   * Synthetic input is a real DOM event.
-   *
-   * `Input` listens to the page, so there is nothing to fake and no test-only path through it —
-   * an agent's key press travels the same route a person's does, which is the only way a
-   * simulated run tells you anything about the real one.
-   */
-  private key(type: 'keydown' | 'keyup', name: string): void {
-    const code = keyCodeFor(name);
-    window.dispatchEvent(new KeyboardEvent(type, { code, key: name, bubbles: true }));
-  }
-
-  private pointer(type: string, x?: number, y?: number, button?: 'left' | 'right' | 'middle'): void {
-    const rect = this.canvas.getBoundingClientRect();
-    this.canvas.dispatchEvent(
-      new PointerEvent(type, {
-        bubbles: true,
-        clientX: rect.left + (x ?? rect.width / 2),
-        clientY: rect.top + (y ?? rect.height / 2),
-        button: button === 'right' ? 2 : button === 'middle' ? 1 : 0,
-        pointerId: 1,
-      }),
-    );
-  }
 }
 
 /** `"y: 6; z: 12"` — the document's own vector grammar, so an agent learns one. */
-export function pointOf(text?: string): Vector3 | undefined {
-  if (!text || text === 'fit') return undefined;
-  const point = new Vector3();
-  let wrote = false;
-  for (const part of text.split(';')) {
-    const [axis, value] = part.split(':');
-    const n = Number(value?.trim());
-    if (!axis || !Number.isFinite(n)) continue;
-    const key = axis.trim() as 'x' | 'y' | 'z';
-    if (key === 'x' || key === 'y' || key === 'z') {
-      point[key] = n;
-      wrote = true;
-    }
-  }
-  return wrote ? point : undefined;
-}
-
 /**
- * A `KeyCode` member name as the DOM spells it.
+ * The bounds of what the *document* authored.
  *
- * `Space` is `Space`, `W` is `KeyW`, `LeftArrow` is `ArrowLeft` — one small table, because the
- * two vocabularies genuinely differ and an agent should write the one the engine documents.
+ * The editor draws into the same scene the game does — the gizmo's helper is a child of it, and
+ * that helper carries a 100000-unit picker plane. Every question of the form "where should the
+ * camera go to see this?" has to ask about the authored children alone, or it answers about the
+ * gizmo. There is one of these because there were two, and only one of them had the filter.
  */
-function keyCodeFor(name: string): string {
-  const special: Record<string, string> = {
-    Space: 'Space',
-    LeftArrow: 'ArrowLeft',
-    RightArrow: 'ArrowRight',
-    UpArrow: 'ArrowUp',
-    DownArrow: 'ArrowDown',
-    Return: 'Enter',
-    Escape: 'Escape',
-    Tab: 'Tab',
-    LeftShift: 'ShiftLeft',
-    LeftControl: 'ControlLeft',
-  };
-  if (special[name]) return special[name]!;
-  if (/^[A-Z]$/.test(name)) return `Key${name}`;
-  if (/^Alpha[0-9]$/.test(name)) return `Digit${name.slice(5)}`;
-  return name;
+export function boxOfAuthored(scene: Scene): Box3 {
+  const box = new Box3();
+  for (const child of scene.children) {
+    if (child.userData.scenocoToolOnly) continue;
+    box.union(new Box3().setFromObject(child));
+  }
+  return box;
 }
 
-/** A component's own public values — what a document could have written, read back. */
-function readable(component: object): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(component)) {
-    if (key.startsWith('_')) continue;
-    if (value === null || ['number', 'string', 'boolean'].includes(typeof value)) out[key] = value;
-    else if (value instanceof Vector3) out[key] = value.toArray();
-  }
-  return out;
-}
+
 
 /**
  * A scene that holds one instance of a prefab — the stage a prefab is edited on.
  *
  * The lights and the background are the editor's, not the document's, so they carry the
- * `scenocoEditorOnly` flag every other editor-drawn helper does: the hierarchy, picking and
+ * `scenocoToolOnly` flag every other tool-drawn helper does: the hierarchy, picking and
  * framing all skip them, and nothing the person sees in the tree came from anywhere but the
  * prefab they opened.
  */
@@ -554,7 +299,7 @@ function stageFor(Prefab: PrefabType<Object3D>): SceneType {
       this.instantiate(Prefab);
       this.background = new Color(0x15181f);
       for (const light of [ambient(), key()]) {
-        light.userData.scenocoEditorOnly = true;
+        light.userData.scenocoToolOnly = true;
         this.add(light);
       }
     }

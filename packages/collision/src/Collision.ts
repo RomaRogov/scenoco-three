@@ -38,6 +38,23 @@ export class Collision extends System {
   remove(collider: Collider): void {
     const index = this.colliders.indexOf(collider);
     if (index !== -1) this.colliders.splice(index, 1);
+
+    // Every pair it was in ends now, and the other side hears about it now — Unity fires the exit
+    // on the survivor when a collider is destroyed. It has to happen here, from `onDestroy`, while
+    // the collider still has its node: by the next `update` its `object3D` is null, and an exit
+    // dispatched from the diff then dereferenced it. The first bullet to hit a slime — both
+    // destroyed in one `onTriggerEnter` — took the whole system down that way, and because the
+    // throw skipped the set swap, every frame after threw on the same stale pair.
+    for (const [key, pair] of this.pairs) {
+      if (pair[0] !== collider && pair[1] !== collider) continue;
+      this.pairs.delete(key);
+      this.previous.delete(key);
+      this.current.delete(key);
+      const other = pair[0] === collider ? pair[1] : pair[0];
+      if (other.object3D && collider.object3D && !other.isDestroyed) {
+        dispatch(other.object3D, collider.object3D, pair[0].isSensor || pair[1].isSensor, 'exit');
+      }
+    }
   }
 
   override update(): void {

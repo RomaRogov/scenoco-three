@@ -10,7 +10,9 @@
       "@scenoco-three/particles": ["./packages/particles/src/index.ts"],
       "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
       "@scenoco-three/ui": ["./packages/ui/src/index.ts"],
-      "@scenoco-three/postfx": ["./packages/postfx/src/index.ts"]
+      "@scenoco-three/postfx": ["./packages/postfx/src/index.ts"],
+      "@scenoco-three/observer": ["./packages/observer/src/index.ts"],
+      "@scenoco-three/compiler/browser": ["./packages/compiler/src/browser.ts"]
     }
   },
   // Everything is ported now. What is still excluded: `app/ui-react` (the v1
@@ -34,6 +36,8 @@
     "tests/compiler",
     "tests/tooling/cli.test.ts",
     "tests/tooling/editor.test.ts",
+    "tests/tooling/observer.test.ts",
+    "packages/observer/src",
     "packages/editor/src",
     "packages/compiler/src",
     "vitest.config.ts"

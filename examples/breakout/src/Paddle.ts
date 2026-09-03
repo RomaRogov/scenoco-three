@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import type { Camera, Mesh } from 'three';
-import { Component, Input, KeyCode, MouseButton } from '@scenoco-three/core';
+import { Component, Input, MouseButton } from '@scenoco-three/core';
 
 /**
  * Moves the paddle, by keyboard or by dragging.
@@ -27,9 +27,8 @@ export class Paddle extends Component<Mesh> {
       return;
     }
 
-    const direction =
-      (Input.getKey(KeyCode.D) || Input.getKey(KeyCode.RightArrow) ? 1 : 0) -
-      (Input.getKey(KeyCode.A) || Input.getKey(KeyCode.LeftArrow) ? 1 : 0);
+    // Raw, not smoothed: a paddle has to stop the instant the key comes up.
+    const direction = Input.getAxisRaw('Horizontal');
     if (direction === 0) return;
     const x = this.object3D.position.x + direction * this.speed * dt;
     this.object3D.position.x = clamp(x, -this.halfRange, this.halfRange);

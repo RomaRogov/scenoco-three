@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
+import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Scene, Vector3 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Component, SceneManager } from '@scenoco-three/core';
 import { Clock, resetEngine, sceneOf } from './helpers.js';
@@ -118,6 +118,71 @@ describe('prefabs', () => {
     }));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('instantiate'));
     warn.mockRestore();
+  });
+
+  it('answers byId for an instance given an id, and for what is inside it', async () => {
+    let scene!: Scene;
+    await SceneManager.load(sceneOf((s) => {
+      scene = s;
+      s.instantiate(Crate, { id: 'crate1', size: 1 });
+      s.instantiate(Crate, { id: 'crate2', size: 3 });
+    }));
+    expect(scene.byId('crate2', Crate)!.scale.x).toBe(3);
+    expect(scene.byId('crate1')).not.toBe(scene.byId('crate2'));
+    expect(scene.byId('nothing')).toBeNull();
+    // Typed by the class you pass: the wrong class is null, not a cast that lies.
+    expect(scene.byId('crate1', Rotator)).toBeNull();
+  });
+
+  it('reaches a prefab\'s own ids through the instance', async () => {
+    class Turret extends Group {
+      barrel!: Mesh;
+      spin!: Rotator;
+      override onLoad(): void {
+        this.barrel = new Mesh(geometry, material);
+        this.add(this.barrel);
+        this.spin = this.barrel.addComponent(Rotator, { speed: 4 });
+      }
+    }
+    let scene!: Scene;
+    await SceneManager.load(sceneOf((s) => {
+      scene = s;
+      s.instantiate(Turret, { id: 't1' });
+    }));
+    expect(scene.byId('t1/barrel', Mesh)).toBeInstanceOf(Mesh);
+    expect(scene.byId('t1/spin', Rotator)!.speed).toBe(4);
+    expect(scene.byId('t1/nothing')).toBeNull();
+  });
+
+  it('refuses a duplicate id, and frees one when its instance is destroyed', async () => {
+    let scene!: Scene;
+    let first!: Crate;
+    await SceneManager.load(sceneOf((s) => {
+      scene = s;
+      first = s.instantiate(Crate, { id: 'crate' });
+    }));
+    expect(() => scene.instantiate(Crate, { id: 'crate' })).toThrow(/already taken/);
+
+    first.destroy();
+    new Clock().frame();
+    expect(scene.byId('crate')).toBeNull();
+    expect(() => scene.instantiate(Crate, { id: 'crate' })).not.toThrow();
+  });
+
+  it('frees an id the moment destroy() is called, so the next spawn can take it in the same frame', async () => {
+    let scene!: Scene;
+    await SceneManager.load(sceneOf((s) => {
+      scene = s;
+      s.instantiate(Crate, { id: 'gem1' });
+    }));
+    const old = scene.byId('gem1', Crate)!;
+    // The ordinary reset: destroy the old one and spawn the next, in one call, before any frame.
+    old.destroy();
+    expect(() => scene.instantiate(Crate, { id: 'gem1' })).not.toThrow();
+    expect(scene.byId('gem1')).not.toBe(old);
+    new Clock().frame();
+    expect(scene.byId('gem1')).not.toBe(old);
+    expect(old.isDestroyed).toBe(true);
   });
 
   it('refuses an init key the prefab does not declare', () => {

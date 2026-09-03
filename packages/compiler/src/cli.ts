@@ -1,8 +1,12 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
-import { ASSET_KINDS, type AssetKind } from './assets.js';
+import { ASSET_KINDS, findAssets, type AssetKind } from './assets.js';
 import { build } from './build.js';
-import { formatDiagnostic } from './dsl/diagnostics.js';
+import { describe } from './describe.js';
+import { describeApi } from './scan/api.js';
+import { Workspace } from './scan/workspace.js';
+import { scaffold } from './scaffold.js';
+import { formatDiagnostic, whatToLookUp } from './dsl/diagnostics.js';
 import { PRIMITIVES, templateFor } from './templates.js';
 
 /**
@@ -25,6 +29,10 @@ export async function run(argv: readonly string[]): Promise<number> {
       return compile(rest, { watch: false, dryRun: true });
     case 'new':
       return create(rest);
+    case 'describe':
+      return explain(rest);
+    case 'init':
+      return init(rest);
     case undefined:
     case '-h':
     case '--help':
@@ -42,6 +50,73 @@ interface Flags {
   root: string;
   tsconfig?: string;
   modules?: string[];
+}
+
+/**
+ * Answer what a name means in this project — a component, a tag, a document, or the whole list.
+ *
+ * A view over `build()` like every other command: the model it prints is the one the emitters
+ * compile against, so the answer is what the compiler would actually accept. Runs `dryRun` so
+ * asking a question never writes a file.
+ */
+function explain(args: readonly string[]): number {
+  // A flag is never a name, and `parseFlags` reads a bare positional as the root — so the names
+  // come off the front first, exactly as `new` does it.
+  //
+  // Several at once, because the questions come in sets: a build that has just started wants
+  // `Component System Input Time` and nothing is learned by asking for them one at a time. Every
+  // measured build spent eight separate turns on that fixed list, and a turn is the expensive
+  // unit here — the tools themselves are 7% of a run's wall clock.
+  const names: string[] = [];
+  while (args[names.length] !== undefined && !args[names.length]!.startsWith('-')) {
+    names.push(args[names.length]!);
+  }
+  const wanted = names[0];
+  const flags = parseFlags(args.slice(names.length));
+
+  const tsconfig = flags.tsconfig ?? resolve(flags.root, 'tsconfig.json');
+  if (!existsSync(tsconfig)) {
+    console.error(`scenoco: no tsconfig.json at ${tsconfig}. Pass --root <dir> if it lives elsewhere.`);
+    return 1;
+  }
+
+  const options = {
+    root: flags.root,
+    ...(flags.tsconfig ? { tsconfig: flags.tsconfig } : {}),
+    ...(flags.modules ? { modules: flags.modules } : {}),
+    dryRun: true,
+  };
+  let model;
+  try {
+    ({ model } = build(options));
+  } catch (error) {
+    // A tag package installed but not yet imported stops `build` and `check`, rightly — a
+    // document could name a tag nothing ships. It must not stop a *question*: the answer to
+    // "what is a Component" does not depend on it, and an agent that asked exactly that got
+    // "no file imports @scenoco-three/ui" and nothing else. Say it, then answer from what is
+    // wired: three and the project's own components.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('no file in this project imports')) throw error;
+    console.error(`${message}\nAnswering from what is imported so far.\n`);
+    ({ model } = build({ ...options, modules: ['three'] }));
+  }
+
+  // A second, short-lived workspace for the declarations. `build` closes its own, and opening
+  // one costs about what a question is worth; it is paid only when a name reaches the API.
+  const modules = [...new Set(model.tags.map((tag) => tag.module))];
+  const answer = Workspace.with(tsconfig, (workspace) => {
+    const context = {
+      model,
+      assets: findAssets(flags.root),
+      read: (path: string) => readFileSync(path, 'utf8'),
+      api: (name: string) => describeApi(workspace, name, modules),
+    };
+    if (names.length <= 1) return describe(context, wanted);
+    // A rule between answers, so a reader can see where one ends — the same job a heading does.
+    return names.map((name) => describe(context, name)).join(`\n\n${'─'.repeat(78)}\n\n`);
+  });
+  console.log(answer);
+  return 0;
 }
 
 /** Compile the project's documents. `check` does it without writing anything. */
@@ -72,6 +147,17 @@ async function compile(args: readonly string[], options: { watch: boolean; dryRu
     for (const diagnostic of result.diagnostics) console.error(formatDiagnostic(diagnostic));
     if (result.diagnostics.length > 0) {
       console.error(`\n${result.diagnostics.length} problem(s).`);
+      // One pointer for the whole run, not one per problem. A reader who has just been told a tag
+      // is wrong four times needs to look that tag up once, and a diagnostic block that repeats
+      // its own advice on every line is one nobody reads to the end of.
+      const lookUp = whatToLookUp(result.diagnostics);
+      if (lookUp.length > 0) {
+        const shown = lookUp.slice(0, 3);
+        console.error(
+          `To see what ${shown.length > 1 ? 'these take' : 'it takes'}: ` +
+            shown.map((name) => `scenoco describe ${name}`).join('  ·  '),
+        );
+      }
       return false;
     }
     const verb = options.dryRun ? 'checked' : 'wrote';
@@ -95,6 +181,30 @@ async function compile(args: readonly string[], options: { watch: boolean; dryRu
     queued = setTimeout(once, 40);
   });
   return new Promise<number>(() => {}); // runs until interrupted
+}
+
+/**
+ * Scaffold a whole project — the first thing anyone runs.
+ *
+ * The same view over the same templates that `new` is, one level up: `new` writes one document,
+ * `init` writes the project that document would live in.
+ */
+function init(args: readonly string[]): number {
+  const target = args.find((arg) => !arg.startsWith('-')) ?? '.';
+  try {
+    const result = scaffold(target);
+    console.log(`Created ${result.written.length} files in ${result.directory}\n`);
+    if (target !== '.') console.log(`  cd ${target}`);
+    console.log('  npm install');
+    console.log('  npm run dev\n');
+    console.log('Arrow keys move the block, Space drops a crate. Then read AGENTS.md — the model in a');
+    console.log('page — and assets/scenes/main.scene.xml, which ends with one thing to try that shows');
+    console.log('what the compiler does when you slip.');
+    return 0;
+  } catch (error) {
+    console.error(`scenoco init: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
 }
 
 /** Scaffold one document from its starter template. */
@@ -173,8 +283,15 @@ function help(): void {
   scenoco build [dir]     compile every document in the project
   scenoco watch [dir]     compile, then recompile as documents and components change
   scenoco check [dir]     compile without writing — for CI
+  scenoco init <dir>      a whole project that runs: scene, component, shapes, Vite wired up
   scenoco new <kind> <name>
   scenoco new geometry    the primitives: ${Object.keys(PRIMITIVES).join(', ')}
+  scenoco describe [name…]
+                          what a name means here — a component, a tag, a document, or a
+                          runtime API like Input or Coroutine. Several names answer in one
+                          go: describe Component System Input Time.
+                          With no name: the whole vocabulary, and how the pieces fit
+                          together. Start there if you have not used this before.
 
 Options
   --root <dir>            project root (default: the current directory)

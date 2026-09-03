@@ -14,11 +14,10 @@ export interface TweenStarter {
 /**
  * Runs a tween library on the **engine's** clock.
  *
- * SceNoCo ships no tween of its own. It had one — a component that moved a node's position,
- * rotation or scale — and it covered three of the dozens of things a game animates while
- * everything else needed a different mechanism anyway. The answer is a real library:
- * [tween.js](https://github.com/tweenjs/tween.js), which three.js ships in its own addons, so it
- * costs no dependency at all:
+ * There is no tween of our own: a component that moved position, rotation or scale covered three
+ * of the dozens of things a game animates. Use a real library —
+ * [tween.js](https://github.com/tweenjs/tween.js) ships in three's addons, so it costs no
+ * dependency:
  *
  * ```ts
  * import { Group, Tween, Easing } from 'three/addons/libs/tween.module.js';
@@ -37,20 +36,16 @@ export interface TweenStarter {
  * }
  * ```
  *
- * ### What this exists for
- *
  * Every animation library comes with its own `requestAnimationFrame` ticker, and that ticker is
  * wrong here: it runs on wall-clock time, so `Time.timeScale = 0` would pause the game while the
- * tweens carried on, slow motion would not slow them, and the editor's frame-step would not step
- * them. This hands the library the engine's clock instead — one number, in the milliseconds
- * every tween library counts in — and everything follows from that for free.
+ * tweens carried on, and slow motion would not slow them. This hands the library the engine's
+ * clock instead — one number, in the milliseconds every tween library counts in.
  *
- * `play` exists because it is the half that is easy to get wrong: `tween.start()` with no
- * argument stamps itself with `performance.now()`, which is a different origin from this clock,
- * and the tween then jumps or never moves. Starting through the system cannot get that wrong.
+ * `play` exists because `tween.start()` with no argument stamps itself with `performance.now()`,
+ * a different origin from this clock, and the tween then jumps or never moves.
  *
- * Nothing here imports tween.js — the two interfaces above are structural, so the system weighs
- * nothing in a project that does not tween, and works with anything shaped the same way.
+ * Nothing here imports tween.js: the interfaces are structural, so this weighs nothing in a
+ * project that does not tween and works with anything shaped the same way.
  */
 export class Tweens extends System {
   /**

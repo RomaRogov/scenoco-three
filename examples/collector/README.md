@@ -3,6 +3,8 @@
 Walk with a thumb stick, sweep up crates, run them to the pad in the middle. Thirty seconds, ten
 deliveries to win — the shape of an RPG-flavoured playable.
 
+<img src="screenshot.png" alt="Collector: crates scattered around a green depot pad, the player capsule beside one" width="360">
+
 ```bash
 npm --prefix examples/collector run dev
 ```

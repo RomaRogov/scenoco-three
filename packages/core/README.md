@@ -1,7 +1,9 @@
 # @scenoco-three/core
 
-A Unity-shaped scene and component layer for [Three.js](https://threejs.org), and the runtime half
-of [SceNoCo](https://github.com/RomaRogov/scenoco-three).
+Unity's component model on [Three.js](https://threejs.org). Layer 1 of
+[SceNoCo](https://github.com/RomaRogov/scenoco-three): the only one you need, and the only one
+with no build step — scenes here are ordinary TypeScript classes. The document format, the
+compiler and the editor are separate packages that sit on top and never change what this one means.
 
 Importing this module installs the augmentations: from here on **every `THREE.Object3D` can carry
 components** and every `THREE.Scene` can load, unload and run an event cycle. There is no wrapper
@@ -113,4 +115,4 @@ checks every reference the document made.
 ## License
 
 [MIT](./LICENSE) · [Repository](https://github.com/RomaRogov/scenoco-three) ·
-[Why it exists](https://github.com/RomaRogov/scenoco-three/blob/main/WHY.md)
+[the repository](https://github.com/RomaRogov/scenoco-three)

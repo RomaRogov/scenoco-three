@@ -1,5 +1,5 @@
 import type { ComponentInfo, TagInfo } from '../model.js';
-import { fieldsItTakes, nearestName } from '../dsl/diagnostics.js';
+import { hint, nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue } from '../dsl/value.js';
 import { moduleFor, type EmitScope } from './scope.js';
@@ -119,12 +119,16 @@ function reportMisplacedSystems(scope: EmitScope, root: SncElement): void {
 function emitSystem(scope: EmitScope, element: SncElement, create: string[], wire: string[]): void {
   const system = scope.options.model.systems.find((c) => c.name === element.tag);
   if (!system) {
-    const suggestion = nearestName(element.tag, scope.options.model.systems.map((c) => c.name));
+    const advice = hint({
+      near: nearestName(element.tag, scope.options.model.systems.map((c) => c.name)),
+      as: 'tag',
+      ask: element.tag,
+    });
     scope.report(
       element,
       'unknown-system',
-      `<${element.tag}> is not a system in this project.` +
-        (suggestion ? ` Did you mean <${suggestion}>?` : ''),
+      `<${element.tag}> is not a system in this project.${advice.text}`,
+      advice.ask,
     );
     return;
   }
@@ -165,14 +169,17 @@ function readFields(
     if (attribute === 'id' || attribute.includes(':')) continue;
     const field = info.fields.find((f) => f.name === attribute);
     if (!field) {
-      const suggestion = nearestName(attribute, info.fields.map((f) => f.name));
+      const advice = hint({
+        near: nearestName(attribute, info.fields.map((f) => f.name)),
+        as: 'attribute',
+        ask: info.name,
+        takes: info.fields.map((f) => f.name),
+      });
       scope.report(
         element,
         'unknown-attribute',
-        `${what} has no field "${attribute}".` +
-          (suggestion
-            ? ` Did you mean "${suggestion}"?`
-            : fieldsItTakes(info.fields.map((f) => f.name))),
+        `${what} has no field "${attribute}".${advice.text}`,
+        advice.ask,
       );
       continue;
     }
@@ -203,12 +210,12 @@ export function emitComponent(scope: EmitScope, element: SncElement, host: strin
   const component = scope.options.model.components.find((c) => c.name === element.tag);
   if (!component) {
     const names = scope.options.model.components.map((c) => c.name);
-    const suggestion = nearestName(element.tag, names);
+    const advice = hint({ near: nearestName(element.tag, names), as: 'tag', ask: element.tag });
     scope.report(
       element,
       'unknown-component',
-      `<${element.tag}> is not a component in this project.` +
-        (suggestion ? ` Did you mean <${suggestion}>?` : ''),
+      `<${element.tag}> is not a component in this project.${advice.text}`,
+      advice.ask,
     );
     return;
   }

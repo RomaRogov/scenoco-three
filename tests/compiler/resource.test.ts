@@ -107,6 +107,20 @@ describe('material documents', () => {
     expect(diagnostics[0]?.message).toContain('"#ff6347"');
   });
 
+  it.each([
+    ['#0f172acc', '#0f172a', 0.8],
+    ['#abcd', '#abc', 0.87],
+  ])('hands back both halves of %s: the colour and the alpha, and where each goes', (written, rgb, alpha) => {
+    // `#rrggbbaa` is valid CSS and the one near miss three.js cannot parse — it warns and leaves
+    // the colour untouched, a bug that renders. Saying only "must be a hex colour" left the
+    // author to work out where the alpha went; three agents in a row spent a check cycle on it.
+    const { diagnostics } = emit(`<MeshBasicMaterial color="${written}" />`, 'material');
+    expect(diagnostics[0]?.code).toBe('bad-color');
+    expect(diagnostics[0]?.message).toContain(`color="${rgb}"`);
+    expect(diagnostics[0]?.message).toContain(`opacity="${alpha}"`);
+  });
+
+
   it('rejects something that is no colour at all', () => {
     const { diagnostics } = emit('<MeshBasicMaterial color="quite dark" />', 'material');
     expect(diagnostics[0]?.code).toBe('bad-color');

@@ -10,11 +10,6 @@ import type { GizmoMode, GizmoSpace } from '../gizmo.js';
  * builds — moved here from the old `toolbar.ts` so the React chrome owns the type.
  */
 export interface ToolbarHandlers {
-  // transport
-  play(): void;
-  pause(): void;
-  step(): void;
-  stop(): void;
   // gizmo + edit
   getMode(): GizmoMode;
   setMode(mode: GizmoMode): void;
@@ -29,8 +24,6 @@ export interface ToolbarHandlers {
   save(): void;
   /** Current state, re-read on each refresh. */
   state(): {
-    mode: 'edit' | 'play';
-    playing: boolean;
     canUndo: boolean;
     canRedo: boolean;
     dirty: boolean;
@@ -74,9 +67,16 @@ export interface EditorDeps {
   /** Whether the clipboard holds a subtree (for Paste's enabled state). */
   hasClipboard: () => boolean;
   /** Every document in the project — what the open dialog lists. */
-  listDocuments: () => Promise<Array<{ kind: string; path: string; stem: string }>>;
+  listDocuments: () => Promise<Array<{ kind: string; path: string; stem: string; group?: string }>>;
   /** Open one, by project-relative path. Rejects with why, which the dialog shows. */
   openDocument: (path: string) => Promise<void>;
+  /** The two ways in. */
+  actions: {
+    /** The folder open now, or null. */
+    folder: () => string | null;
+    openUrl: (url: string) => Promise<void>;
+    openFolder: () => Promise<void>;
+  };
 }
 
 /** The tiny imperative surface `main.ts` keeps a handle to (mirrors the old panels/toolbar). */

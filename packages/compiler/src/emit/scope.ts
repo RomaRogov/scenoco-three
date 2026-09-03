@@ -1,5 +1,5 @@
 import type { ComponentInfo, ProjectModel, TagInfo } from '../model.js';
-import { nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
+import { hint, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { quote, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
@@ -100,12 +100,8 @@ export class EmitScope {
     const tag = this.options.model.tags.find((t) => t.name === element.tag);
     if (tag && tag.family === family) return tag;
     const candidates = this.options.model.tags.filter((t) => t.family === family).map((t) => t.name);
-    const suggestion = nearestName(element.tag, candidates);
-    this.report(
-      element,
-      'unknown-tag',
-      `<${element.tag}> is not a ${family} tag.` + (suggestion ? ` Did you mean <${suggestion}>?` : ''),
-    );
+    const advice = hint({ near: nearestName(element.tag, candidates), as: 'tag', ask: element.tag });
+    this.report(element, 'unknown-tag', `<${element.tag}> is not a ${family} tag.${advice.text}`, advice.ask);
     return undefined;
   }
 
@@ -142,8 +138,8 @@ export class EmitScope {
     );
   }
 
-  report(element: SncElement, code: string, message: string): void {
-    this.module.report(diagnostic(element, code, message));
+  report(element: SncElement, code: string, message: string, ask?: string): void {
+    this.module.report(diagnostic(element, code, message, ask));
   }
 }
 
@@ -163,12 +159,18 @@ export function moduleFor(component: ComponentInfo): string {
   return component.module ?? component.file;
 }
 
-export function diagnostic(element: SncElement, code: string, message: string): SncDiagnostic {
+export function diagnostic(
+  element: SncElement,
+  code: string,
+  message: string,
+  ask?: string,
+): SncDiagnostic {
   return {
     line: element.line,
     column: element.column,
     code,
     message,
     ...(element.file ? { file: element.file } : {}),
+    ...(ask !== undefined ? { ask } : {}),
   };
 }

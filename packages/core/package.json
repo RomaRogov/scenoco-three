@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "SceNoCo core: components on Object3D, scenes/prefabs as generated classes, and the game loop. Nothing else.",
   "type": "module",
   "license": "MIT",
@@ -34,13 +34,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "//sideEffects": "the augment/* modules patch THREE.Object3D.prototype and THREE.Scene.prototype with the component API — side-effect-only imports a bundler could otherwise elide. Everything else is pure.",
-  "sideEffects": [
-    "./dist/runtime/augment/object3d.js",
-    "./dist/runtime/augment/scene.js",
-    "./src/runtime/augment/object3d.ts",
-    "./src/runtime/augment/scene.ts"
-  ],
+  "//sideEffects": "true, not a list: every augment/* module patches a THREE prototype for its side effect alone, and a precise list of them was honoured by the dev server and not by a production site build, which dropped the Scene augmentation. Nothing in this package is worth shaking out at that cost.",
+  "sideEffects": true,
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

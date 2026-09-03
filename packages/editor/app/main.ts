@@ -3,19 +3,15 @@ import type { ProjectModel } from '@scenoco-three/compiler';
 import { CameraRig } from './cameraRig.js';
 import { DesktopControls } from './desktopControls.js';
 import { TouchControls, isTouchDevice } from './touchControls.js';
-import { SceneDocument, type RawElement } from './document.js';
+import { SceneDocument } from './document.js';
 import { Gizmo, type GizmoSpace } from './gizmo.js';
 import { pickAt } from './picking.js';
 import { EditorSession, type FocusTarget } from './session.js';
 import { mountEditorUI } from './ui-react/mount.js';
 import type { EditorUIHandle } from './ui-react/types.js';
-import {
-  WS_PATH,
-  type EditorCommand,
-  type EditorPush,
-  type EditorResponse,
-  type EditorResult,
-} from '../src/protocol.js';
+import { Host } from './host.js';
+
+const host = new Host(async () => (await import('./static/registry.js')).registry);
 
 /**
  * The editor page.
@@ -51,29 +47,19 @@ let status = '';
 
 // --- loading ---------------------------------------------------------------------------------
 
-async function documents(): Promise<Array<{ kind: string; path: string; stem: string }>> {
-  return (await fetch('/@scenoco/documents').then((r) => r.json())) as Array<{
-    kind: string;
-    path: string;
-    stem: string;
-  }>;
+async function documents(): Promise<Array<{ kind: string; path: string; stem: string; group?: string }>> {
+  return host.documents();
 }
 
 async function open(path: string): Promise<void> {
-  // A refusal says why — the open dialog shows it, rather than the page half-loading a document
-  // the server never sent.
-  const response = await fetch(`/@scenoco/document?path=${encodeURIComponent(path)}`);
-  const body = (await response.json()) as
-    | { path: string; module: string; text: string; elements: RawElement[] }
-    | { error: string };
-  if ('error' in body) throw new Error(`${path}: ${body.error}`);
-  const info = body;
-  model ??= (await fetch('/@scenoco/model').then((r) => r.json())) as ProjectModel;
+  const info = await host.open(path);
+  model ??= await host.model();
 
-  // Cache-busted: the module was just rebuilt, and a browser that reuses the old one shows the
-  // previous scene while the inspector shows the new document.
   const reopening = doc?.path === info.path;
-  await session.open(`${info.module}?v=${Date.now()}`);
+  await session.open(info.scene);
+  // A live build says what it could not honour — an unknown tag, a texture out of reach — and
+  // shows the rest; the person should hear it rather than wonder why a thing is missing.
+  if (info.problems.length > 0) report(info.problems.slice(0, 3).join('\n'));
 
   // Framing is for arriving at a document, not for returning to one. A rebuild after a save —
   // or after someone else touched a file — should leave the camera exactly where the person
@@ -170,19 +156,6 @@ function frame_(target: FocusTarget | null): void {
   if (target) rig.frameOn(target.center, target.distance);
 }
 
-/**
- * Whether a file that changed on disk can change what the open document *is*.
- *
- * The server watches the whole project and says what moved; every change used to reload the
- * scene, so editing an unrelated level, or any tool touching any file, threw away the camera and
- * the selection for nothing. A sibling scene cannot affect this one — everything else can: a
- * `.ts` changes what a component does, and every other kind of document is something a scene
- * references by path.
- */
-function affectsOpenDocument(changed: string, open: string): boolean {
-  if (changed === open) return true;
-  return !changed.endsWith('.scene.xml');
-}
 
 // --- keeping the view across a reload ---------------------------------------------------------
 
@@ -290,76 +263,15 @@ function doNow(event: KeyboardEvent, run: () => void): void {
 
 async function save(): Promise<void> {
   if (!doc || !doc.isDirty) return;
-  const response = await fetch('/@scenoco/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: doc.path, edits: doc.edits() }),
-  });
-  const body = (await response.json()) as { text?: string; elements?: RawElement[]; error?: string };
-  if (!response.ok) {
+  const saved = await host.save(doc.path, doc.edits());
+  if (!saved.ok) {
     // The document is untouched on disk when a save is refused, so the edits stay pending and
     // the next attempt can succeed — nothing is lost by showing the reason and stopping.
-    report(body.error ?? 'save failed');
+    report(saved.error);
     return;
   }
-  doc.markSaved(body.text!, body.elements ?? []);
+  doc.markSaved(saved.text, saved.elements);
   report('saved');
-}
-
-// --- the bridge ------------------------------------------------------------------------------
-
-/**
- * Serve the observation commands.
- *
- * There is no edit command and there will not be one: an agent has file tools, and a second
- * write path into someone's source is a write their editor, diff and undo never saw.
- */
-function connect(): void {
-  const socket = new WebSocket(`ws://${location.host}${WS_PATH}`);
-  socket.addEventListener('message', async (event) => {
-    const message = JSON.parse(String(event.data)) as EditorCommand | EditorPush;
-    if ('push' in message) {
-      if (message.push === 'shutdown') window.close();
-      else if (message.push === 'buildFailed') report(message.message);
-      else if (doc && affectsOpenDocument(message.file, doc.path)) await open(doc.path);
-      return;
-    }
-    const reply = (response: EditorResponse): void => socket.send(JSON.stringify(response));
-    try {
-      reply({ id: message.id, ok: true, result: await run(message) });
-    } catch (error) {
-      reply({ id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-  socket.addEventListener('close', () => setTimeout(connect, 1000));
-}
-
-async function run(command: EditorCommand): Promise<EditorResult> {
-  switch (command.type) {
-    case 'open':
-      await open(command.path);
-      return { kind: 'ok', info: command.path };
-    case 'run':
-      session.run();
-      return { kind: 'ok' };
-    case 'pause':
-      session.pause();
-      return { kind: 'ok' };
-    case 'stop':
-      await session.stop();
-      return { kind: 'ok' };
-    case 'preview':
-      return { kind: 'image', dataUrl: session.preview(command.frame, command.camera, command.lookAt) };
-    case 'telemetry':
-      return { kind: 'json', data: session.telemetry(command.targetId) };
-    case 'simulate':
-      return {
-        kind: 'multi',
-        results: (await session.simulate(command.steps, command.frame)).map((r) =>
-          r.kind === 'image' ? { kind: 'image' as const, dataUrl: r.value as string } : { kind: 'json' as const, data: r.value },
-        ),
-      };
-  }
 }
 
 // --- the loop --------------------------------------------------------------------------------
@@ -367,16 +279,13 @@ async function run(command: EditorCommand): Promise<EditorResult> {
 let last = performance.now();
 let viewSavedAt = 0;
 
-/** One editor frame: fly the camera, tick the scene, draw. */
+/** One editor frame: fly the camera, lay out what needs laying out, draw. */
 function step(dt: number): void {
-  if (session.mode === 'edit') {
-    controls.update(dt);
-    // The rig accumulates yaw and pitch and only writes them to the camera here — once, after
-    // every input adapter has had its say, so two of them can never fight over the transform.
-    // Nothing called it, so the camera moved but never turned.
-    rig.sync(dt);
-  }
-  session.tick(dt);
+  controls.update(dt);
+  // The rig accumulates yaw and pitch and only writes them to the camera here — once, after
+  // every input adapter has had its say, so two of them can never fight over the transform.
+  rig.sync(dt);
+  session.frame(dt);
 }
 
 function frame(now: number): void {
@@ -412,34 +321,15 @@ async function boot(): Promise<void> {
     focusSelected: (node) => frame_(session.frameNode(node)),
 
     handlers: {
-      // Every one of these repaints the chrome afterwards, because the toolbar reads session
-      // state at render time and only renders when asked to. Document edits get their repaint
-      // from `doc.onChange`; nothing was raising one for the transport or the gizmo mode, so the
-      // buttons kept whatever state they were last drawn with — press Play and Pause and Stop
-      // stayed disabled, which made play mode a door with no handle on the inside.
-      play: () => {
-        session.run();
-        ui?.refresh();
-      },
-      pause: () => {
-        session.pause();
-        ui?.refresh();
-      },
-      step: () => {
-        session.step();
-        ui?.refresh();
-      },
-      stop: () =>
-        void session.stop().then(() => {
-          ui?.refresh();
-        }),
+      // Every one of these repaints the chrome afterwards, because the toolbar reads editor
+      // state at render time and only renders when asked to.
       getMode: () => gizmo?.mode ?? 'translate',
       setMode: (mode) => {
         gizmo?.setMode(mode);
         ui?.refresh();
       },
       // The space outlives any one gizmo: `attachGizmo` builds a new one for every scene, and a
-      // person who chose Local does not expect Stop to put it back to World.
+      // person who chose Local does not expect a reopen to put it back to World.
       getSpace: () => gizmoSpace,
       setSpace: (space) => {
         gizmoSpace = space;
@@ -455,8 +345,6 @@ async function boot(): Promise<void> {
       redo: () => doc?.redoLast(),
       save: () => void save(),
       state: () => ({
-        mode: session.mode,
-        playing: session.playing,
         canUndo: doc?.canUndo ?? false,
         canRedo: doc?.canRedo ?? false,
         dirty: doc?.isDirty ?? false,
@@ -490,6 +378,13 @@ async function boot(): Promise<void> {
     hasClipboard: () => clipboard !== null,
     listDocuments: documents,
     openDocument: open,
+    actions: {
+      folder: () => host.folder,
+      openUrl: (url: string) => open(host.openUrl(url)),
+      openFolder: async () => {
+        if (await host.openFolder()) ui?.refresh();
+      },
+    },
   });
 
   // A named document opens straight away; without one the chrome shows its open dialog, which
@@ -498,7 +393,6 @@ async function boot(): Promise<void> {
   // A bad `?path` leaves the dialog up with the reason, which beats a blank page and a rejected
   // promise nobody sees.
   if (requested) await open(requested).catch((error: unknown) => report(String(error)));
-  connect();
   requestAnimationFrame(frame);
 }
 

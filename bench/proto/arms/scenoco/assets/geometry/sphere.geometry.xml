@@ -1,0 +1,2 @@
+<!-- A sphere 1 across — radius 0.5, as Unity's is. -->
+<SphereGeometry radius="0.5" widthSegments="32" heightSegments="16" />

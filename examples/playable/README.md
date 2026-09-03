@@ -3,6 +3,8 @@
 One mechanic, twenty seconds, no menu — the shape of a playable ad. Tap the falling blocks:
 twelve wins, five misses loses.
 
+<img src="screenshot.png" alt="Playable: gold blocks falling against a dark field, timer and counter in the HUD" width="360">
+
 ```bash
 npm --prefix examples/playable run dev
 ```

@@ -92,6 +92,7 @@ export function teardownComponent(component: Component, runtime: SceneRuntime | 
   component._state = ComponentState.Destroyed;
 
   runtime?.forget(component);
+  runtime?.forgetId(component);
   if (object?._components) {
     const index = object._components.indexOf(component);
     if (index !== -1) object._components.splice(index, 1);
@@ -112,6 +113,7 @@ export function teardownObject(object: Object3D, runtime: SceneRuntime | null): 
   if (object._components) {
     for (const component of object._components.slice()) teardownComponent(component, runtime);
   }
+  runtime?.forgetId(object);
   object._destroyed = true;
   object._runtime = null;
   object._activeInHierarchy = false;
@@ -126,6 +128,20 @@ export function teardownObject(object: Object3D, runtime: SceneRuntime | null): 
  * what makes hand-rolled Three.js loops slow and hard to reason about. Objects join and leave
  * it through the patched `Object3D.add` / `remove`, so it stays in step with the graph.
  */
+/** Which id a node or component was registered under, so teardown can forget it. */
+const idOf = new WeakMap<object, string>();
+
+/**
+ * A field of `holder` that is a node or a component — the shape a document id takes once
+ * named: `this.player`, `this.spin`, and inside a prefab instance `instance.body`.
+ */
+export function ownField(holder: object, key: string): Object3D | Component | null {
+  const value = (holder as Record<string, unknown>)[key];
+  if (value instanceof Component) return value;
+  if (value && typeof value === 'object' && (value as Object3D).isObject3D) return value as Object3D;
+  return null;
+}
+
 export class SceneRuntime {
   readonly scene: Scene;
 
@@ -252,6 +268,7 @@ export class SceneRuntime {
   remove(component: Component): void {
     if (component._state === ComponentState.Destroyed || component._pendingDestroy) return;
     component._pendingDestroy = true;
+    this.forgetId(component);
     this.destroyQueue.push(component);
     if (this.tearingDown) this.flushDestroyQueue();
   }
@@ -259,11 +276,18 @@ export class SceneRuntime {
   /** Queue an object and its subtree for destruction at the end of the frame. */
   removeObject(object: Object3D): void {
     if (object._destroyed || object._pendingDestroy) return;
-    // Mark the whole subtree now, so nothing in it ticks again between here and teardown.
+    // Mark the whole subtree now, so nothing in it ticks again between here and teardown — and
+    // give its ids back now too. Destruction is deferred, registration is not: a spawner that
+    // destroys `gem1` and spawns the next `gem1` in the same call is the ordinary reset, and it
+    // must not be told the id is taken by a thing that is already on its way out.
     object.traverse((node) => {
       node._pendingDestroy = true;
+      this.forgetId(node);
       if (node._components) {
-        for (const component of node._components) component._pendingDestroy = true;
+        for (const component of node._components) {
+          component._pendingDestroy = true;
+          this.forgetId(component);
+        }
       }
     });
     this.objectDestroyQueue.push(object);
@@ -285,6 +309,33 @@ export class SceneRuntime {
   }
 
   /** @internal drop a component from every bucket. Called by `teardownComponent`. */
+  /**
+   * What `instantiate(prefab, { id })` registered, by id. A document's own ids are not in here:
+   * they are fields on the scene class, which `Scene.byId` reads first.
+   */
+  readonly ids = new Map<string, Object3D | Component>();
+
+  /** @internal */
+  registerId(id: string, thing: Object3D | Component): void {
+    const taken = this.ids.get(thing instanceof Component ? id : id) ?? ownField(this.scene, id);
+    if (taken && taken !== thing) {
+      throw new Error(
+        `[scenoco] id "${id}" is already taken in this scene. Every id is unique — give each ` +
+          'instance its own, e.g. `instantiate(Slime, { id: `slime${n}` })`.',
+      );
+    }
+    this.ids.set(id, thing);
+    idOf.set(thing, id);
+  }
+
+  /** @internal drop whatever id `thing` was registered under; nothing if it had none. */
+  forgetId(thing: object): void {
+    const id = idOf.get(thing);
+    if (id === undefined) return;
+    if (this.ids.get(id) === thing) this.ids.delete(id);
+    idOf.delete(thing);
+  }
+
   forget(component: Component): void {
     if (!this.tracked.delete(component)) return;
     this.clearSlot(this.all, component);
@@ -520,6 +571,7 @@ export class SceneRuntime {
       if (slot) this.destroyComponentNow(slot);
     }
     this.all.length = 0;
+    this.ids.clear();
     this.fixedUpdaters.length = 0;
     this.updaters.length = 0;
     this.lateUpdaters.length = 0;

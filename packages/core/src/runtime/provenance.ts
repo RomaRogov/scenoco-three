@@ -1,38 +1,29 @@
 import type { Object3D } from 'three';
 
 /**
- * Where a node came from — the document and the element that built it.
+ * Where a node came from — a source file, and a position in it.
  *
- * Written into `userData.scenoco` by generated code, but only when the build asked for it:
- * `scenoco()` turns it on while a dev server is serving and off when it builds, the way
- * sourcemaps already work. A shipped game carries none of this.
- *
- * It is what lets an editor go from a live `Object3D` — the one under the cursor — back to the
- * three lines of XML that made it. v1 did that by aligning a compiled bundle's `nodes[]` with the
- * objects the runtime built; generated code has no such array, so the node carries the answer
- * itself.
+ * A tool that builds scenes from source can stamp this onto the nodes it makes, and then go from
+ * a live `Object3D` back to the lines that made it. Nothing in the runtime reads it; a game that
+ * builds its scenes in code has none of it, and loses nothing.
  */
 export interface Provenance {
-  /** Project-relative path of the document — `assets/scenes/level1.scene.xml`. */
+  /** Path of the source file, relative to the project root. */
   file: string;
   /**
-   * 1-based line and column of the element that built this node, as the SceNoCo parser reports
-   * them — which is where the **open tag ends**, not where it begins.
+   * 1-based line and column of the element that made this node.
    *
-   * That is fine, and deliberate: this is an *identity*, not a cursor position. An editor parses
-   * the same document with the same parser, so the two sides agree exactly, and the pair is
-   * unique and in document order. Only a text view wanting to place a caret would care, and it
-   * has the element in hand by then.
+   * An identity rather than a cursor position: whoever wrote the stamp and whoever reads it
+   * agree on the convention, and the pair is unique and in source order.
    */
   line: number;
   column: number;
 }
 
 /**
- * Where `object` came from, or null for anything a document did not build.
+ * Where `object` came from, or null if nothing stamped it.
  *
- * Null is the honest answer for a node spawned by game code at runtime: it has no source, so
- * there is nothing to select and nothing to edit.
+ * Null is the honest answer for a node built at runtime: it has no source to point at.
  */
 export function provenanceOf(object: Object3D): Provenance | null {
   const stamp = (object.userData as { scenoco?: Provenance }).scenoco;
@@ -40,10 +31,10 @@ export function provenanceOf(object: Object3D): Provenance | null {
 }
 
 /**
- * The nearest node at or above `object` that a document built, and its provenance.
+ * The nearest stamped node at or above `object`, and its provenance.
  *
- * A click lands on whatever mesh the ray hit, which inside a glTF is some deeply nested part
- * nobody authored. Walking up finds the thing the document actually named.
+ * A click lands on whatever mesh the ray hit, which inside a loaded model is some deeply nested
+ * part nobody wrote. Walking up finds the thing that was.
  */
 export function findProvenance(
   object: Object3D,
@@ -56,11 +47,10 @@ export function findProvenance(
 }
 
 /**
- * Every node in `root` that came from `file`, in document order.
+ * Every node under `root` stamped with `file`, in source order.
  *
- * The editor's tree is the *document's* tree, so this is how the live scene is matched to it —
- * and why a prefab's contents do not appear: they are stamped with the prefab's own file, not
- * with the document that spawned it, which is exactly the boundary an editor should not cross.
+ * A prefab's contents are stamped with the prefab's own file, not with whatever spawned it, so
+ * they do not appear here — one file's nodes, and no further.
  */
 export function nodesFrom(root: Object3D, file: string): Object3D[] {
   const found: Object3D[] = [];

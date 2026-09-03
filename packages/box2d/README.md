@@ -137,7 +137,7 @@ Rapier add-on it plugs in through core's public `System` seam, so importing it i
 thing that adds 2D physics — but unlike Rapier there's **no WASM and no async init**. Drop the
 import and nothing physics-related ships.
 
-See the [repository](../../README.md) and [ARCHITECTURE.md](../../ARCHITECTURE.md)
+See the [repository](../../README.md)
 (`System` seam).
 
 ## License

@@ -1,5 +1,5 @@
 import type { ComponentInfo, ProjectModel } from '../model.js';
-import { fieldsItTakes, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
+import { hint, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
@@ -110,15 +110,20 @@ function emitEffect(
 ): string | undefined {
   const effect = model.effects.find((e) => e.name === element.tag);
   if (!effect) {
-    const suggestion = nearestName(element.tag, model.effects.map((e) => e.name));
+    const advice = hint({
+      near: nearestName(element.tag, model.effects.map((e) => e.name)),
+      as: 'tag',
+      ask: element.tag,
+    });
     module.report(
       at(
         element,
         'unknown-effect',
         `<${element.tag}> is not an effect in this project.` +
-          (suggestion
-            ? ` Did you mean <${suggestion}>?`
-            : ' Effects come from a package — @scenoco-three/postfx provides <ToneMapping>, ' +
+          // Not a `describe` pointer: an effect that is missing is usually a *package* that is
+          // missing, and no amount of describing the project will say so.
+          (advice.text ||
+            ' Effects come from a package — @scenoco-three/postfx provides <ToneMapping>, ' +
               '<Shadows>, <Bloom> and <Vignette>.'),
       ),
     );
@@ -137,15 +142,18 @@ function emitEffect(
     if (attribute.includes(':')) continue;
     const field = effect.fields.find((f) => f.name === attribute);
     if (!field) {
-      const suggestion = nearestName(attribute, effect.fields.map((f) => f.name));
+      const advice = hint({
+        near: nearestName(attribute, effect.fields.map((f) => f.name)),
+        as: 'attribute',
+        ask: effect.name,
+        takes: effect.fields.map((f) => f.name),
+      });
       module.report(
         at(
           element,
           'unknown-attribute',
-          `<${effect.name}> has no field "${attribute}".` +
-            (suggestion
-              ? ` Did you mean "${suggestion}"?`
-              : fieldsItTakes(effect.fields.map((f) => f.name))),
+          `<${effect.name}> has no field "${attribute}".${advice.text}`,
+          advice.ask,
         ),
       );
       continue;
@@ -173,12 +181,13 @@ function requireFields(element: SncElement, effect: ComponentInfo, module: TsMod
   }
 }
 
-function at(element: SncElement, code: string, message: string): SncDiagnostic {
+function at(element: SncElement, code: string, message: string, ask?: string): SncDiagnostic {
   return {
     line: element.line,
     column: element.column,
     code,
     message,
     ...(element.file ? { file: element.file } : {}),
+    ...(ask !== undefined ? { ask } : {}),
   };
 }

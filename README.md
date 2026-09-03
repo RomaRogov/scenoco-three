@@ -1,7 +1,42 @@
 # SceNoCo
 
-**Scene · Node · Component** — a Unity-shaped scene and component layer for
-[Three.js](https://threejs.org), whose scenes are XML documents.
+**Scene · Node · Component** — Unity's component model on [Three.js](https://threejs.org), in
+three layers you take one at a time.
+
+| | you get | it costs you |
+| --- | --- | --- |
+| **1. `@scenoco-three/core`** | `Component`, `System`, prefabs, scenes, input, coroutines on plain three.js objects. 3k lines, one dependency. | learning `awake` / `start` / `update`, and nothing else — no build step, no format |
+| **2. `@scenoco-three/compiler`** | scenes as documents, compiled to TypeScript and **checked**: a bad `#id` is a build error with a file and line; `scenoco describe` answers what anything accepts | a document format, and a Vite plugin |
+| **3. `@scenoco-three/observer`** | an MCP server over stdio that runs the scene in a headless Chrome it owns — `outline`, `screenshot`, `simulate`, `eval`, `telemetry` — so an agent can drive the running game and read it back as text | `claude mcp add scenoco -- npx -y @scenoco-three/observer` |
+| **`@scenoco-three/editor`** | a standalone visual editor: a static site that opens any scene from a folder or a URL, with a tree, an inspector, gizmos and saves | a browser |
+
+Start at 1. Every layer works without the one above it, and the one above never changes what the
+one below means. Everything three.js already does — rendering, and through thin adapters physics
+(Rapier, planck), UI (uikit), particles (three.quarks) — stays three.js's; nothing here is an
+engine.
+
+## Layer 1: components on three.js
+
+```ts
+import { Component, SceneManager } from '@scenoco-three/core';
+import { Mesh, Scene } from 'three';
+
+class Spinner extends Component {
+  speed = 1;                                          // a public field is a setting
+  override update(dt: number) { this.object3D.rotation.y += this.speed * dt; }
+}
+
+class Level extends Scene {
+  override onLoad() { this.createObject('cube').addComponent(Spinner, { speed: 2 }); }
+}
+
+await SceneManager.load(Level);
+```
+
+`this.object3D` is the `THREE.Mesh` — there is no wrapper. Extending `Component` is the whole
+registration. That is the entire layer; if you never want a document, stop here.
+
+## Layer 2: a scene is a document, and it is checked
 
 A document is **compiled at build time into a TypeScript module beside it**. So the browser gets
 ordinary typed code — `tsc` checks every reference in it, a bad `#id` is a type error with a
@@ -54,6 +89,18 @@ finds it by reading your workspace with the TypeScript checker, and its attribut
 public fields — so the document format cannot drift from the code, because there is no second
 copy of the truth anywhere.
 
+## Layer 3: an agent can see it run
+
+The observer is an MCP server. It compiles the project, launches Chrome headless, opens the scene
+in it, and answers from that page: `open` a document, `outline` it as text — every node with its
+id, position and components — `screenshot` it from a stated viewpoint, `simulate` it (pause, step
+exact frames, press keys) and read `telemetry` back by id. Its `eval` step runs JavaScript against
+the running scene, so "put a slime in front of the player, fire, read the score" is three steps
+rather than a hunt. It speaks stdio, so the setup is one line, and nothing appears on screen.
+
+The visual editor is a separate, standalone thing: a static site that opens any scene from a
+folder or a URL and edits it in place, hosted on GitHub Pages.
+
 ## Why
 
 - **Familiar by design.** Tags and attributes mirror three.js verbatim (`<BoxGeometry width>`,
@@ -75,19 +122,21 @@ copy of the truth anywhere.
 
 ## Packages
 
-| Package | What it is |
-| --- | --- |
-| [`@scenoco-three/core`](packages/core) | Runtime: `Component`, `System`, `Effect`, `SceneManager`, `Engine`, the `Object3D`/`Scene` augmentations, input, coroutines, assets. |
-| [`@scenoco-three/compiler`](packages/compiler) | Build time: the parser, the workspace scan, the emitters, diagnostics, the `scenoco` CLI and watcher. The format is documented in [`DSL.md`](packages/compiler/DSL.md). |
-| [`@scenoco-three/vite`](packages/vite) | The Vite plugin: compile on start, recompile on change. ~160 lines. |
-| [`@scenoco-three/editor`](packages/editor) | The local visual editor, and an observation-only MCP server. |
-| [`@scenoco-three/box2d`](packages/box2d) | 2D physics (planck): `<Physics2D>`, `<RigidBody2D>`, `<*Collider2D>`, Unity-style contact hooks. |
-| [`@scenoco-three/rapier`](packages/rapier) | 3D physics (Rapier), same shapes. |
-| [`@scenoco-three/collision`](packages/collision) | Detection only, with rapier's exact tags — swap one import to switch. Zero deps. |
-| [`@scenoco-three/ui`](packages/ui) | In-canvas UI on pmndrs uikit: `<Canvas>`, `<Panel>`, `<Text>`, `<Image>`, placed the way Unity's RectTransform places things. |
-| [`@scenoco-three/particles`](packages/particles) | Unity-Shuriken-shaped `<ParticleSystem>` on three.quarks; effects are `.particle.xml` documents. |
-| [`@scenoco-three/audio`](packages/audio) | `<AudioSource>`, 2D and positional. |
-| [`@scenoco-three/postfx`](packages/postfx) | Render settings: `<ToneMapping>`, `<Shadows>`, `<Bloom>`, `<Vignette>` — the tags a `.render.xml` holds. |
+| Layer | Package | What it is |
+| --- | --- | --- |
+| 1 | [`@scenoco-three/core`](packages/core) | Runtime: `Component`, `System`, `SceneManager`, `Engine`, the `Object3D`/`Scene` augmentations, input, coroutines, assets. |
+| 2 | [`@scenoco-three/compiler`](packages/compiler) | Build time: the parser, the workspace scan, the emitters, diagnostics, `scenoco check` / `describe` / `init`. Run `describe` for the format. |
+| 2 | [`@scenoco-three/vite`](packages/vite) | The Vite plugin: compile on start, recompile on change. ~120 lines. |
+| 3 | [`@scenoco-three/observer`](packages/observer) | The MCP server, over stdio, driving a headless Chrome: `open`, `outline`, `screenshot`, `telemetry`, `simulate` with `eval`. |
+| — | [`@scenoco-three/editor`](packages/editor) | The standalone visual editor: a static site (GitHub Pages, or `npx scenoco-editor`) that opens a scene from a folder or a URL. Depends on nothing at run time. |
+| adapters | | thin, opt-in, 50 to 400 lines each: |
+| | [`@scenoco-three/box2d`](packages/box2d) | 2D physics (planck): `<Physics2D>`, `<RigidBody2D>`, `<*Collider2D>`, Unity-style contact hooks. |
+| | [`@scenoco-three/rapier`](packages/rapier) | 3D physics (Rapier), same shapes. |
+| | [`@scenoco-three/collision`](packages/collision) | Detection only, with rapier's exact tags — swap one import to switch. Zero deps. |
+| | [`@scenoco-three/ui`](packages/ui) | In-canvas UI on pmndrs uikit: `<Canvas>`, `<Panel>`, `<Text>`, `<Image>`, placed the way Unity's RectTransform places things. |
+| | [`@scenoco-three/particles`](packages/particles) | Unity-Shuriken-shaped `<ParticleSystem>` on three.quarks; effects are `.particle.xml` documents. |
+| | [`@scenoco-three/audio`](packages/audio) | `<AudioSource>`, 2D and positional. |
+| | [`@scenoco-three/postfx`](packages/postfx) | Render settings: `<ToneMapping>`, `<Shadows>`, `<Bloom>`, `<Vignette>` — the tags a `.render.xml` holds. |
 
 ## The document kinds
 
@@ -96,6 +145,28 @@ copy of the truth anywhere.
 gitignore it). A prefab exports `XPrefab`, a scene exports `XScene`.
 
 `scenoco new` lists the kinds this project can create and writes a starter that compiles.
+
+## Examples
+
+| | |
+| --- | --- |
+| [**Breakout**](examples/breakout) — three levels, Box2D, in-canvas HUD, bloom | [**Collector**](examples/collector) — thumb-stick movement, a carried stack, a depot |
+| [![Breakout](examples/breakout/screenshot.png)](examples/breakout) | [![Collector](examples/collector/screenshot.png)](examples/collector) |
+
+[**Playable**](examples/playable) is the smallest of them — one mechanic, twenty seconds, no menu.
+[**Castle**](examples/castle) is deliberately empty: it is the fixture the benchmark builds into.
+
+## Start a project
+
+```bash
+npx @scenoco-three/compiler init my-game
+cd my-game && npm install && npm run dev
+```
+
+A block you steer with the arrow keys, crates you drop with Space, a camera that follows — a scene,
+a prefab, four components of a dozen lines each that between them use every verb a component has,
+and an `AGENTS.md` that says the whole model in a page. The starter is not broken on purpose; it
+ends with one thing to try that shows what the compiler does when you slip.
 
 ## Quick start (this repo)
 
@@ -107,21 +178,18 @@ npm run build          # every package, in dependency order
 npm run typecheck      # cross-package tsc --noEmit
 ```
 
-Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md) (repo map) and
-[`CONVENTIONS.md`](CONVENTIONS.md) (editing rules). The design reasoning is in
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
+Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md).
 
 ## Documentation
 
-- [`packages/compiler/DSL.md`](packages/compiler/DSL.md) — the document format: every value
-  form, every block, every diagnostic.
+- `npx scenoco describe` — the vocabulary and the project, read off the source so it cannot go
+  stale. Name anything for its detail: `describe Component`, `describe Input`, `describe Mesh`.
 - `packages/*/README.md` — each package documents its own surface.
-- The API surface is documented where it lives: the doc comments in
-  `packages/core/src/index.ts` are the tour.
+- The doc comments in `packages/core/src/index.ts` are the tour of the API.
 
 ## Status
 
-Pre-1.0; the surface still moves. See [CHANGELOG.md](CHANGELOG.md).
+Pre-1.0; the surface still moves.
 
 ## License
 

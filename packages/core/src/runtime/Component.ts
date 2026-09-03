@@ -52,27 +52,20 @@ function copyValue(value: unknown): unknown {
  * cube.addComponent(Spinner, { speed: 2.5 });
  * ```
  *
- * ### Requiring a specific Three.js type
- *
- * The type parameter says what kind of `Object3D` this component expects underneath it.
- * `this.object3D` is then typed as that class, with no cast:
+ * The type parameter says what kind of `Object3D` this expects underneath, and types
+ * `this.object3D` as that class with no cast:
  *
  * ```ts
  * class Flicker extends Component<PointLight> {
- *   update() { this.object3D.intensity = Math.random(); }   // `intensity` is in scope
+ *   update() { this.object3D.intensity = Math.random(); }
  * }
  *
- * light.addComponent(Flicker);   // fine
- * mesh.addComponent(Flicker);    // compile error: a Mesh is not a PointLight
+ * mesh.addComponent(Flicker);    // type error: a Mesh is not a PointLight
  * ```
  *
- * Leave it off — plain `extends Component` — for behaviour that only needs a transform.
- *
- * Every hook is optional: the runtime only puts a component in a tick bucket if it actually
- * defines that hook, so an `awake`-only component costs nothing per frame.
- *
- * Constructors take no arguments — the engine constructs the component for you and applies
- * the `init` object before `awake`. Anything that needs the owning object goes in `awake`.
+ * Every hook is optional, and a component is only ticked for the hooks it defines. Constructors
+ * take no arguments: the engine constructs, applies `init`, then calls `awake`, so anything
+ * needing the owning object goes there.
  */
 export abstract class Component<TObject extends Object3D = Object3D> {
   /** @internal set by `Object3D.addComponent` immediately after construction. */

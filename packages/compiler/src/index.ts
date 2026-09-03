@@ -21,7 +21,14 @@ export { parseDocument, type SncElement, type ParseResult } from './dsl/parse.js
  * the ones a document uses most and the only ones no class declares.
  */
 export { PLACEMENT, PLACEMENT_ORDER, SCENE_ATTRIBUTES } from './emit/placement.js';
-export { formatDiagnostic, nearestName, type SncDiagnostic } from './dsl/diagnostics.js';
+export {
+  formatDiagnostic,
+  hint,
+  nearestName,
+  whatToLookUp,
+  type Hint,
+  type SncDiagnostic,
+} from './dsl/diagnostics.js';
 export { emitValue, type EmitContext } from './dsl/value.js';
 // Editing a document as text, addressed by the same position provenance stamps.
 export {
@@ -54,5 +61,7 @@ export {
 export { PARTICLE_MODULES, PARTICLE_CONFIG } from './particles.js';
 export { build, formatDiagnostics, type BuildOptions, type BuildResult } from './build.js';
 export { PRIMITIVES, templateFor } from './templates.js';
+export { describe, type DescribeInput } from './describe.js';
+export { scaffold, templateFiles, type ScaffoldResult, type TemplateFile } from './scaffold.js';
 export { run as runCli } from './cli.js';
 export { ASSET_KINDS, ASSET_TYPES, FILE_KINDS, detectTagPackages, fileKindOf, findAssets, outputPathFor, type AssetFile, type AssetKind } from './assets.js';

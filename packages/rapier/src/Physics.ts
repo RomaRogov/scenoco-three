@@ -40,6 +40,8 @@ export class Physics extends System {
   private readonly bodies = new Set<RigidBody>();
   /** Per dynamic body, its two most recent fixed poses. */
   private readonly poses = new Map<RigidBody, Pose>();
+  /** Handles of colliders removed since the last step, still named by that step's events. */
+  private readonly retired: number[] = [];
   /** Rapier collider handle → the node and sensor flag, for resolving contact events. */
   private readonly colliders = new Map<number, { node: Object3D; sensor: boolean }>();
   private readonly contacts: QueuedContact[] = [];
@@ -88,7 +90,17 @@ export class Physics extends System {
 
   /** @internal called by `RigidBody.onDestroy`. */
   destroyBody(rigidBody: RigidBody): void {
-    if (rigidBody.body) this.world.removeRigidBody(rigidBody.body);
+    if (rigidBody.body) {
+      // Removing a body removes its colliders, and Rapier reports a stopped event for each pair
+      // they were in on the next step — which is how the other side hears its exit, as it does
+      // in Unity. Those events name the handles, so the handles stay resolvable until that step
+      // has been drained; deleting them here would have silently dropped every such exit, and
+      // never deleting them, which is what this did before, leaked one entry per collider.
+      for (let i = 0; i < rigidBody.body.numColliders(); i++) {
+        this.retired.push(rigidBody.body.collider(i).handle);
+      }
+      this.world.removeRigidBody(rigidBody.body);
+    }
     this.bodies.delete(rigidBody);
     this.poses.delete(rigidBody);
   }
@@ -103,7 +115,8 @@ export class Physics extends System {
 
   /** @internal called by `RigidBody.detachCollider`. */
   destroyCollider(collider: RAPIER.Collider): void {
-    this.colliders.delete(collider.handle);
+    // Kept resolvable until the stopped events naming it are drained — see `destroyBody`.
+    this.retired.push(collider.handle);
     this.world.removeCollider(collider, true);
   }
 
@@ -160,7 +173,6 @@ export class Physics extends System {
     this.events.drainCollisionEvents((first, second, started) => {
       const a = this.colliders.get(first);
       const b = this.colliders.get(second);
-      // A side was removed during this step; the event has nothing left to name.
       if (!a || !b) return;
       this.contacts.push({
         a: a.node,
@@ -169,6 +181,9 @@ export class Physics extends System {
         phase: started ? 'enter' : 'exit',
       });
     });
+    // Every event a removed collider was going to be named in has now been read.
+    for (const handle of this.retired) this.colliders.delete(handle);
+    this.retired.length = 0;
   }
 
   private flushContacts(): void {

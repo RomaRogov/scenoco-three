@@ -96,8 +96,20 @@ declare module '@pmndrs/uikit' {
     border: number;
     /** Border colour. */
     borderColor?: Color;
-    /** `0`..`1`. Inherited, so it fades this element's text and children with it. */
+    /**
+     * `0`..`1` for the whole element. **Inherited**, so it fades this element's text and
+     * children with it — which is what you want for fading a panel in and out, and not what you
+     * want for a translucent bar behind readable text. That is `backgroundOpacity`.
+     */
     opacity: number;
+    /**
+     * `0`..`1` for the element's fill alone, leaving its text and children opaque.
+     *
+     * The HUD idiom CSS writes as `#0f172acc`. A colour here is a `THREE.Color`, which has no
+     * alpha channel at all, so the transparency is its own number: `background="#0f172a"
+     * backgroundOpacity="0.85"`.
+     */
+    backgroundOpacity: number;
 
     // --- text, inherited by descendants like CSS ---------------------------------------------
     /** Text colour. Inherited, so setting it on a panel colours every label inside. */
@@ -131,6 +143,7 @@ export interface RectState {
   border: number;
   borderColor?: Color;
   opacity: number;
+  backgroundOpacity: number;
   color?: Color;
   fontSize?: number;
   fontWeight?: FontWeight;
@@ -153,6 +166,7 @@ function freshState(): RectState {
     radius: 0,
     border: 0,
     opacity: 1,
+    backgroundOpacity: 1,
   };
 }
 
@@ -237,7 +251,13 @@ export function toUikitProperties(state: RectState): Record<string, unknown> {
     borderWidth: state.border,
     opacity: state.opacity,
   };
-  if (state.background !== undefined) props.backgroundColor = state.background;
+  if (state.background !== undefined) {
+    // uikit's `backgroundColor` takes an `[r, g, b, a]` tuple as well as a colour, and that alpha
+    // applies to the fill only — unlike `opacity`, which the element passes down to its children.
+    const { r, g, b } = state.background;
+    props.backgroundColor =
+      state.backgroundOpacity < 1 ? [r, g, b, state.backgroundOpacity] : state.background;
+  }
   if (state.borderColor !== undefined) props.borderColor = state.borderColor;
   if (state.color !== undefined) props.color = state.color;
   if (state.fontSize !== undefined) props.fontSize = state.fontSize;
@@ -309,7 +329,7 @@ function defineRectAccessors(): void {
   const keys: Array<keyof RectState> = [
     'anchor', 'x', 'y', 'width', 'height',
     'layout', 'alignX', 'alignY', 'gap', 'padding',
-    'background', 'radius', 'border', 'borderColor', 'opacity',
+    'background', 'radius', 'border', 'borderColor', 'opacity', 'backgroundOpacity',
     'color', 'fontSize', 'fontWeight', 'textAlign',
   ];
   for (const key of keys) {

@@ -4,6 +4,8 @@ Three levels of Breakout, written as SceNoCo documents. It exists to be *built* 
 admired: everything in it is the ordinary way to do the thing, so where the engine makes that
 hard, the awkwardness is visible in the source.
 
+![Breakout: a neon brick field, the paddle and ball glowing under bloom](screenshot.png)
+
 ```bash
 npm --prefix examples/breakout run dev
 ```

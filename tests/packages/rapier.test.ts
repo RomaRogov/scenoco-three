@@ -202,6 +202,34 @@ describe('contacts', () => {
     expect(() => new Clock().frames(200, 1 / 60)).not.toThrow();
     expect(ground.parent).not.toBe(null);
   });
+
+  /**
+   * Destroying a body ends its pairs, and the other side hears about it — Unity's behaviour.
+   * Rapier reports the stopped event on the *next* step, naming handles that no longer exist, so
+   * the handle map has to keep them resolvable until that step has been drained.
+   */
+  it('tells the other side when a body it touched is destroyed', async () => {
+    Time.fixedDeltaTime = 1 / 60;
+    const seen: string[] = [];
+    class Log extends Component {
+      override onTriggerEnter(other: Object3D): void { seen.push(`trigger:${other.name}`); }
+      override onTriggerExit(other: Object3D): void { seen.push(`untrigger:${other.name}`); }
+    }
+    let slime!: Mesh;
+    await SceneManager.load(sceneOf((s) => {
+      const wall = box(s, 'wall', { kind: 'fixed' }, { isSensor: true });
+      wall.addComponent(Log);
+      slime = box(s, 'slime', { gravityScale: 0 }, { isSensor: true });
+      slime.position.set(0.5, 0, 0);
+    }));
+    const clock = new Clock();
+    clock.frames(3, 1 / 60);
+    expect(seen).toEqual(['trigger:slime']);
+
+    slime.destroy();
+    clock.frames(3, 1 / 60);
+    expect(seen).toEqual(['trigger:slime', 'untrigger:slime']);
+  });
 });
 
 describe('the two back-ends agree', () => {
