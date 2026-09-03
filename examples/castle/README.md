@@ -25,6 +25,5 @@ sizes them. A mesh names one, and `scale` says how big this one is:
 | `quad` | 1 × 1, upright |
 | `plane` | 10 × 10, upright — lay it flat with `eulerAngles="x: -90"` |
 
-This is the fixture the benchmark's `castle` run builds into: it snapshots the project, hands a
-local model the editing tools plus `look`, and puts everything back afterwards. The two sizes in
-bold are the ones that get built wrong every time.
+An empty stage: the shapes above, a light and a camera, and nothing built. The two sizes in bold
+are the ones that get built wrong every time.

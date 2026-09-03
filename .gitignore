@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
+# The workspace lockfile is committed on purpose: CI resolves from the registry otherwise, so a
+# package published upstream can break a build that changed nothing. One did — a new major of an
+# optional peer of vitest crashed npm's resolver on a commit that only bumped versions. The
+# nested ones stay out: each of those projects is installed on its own, deliberately.
 package-lock.json
+!/package-lock.json
 
 # Build output / artifacts
 dist/
@@ -21,8 +26,7 @@ schema/
 .scenoco/
 .playwright-mcp/
 
-# Working notes, kept local. What is public is the README of each package and AGENTS.md;
-# the measurements live in bench/.
+# Working notes, kept local. What is public is the README of each package and AGENTS.md.
 docs/
 agentic/
 
@@ -30,6 +34,3 @@ agentic/
 .aider.conf.yml
 .clinerules
 
-# Benchmark arms install their own dependencies: each is a standalone project, because that is
-# what the agents under test are handed.
-bench/arms/*/node_modules/

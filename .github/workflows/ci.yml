@@ -23,14 +23,19 @@ jobs:
         with:
           node-version: 22
 
-      # `package-lock.json` is not committed, so this is `install` rather than `ci`.
-      - run: npm install
+      # `ci`, not `install`: the lockfile is committed so a package published upstream cannot
+      # change what a build resolves. `--legacy-peer-deps` matches how the lockfile is generated;
+      # vitest 4 declares optional browser peers that npm's resolver cannot satisfy.
+      - run: npm ci --legacy-peer-deps
+
+      # Build first. The packages reference each other's declaration files, which only exist
+      # once they are built, so typechecking a fresh checkout before this fails on imports that
+      # are perfectly correct.
+      - name: Build every package
+        run: npm run build
 
       - name: Typecheck
         run: npm run typecheck
 
       - name: Test
         run: npm test
-
-      - name: Build every package
-        run: npm run build

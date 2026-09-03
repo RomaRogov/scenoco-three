@@ -154,7 +154,8 @@ gitignore it). A prefab exports `XPrefab`, a scene exports `XScene`.
 | [![Breakout](examples/breakout/screenshot.png)](examples/breakout) | [![Collector](examples/collector/screenshot.png)](examples/collector) |
 
 [**Playable**](examples/playable) is the smallest of them — one mechanic, twenty seconds, no menu.
-[**Castle**](examples/castle) is deliberately empty: it is the fixture the benchmark builds into.
+[**Castle**](examples/castle) is deliberately empty: a lit stage with the primitive shapes and
+nothing built, for trying something out.
 
 ## Start a project
 
