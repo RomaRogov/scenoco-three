@@ -7,7 +7,7 @@ export interface AssetImport {
   module: string;
   /** Exported name. */
   name: string;
-  kind: 'geometry' | 'material' | 'particle' | 'texture' | 'render' | 'prefab' | 'scene';
+  kind: 'asset' | 'particle' | 'texture' | 'render' | 'prefab' | 'scene';
   /**
    * Prefabs only: this prefab publishes a `static assets`, because it — or something it spawns —
    * is built from a file. Whoever spawns it has to wait for that list.

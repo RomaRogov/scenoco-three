@@ -2,17 +2,9 @@ import type { Scene } from 'three';
 import { System } from './System.js';
 import type { SystemHook, SystemWith } from './types.js';
 
-/**
- * The systems on one scene: which exist, when each runs, and when they are torn down.
- *
- * Split out of `SceneRuntime` because it shares nothing with the component half but the frame
- * it runs in. The component side has a slot table, an activation state machine, compaction and
- * coroutines; this has a list, three buckets and a queue. They were one class because they are
- * ticked together, which is a reason for one *caller*, not for one object.
- */
+/** The systems on one scene: which exist, when each runs, and when they are torn down. */
 export class SystemRegistry {
-  /** In the order they were added. Bucketed per hook, so a system that implements one hook
-   * costs nothing in the other phases. */
+  /** In the order added, and bucketed per hook so an unimplemented phase costs nothing. */
   private readonly systems: System[] = [];
   private readonly fixedUpdaters: SystemWith<'fixedUpdate'>[] = [];
   private readonly updaters: SystemWith<'update'>[] = [];
@@ -39,10 +31,7 @@ export class SystemRegistry {
     return null;
   }
 
-  /**
-   * Register a system and wake it. A scene holds at most one of each class — a second `add` of
-   * the same one is a mistake worth naming, not a silent second physics world.
-   */
+  /** Register a system and wake it. A scene holds at most one of each class. */
   add(system: System): void {
     if (this.get(system.constructor as new () => System)) {
       throw new Error(
@@ -75,11 +64,8 @@ export class SystemRegistry {
   }
 
   /**
-   * Run `start` on every system added since the last flush.
-   *
-   * The caller runs this after the components' starts, which is the same "systems go last" rule
-   * every other phase follows: by now every component that registers itself in `awake` has done
-   * so, and the document is finished being built.
+   * Run `start` on every system added since the last flush. After the components' starts, so
+   * everything that registers itself in `awake` has done so.
    */
   flushStarts(): void {
     if (this.pendingStart.length === 0) return;
@@ -112,10 +98,8 @@ export class SystemRegistry {
   }
 
   /**
-   * Tear down what the frame queued.
-   *
-   * Called *last* in the destruction pass: a component's `onDestroy` commonly unregisters
-   * itself from a system, so the system has to still be there when it runs.
+   * Tear down what the frame queued. Last in the destruction pass: a component's `onDestroy`
+   * commonly unregisters itself from a system, which has to still be there.
    */
   flushDestroyed(): void {
     const batch = this.destroyQueue.splice(0, this.destroyQueue.length);
@@ -125,10 +109,7 @@ export class SystemRegistry {
     }
   }
 
-  /**
-   * Destroy every system, in reverse order of creation — the order that lets a system built on
-   * top of another (a debug renderer over a physics world) go before the thing it reads.
-   */
+  /** Destroy every system, newest first, so one built on another goes before what it reads. */
   teardown(): void {
     for (const system of this.systems.slice().reverse()) teardownSystem(system);
     this.systems.length = 0;
@@ -163,10 +144,7 @@ export function teardownSystem(system: System): void {
   system._scene = null!;
 }
 
-/**
- * A system has no owning object to name in an error, so its report says the class instead —
- * and one broken system must not take the frame down with it.
- */
+/** A system has no owning object to name, so the report says the class. */
 function report(system: System, at: SystemHook, error: unknown): void {
   console.error(`[scenoco] system ${system.constructor.name}.${at}() threw:`, error);
 }

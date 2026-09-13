@@ -25,6 +25,7 @@ export class Brick extends Component<Mesh> {
 
   private left = 1;
   private game!: GameState;
+  private own: MeshStandardMaterial | null = null;
 
   override awake(): void {
     this.left = this.hits;
@@ -50,15 +51,16 @@ export class Brick extends Component<Mesh> {
   /**
    * Show the damage: dimmer, and a shade smaller.
    *
-   * Through `uniqueMaterial()`, which is Unity's `Renderer.material` against `.sharedMaterial`.
-   * A compiled material asset is one module-scope instance shared by every brick that names it,
-   * so writing to `object3D.material` — the obvious spelling, and the one that compiles — dims
-   * every brick of that tier at once instead of the one that was hit.
+   * A tier's material is one shared instance, so the first hit swaps in a copy this brick owns.
+   * Writing to the shared one would dim every brick of the tier at once.
    */
   private damage(): void {
-    const material = this.object3D.uniqueMaterial<MeshStandardMaterial>();
-    material.color.multiplyScalar(0.62);
-    material.emissive.multiplyScalar(0.5);
+    if (!this.own) {
+      this.own = (this.object3D.material as MeshStandardMaterial).clone();
+      this.object3D.material = this.own;
+    }
+    this.own.color.multiplyScalar(0.62);
+    this.own.emissive.multiplyScalar(0.5);
     this.object3D.scale.multiplyScalar(0.94);
   }
 }

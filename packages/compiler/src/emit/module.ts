@@ -76,7 +76,14 @@ export class TsModule {
   }
 
   line(text = ''): this {
-    this.lines.push(text ? '  '.repeat(this.indentation) + text : '');
+    if (!text) {
+      this.lines.push('');
+      return this;
+    }
+    // A construction may be several lines — a material's options object is — so every line is
+    // indented, not just the first.
+    const prefix = '  '.repeat(this.indentation);
+    for (const part of text.split('\n')) this.lines.push(part ? prefix + part : '');
     return this;
   }
 

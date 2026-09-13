@@ -33,18 +33,10 @@ declare module 'three' {
 
     // --- systems --------------------------------------------------------------------------
     /**
-     * Construct a system, apply `init` to it, and add it to this scene.
+     * Construct a system, apply `init` to it, and add it to this scene — `addComponent` one
+     * level up, with `init` landing before `awake`.
      *
-     * ```ts
-     * scene.addSystem(Physics2D, { gravity: new Vector2(0, 0) });
-     * ```
-     *
-     * The same shape as `addComponent`, one level up: a component is behaviour on a node, a
-     * system is behaviour on the scene. `init` is applied before `awake` runs, so a system
-     * always wakes up configured.
-     *
-     * A scene holds **one system of each class**. Adding a second is an error rather than a
-     * second physics world nobody meant to create.
+     * A scene holds **one system of each class**; adding a second is an error.
      */
     addSystem<T extends System>(type: ConstructableSystem<T>, init?: SystemInit<T>): T;
     /** Add an already-constructed system. It must not belong to another scene. */
@@ -54,58 +46,34 @@ declare module 'three' {
     getSystem<T extends System>(type: SystemType<T>): T | null;
 
     /**
-     * Get the system of this class, creating and adding one if it is missing — the system-level
-     * `requireComponent`.
-     *
-     * This is how a component reaches the service it needs without anyone having to remember to
-     * install it first:
-     *
-     * ```ts
-     * class RigidBody2D extends Component {
-     *   override awake() { this.requireSystem(Physics2D).add(this); }
-     * }
-     * ```
-     *
-     * A component has `requireSystem` as a shorthand for this, which is the spelling to reach
-     * for — it is the one that does not need a scene in hand.
+     * Get the system of this class, adding one if it is missing — the system-level
+     * `requireComponent`, and how a service gets installed without anyone remembering to.
+     * From a component, prefer its own `requireSystem`, which needs no scene in hand.
      */
     requireSystem<T extends System>(type: ConstructableSystem<T>, init?: SystemInit<T>): T;
 
-    /**
-     * Remove a system, by instance or by class. Its `onDestroy` runs at the end of the frame,
-     * like every other destroy here. Returns true if one was removed.
-     */
+    /** Remove a system, by instance or by class. Its `onDestroy` runs at the end of the frame. */
     removeSystem(target: System | SystemType): boolean;
 
     /** The camera `Engine` renders this scene with. Set it in `onLoad`. */
     mainCamera: Camera | null;
 
     /**
-     * How this scene is drawn: tone mapping, shadows, post effects.
-     *
-     * `Engine` applies it while this scene is active, and puts the renderer's defaults back for
-     * a scene that has none, so one level's look cannot leak into the next.
-     *
-     * This, `camera`, `dontDestroyOnLoad` and `disposeOnUnload` are the four things the engine
-     * adds to a `THREE.Scene`; everything else on it is three.js's own.
+     * How this scene is drawn: tone mapping, shadows, post effects. `Engine` applies it while
+     * this scene is active and restores the defaults for a scene that has none.
      */
     render: RenderSettings | null;
 
     /**
-     * Keep this scene loaded when another is loaded — Unity's `DontDestroyOnLoad`, for a whole
-     * document.
-     *
-     * `SceneManager.load` unloads every other scene; one with this set stays. Combined with
-     * `loadAdditive` being a no-op for an already-loaded scene, that makes a persistent HUD or
-     * audio rig one line in every level that wants it, with exactly one copy however many
-     * times it is asked for.
+     * Keep this scene loaded when another is loaded — Unity's `DontDestroyOnLoad` for a whole
+     * document. With `loadAdditive` being a no-op for a loaded scene, every level can ask for
+     * the HUD and exactly one exists.
      */
     dontDestroyOnLoad: boolean;
 
     /**
-     * Whether `unload` disposes the geometries, materials and textures it finds in the scene.
-     * On by default — switching scenes should not leak GPU memory. Turn it off, or register
-     * shared assets with `keepAlive`, when assets outlive the scene that used them.
+     * Whether `unload` disposes the geometries, materials and textures it finds. On by default;
+     * turn it off, or use `keepAlive`, for assets that outlive the scene.
      */
     disposeOnUnload: boolean;
 
@@ -113,9 +81,8 @@ declare module 'three' {
     keepAlive(...assets: unknown[]): this;
 
     /**
-     * Build the scene. Calls your `onLoad` hook and awaits it, so async asset loading just
-     * works. Components added along the way get `awake` immediately; `start` runs on the
-     * first tick after loading. Calling `load` on an already-loaded scene is a no-op.
+     * Build the scene: `onLoad` is called and awaited, so async asset loading works. Components
+     * added along the way get `awake` at once, `start` on the first tick. A no-op if loaded.
      */
     load(): Promise<this>;
 
@@ -127,40 +94,24 @@ declare module 'three' {
     unload(): Promise<this>;
 
     /**
-     * First component of `type` anywhere in the scene, or `null`. Named after Unity's
-     * `Object.FindObjectOfType<T>()`, which likewise returns a component, not an object.
-     *
-     * This is also how you find *objects*: give the ones you need to look up a marker
-     * component (`class Player extends Component {}`) instead of a string tag, and the lookup
-     * becomes a type-checked reference tooling can follow.
+     * First component of `type` anywhere in the scene — Unity's `FindObjectOfType<T>()`, which
+     * likewise returns a component. To find an *object*, give it a marker component rather
+     * than a string tag.
      */
     findObjectOfType<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T | null;
     /** Every component of `type` anywhere in the scene. Unity's `FindObjectsOfType<T>()`. */
     findObjectsOfType<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T[];
 
-    /**
-     * Create a named empty object, add it, and return it — Three.js's answer to `new GameObject()`.
-     * Use it for the objects that exist only to carry components.
-     */
+    /** Create a named empty object, add it, and return it — `new GameObject()`. */
     createObject(name?: string, parent?: Object3D): Object3D;
 
     /**
-     * The node or component an id names, or `null`.
+     * The node or component an id names, or `null` — how to reach *a specific thing*, where
+     * `findObjectOfType` reaches *a kind of thing*.
      *
-     * An id is given at spawn time — `instantiate(Slime, { id: 'slime3' })` — or by whatever
-     * built the scene. Ids inside a spawned prefab are reached through the instance, with `/`:
-     * `byId('slime3/body')` is the node the slime prefab named `body`, and `byId('slime3/brain')`
-     * the component it named `brain`.
-     *
-     * Pass the class to get it typed, and `null` when the id names something else:
-     *
-     * ```ts
-     * const slime = this.scene.byId('slime3', Slime);          // Slime | null
-     * const body = this.scene.byId('slime3/body', Mesh);       // Mesh | null
-     * ```
-     *
-     * This is the way to reach *a specific thing*. `findObjectOfType` is for *a kind of thing*,
-     * and holding a reference is better than either where you can.
+     * An id comes from a spawn (`instantiate(Slime, { id: 'slime3' })`) or from whatever built
+     * the scene. Ids inside a spawned prefab are reached through it with `/`, as
+     * `byId('slime3/body')`. Pass the class to get it typed, and `null` for a mismatch.
      */
     byId(path: string): Object3D | Component | null;
     byId<T>(path: string, type: abstract new (...args: never[]) => T): T | null;
@@ -177,18 +128,12 @@ proto.disposeOnUnload = true;
 proto.dontDestroyOnLoad = false;
 proto.render = null;
 
-// A scene is the root of its own runtime, so it must have one before anything is added to it.
-// Overriding the `_runtime` data property from Object3D with an accessor keeps that lazy
-// without having to patch the Scene constructor.
 /**
- * Every accessor below is `configurable`, so evaluating this module twice replaces the previous
- * definition instead of throwing.
+ * A scene is the root of its own runtime and must have one before anything is added, so the
+ * `_runtime` data property inherited from `Object3D` becomes a lazy accessor here.
  *
- * A module that patches a shared prototype has to survive being evaluated more than once: a dev
- * server re-serving it after an unrelated file changed is enough, and the failure is brutal —
- * `Cannot redefine property: scene` is thrown at import time, so whatever was importing the
- * engine never finishes loading and you are left staring at an
- * empty viewport with no obvious cause.
+ * `configurable`, like every accessor below: evaluating this module twice — a dev server
+ * re-serving it is enough — must replace the definition rather than throw at import time.
  */
 Object.defineProperty(proto, '_runtime', {
   get(this: Scene): SceneRuntime {
@@ -251,8 +196,7 @@ proto.addSystem = function (
   }
 
   system._scene = this;
-  // Configure before waking, so a system never wakes up looking at defaults it was about to
-  // have overwritten — the same rule `addComponent` follows.
+  // Before waking, so a system never sees defaults about to be replaced, as `addComponent` does.
   if (init) Object.assign(system, init);
   this._runtime.addSystem(system);
   return system;
@@ -289,8 +233,7 @@ proto.load = async function (this: Scene): Promise<Scene> {
   this._activeInHierarchy = this._active;
 
   await this.onLoad?.();
-  // Every object added by `onLoad` has been awoken by now, so `onLoaded` can safely wire
-  // components across the whole scene.
+  // Everything `onLoad` added is awake by now, so `onLoaded` can wire across the whole scene.
   this.onLoaded?.();
   return this;
 } as Scene['load'];

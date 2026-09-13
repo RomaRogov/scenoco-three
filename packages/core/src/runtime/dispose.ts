@@ -18,19 +18,11 @@ function disposeMaterial(material: Material, kept: Set<unknown> | null): void {
 }
 
 /**
- * Release the GPU-side resources reachable from an object tree: geometries, materials, and
- * the textures those materials reference.
+ * Release the GPU resources reachable from an object tree: geometries, materials and their
+ * textures.
  *
- * `Scene.unload` calls this unless `disposeOnUnload` is off. Two things are skipped:
- *
- * - anything marked `shared()` — the module that created it owns it, and other scenes still
- *   import it. Everything an asset document exports is marked, which is what makes it safe for
- *   fifty scenes to share one material;
- * - anything in `kept`, which is what `Scene.keepAlive` fills, for resources shared by
- *   hand-written code.
- *
- * What is left is what the scene itself built — a procedural geometry, the copy
- * `Object3D.uniqueMaterial()` makes — and freeing that is the whole point.
+ * Skips anything marked `shared()` — its module owns it and other scenes still import it — and
+ * anything in `kept`, which `Scene.keepAlive` fills. What is left is what the scene built.
  */
 export function disposeSceneResources(root: Object3D, kept: Set<unknown> | null = null): void {
   root.traverse((object) => {

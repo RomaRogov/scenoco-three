@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/ui",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "In-canvas UI for SceNoCo on pmndrs uikit: Canvas, Panel, Text and Image with Unity RectTransform-style placement.",
   "type": "module",
   "license": "MIT",

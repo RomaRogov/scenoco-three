@@ -25,8 +25,8 @@ const DOC = `<!-- The level. Comments must survive an edit. -->
 
   <!-- the player -->
   <Mesh id="hero"
-        geometry="../geometry/cube.geometry.xml"
-        material="../materials/m.material.xml">
+        geometry="../geometry/cube.asset.xml"
+        material="../materials/m.asset.xml">
     <Components>
       <Spinner speed="2" />
     </Components>
@@ -81,8 +81,8 @@ describe('setAttribute', () => {
   });
 
   it('works on an element whose open tag spans several lines', () => {
-    const { text } = setAttribute(DOC, at('Mesh'), 'material', '../materials/gold.material.xml');
-    expect(text).toContain('material="../materials/gold.material.xml">');
+    const { text } = setAttribute(DOC, at('Mesh'), 'material', '../materials/gold.asset.xml');
+    expect(text).toContain('material="../materials/gold.asset.xml">');
     // Its layout across three lines is preserved.
     expect(text).toContain('<Mesh id="hero"\n        geometry=');
   });

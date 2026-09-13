@@ -36,11 +36,8 @@ export interface EngineOptions {
 export class Engine {
   /**
    * The engine driving this page, or `null` where there is none — a test, a server render.
-   *
-   * Unity's `Camera.main` and `Application` are statics for the same reason: there is one host,
-   * and something has to be able to reach its renderer without every layer in between passing it
-   * down. A system that needs the canvas — the UI renderer needs it to size the screen and to
-   * forward pointer events — reads it here, and behaves itself when it is null.
+   * There is one host, and a system needing the canvas reads it here rather than being handed
+   * it through every layer in between.
    */
   static current: Engine | null = null;
 
@@ -88,12 +85,9 @@ export class Engine {
     Engine.current = this;
     this.observeSize();
     this.resize();
-    // A camera's aspect is set by `resize`, and at construction there is no scene to set it on:
-    // every project builds the engine first and loads a scene second, which left the very first
-    // camera at three's default aspect of 1 until something happened to resize the window. On a
-    // wide canvas that is a horizontally squashed frame — and on a game with a fixed playfield,
-    // the edges of the field simply are not on screen. Loading a scene is the other moment the
-    // answer changes, so it is the other moment to ask.
+    // `resize` sets each camera's aspect, and at construction there is no scene to set it on.
+    // Loading one is the other moment the answer changes, so it is the other moment to ask —
+    // without this the first camera keeps three's default aspect of 1, a squashed frame.
     this.unwatchScenes = SceneManager.onSceneLoaded(() => this.resize());
     document.addEventListener('visibilitychange', this.handleVisibility);
   }
@@ -141,19 +135,16 @@ export class Engine {
   resize(): void {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
-    // A container with no size yet — a hidden tab, a panel that has not been laid out — would
-    // otherwise make every camera's aspect `0 / 0`, and a NaN projection matrix draws nothing at
-    // all. There is no useful answer at this size, so the last good one is kept until there is.
+    // A container with no size yet — a hidden tab, an unlaid-out panel — would make every
+    // aspect `0 / 0`, and a NaN projection matrix draws nothing. Keep the last good size.
     if (width <= 0 || height <= 0) return;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.maxPixelRatio));
     this.renderer.setSize(width, height, true);
     this.effects?.setSize(width, height);
 
     const aspect = width / height;
-    // Every *loaded* scene, not only the one being drawn. A scene is loaded before it becomes
-    // active — `onSceneLoaded` fires from inside the load, while the outgoing scene is still the
-    // active one — so sizing only the active camera left every scene after the first at three's
-    // default aspect of 1, which is a squashed frame and a cropped playfield.
+    // Every *loaded* scene, not only the one being drawn: a scene is loaded while the outgoing
+    // one is still active, so sizing the active camera alone misses it.
     for (const scene of SceneManager.loadedScenes) {
       const camera = scene.mainCamera;
       if (!camera) continue;
@@ -169,8 +160,7 @@ export class Engine {
     this.frameHandle = requestAnimationFrame(this.frame);
 
     SceneManager.tick(timestamp);
-    // Input edges (`getKeyDown`, `getMouseButtonDown`) are true for exactly one frame, so
-    // they must be cleared after every component has had its chance to read them.
+    // Input edges are true for exactly one frame, so they clear once every component has read them.
     Input.endFrame();
 
     this.onBeforeRender?.();
@@ -181,10 +171,9 @@ export class Engine {
   /**
    * Draw one frame: the active scene, then whatever survived the last load, on top.
    *
-   * A persistent scene is drawn after the active one **without clearing**, through its own
-   * camera when it has one. That is what makes `dontDestroyOnLoad` visible rather than merely
-   * alive: a HUD scene that outlives the level is drawn over the level, and the depth buffer is
-   * cleared between the two so a 3D world cannot poke through a 2D overlay.
+   * A persistent scene draws after the active one without clearing colour, so a HUD that
+   * outlives the level is drawn over it; depth *is* cleared between the two, so a 3D world
+   * cannot poke through a 2D overlay.
    */
   render(): void {
     const scene = SceneManager.activeScene;
@@ -206,12 +195,9 @@ export class Engine {
   }
 
   /**
-   * Draw one scene through one camera, with that scene's render settings applied.
-   *
-   * Separate from `render` because anything drawing outside the game loop — a preview, a
-   * capture — still has to draw the frame the game would draw. Calling `renderer.render`
-   * directly skips tone mapping and every post pass, which makes a scene look flat with nothing
-   * saying why.
+   * Draw one scene through one camera with that scene's render settings applied — what a
+   * preview or a capture outside the loop should call, since `renderer.render` skips tone
+   * mapping and every post pass.
    */
   renderScene(scene: Scene, camera: Camera): void {
     this.applyRenderSettings(scene);
@@ -220,11 +206,9 @@ export class Engine {
   }
 
   /**
-   * Size the drawing buffer and the post-processing chain together.
-   *
-   * They have to move as one: a composer left at the old size renders its passes at the wrong
-   * scale, and `resize` only ever computes the size from the container. A host capturing a
-   * frame at some other resolution needs to say so directly — and to put it back afterwards.
+   * Size the drawing buffer and the post-processing chain together, for a host capturing at
+   * some resolution other than the container's. A composer left at the old size renders its
+   * passes at the wrong scale.
    */
   setFrameSize(width: number, height: number): void {
     this.renderer.setSize(width, height, false);
@@ -232,12 +216,8 @@ export class Engine {
   }
 
   /**
-   * Make the active scene's render settings current.
-   *
-   * Applied when they *change*, not every frame: assigning `toneMapping` invalidates every
-   * shader the renderer has built, so doing it unconditionally rebuilds the program cache sixty
-   * times a second. A scene with no settings gets the defaults back, so one level's look cannot
-   * leak into the next.
+   * Make the active scene's render settings current — on change, not every frame: assigning
+   * `toneMapping` invalidates every shader the renderer has built.
    */
   private applyRenderSettings(scene: Scene): void {
     if (!this.renderState.apply(this.renderer, scene)) return;
@@ -249,19 +229,14 @@ export class Engine {
   }
 
   /**
-   * Bring up the post-processing chain for the effects that declare a pass.
-   *
-   * Loaded on demand and never before: `EffectComposer` and its dependencies are a real chunk
-   * of three's addons, and a game whose scenes declare no passes must not pay for them. Until
-   * the import lands, frames are drawn straight — a frame or two without the effect, not a
-   * blank screen.
+   * Bring up the post-processing chain for the effects that declare a pass. Loaded on demand,
+   * so frames drawn before the import lands are drawn straight rather than not at all.
    */
   private buildEffects(effects: readonly Effect[]): void {
     const generation = ++this.effectsGeneration;
     this.effectsPending = EffectChain.create(this.renderer, effects)
       .then((chain) => {
-        // The settings may have changed again, or the engine been disposed, while the import
-        // was in flight.
+        // The settings may have changed again, or the engine been disposed, mid-import.
         if (Engine.current !== this || generation !== this.effectsGeneration) return chain.dispose();
         this.effects = chain;
         this.resize();
@@ -273,13 +248,9 @@ export class Engine {
   }
 
   /**
-   * Resolves once the post-processing chain the active scene asked for is in place.
-   *
-   * The chain is imported on demand, so the first frames after a scene loads are drawn without
-   * it. A game never notices — one frame of no bloom. Anything that draws *once* and looks at
-   * the result does: a screenshot taken immediately after opening a scene shows no post passes
-   * at all, which reads as "the effect I just added does not work" rather than "it has not
-   * loaded yet". Await this before capturing.
+   * Resolves once the post-processing chain the active scene asked for is in place. A game
+   * never notices the frame or two without it; anything that draws *once* and looks at the
+   * result — a screenshot — must await this first.
    */
   async effectsReady(): Promise<void> {
     await this.effectsPending;
@@ -287,9 +258,8 @@ export class Engine {
 
   private readonly handleVisibility = (): void => {
     if (!this.pauseWhenHidden) return;
-    // rAF already stalls while the tab is hidden, so there is nothing to pause. What matters
-    // is that the frame landing on the way back does not carry the whole background duration
-    // as its delta — and that held keys do not stay stuck down.
+    // rAF already stalls while hidden. What matters is that the frame on the way back does not
+    // carry the whole background duration as its delta, and that held keys do not stick.
     SceneManager.resetFrameClock();
     if (document.hidden) Input.clear();
   };

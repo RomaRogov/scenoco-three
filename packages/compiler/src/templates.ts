@@ -14,23 +14,27 @@ import { ASSET_KINDS, type AssetKind } from './assets.js';
  * format wrong, and it is the first thing anyone runs. The two exceptions name what their own
  * name implies: a `.texture.xml` for `brick` expects `brick.png` beside it.
  */
-const TEMPLATES: Record<AssetKind['kind'], (name: string) => string> = {
+const TEMPLATES: Record<AssetKind['kind'], (name: string, tag?: string) => string> = {
   texture: (name) => `<!-- ${name}: an image plus how to sample it. Point a material at this file
      instead of at the image when the settings matter. -->
 <Texture src="${name}.png" colorSpace="SRGBColorSpace" />
 `,
 
-  geometry: (name) =>
-    PRIMITIVES[name] ??
-    `<!-- ${name}: a shared geometry. Reference it from a mesh with
-     geometry="../geometry/${name}.geometry.xml" — every mesh that names it shares one. -->
-<BoxGeometry width="1" height="1" depth="1" />
-`,
-
-  material: (name) => `<!-- ${name}: a shared material. Reference it from a mesh with
-     material="../materials/${name}.material.xml". -->
+  // With no tag named: a primitive's own numbers if the name is one, a material otherwise.
+  asset: (name, tag) => {
+    if (!tag) return PRIMITIVES[name] ?? TEMPLATES.asset(name, 'MeshStandardMaterial');
+    if (tag === 'MeshStandardMaterial') {
+      return `<!-- ${name}: a shared material. Every mesh that names it shares one —
+     <Mesh material="../${name}.asset.xml" />. Write the element inside a <Mesh> instead to give
+     that one mesh its own. -->
 <MeshStandardMaterial color="#e9c46a" roughness="0.5" metalness="0.1" />
-`,
+`;
+    }
+    return `<!-- ${name}: a shared ${tag}. Name this file from the attribute that takes one —
+     geometry="…", material="…" — and every node that names it shares one. -->
+<${tag} />
+`;
+  },
 
   particle: (name) => `<!-- ${name}: a short one-shot burst. Play it with
      <ParticleSystem effect="../vfx/${name}.particle.xml" />. -->
@@ -60,9 +64,9 @@ const TEMPLATES: Record<AssetKind['kind'], (name: string) => string> = {
      wrapper, so this compiles to \`class ${pascal(name)} extends Group\`. Spawn it with
      <Prefab src="${name}.prefab.xml" /> or instantiate(${pascal(name)}).
 
-     Swap <Group> for <Mesh geometry="../geometry/x.geometry.xml"
-     material="../materials/x.material.xml"> once you have those, and a spawned ${name}
-     *is* that mesh. -->
+     Swap <Group> for a <Mesh> once you have a shape for it, and a spawned ${name} *is* that
+     mesh. Its geometry and material are either files it names — geometry="../x.asset.xml" —
+     or elements written inside it, which give this prefab its own. -->
 <Group />
 `,
 
@@ -78,13 +82,13 @@ const TEMPLATES: Record<AssetKind['kind'], (name: string) => string> = {
 /**
  * The primitives, sized as Unity sizes them.
  *
- * Unity's built-in meshes are in the engine; here they are ordinary geometry documents, because
- * that is what a shape is in this framework — there is no `<Cube>` tag and there should not be
- * one, since a node tag is a three.js class and three.js has no `Cube`. What these are is the
- * *numbers*: a cube one unit on a side, a sphere one across, so a mesh that names one is sized
- * with `scale` and nothing has to be worked out.
+ * Unity's built-in meshes are in the engine; here they are ordinary assets, because that is what
+ * a shape is in this framework — there is no `<Cube>` tag and there should not be one, since a
+ * node tag is a three.js class and three.js has no `Cube`. What these are is the *numbers*: a
+ * cube one unit on a side, a sphere one across, so a mesh that names one is sized with `scale`
+ * and nothing has to be worked out.
  *
- * `scenoco new geometry` writes the lot; `scenoco new geometry cube` writes one.
+ * `scenoco new asset` writes the lot; `scenoco new asset cube` writes one.
  *
  * A `<PlaneGeometry>` stands upright in XY, as three.js builds it. Unity's plane is pre-rotated
  * and ours is not — laying it flat is `eulerAngles="x: -90"` on the mesh, which is one attribute
@@ -92,7 +96,7 @@ const TEMPLATES: Record<AssetKind['kind'], (name: string) => string> = {
  */
 export const PRIMITIVES: Readonly<Record<string, string>> = {
   cube: `<!-- A cube, 1 x 1 x 1. Scale the mesh to size it:
-     <Mesh geometry="../geometry/cube.geometry.xml" material="…" scale="x: 8; y: 4; z: 1" /> -->
+     <Mesh geometry="../geometry/cube.asset.xml" material="…" scale="x: 8; y: 4; z: 1" /> -->
 <BoxGeometry width="1" height="1" depth="1" />
 `,
   sphere: `<!-- A sphere 1 across — radius 0.5, as Unity's is. -->
@@ -115,15 +119,19 @@ export const PRIMITIVES: Readonly<Record<string, string>> = {
 `,
   plane: `<!-- A 10 x 10 sheet — Unity's plane size — standing upright in XY.
      A ground is this one laid flat:
-     <Mesh geometry="../geometry/plane.geometry.xml" material="…" eulerAngles="x: -90" scale="6" /> -->
+     <Mesh geometry="../geometry/plane.asset.xml" material="…" eulerAngles="x: -90" scale="6" /> -->
 <PlaneGeometry width="10" height="10" />
 `,
 };
 
 /** The starter document for a kind, and the file name to write it to. */
-export function templateFor(kind: AssetKind['kind'], name: string): { path: string; contents: string } {
+export function templateFor(
+  kind: AssetKind['kind'],
+  name: string,
+  tag?: string,
+): { path: string; contents: string } {
   const asset = ASSET_KINDS.find((k) => k.kind === kind)!;
-  return { path: `${asset.dir}/${name}${asset.extension}`, contents: TEMPLATES[kind](name) };
+  return { path: `${asset.dir}/${name}${asset.extension}`, contents: TEMPLATES[kind](name, tag) };
 }
 
 /** `brick-wall` → `BrickWall` — the class name a scene or prefab document produces. */

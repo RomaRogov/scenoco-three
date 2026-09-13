@@ -1,35 +1,15 @@
 import type { Scene } from 'three';
-import type { SystemLifecycle } from './types.js';
+import type { ConstructableSystem, SystemInit, SystemLifecycle, SystemType } from './types.js';
 
 /**
- * A scene-level service that runs once per phase, after every component has had its turn.
+ * A scene-level service that runs once per phase, after every component has had its turn — a
+ * physics world, an audio bus, a batched renderer. The thing with no node.
  *
- * A component is behaviour on *one* node. A system is the thing with no node: a physics world,
- * an audio bus, a batched renderer. Unity draws the same line — a `MonoBehaviour` lives on a
- * `GameObject`, while the physics step is a stage of the loop that runs after every
- * `FixedUpdate`.
+ * `awake` builds the system while the scene is still filling up; `start` runs once every
+ * component has registered, and is where a system may read the scene.
  *
- * ```ts
- * export class Physics2D extends System {
- *   gravity = new Vector2(0, -9.81);
- *   private world!: World;
- *
- *   override awake() { this.world = new World(this.gravity); }
- *   override fixedUpdate(dt: number) { this.world.step(dt); }
- *   override onDestroy() { this.world.free(); }
- * }
- *
- * scene.addSystem(Physics2D, { gravity: new Vector2(0, 0) });
- * ```
- *
- * Each phase runs after the components' — every `fixedUpdate` that moved a body has run before
- * the world steps. `awake` builds the system itself, while the scene is still filling up;
- * `start` runs once every component has registered, and is where a system reads the scene.
- *
- * A system does not query the scene: components register themselves —
- * `this.requireSystem(Physics2D).add(this)` in a body's `awake` — which is one line at the only
- * place that already knows the relationship. There is no `enabled` either; `Time.timeScale = 0`
- * stops fixed stepping, and a system wanting its own switch can declare one.
+ * A system never queries the scene: components register themselves, as
+ * `this.requireSystem(Physics2D).add(this)` in a body's `awake`.
  */
 export abstract class System {
   /** @internal set by `Scene.addSystem` immediately after construction. */
@@ -41,12 +21,26 @@ export abstract class System {
   /** @internal */
   _destroyed = false;
 
-  /**
-   * The scene this system serves. Valid from `awake` onwards — a system is constructed by
-   * `addSystem`, so like a component it has no scene during construction.
-   */
+  /** The scene this system serves. Valid from `awake` onwards, not during construction. */
   get scene(): Scene {
     return this._scene;
+  }
+
+  /** Another system in this scene, or null — a system reaches one the way a component does. */
+  getSystem<T extends System>(type: SystemType<T>): T | null {
+    return this.scene?.getSystem(type) ?? null;
+  }
+
+  /** The same, creating it if this is the first to ask — `Scene.requireSystem`. */
+  requireSystem<T extends System>(type: ConstructableSystem<T>, init?: SystemInit<T>): T {
+    const scene = this.scene;
+    if (!scene) {
+      throw new Error(
+        `[scenoco] ${this.constructor.name}.requireSystem(${type.name}) needs a scene. ` +
+          'Call it from awake or later.',
+      );
+    }
+    return scene.requireSystem(type, init);
   }
 
   /** True once `onDestroy` has run. Spelled the same as `Component.isDestroyed`. */
@@ -54,17 +48,14 @@ export abstract class System {
     return this._destroyed;
   }
 
-  /**
-   * Remove this system from its scene. `onDestroy` runs at the end of the frame, never in the
-   * middle of a phase — the rule every destroy here follows.
-   */
+  /** Remove this system from its scene. `onDestroy` runs at the end of the frame. */
   destroy(): void {
     this._scene?.removeSystem(this);
   }
 }
 
 /**
- * Declaration merge, not `implements`: every subclass gets the typed optional hooks without the
- * base class carrying empty method bodies the runtime would then have to detect and skip.
+ * Declaration merge, not `implements`: subclasses get the typed optional hooks without the base
+ * carrying empty bodies the runtime would have to detect and skip.
  */
 export interface System extends SystemLifecycle {}

@@ -20,6 +20,6 @@
   <DirectionalLight color="#fff4e0" intensity="2.2" position="x: 12; y: 20; z: 8" />
 
   <!-- The ground: the 10 x 10 plane, laid flat and scaled to 60 across. -->
-  <Mesh geometry="../geometry/plane.geometry.xml" material="../materials/grass.material.xml"
+  <Mesh geometry="../geometry/plane.asset.xml" material="../materials/grass.asset.xml"
         eulerAngles="x: -90" scale="6" />
 </Scene>

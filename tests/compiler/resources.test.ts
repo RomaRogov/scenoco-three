@@ -47,12 +47,12 @@ export class Engine extends Component {
   );
 
   // One material names the image straight; the other goes through the configured texture.
-  fixture.writeXml('assets/materials/brick.material.xml', '<MeshStandardMaterial map="../textures/brick.png" />');
+  fixture.writeXml('assets/materials/brick.asset.xml', '<MeshStandardMaterial map="../textures/brick.png" />');
   fixture.writeXml(
-    'assets/materials/floor.material.xml',
+    'assets/materials/floor.asset.xml',
     '<MeshStandardMaterial map="../textures/floor.texture.xml" roughness="0.8" />',
   );
-  fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+  fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" height="1" depth="1" />');
 
   fixture.writeXml(
     'assets/vfx/spark.particle.xml',
@@ -71,13 +71,13 @@ export class Engine extends Component {
   // …and one that needs nothing, which must stay plain.
   fixture.writeXml(
     'assets/scenes/crate.prefab.xml',
-    `<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/brick.material.xml" />`,
+    `<Mesh geometry="../geometry/cube.asset.xml" material="../materials/brick.asset.xml" />`,
   );
 
   fixture.writeXml(
     'assets/scenes/level.scene.xml',
     `<Scene>
-  <Mesh id="floor" geometry="../geometry/cube.geometry.xml" material="../materials/floor.material.xml" />
+  <Mesh id="floor" geometry="../geometry/cube.asset.xml" material="../materials/floor.asset.xml" />
   <Prefab src="../models/hero.glb" id="hero" position="y: 1" />
   <Prefab src="enemy.prefab.xml" position="x: 4" />
   <Prefab src="crate.prefab.xml" position="x: -4" />
@@ -145,7 +145,7 @@ describe('the build', () => {
 
 describe('textures', () => {
   it('lets a material name an image directly, sharing one texture per file', () => {
-    const code = read('assets/materials/brick.material.gen.ts');
+    const code = read('assets/materials/brick.asset.gen.ts');
     // `new URL(…, import.meta.url)` rather than an image import: Vite rewrites this form to the
     // hashed output path, and it needs no ambient `declare module '*.png'` to typecheck.
     expect(code).toContain(
@@ -163,8 +163,8 @@ describe('textures', () => {
   });
 
   it('reaches a texture document from a material by path, as an import', () => {
-    const code = read('assets/materials/floor.material.gen.ts');
-    // `floor.png`, `floor.texture.xml` and `floor.material.xml` is how anyone would name a
+    const code = read('assets/materials/floor.asset.gen.ts');
+    // `floor.png`, `floor.texture.xml` and `floor.asset.xml` is how anyone would name a
     // matching set, so the two `floor` exports collide — and the module renames the import
     // rather than shadowing it.
     expect(code).toContain(`import { floor as floor$2 } from '../textures/floor.texture.gen.js';`);
@@ -226,7 +226,7 @@ describe('what it refuses', () => {
   it('reports a file that is not there, rather than emitting a 404', () => {
     const missing = makeFixture('resources-missing', { audio: true });
     missing.write('game.ts', `import { Component } from '@scenoco-three/core';\nexport class A extends Component {}\n`);
-    missing.writeXml('assets/materials/x.material.xml', '<MeshStandardMaterial map="../textures/nope.png" />');
+    missing.writeXml('assets/materials/x.asset.xml', '<MeshStandardMaterial map="../textures/nope.png" />');
     const { diagnostics } = build({ root: missing.dir, tsconfig: missing.tsconfig });
     expect(diagnostics[0]?.code).toBe('unknown-asset');
     missing.dispose();
@@ -287,12 +287,12 @@ export class Spin extends Component {
 }
 `,
     );
-    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
-    fixture.writeXml('assets/materials/plain.material.xml', '<MeshBasicMaterial color="#ffffff" />');
+    fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+    fixture.writeXml('assets/materials/plain.asset.xml', '<MeshBasicMaterial color="#ffffff" />');
     fixture.writeXml(
       'assets/scenes/spin.scene.xml',
       `<Scene>
-  <Mesh geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml">
+  <Mesh geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml">
     <Components>
       <Spin curve="bounceOut" turns="2" />
     </Components>
@@ -308,7 +308,7 @@ export class Spin extends Component {
     fixture.writeXml(
       'assets/scenes/spin.scene.xml',
       `<Scene>
-  <Mesh geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml">
+  <Mesh geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml">
     <Components>
       <Spin curve="bouncOut" />
     </Components>

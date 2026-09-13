@@ -1,30 +1,13 @@
 /**
- * A typed event — how two components talk without importing each other.
+ * A typed event — how two components talk without importing each other. A C# event, minus the
+ * strings.
  *
- * Deliberately **not** a string-keyed bus. An event is a class field, so TypeScript checks the
- * name, the argument types and every subscriber; a typo is a build error rather than a listener
- * that silently never fires. Shaped like a C# event, minus the strings.
+ * Deliberately **not** a string-keyed bus: an event is a class field, so a typo is a build
+ * error rather than a listener that silently never fires. References point down, at what you
+ * own; events travel up and out.
  *
- * ```ts
- * class Brick extends Component {
- *   points = 10;
- *   readonly destroyed = new Event<[Brick]>();
- *   hit() { this.destroyed.emit(this); this.object3D.destroy(); }
- * }
- *
- * class Scoreboard extends Component {
- *   bricks: Brick[] = [];
- *   score = 0;
- *   override start() { for (const b of this.bricks) this.listen(b.destroyed, this.onBrick); }
- *   private onBrick = (brick: Brick) => { this.score += brick.points; };
- * }
- * ```
- *
- * References point **down**, at the thing you own; events travel **up and out**. That is what
- * keeps two components from importing each other.
- *
- * Prefer `Component.listen`, which unsubscribes when the listener is destroyed; use `on`/`off`
- * directly only outside a component's lifetime.
+ * Prefer `Component.listen`, which unsubscribes on destroy; `on`/`off` are for outside a
+ * component's lifetime.
  */
 export class Event<TArgs extends unknown[] = []> {
   private listeners: ((...args: TArgs) => void)[] = [];
@@ -50,9 +33,8 @@ export class Event<TArgs extends unknown[] = []> {
   }
 
   /**
-   * Invoke every listener in subscription order. Iterates a snapshot, so a
-   * listener may subscribe, unsubscribe, or destroy things while it runs without
-   * disturbing the dispatch in progress.
+   * Invoke every listener in subscription order, over a snapshot — a listener may subscribe,
+   * unsubscribe or destroy things without disturbing the dispatch in progress.
    */
   emit(...args: TArgs): void {
     for (const listener of this.listeners.slice()) listener(...args);

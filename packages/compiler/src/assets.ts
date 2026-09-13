@@ -4,77 +4,49 @@ import { join, relative, resolve, sep } from 'node:path';
 /** What kinds of document a SceNoCo project holds, and what each compiles to. */
 export interface AssetKind {
   /** The `scenoco new <kind>` name. */
-  kind: 'scene' | 'prefab' | 'geometry' | 'material' | 'particle' | 'texture' | 'render';
+  kind: 'scene' | 'prefab' | 'asset' | 'particle' | 'texture' | 'render';
   /** File suffix. */
   extension: string;
   /** One-line summary — what `scenoco new` prints. */
   description: string;
   /** Project-relative directory new files of this kind go in. */
   dir: string;
-  /**
-   * The type a document of this kind produces, for a field that wants to *reference* one.
-   *
-   * A mesh's `geometry` is declared `BufferGeometry`, so `geometry="brick.geometry.xml"` is
-   * how you fill it; a particle emitter's `effect` is declared `ParticleConfig`, so the same
-   * spelling reaches a `.particle.xml`. That correspondence is what makes an asset reference
-   * one rule rather than three special cases, so it is declared here beside the kind.
-   *
-   * A prefab and a scene both compile to a *class*, and both are named the same way: a field
-   * declared `PrefabType` is filled by `brick.prefab.xml` and spawned with `instantiate`, a
-   * field declared `SceneType` by `level-2.scene.xml` and loaded with `SceneManager.load`.
-   * That is how a component lays out the repetitive half of a level — a grid of bricks is a
-   * loop over one prefab reference, not sixty near-identical elements.
-   */
-  type?: string;
 }
 
 /**
  * The document kinds, in the order a project reads them.
  *
- * Geometry and material are here because `<Attachments>` is gone. A mesh's geometry was a
- * sub-element that existed only inside whatever node declared it; it is now an asset with a
- * path, referenced by however many meshes want it — which is what Unity's mesh/`.mat` split
- * and Cocos's mesh/material references have always been.
+ * No kind per three.js class: a material and a geometry construct from attributes, so one
+ * `.asset.xml` holds either and its root tag says which. What is here is what three.js has no
+ * constructor for — a texture's data comes from an image file, and the rest are ours.
  */
 export const ASSET_KINDS: readonly AssetKind[] = [
   {
     kind: 'texture',
-    type: 'Texture',
     extension: '.texture.xml',
     description: 'A configured texture: an image plus its sampler settings',
     dir: 'assets/textures',
   },
   {
-    kind: 'geometry',
-    type: 'BufferGeometry',
-    extension: '.geometry.xml',
-    description: 'A shared geometry: one three.js geometry element, referenced by meshes',
-    dir: 'assets/geometry',
-  },
-  {
-    kind: 'material',
-    type: 'Material',
-    extension: '.material.xml',
-    description: 'A shared material: one three.js material element, referenced by meshes',
-    dir: 'assets/materials',
+    kind: 'asset',
+    extension: '.asset.xml',
+    description: 'A shared three.js object — a material, a geometry — named by its root tag',
+    dir: 'assets',
   },
   {
     kind: 'particle',
-    type: 'ParticleConfig',
     extension: '.particle.xml',
     description: 'A particle effect, in Unity Shuriken module form',
     dir: 'assets/vfx',
   },
   {
     kind: 'render',
-    type: 'RenderSettings',
     extension: '.render.xml',
     description: 'How a scene is drawn: tone mapping, shadows, post effects',
     dir: 'assets/render',
   },
   {
     kind: 'prefab',
-    type: 'PrefabType',
     extension: '.prefab.xml',
     description: 'A reusable node, spawned with <Prefab src="…"> or instantiate()',
     // Where `scenoco init` puts the one it ships, and where every example keeps theirs. This said
@@ -84,7 +56,6 @@ export const ASSET_KINDS: readonly AssetKind[] = [
   },
   {
     kind: 'scene',
-    type: 'SceneType',
     extension: '.scene.xml',
     description: 'A scene: the <Scene> root with its nodes and components',
     dir: 'assets/scenes',
@@ -111,7 +82,7 @@ export interface FileKind {
   /**
    * Appended to the file's name for the generated const: `brick.png` → `brickTexture`.
    *
-   * It says what the value is at every use — and it keeps `brick.png` and `brick.material.xml`,
+   * It says what the value is at every use — and it keeps `brick.png` and `brick.asset.xml`,
    * which is how anyone would name a matching pair, from colliding into `brick` and `brick$2`.
    */
   suffix: string;
@@ -152,19 +123,6 @@ export function fileKindOf(path: string): FileKind | undefined {
   const extension = clean.slice(dot + 1).toLowerCase();
   return FILE_KINDS.find((kind) => kind.extensions.includes(extension));
 }
-
-/**
- * The declared types that mean "a reference to a document in this project".
- *
- * Derived from the kinds above rather than restated, so a new asset kind is one entry. `Model`
- * and `AudioClip` are named here too: both are referenced exactly like a document is, and both
- * come from a raw file rather than a document of their own.
- */
-export const ASSET_TYPES: ReadonlySet<string> = new Set([
-  ...ASSET_KINDS.map((k) => k.type).filter((t): t is string => t !== undefined),
-  'Model',
-  'AudioClip',
-]);
 
 /** One document found in a project. */
 export interface AssetFile {

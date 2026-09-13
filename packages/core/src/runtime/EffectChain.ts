@@ -4,16 +4,11 @@ import type { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import type { Effect } from './RenderSettings.js';
 
 /**
- * The post-processing chain, built when a scene's render settings declare a pass.
+ * The post-processing chain — `render → the scene's effects, in order → output`.
  *
- * Everything about it is loaded through a dynamic `import`, so a project whose scenes declare
- * no passes never fetches a byte of three's postprocessing addons — which is why this is a
- * module of its own rather than imports at the top of `Engine`.
- *
- * The chain is `render → the document's effects, in order → output`. `OutputPass` last is
- * three.js's own recommendation: it applies the tone mapping and colour-space conversion the
- * renderer would otherwise have done on its way to the canvas, so a composited frame and a
- * plain one differ only by the effects.
+ * A module of its own so the addons load through a dynamic `import`: a project that declares no
+ * passes never fetches them. `OutputPass` last applies the tone mapping and colour-space
+ * conversion the renderer would otherwise do on its way to the canvas.
  */
 export class EffectChain {
   private readonly composer: EffectComposer;
@@ -33,8 +28,7 @@ export class EffectChain {
     ]);
 
     const composer = new EffectComposer(renderer);
-    // `RenderPass` needs a scene and a camera up front; both are replaced on every frame, so
-    // which ones it starts with does not matter. The active scene supplies them in `render`.
+    // Both are replaced every frame by `render`, so which ones it starts with does not matter.
     const renderPass = new RenderPass(undefined as unknown as Scene, undefined as unknown as Camera);
     composer.addPass(renderPass);
     for (const effect of effects) {

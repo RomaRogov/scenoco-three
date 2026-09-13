@@ -9,29 +9,15 @@ declare module 'three' {
   interface Object3D {
     // --- prefabs --------------------------------------------------------------------------
     /**
-     * Create an instance of a prefab, configure it, and add it under this object.
+     * Create an instance of a prefab, configure it, and add it under this object. A prefab is
+     * any `Object3D` subclass that builds itself in `onLoad`, with no base class and no
+     * wrapper node. To duplicate an object that already exists, use `clone()`.
      *
-     * ```ts
-     * spawnRoot.instantiate(Crate, { position: new Vector3(0, 1, 0), size: 0.5 });
-     * ```
+     * Settings, then `onLoad`, then placement, then the scene graph — so every `awake` below
+     * fires once, with the transform already final.
      *
-     * A prefab is any `Object3D` subclass that builds itself in `onLoad` — there is no base
-     * class and no wrapper node, so a prefab rooted at a mesh instantiates as a real `Mesh`.
-     *
-     * Placement and settings are applied, then `onLoad` runs, and only then does the prefab
-     * enter the scene graph — so every `awake` below it fires exactly once, with the transform
-     * already final. An instantiated prefab is indistinguishable from one authored in place.
-     *
-     * To duplicate an object that already exists, use `clone()` instead.
-     *
-     * `configure` is the **override seam**: it runs after the prefab has built itself and
-     * before it enters the scene — the one window in which its insides exist but nothing has
-     * woken up yet. That is where a spawn changes something the prefab declared, a label's text
-     * or a brick's colour.
-     *
-     * ```ts
-     * parent.instantiate(BrickPrefab, { position }, (brick) => { brick.hits = 3; });
-     * ```
+     * `configure` is the **override seam**: it runs while the prefab's insides exist and
+     * nothing has woken up, which is where a spawn changes what the prefab declared.
      */
     instantiate<T extends Object3D>(
       type: PrefabType<T>,
@@ -39,12 +25,8 @@ declare module 'three' {
       configure?: (instance: T) => void,
     ): T;
     /**
-     * Spawn a loaded glTF model. A model *is* a prefab — the same verb, the same placement, no
-     * wrapper node — so the only difference is that the file has to have arrived first.
-     *
-     * ```ts
-     * this.instantiate(heroModel, { position: new Vector3(0, 1, 0) });
-     * ```
+     * Spawn a loaded glTF model — the same verb and the same placement as a prefab, except
+     * that the file has to have arrived first.
      */
     instantiate(
       model: Model,
@@ -65,8 +47,7 @@ proto.instantiate = function <T extends Object3D>(
   init?: PrefabInit<T>,
   configure?: (instance: Object3D) => void,
 ): Object3D {
-  // A model is a prefab that came from a file: it is already built, so it needs placing and
-  // adding and nothing else. Everything after this point is the same for both.
+  // A model is already built, so it needs placing and adding and nothing else.
   if (source instanceof Model) {
     const instance = source.instantiate();
     if (init) place(instance, init);
@@ -78,16 +59,13 @@ proto.instantiate = function <T extends Object3D>(
   }
 
   const prefab = new source();
-  // Settings first: a prefab builds itself out of its own fields, so `instantiate(Crate, { size })`
-  // has to be readable by the `onLoad` that turns `size` into a scale.
+  // Settings first: the `onLoad` below builds the prefab out of these fields.
   if (init) settle(prefab, init);
 
-  // Built while detached, so the whole subtree arrives in one `add` and `awake` runs once per
-  // component, with the prefab's transform already final.
+  // Built while detached, so the whole subtree arrives in one `add`.
   const built = prefab.onLoad?.();
   if (built instanceof Promise) {
-    // `instantiate` hands back a finished node; there is nowhere to await. Saying so is the
-    // only honest option — the alternative is a node that enters the scene half-built.
+    // Nowhere to await: the alternative is a node that enters the scene half-built.
     console.error(
       `[scenoco] ${source.name}.onLoad() returned a promise. instantiate() is synchronous, so ` +
         'the prefab is incomplete. Load what it needs in the scene and pass it in.',
@@ -95,36 +73,23 @@ proto.instantiate = function <T extends Object3D>(
   }
   prefab._built = true;
 
-  // Placement lands **after** `onLoad`, and that ordering is the whole point of it.
-  //
-  // A prefab sets its own transform in `onLoad`, so applying the caller's placement first meant
-  // the prefab quietly overwrote it, and every `instantiate(Crate, { position })` in a scatter
-  // put its crate at the prefab's own spot instead — fourteen crates in one pile, with nothing in
-  // the code that asked for fourteen positions to suggest why. Unity's
-  // `Instantiate(prefab, position, rotation)` wins over the prefab's transform, and so does this.
-  // Still before the `add`, so it is final before any
-  // `awake` — which is what `Watcher` in the prefab tests pins down.
+  // Placement lands **after** `onLoad`, so the caller's position wins over the one the prefab
+  // sets for itself — as Unity's `Instantiate(prefab, position, rotation)` does. Still before
+  // the `add`, so the transform is final before any `awake`.
   if (init) place(prefab, init);
 
-  // Overrides land here: the prefab's contents exist, and nothing in it has woken up yet, so a
-  // value written now is the value every `awake` below sees. After the `add` it would already
-  // be too late for anything read in `awake`, which is most of what a component caches.
+  // The prefab's contents exist and nothing has woken up, so a value written now is the one
+  // every `awake` below sees. After the `add` it would be too late.
   configure?.(prefab);
 
   this.add(prefab);
-  // Registered once it is in a scene, because an id is a scene's to keep: `byId` answers for
-  // this scene, and teardown forgets the id along with the node.
+  // Once it is in a scene: an id is the scene's to keep, and teardown forgets it with the node.
   if (init?.id) prefab._runtime?.registerId(init.id, prefab);
   prefab.onLoaded?.();
   return prefab;
 } as Object3D['instantiate'];
 
-/**
- * Everything in an init that is **not** placement: the prefab's own fields.
- *
- * Applied before `onLoad`, because that is what a prefab builds itself out of —
- * `instantiate(Crate, { size: 0.5 })` works by `onLoad` reading `size`.
- */
+/** Everything in an init that is **not** placement: the prefab's own fields. */
 function settle(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): void {
   const { id, name, position, eulerAngles, scale, visible, ...settings } = init;
   void id;
@@ -137,12 +102,8 @@ function settle(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): v
 }
 
 /**
- * Where a freshly-made node goes.
- *
- * Destructured rather than `Object.assign`-ed wholesale: `position` and `scale` are live
- * `Vector3`s three.js hands out once per node, and `eulerAngles` is a degrees view with a
- * setter — replacing any of them outright would detach the node from its own transform. These
- * are copied into the existing objects.
+ * Where a freshly-made node goes. Copied into the live objects rather than assigned over them:
+ * `position` and `scale` are three.js's own per-node vectors.
  */
 function place(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): void {
   const { name, position, eulerAngles, scale, visible } = init;

@@ -13,7 +13,7 @@ import { SceneManager } from '@scenoco-three/core';
 import * as THREE from 'three';
 import { makeFixture } from '../compiler/fixture.js';
 import { resetEngine } from '../core/helpers.js';
-import { indexDocument } from '../../packages/compiler/src/index.js';
+import { indexDocument, type PropInfo } from '../../packages/compiler/src/index.js';
 
 /**
  * What the editor writes back.
@@ -27,7 +27,7 @@ const DOC = `<!-- Level one. -->
 <Scene>
   <PerspectiveCamera id="cam" fov="50" position="z: 8" />
 
-  <Mesh id="ball" geometry="../geometry/ball.geometry.xml">
+  <Mesh id="ball" geometry="../geometry/ball.asset.xml">
     <Components>
       <RigidBody2D kind="dynamic" />
       <CircleCollider2D radius="0.4" restitution="0.75" />
@@ -311,14 +311,18 @@ describe('the standalone editor builds a scene from XML', () => {
       fixture.write('game.ts', "import 'three';\nexport {};\n"); // the vocabulary is read through a real import
       const { model } = build({ root: fixture.dir, dryRun: true });
       const files: Record<string, string> = {
-        'assets/geometry/cube.geometry.xml': '<BoxGeometry width="1" height="1" depth="1" />',
-        'assets/materials/red.material.xml': '<MeshStandardMaterial color="#ff0000" roughness="0.5" />',
+        'assets/geometry/cube.asset.xml': '<BoxGeometry width="1" height="1" depth="1" />',
+        'assets/materials/red.asset.xml': '<MeshStandardMaterial color="#ff0000" roughness="0.5" />',
         'assets/scenes/crate.prefab.xml':
-          '<Mesh id="body" geometry="../geometry/cube.geometry.xml" material="../materials/red.material.xml" scale="0.5" />',
+          '<Mesh id="body" geometry="../geometry/cube.asset.xml" material="../materials/red.asset.xml" scale="0.5" />',
         'assets/scenes/main.scene.xml': `<Scene camera="#cam" background="#0b1120">
   <PerspectiveCamera id="cam" fov="45" position="y: 3; z: 7" />
-  <Mesh id="player" geometry="../geometry/cube.geometry.xml" material="../materials/red.material.xml"
+  <Mesh id="player" geometry="../geometry/cube.asset.xml" material="../materials/red.asset.xml"
         position="x: 1; y: 0.5" eulerAngles="y: 90" scale="2" />
+  <Mesh id="own">
+    <SphereGeometry radius="0.5" />
+    <MeshStandardMaterial color="#00ff00" roughness="0.2" />
+  </Mesh>
   <Prefab src="crate.prefab.xml" id="crate1" position="x: 3">
     <Override target="#body" scale="0.25" />
   </Prefab>
@@ -344,6 +348,14 @@ describe('the standalone editor builds a scene from XML', () => {
       expect(player.position.toArray()).toEqual([1, 0.5, 0]);
       expect(Math.round(player.eulerAngles.y)).toBe(90);
       expect(player.scale.toArray()).toEqual([2, 2, 2]);
+      // An object written inside the node is a constructor argument, not a child of it.
+      const own = scene.byId('own', THREE.Mesh)!;
+      expect(own.children).toEqual([]);
+      expect(own.geometry).toBeInstanceOf(THREE.SphereGeometry);
+      expect((own.material as THREE.MeshStandardMaterial).color.getHexString()).toBe('00ff00');
+      expect((own.material as THREE.MeshStandardMaterial).roughness).toBe(0.2);
+      expect(own.material).not.toBe(player.material);
+
       expect(scene.mainCamera).toBe(scene.byId('cam'));
       expect((scene.background as THREE.Color).getHexString()).toBe('0b1120');
 
@@ -384,4 +396,116 @@ describe('the standalone editor builds a scene from XML', () => {
       fixture.dispose();
     }
   }, 120_000);
+});
+
+/**
+ * An object written *inside* a node — the material a mesh has of its own.
+ *
+ * It never becomes a node, so nothing in the tree selects it; the inspector reaches it through
+ * the node whose constructor took it, and the slot it fills stops being writable as an attribute.
+ */
+describe('an attached object', () => {
+  const DOCUMENT = `<Scene>
+  <Mesh id="ball">
+    <MeshStandardMaterial color="#ff0000" roughness="0.5" />
+  </Mesh>
+</Scene>
+`;
+
+  function open() {
+    const elements = indexDocument(DOCUMENT).map((e) => ({
+      tag: e.tag,
+      line: e.line,
+      column: e.column,
+      start: e.start,
+      end: e.end,
+      attributes: e.attributes,
+    }));
+    const material = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.5 });
+    const mesh = new Mesh(new BoxGeometry(), material);
+    const element = elements.find((e) => e.tag === 'Mesh')!;
+    mesh.userData.scenoco = { file: 'scene.xml', line: element.line, column: element.column };
+    const doc = new SceneDocument('scene.xml', DOCUMENT, elements, {
+      components: [],
+      systems: [],
+      effects: [],
+      tags: [
+        {
+          name: 'Mesh',
+          family: 'node',
+          module: 'three',
+          bases: ['Object3D'],
+          parameters: [
+            { name: 'geometry', type: 'BufferGeometry', shape: 'assetRef', assetFamily: 'geometry', required: false },
+            { name: 'material', type: 'Material', shape: 'assetRef', assetFamily: 'material', list: true, required: false },
+          ],
+          properties: [],
+        },
+        {
+          name: 'MeshStandardMaterial',
+          family: 'material',
+          module: 'three',
+          bases: ['Material'],
+          parameters: [],
+          properties: [
+            { name: 'color', type: 'Color', shape: 'color', required: false },
+            { name: 'roughness', type: 'number', shape: 'number', required: false },
+          ],
+        },
+      ],
+    });
+    return { doc, mesh, material };
+  }
+
+  it('is found under the node whose constructor takes it, with the slot it fills', () => {
+    const { doc, mesh, material } = open();
+    const [attached] = doc.attachmentsOf(mesh);
+    expect(attached?.tag.name).toBe('MeshStandardMaterial');
+    expect(attached?.slot).toBe('material');
+    expect(attached?.live).toBe(material);
+    expect(attached?.attributes.get('color')).toBe('#ff0000');
+  });
+
+  it('writes through to the object it built, and undo puts it back', () => {
+    const { doc, mesh, material } = open();
+    const attached = doc.attachmentsOf(mesh)[0]!;
+    const roughness: PropInfo = { name: 'roughness', type: 'number', shape: 'number', required: false };
+
+    doc.setAttachmentValue(attached, roughness, 0.9);
+    expect(material.roughness).toBe(0.9);
+    expect(doc.attachmentsOf(mesh)[0]!.attributes.get('roughness')).toBe('0.9');
+
+    doc.undoLast();
+    expect(material.roughness).toBe(0.5);
+    expect(doc.attachmentsOf(mesh)[0]!.attributes.get('roughness')).toBe('0.5');
+  });
+
+  it('does not mistake a nested node’s material for this one’s', () => {
+    const nested = `<Scene>
+  <Group id="holder">
+    <Mesh id="ball">
+      <MeshStandardMaterial color="#ff0000" />
+    </Mesh>
+  </Group>
+</Scene>
+`;
+    const elements = indexDocument(nested).map((e) => ({
+      tag: e.tag,
+      line: e.line,
+      column: e.column,
+      start: e.start,
+      end: e.end,
+      attributes: e.attributes,
+    }));
+    const group = new THREE.Group();
+    const element = elements.find((e) => e.tag === 'Group')!;
+    group.userData.scenoco = { file: 'scene.xml', line: element.line, column: element.column };
+    const doc = new SceneDocument('scene.xml', nested, elements, {
+      components: [],
+      systems: [],
+      effects: [],
+      tags: [{ name: 'Group', family: 'node', module: 'three', bases: ['Object3D'], parameters: [], properties: [] }],
+    });
+    expect(doc.attachmentsOf(group)).toEqual([]);
+  });
 });

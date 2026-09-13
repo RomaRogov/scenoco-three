@@ -528,12 +528,9 @@ export class ObserverSession {
     /**
      * Whether a node is actually on screen.
      *
-     * For anything ordinary that is `visible`. A uikit element is not ordinary: it draws through
-     * one shared instanced mesh and leaves its own `visible` false for ever, so reporting
-     * `visible` marked every `<Panel>` and `<Text>` in a working HUD as `hidden` — which is
-     * exactly what someone debugging an invisible HUD would go and chase. Its `displayed` and
-     * `isVisible` signals are what govern drawing, and they follow `setActive`, so a genuinely
-     * hidden element still says so.
+     * For anything ordinary that is `visible`. A UI element answers that honestly too, but its
+     * own signals know more: `displayed` and `isVisible` also account for clipping, so an
+     * element scrolled out of its container reads hidden rather than drawn.
      *
      * Duck-typed rather than imported: `@scenoco-three/ui` is optional, and the observer opens
      * projects that do not have it.

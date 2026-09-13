@@ -81,34 +81,34 @@ describe('scenoco new', () => {
    * writes them wrong makes every mesh that names one the wrong size.
    */
   it('writes the whole set of primitives, sized as Unity sizes them', async () => {
-    expect(await cli('new', 'geometry')).toBe(0);
+    expect(await cli('new', 'asset')).toBe(0);
     const read = (name: string) =>
-      readFileSync(join(fixture.dir, `assets/geometry/${name}.geometry.xml`), 'utf8');
+      readFileSync(join(fixture.dir, `assets/${name}.asset.xml`), 'utf8');
     expect(read('cube')).toContain('<BoxGeometry width="1" height="1" depth="1" />');
     expect(read('sphere')).toContain('radius="0.5"');
     expect(read('cylinder')).toContain('height="2"');
     expect(read('plane')).toContain('<PlaneGeometry width="10" height="10" />');
     // Run twice, and it says so rather than failing on the files it already wrote.
     err.length = 0;
-    expect(await cli('new', 'geometry')).toBe(0);
+    expect(await cli('new', 'asset')).toBe(0);
     expect(err.join('\n')).toBe('');
     expect(await cli('check', '--modules', 'three')).toBe(0);
   }, 120_000);
 
   it('lists the kinds when asked for one that is not', async () => {
     expect(await cli('new', 'shader', 'water')).toBe(1);
-    expect(err.join('\n')).toContain('material');
+    expect(err.join('\n')).toContain('asset');
   });
 });
 
 describe('scenoco build and check', () => {
   it('writes a module beside each document, and reports what it wrote', async () => {
-    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
-    fixture.writeXml('assets/materials/plain.material.xml', '<MeshBasicMaterial color="#38bdf8" />');
+    fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+    fixture.writeXml('assets/materials/plain.asset.xml', '<MeshBasicMaterial color="#38bdf8" />');
     fixture.writeXml(
       'assets/scenes/level1.scene.xml',
       `<Scene>
-  <Mesh geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml">
+  <Mesh geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml">
     <Components><Spinner speed="2" /></Components>
   </Mesh>
 </Scene>`,
@@ -122,16 +122,16 @@ describe('scenoco build and check', () => {
   }, 120_000);
 
   it('check writes nothing — it is the CI form', async () => {
-    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" />');
+    fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" />');
     expect(await cli('check')).toBe(0);
-    expect(existsSync(join(fixture.dir, 'assets/geometry/cube.geometry.gen.ts'))).toBe(false);
+    expect(existsSync(join(fixture.dir, 'assets/geometry/cube.asset.gen.ts'))).toBe(false);
   }, 120_000);
 
   it('fails with the file, line and message when a document is wrong', async () => {
-    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="wide" />');
+    fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="wide" />');
     expect(await cli('build')).toBe(1);
     const message = err.join('\n');
-    expect(message).toContain('cube.geometry.xml:1');
+    expect(message).toContain('cube.asset.xml:1');
     expect(message).toContain('bad-number');
   }, 120_000);
 });
@@ -262,11 +262,11 @@ describe('scenoco describe', () => {
   it('answers a shape with the geometry document and its real numbers', async () => {
     // Every engine has a <Cube>, so every author expects one. Answering with the document *and*
     // its dimensions is what puts the mesh's size in front of whoever is about to write `scale`.
-    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+    fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" height="1" depth="1" />');
     expect(await cli('describe', 'Cube')).toBe(0);
     const answer = out.join('\n');
     expect(answer).toContain('there is no <Cube> tag');
-    expect(answer).toContain('cube.geometry.xml');
+    expect(answer).toContain('cube.asset.xml');
     expect(answer).toContain('width="1"');
   }, 120_000);
 
@@ -285,9 +285,9 @@ describe('scenoco describe', () => {
   }, 120_000);
 
   it('writes nothing — asking a question is not a build', async () => {
-    fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" />');
+    fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" />');
     expect(await cli('describe', 'Spinner')).toBe(0);
-    expect(existsSync(join(fixture.dir, 'assets/geometry/cube.geometry.gen.ts'))).toBe(false);
+    expect(existsSync(join(fixture.dir, 'assets/geometry/cube.asset.gen.ts'))).toBe(false);
   }, 120_000);
 });
 
@@ -325,7 +325,7 @@ describe('scenoco init', () => {
     expect(await cli('build')).toBe(0);
     expect(existsSync(join(fixture.dir, 'assets/scenes/main.scene.gen.ts'))).toBe(true);
     expect(existsSync(join(fixture.dir, 'assets/prefabs/crate.prefab.gen.ts'))).toBe(true);
-    expect(existsSync(join(fixture.dir, 'assets/geometry/cube.geometry.gen.ts'))).toBe(true);
+    expect(existsSync(join(fixture.dir, 'assets/geometry/cube.asset.gen.ts'))).toBe(true);
   }, 120_000);
 
   /**

@@ -3,7 +3,11 @@ import { Collider, type Bounds } from './Collider.js';
 
 /** A sphere collision shape. */
 export class SphereCollider extends Collider {
-  /** Radius. Match it to the visible geometry; a collider never infers one. */
+  /**
+   * Radius. Match it to the visible geometry; a collider never infers one.
+   *
+   * In the node's own units, before its scale — the same as `BoxCollider.halfExtents`, and scaled with the node exactly as the mesh beside it is.
+   */
   radius = 0.5;
 
   private readonly center = new Vector3();

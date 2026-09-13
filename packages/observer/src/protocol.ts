@@ -4,13 +4,9 @@
  * Pure types plus one correlation helper, so both ends agree and the relay is testable on its
  * own. Nothing here reaches the compiler: the browser holds no compiler in v2 either.
  *
- * ### What is deliberately absent
- *
- * v1 carried an editing half — `EditTarget`, `EditOp`, `StructuralOp`, and `CompiledScene`
- * fragments travelling over the wire so a remote caller could reshape a document. All of it is
- * gone. An agent has file tools and the watcher rebuilds either way, so a second write path into
- * the user's source bought nothing and cost the guarantee that every change to their scene went
- * through the tools they already have — their own editing, their diff and their undo.
+ * There is no editing half. An agent has file tools and the watcher rebuilds either way, so a
+ * second write path into the user's source would only cost the guarantee that every change to
+ * their scene goes through the tools they already have — their own editing, diff and undo.
  *
  * What remains is observation: open, render, drive, sample.
  */

@@ -1,11 +1,8 @@
 /**
  * Unity's `KeyCode` names mapped onto DOM `KeyboardEvent.code` values.
  *
- * `Input.getKey(KeyCode.W)` instead of `Input.getKey('KeyW')`: TypeScript catches typos,
- * autocomplete lists what exists, and "find all references to `KeyCode.Space`" works.
- *
- * These are *physical* key positions, not the characters they produce — `KeyCode.W` is the
- * same key on QWERTY and AZERTY, which is what movement bindings want.
+ * These are *physical* key positions, not the characters they produce: `KeyCode.W` is the same
+ * key on QWERTY and AZERTY, which is what movement bindings want.
  */
 export const KeyCode = {
   A: 'KeyA', B: 'KeyB', C: 'KeyC', D: 'KeyD', E: 'KeyE', F: 'KeyF', G: 'KeyG',

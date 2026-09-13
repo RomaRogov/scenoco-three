@@ -108,6 +108,7 @@ class Builder {
 
     const tag = this.model.tags.find((t) => t.name === element.tag && t.family === 'node');
     const Ctor = tag ? (this.registry[tag.name] as (new (...args: unknown[]) => Object3D) | undefined) : undefined;
+    const { attached, children } = await this.attachments(element, tag, file, ids);
     let node: Object3D;
     if (!tag || !Ctor) {
       // Kept in the tree as a plain node, so the person can still see and select what the
@@ -116,16 +117,69 @@ class Builder {
       node = new Object3D();
       node.name = `<${element.tag}>`;
     } else {
-      const args = await this.constructorArguments(tag, element, file, ids);
+      const args = await this.constructorArguments(tag, element, file, ids, attached);
       node = new Ctor(...args);
       await this.assignAttributes(node, tag, element, file, ids, PLACEMENT);
     }
     this.place(node, element, file, ids);
-    for (const child of element.children) {
+    for (const child of children) {
       const built = await this.buildNode(child, file, ids);
       if (built) node.add(built);
     }
     return node;
+  }
+
+  /**
+   * Split children into the objects this node is built from and the nodes below it, building the
+   * former. A `<MeshStandardMaterial>` inside a `<Mesh>` is a constructor argument, not a child.
+   */
+  private async attachments(
+    element: SncElement,
+    tag: TagInfo | undefined,
+    file: string,
+    ids: Map<string, object>,
+  ): Promise<{ attached: Map<string, unknown>; children: SncElement[] }> {
+    const children: SncElement[] = [];
+    const bySlot = new Map<string, unknown[]>();
+
+    for (const child of element.children) {
+      const childTag = this.model.tags.find((t) => t.name === child.tag);
+      if (!childTag || childTag.family === 'node') {
+        children.push(child);
+        continue;
+      }
+      const slot = tag?.parameters.find((p) => p.assetFamily === childTag.family);
+      if (!slot) {
+        this.problems.push(
+          `${file}:${child.line}: <${element.tag}> is not built from a ${childTag.family}`,
+        );
+        continue;
+      }
+      try {
+        const built = await this.buildObject(childTag, child, file, ids);
+        bySlot.set(slot.name, [...(bySlot.get(slot.name) ?? []), built]);
+      } catch (error) {
+        this.problems.push(`${file}:${child.line}: <${child.tag}> — ${(error as Error).message}`);
+      }
+    }
+
+    const attached = new Map<string, unknown>();
+    for (const [name, values] of bySlot) attached.set(name, values.length === 1 ? values[0] : values);
+    return { attached, children };
+  }
+
+  /** One element as the object it constructs — an asset document's root, or an attached child. */
+  private async buildObject(
+    tag: TagInfo,
+    element: SncElement,
+    file: string,
+    ids: Map<string, object>,
+  ): Promise<object> {
+    const Ctor = this.registry[tag.name] as (new (...args: unknown[]) => object) | undefined;
+    if (!Ctor) throw new Error(`<${element.tag}> is not something this editor can build`);
+    const thing = new Ctor(...(await this.constructorArguments(tag, element, file, ids)));
+    await this.assignAttributes(thing, tag, element, file, ids, new Set());
+    return thing;
   }
 
   private async spawn(element: SncElement, file: string, ids: Map<string, object>): Promise<Object3D | null> {
@@ -174,7 +228,13 @@ class Builder {
     return this.model.tags.find((t) => t.name === name) ?? this.model.tags.find((t) => t.name === thing.constructor.name);
   }
 
-  private async constructorArguments(tag: TagInfo, element: SncElement, file: string, ids: Map<string, object>): Promise<unknown[]> {
+  private async constructorArguments(
+    tag: TagInfo,
+    element: SncElement,
+    file: string,
+    ids: Map<string, object>,
+    attached: ReadonlyMap<string, unknown> = new Map(),
+  ): Promise<unknown[]> {
     if (tag.family === 'material') {
       // A material takes one options object, which is also how three.js wants it — several
       // material properties are only honoured at construction.
@@ -188,10 +248,14 @@ class Builder {
     const args: unknown[] = [];
     let lastSet = -1;
     tag.parameters.forEach((p, i) => {
-      if (element.attributes.has(p.name)) lastSet = i;
+      if (element.attributes.has(p.name) || attached.has(p.name)) lastSet = i;
     });
     for (let i = 0; i <= lastSet; i++) {
       const prop = tag.parameters[i]!;
+      if (attached.has(prop.name)) {
+        args.push(attached.get(prop.name));
+        continue;
+      }
       const text = element.attributes.get(prop.name);
       args.push(text === undefined ? undefined : await this.valueOf(prop, text, file, ids));
     }
@@ -312,12 +376,8 @@ class Builder {
     if (!parsed.ok) throw new Error(parsed.diagnostics[0]?.message ?? 'does not parse');
     const root = parsed.root;
     const tag = this.model.tags.find((t) => t.name === root.tag);
-    const Ctor = tag ? (this.registry[tag.name] as (new (...args: unknown[]) => object) | undefined) : undefined;
-    if (!tag || !Ctor) throw new Error(`<${root.tag}> is not something this editor can build`);
-    const ids = new Map<string, object>();
-    const thing = new Ctor(...(await this.constructorArguments(tag, root, path, ids)));
-    await this.assignAttributes(thing, tag, root, path, ids, new Set());
-    return thing;
+    if (!tag) throw new Error(`<${root.tag}> is not something this editor can build`);
+    return this.buildObject(tag, root, path, new Map());
   }
 }
 

@@ -64,4 +64,4 @@ export { PRIMITIVES, templateFor } from './templates.js';
 export { describe, type DescribeInput } from './describe.js';
 export { scaffold, templateFiles, type ScaffoldResult, type TemplateFile } from './scaffold.js';
 export { run as runCli } from './cli.js';
-export { ASSET_KINDS, ASSET_TYPES, FILE_KINDS, detectTagPackages, fileKindOf, findAssets, outputPathFor, type AssetFile, type AssetKind } from './assets.js';
+export { ASSET_KINDS, FILE_KINDS, detectTagPackages, fileKindOf, findAssets, outputPathFor, type AssetFile, type AssetKind } from './assets.js';

@@ -3,7 +3,11 @@ import { Collider, type Bounds } from './Collider.js';
 
 /** A cylinder collision shape. Its long axis is Y, and it is treated as a capsule for overlap — close enough for detection, and exactly what rapier’s own broad phase does. */
 export class CylinderCollider extends Collider {
-  /** Radius. */
+  /**
+   * Radius.
+   *
+   * In the node's own units, before its scale — the same as `BoxCollider.halfExtents`, and scaled with the node exactly as the mesh beside it is.
+   */
   radius = 0.5;
   /** Half the cylinder’s height. */
   halfHeight = 0.5;

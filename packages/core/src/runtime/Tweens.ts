@@ -12,47 +12,17 @@ export interface TweenStarter {
 }
 
 /**
- * Runs a tween library on the **engine's** clock.
+ * Runs a tween library — tween.js, say — on the **engine's** clock.
  *
- * There is no tween of our own: a component that moved position, rotation or scale covered three
- * of the dozens of things a game animates. Use a real library —
- * [tween.js](https://github.com/tweenjs/tween.js) ships in three's addons, so it costs no
- * dependency:
+ * A library's own `requestAnimationFrame` ticker runs on wall-clock time, so `timeScale = 0`
+ * would pause the game while the tweens carried on. `play` exists for the same reason:
+ * `tween.start()` with no argument stamps itself with `performance.now()`, a different origin,
+ * and the tween then jumps or never moves.
  *
- * ```ts
- * import { Group, Tween, Easing } from 'three/addons/libs/tween.module.js';
- * import { Component, Tweens } from '@scenoco-three/core';
- *
- * export class Door extends Component {
- *   private readonly tweens = new Group();
- *   private runner!: Tweens;
- *
- *   override awake() { this.runner = this.requireSystem(Tweens).track(this.tweens); }
- *
- *   open() {
- *     this.runner.play(new Tween(this.object3D.position, this.tweens).to({ y: 3 }, 800)
- *       .easing(Easing.Quadratic.Out));
- *   }
- * }
- * ```
- *
- * Every animation library comes with its own `requestAnimationFrame` ticker, and that ticker is
- * wrong here: it runs on wall-clock time, so `Time.timeScale = 0` would pause the game while the
- * tweens carried on, and slow motion would not slow them. This hands the library the engine's
- * clock instead — one number, in the milliseconds every tween library counts in.
- *
- * `play` exists because `tween.start()` with no argument stamps itself with `performance.now()`,
- * a different origin from this clock, and the tween then jumps or never moves.
- *
- * Nothing here imports tween.js: the interfaces are structural, so this weighs nothing in a
- * project that does not tween and works with anything shaped the same way.
+ * The interfaces above are structural, so nothing here imports tween.js.
  */
 export class Tweens extends System {
-  /**
-   * Scaled engine time in **milliseconds**, which is the unit tween libraries count in.
-   *
-   * Scaled, so a paused game has a stopped clock and its tweens stop with it.
-   */
+  /** Scaled engine time in **milliseconds**, the unit tween libraries count in. */
   get time(): number {
     return Time.time * 1000;
   }
@@ -78,8 +48,7 @@ export class Tweens extends System {
 
   override update(): void {
     const now = this.time;
-    // A copy: a tween's `onComplete` commonly starts the next one, or destroys the thing that
-    // owned the group it is in.
+    // A copy: a tween's `onComplete` commonly starts the next one, or destroys its owner.
     for (const ticker of [...this.tracked]) ticker.update(now);
   }
 

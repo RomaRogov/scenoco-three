@@ -5,12 +5,8 @@ import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type Axis, type AxisBinding, typ
 /**
  * Keyboard, mouse and wheel state, sampled per frame. Mirrors Unity's `Input`.
  *
- * `getKey` reports whether something is held; `getKeyDown` / `getKeyUp` report the single
- * frame it changed. `Engine` calls `endFrame` after the event cycle to roll the edges over,
- * so every component sees the same input for a given frame regardless of update order.
- *
- * Keys are named by {@link KeyCode} — `KeyCode.W`, `KeyCode.Space`, `KeyCode.LeftShift` —
- * so a mistyped binding is a type error rather than a control that silently never fires.
+ * Edges (`getKeyDown`/`getKeyUp`) roll over in `endFrame`, so every component sees the same
+ * input for a frame regardless of update order.
  */
 class InputClass {
   /** Pointer position in CSS pixels, relative to the attached element. */
@@ -71,18 +67,10 @@ class InputClass {
   }
 
   /**
-   * A named axis, -1..1, smoothed — Unity's `Input.GetAxis`.
+   * A named axis, -1..1, eased toward the key's target — Unity's `Input.GetAxis`.
    *
-   * `getAxis('Horizontal')` is A/D and the left/right arrows; `getAxis('Vertical')` is W/S and
-   * up/down. The value eases toward the key's target and falls back to 0 when nothing is held,
-   * at Unity's default rates, which is why a character built on it accelerates instead of
-   * snapping. {@link getAxisRaw} is the same axis without the easing.
-   *
-   * `Mouse X`, `Mouse Y` and `Mouse ScrollWheel` report this frame's movement rather than a held
-   * key, scaled the way Unity scales them.
-   *
-   * An axis set with {@link setAxis} answers with that value instead, unsmoothed — the point of
-   * an override is that something else is already deciding the number.
+   * The mouse axes report this frame's movement instead, and an axis under {@link setAxis}
+   * answers with that value unsmoothed.
    */
   getAxis(axis: Axis): number {
     const override = this.overrides.get(axis);
@@ -93,12 +81,7 @@ class InputClass {
     return this.smoothed.get(axis) ?? 0;
   }
 
-  /**
-   * The same axis without the easing: -1, 0 or 1 for a keyboard entry — Unity's `GetAxisRaw`.
-   *
-   * What movement code that does its own acceleration wants, and what a test wants, since it
-   * reaches its value on the first frame rather than the tenth.
-   */
+  /** The same axis without the easing: -1, 0 or 1 for a keyboard entry — Unity's `GetAxisRaw`. */
   getAxisRaw(axis: Axis): number {
     const override = this.overrides.get(axis);
     if (override !== undefined) return override;
@@ -127,23 +110,15 @@ class InputClass {
 
   /**
    * Drive an axis from somewhere other than the keyboard — a virtual joystick, a gamepad, a
-   * replay. `setAxis('Horizontal', 0.5)` and every component reading that axis sees 0.5.
-   *
-   * It holds until it is changed or released with `null`, because that is what a stick does: it
-   * stays where a thumb leaves it. While an override is set the keys for that axis are ignored,
-   * so an on-screen control and the keyboard cannot fight over one value.
+   * replay. It holds until released with `null`, and the keys for that axis are ignored while
+   * it is set.
    */
   setAxis(axis: Axis, value: number | null): void {
     if (value === null) this.overrides.delete(axis);
     else this.overrides.set(axis, value);
   }
 
-  /**
-   * Drive a named button the same way — an on-screen Jump, or a test.
-   *
-   * The one-frame edges `getButtonDown` and `getButtonUp` report are derived from the change, so
-   * a button held down for three frames still fires `getButtonDown` exactly once.
-   */
+  /** Drive a named button the same way. `getButtonDown` still fires once per press. */
   setButton(button: Button, down: boolean | null): void {
     if (down === null) this.buttonOverrides.delete(button);
     else this.buttonOverrides.set(button, down);
@@ -156,8 +131,8 @@ class InputClass {
 
   /** The instantaneous -1/0/1 of a keyboard entry, before smoothing and before any override. */
   private rawAxis(axis: Axis): number {
-    // Typed through the interface rather than the literal: the entries differ in which keys they
-    // carry, and a union of those shapes is not something to read a `.negative` off.
+    // Through the interface rather than the literal: the entries differ in which keys they
+    // carry, and a union of those shapes has no `.negative` to read.
     const binding: AxisBinding | undefined = AXES[axis as keyof typeof AXES];
     if (!binding) return 0;
     const positive =
@@ -168,11 +143,8 @@ class InputClass {
   }
 
   /**
-   * Move the smoothed axes one frame, and work out this frame's button edges.
-   *
-   * Called from `SceneManager.tick` before any component runs, so `update` reads a value that
-   * belongs to the frame it is in. Unscaled time on purpose: a game frozen with `timeScale = 0`
-   * still has to notice the key that unfreezes it.
+   * Move the smoothed axes one frame and work out this frame's button edges. Unscaled time: a
+   * game frozen at `timeScale = 0` still has to notice the key that unfreezes it.
    *
    * @internal
    */
@@ -181,7 +153,7 @@ class InputClass {
       const target = this.rawAxis(name);
       const current = this.smoothed.get(name) ?? 0;
       // Unity's `snap`: pushing the other way starts from the middle rather than skidding
-      // through it, so a direction change is immediate even though the ramp is not.
+      // through it.
       const from = target !== 0 && Math.sign(target) !== Math.sign(current) ? 0 : current;
       const rate = (target === 0 ? binding.gravity : binding.sensitivity) * deltaTime;
       const next =
@@ -253,8 +225,8 @@ class InputClass {
     this.mouseDelta.set(0, 0);
     this.mouseScrollDelta.set(0, 0);
     this.hasMouseSample = false;
-    // Overrides go too: `clear` is "forget everything the player was doing", and a virtual stick
-    // left pushed through a scene reload is a character that walks into a wall on its own.
+    // Overrides go too: a virtual stick left pushed through a scene reload is a character that
+    // walks into a wall on its own.
     this.smoothed.clear();
     this.overrides.clear();
     this.buttonOverrides.clear();
@@ -263,9 +235,8 @@ class InputClass {
     this.buttonsWereDown.clear();
   }
 
-  // The DOM hands out plain strings and numbers. This class is the boundary where they become
-  // KeyCode / MouseButton, and it is the only place in the engine that asserts either type.
-  // An unrecognised key is stored anyway and simply never matches a KeyCode lookup.
+  // The boundary where the DOM's strings and numbers become KeyCode / MouseButton, and the only
+  // place that asserts either type. An unrecognised key is stored and never matches a lookup.
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.repeat) return;

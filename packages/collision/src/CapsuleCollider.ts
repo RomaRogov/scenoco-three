@@ -3,7 +3,11 @@ import { Collider, type Bounds } from './Collider.js';
 
 /** A capsule collision shape — the usual shape for a character. Its long axis is Y. */
 export class CapsuleCollider extends Collider {
-  /** Radius of the cylinder and of the caps. */
+  /**
+   * Radius of the cylinder and of the caps.
+   *
+   * In the node's own units, before its scale — the same as `BoxCollider.halfExtents`, and scaled with the node exactly as the mesh beside it is.
+   */
   radius = 0.5;
   /** Half the length of the straight section, not counting the caps. */
   halfHeight = 0.5;

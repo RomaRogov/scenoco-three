@@ -21,12 +21,8 @@ import { RigidBody } from './RigidBody.js';
  * **Rapier loads as WebAssembly, so `await initRapier()` before the first scene loads.** That
  * is the one thing this package needs that `@scenoco-three/box2d` does not.
  *
- * ### What this no longer does
- *
- * v1 rebuilt its picture of the world every fixed step — create bodies for new components,
- * remove them for gone ones, diff each node's colliders. All of it is gone: a body joins in
- * `awake` and leaves in `onDestroy`, and a collider attaches itself. The system holds a world
- * and steps it.
+ * Nothing is rediscovered per step: a body joins in `awake` and leaves in `onDestroy`, a collider
+ * attaches itself, and the system holds a world and steps it.
  */
 export class Physics extends System {
   /** Gravity, in metres per second squared. */

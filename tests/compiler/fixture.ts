@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const corePath = fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url));
+const serializePath = fileURLToPath(
+  new URL('../../packages/compiler/src/serialize.ts', import.meta.url),
+);
 const threePath = fileURLToPath(new URL('../../node_modules/@types/three/index.d.ts', import.meta.url));
 const box2dPath = fileURLToPath(new URL('../../packages/box2d/src/index.ts', import.meta.url));
 const rapierPath = fileURLToPath(new URL('../../packages/rapier/src/index.ts', import.meta.url));
@@ -32,6 +35,8 @@ export interface Fixture {
   write(relativePath: string, source: string): void;
   /** Write a file at a path relative to the project root — an XML document, say. */
   writeXml(relativePath: string, source: string): void;
+  /** Delete one, so a test that adds a deliberately broken document can take it back out. */
+  remove(relativePath: string): void;
   dispose(): void;
 }
 
@@ -74,6 +79,7 @@ export function makeFixture(name: string, options: FixtureOptions = {}): Fixture
         // prints, so a half-configured project looks like it worked.
         paths: {
           '@scenoco-three/core': [corePath],
+          '@scenoco-three/compiler/serialize': [serializePath],
           three: [threePath],
           ...(options.box2d ? { '@scenoco-three/box2d': [box2dPath] } : {}),
           ...(options.rapier ? { '@scenoco-three/rapier': [rapierPath] } : {}),
@@ -102,6 +108,9 @@ export function makeFixture(name: string, options: FixtureOptions = {}): Fixture
       const full = join(dir, relativePath);
       mkdirSync(join(full, '..'), { recursive: true });
       writeFileSync(full, source);
+    },
+    remove(relativePath) {
+      rmSync(join(dir, relativePath), { force: true });
     },
     dispose() {
       rmSync(dir, { recursive: true, force: true });

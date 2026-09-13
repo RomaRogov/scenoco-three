@@ -15,6 +15,17 @@ export type Edit =
 export type TransformChannel = 'position' | 'eulerAngles' | 'scale';
 
 /** One element of the open document, as the inspector needs it. */
+/** One object a node is built from, as written inside the node's own element. */
+export interface Attachment {
+  tag: TagInfo;
+  /** The constructor slot it fills, which is also the property it lands on — `material`. */
+  slot: string;
+  /** The object the compiler built from it, so an edit shows without waiting for a rebuild. */
+  live: object;
+  at: ElementAt;
+  attributes: ReadonlyMap<string, string>;
+}
+
 interface ElementView {
   tag: string;
   at: ElementAt;
@@ -27,16 +38,9 @@ interface ElementView {
 /**
  * The open document, and every change made to it since it was opened.
  *
- * ### What replaced what
- *
- * v1 held a compiled scene bundle and mirrored every edit into a copy-on-write shadow of it —
- * `cowAttachments`, `srcEdits`, `removedComponents`, a structural op log, and index arithmetic to
- * keep the shadow aligned with the live objects. That existed because the browser had a *bundle*
- * and no way back to the source.
- *
- * Here the source **is** the model. A node knows which element built it, because the compiler
- * stamped it; an edit is a splice addressed by that stamp; the file on disk is the only state.
- * So this class holds the document text, the element index, and a list of pending splices.
+ * The source **is** the model. A node knows which element built it, because the compiler stamped
+ * it; an edit is a splice addressed by that stamp; the file on disk is the only state. So this
+ * class holds the document text, the element index, and a list of pending splices.
  *
  * Edits are also applied to the live objects immediately, which is not redundant: the round trip
  * through the server and a rebuild takes long enough to feel wrong under a gizmo drag, and an
@@ -146,6 +150,70 @@ export class SceneDocument {
   tagOf(node: Object3D): TagInfo | undefined {
     const tag = this.elementOf(node)?.tag;
     return tag ? this.model.tags.find((t) => t.name === tag) : undefined;
+  }
+
+  /**
+   * The objects this node is built *from* — a geometry or a material written inside its element
+   * rather than named as a file.
+   *
+   * They are not nodes, so nothing in the tree selects them; the inspector shows them under the
+   * node whose constructor takes them.
+   */
+  attachmentsOf(node: Object3D): Attachment[] {
+    const parent = this.elementOf(node);
+    const parentTag = this.tagOf(node);
+    if (!parent || !parentTag) return [];
+
+    const inside = this.elements.filter((e) => e !== parent && e.start > parent.start && e.end <= parent.end);
+    const found: Attachment[] = [];
+    const filled = new Map<string, number>();
+    for (const element of inside) {
+      // Anything nested deeper belongs to a node between here and there, not to this one.
+      if (inside.some((other) => other !== element && other.start < element.start && element.end <= other.end)) {
+        continue;
+      }
+      const tag = this.model.tags.find((t) => t.name === element.tag);
+      if (!tag || tag.family === 'node') continue;
+      const slot = parentTag.parameters.find((p) => p.assetFamily === tag.family);
+      if (!slot) continue;
+
+      const ordinal = filled.get(slot.name) ?? 0;
+      filled.set(slot.name, ordinal + 1);
+      // The slot's name is the property it lands on, so `material` reaches `mesh.material` —
+      // or its nth entry, for a mesh whose slots are a list.
+      const held = (node as unknown as Record<string, unknown>)[slot.name];
+      const live = Array.isArray(held) ? held[ordinal] : held;
+      if (typeof live !== 'object' || live === null) continue;
+      found.push({ tag, slot: slot.name, live, at: element.at, attributes: element.attributes });
+    }
+    return found;
+  }
+
+  attachmentValue(attachment: Attachment, prop: PropInfo): Scalar | undefined {
+    return parseValue(prop.shape, attachment.attributes.get(prop.name));
+  }
+
+  setAttachmentValue(
+    attachment: Attachment,
+    prop: PropInfo,
+    value: Scalar | null,
+    opts?: { coalesce?: boolean },
+  ): void {
+    const text = value === null ? null : formatValue(prop.shape, value);
+    const before = attachment.attributes.get(prop.name) ?? null;
+    const live = snapshot(attachment.live, prop.name);
+    this.log.commit(
+      `${prop.name} on <${attachment.tag.name}>`,
+      () => {
+        this.writeAttribute(attachment.at, prop.name, text);
+        this.applyLive(attachment.live, prop.name, text, prop.shape, live);
+      },
+      () => {
+        this.writeAttribute(attachment.at, prop.name, before);
+        this.applyLive(attachment.live, prop.name, before, prop.shape, live);
+      },
+      opts?.coalesce === true,
+    );
   }
 
   /** The components on a node, paired with what the compiler knows about each class. */
@@ -392,7 +460,7 @@ export class SceneDocument {
    * reading it back would mean rebuilding the node.
    */
   private applyLive(
-    target: Object3D | Component,
+    target: object,
     name: string,
     text: string | null,
     shape: ValueShape | undefined,

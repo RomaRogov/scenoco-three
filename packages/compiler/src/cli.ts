@@ -209,11 +209,14 @@ function init(args: readonly string[]): number {
 
 /** Scaffold one document from its starter template. */
 function create(args: readonly string[]): number {
-  // A flag is never a name: `scenoco new geometry --root .` asks for the primitives in that
+  // A flag is never a name: `scenoco new asset --root .` asks for the primitives in that
   // directory, not for a document called "--root".
   const [kind, ...tail] = args;
   const name = tail[0]?.startsWith('-') ? undefined : tail[0];
-  const rest = name === undefined ? tail : tail.slice(1);
+  const afterName = name === undefined ? tail : tail.slice(1);
+  // `scenoco new asset crate MeshStandardMaterial` — the root tag, which is what an asset is.
+  const tag = afterName[0]?.startsWith('-') ? undefined : afterName[0];
+  const rest = tag === undefined ? afterName : afterName.slice(1);
   const kinds = ASSET_KINDS.map((k) => k.kind);
 
   if (!kind || !kinds.includes(kind as AssetKind['kind'])) {
@@ -224,34 +227,34 @@ function create(args: readonly string[]): number {
     );
     return 1;
   }
-  // `scenoco new geometry` with no name means the whole set of primitives. Unity has its built-in
+  // `scenoco new asset` with no name means the whole set of primitives. Unity has its built-in
   // meshes; a SceNoCo project has these documents, and needing seven commands to get a cube and a
   // cylinder is the sort of friction that ends with someone typing numbers into a mesh instead.
-  if (!name && kind === 'geometry') return createAll(Object.keys(PRIMITIVES), parseFlags(rest));
+  if (!name && kind === 'asset') return createAll(Object.keys(PRIMITIVES), parseFlags(rest));
   if (!name) {
-    console.error(`scenoco new ${kind} <name>`);
+    console.error(`scenoco new ${kind} <name>${kind === 'asset' ? ' [Tag]' : ''}`);
     return 1;
   }
 
   const flags = parseFlags(rest);
-  return write(kind as AssetKind['kind'], name, flags) ? 0 : 1;
+  return write(kind as AssetKind['kind'], name, flags, tag) ? 0 : 1;
 }
 
 /** Every primitive geometry, skipping any the project already has. */
 function createAll(names: readonly string[], flags: Flags): number {
   let written = 0;
   for (const name of names) {
-    const template = templateFor('geometry', name);
+    const template = templateFor('asset', name);
     if (existsSync(resolve(flags.root, template.path))) continue;
-    if (write('geometry', name, flags)) written += 1;
+    if (write('asset', name, flags)) written += 1;
   }
   if (written === 0) console.log('scenoco: every primitive geometry is already there.');
   return 0;
 }
 
 /** Write one starter document. False when it was refused. */
-function write(kind: AssetKind['kind'], name: string, flags: Flags): boolean {
-  const template = templateFor(kind, name);
+function write(kind: AssetKind['kind'], name: string, flags: Flags, tag?: string): boolean {
+  const template = templateFor(kind, name, tag);
   const path = resolve(flags.root, template.path);
   if (existsSync(path)) {
     // Never silently: a starter document overwriting real work is unrecoverable.
@@ -285,7 +288,9 @@ function help(): void {
   scenoco check [dir]     compile without writing — for CI
   scenoco init <dir>      a whole project that runs: scene, component, shapes, Vite wired up
   scenoco new <kind> <name>
-  scenoco new geometry    the primitives: ${Object.keys(PRIMITIVES).join(', ')}
+  scenoco new asset       the primitives: ${Object.keys(PRIMITIVES).join(', ')}
+  scenoco new asset <name> <Tag>
+                          one shared three.js object, rooted at <Tag>
   scenoco describe [name…]
                           what a name means here — a component, a tag, a document, or a
                           runtime API like Input or Coroutine. Several names answer in one

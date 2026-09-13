@@ -128,6 +128,8 @@ declare module '@pmndrs/uikit' {
 
 /** Everything a document may set on one element, before it is turned into uikit properties. */
 export interface RectState {
+  /** three's `visible`, kept here because uikit owns the field — see `ownVisible`. */
+  visible: boolean;
   anchor?: Anchor;
   x: number;
   y: number;
@@ -156,6 +158,7 @@ export interface RectState {
 
 function freshState(): RectState {
   return {
+    visible: true,
     x: 0,
     y: 0,
     layout: 'vertical',
@@ -187,18 +190,73 @@ export function rectStateOf(element: object): RectState {
  * attributes follow on an ordinary node.
  */
 export function applyRect(element: UikitComponent): void {
-  const props = toUikitProperties(rectStateOf(element));
-  // `setActive(false)` is how everything else in the engine hides a node, and on a UI element it
-  // did nothing at all: core sets `visible`, while uikit decides what to draw from `display` and
-  // paints every panel through one shared instanced mesh that never looks at a container's
-  // `visible` flag. A "hidden" full-screen panel therefore kept drawing — and since a `<Canvas>`
-  // sits in front of the camera, an 82%-opaque one dimmed the entire game to a fifth of its
-  // brightness with no way to tell from the scene graph that anything was wrong.
-  // Written both ways round, never omitted: `setProperties` merges, so a `display: 'none'` left
-  // from an inactive moment would stick for ever once the element became active again.
+  const state = rectStateOf(element);
+  const props = toUikitProperties(state);
+  // The two flags every node has, in uikit's spelling.
+  //
+  // `active` is `display: 'none'`: out of the layout entirely, so the elements around it close
+  // up, which is what turning a node off means. `visible` is `visibility: 'hidden'`: still laid
+  // out, still updating, simply not drawn — the same difference the two carry on any other node.
+  //
+  // Both are written every time and never omitted, because `setProperties` merges: a `display:
+  // 'none'` left over from an inactive moment would stick for ever once the element came back.
   const active = (element as unknown as { activeInHierarchy?: boolean }).activeInHierarchy !== false;
   props.display = active ? 'flex' : 'none';
-  (element as unknown as { setProperties(p: Record<string, unknown>): void }).setProperties(props);
+  props.visibility = state.visible ? 'visible' : 'hidden';
+  asUikit(() => (element as unknown as { setProperties(p: Record<string, unknown>): void }).setProperties(props));
+}
+
+/**
+ * Run `body` as uikit's own work.
+ *
+ * uikit reacts to a property change by running its effects there and then, and one of those
+ * effects assigns three's `visible` field. Marking the moment is what lets `ownVisible` tell
+ * uikit's answer from an author's assignment; the two are otherwise the same statement.
+ */
+export function asUikit<T>(body: () => T): T {
+  const outer = insideUikit;
+  insideUikit = true;
+  try {
+    return body();
+  } finally {
+    insideUikit = outer;
+  }
+}
+
+let insideUikit = false;
+
+/**
+ * Give this element a `visible` of its own.
+ *
+ * `visible` means the same thing on every node — hidden, but still there and still updating —
+ * and on a UI element that is uikit's `visibility: 'hidden'`, which drops the element out of
+ * the drawing without moving anything around it. What it is not is three's `visible` field:
+ * uikit writes that itself whenever its layout, clipping or traversal changes, so a value
+ * assigned there is gone again within the frame.
+ *
+ * So the field becomes an accessor. An assignment from outside uikit is the author's, and goes
+ * on to uikit as a property; one from inside is uikit's own answer about drawing. That answer
+ * is what three should read back on an element with a mesh of its own, and is worth nothing on
+ * one drawn through the shared panel mesh, where the flag only says whether there is anything
+ * inside worth walking into.
+ */
+export function ownVisible(element: UikitComponent, hasOwnMesh: boolean): void {
+  let uikit = true;
+  Object.defineProperty(element, 'visible', {
+    configurable: true,
+    enumerable: true,
+    get(this: UikitComponent): boolean {
+      return rectStateOf(this).visible && (hasOwnMesh ? uikit : true);
+    },
+    set(this: UikitComponent, value: boolean) {
+      if (insideUikit) {
+        uikit = value;
+        return;
+      }
+      rectStateOf(this).visible = value;
+      applyRect(this);
+    },
+  });
 }
 
 /** The anchor presets, split into what each does horizontally and vertically. */
@@ -353,6 +411,27 @@ function defineRectAccessors(): void {
 }
 
 defineRectAccessors();
+
+/**
+ * Adding or removing a child is uikit's business too.
+ *
+ * uikit does not override these; it listens for them, and what it recomputes when the tree
+ * changes includes the traversal flag it keeps in three's `visible`. Without this, an author's
+ * `visible` on a panel would be undone by its own first child arriving.
+ */
+function guardTreeChanges(): void {
+  const proto = UikitComponent.prototype;
+  const add = proto.add;
+  const remove = proto.remove;
+  proto.add = function (this: UikitComponent, ...children) {
+    return asUikit(() => add.apply(this, children));
+  };
+  proto.remove = function (this: UikitComponent, ...children) {
+    return asUikit(() => remove.apply(this, children));
+  };
+}
+
+guardTreeChanges();
 
 /**
  * Run `then` once `object` is part of a loaded scene, however many steps that takes.

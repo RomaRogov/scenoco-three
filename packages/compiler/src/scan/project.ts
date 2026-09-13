@@ -9,15 +9,15 @@ import { Workspace } from './workspace.js';
  *
  * Core is in the list and not in the *tag* list, and the difference matters. It exports no node
  * tags, so asking `scanTags` for it would be a lookup for nothing — and worse, an error in a
- * project whose TypeScript never imports it. But it does export one component (`CameraFit`), so
- * the class scan has to reach it, and that scan simply finds nothing if the module is absent.
+ * project whose TypeScript never imports it. But it does export components of its own, so the
+ * class scan has to reach it, and that scan simply finds nothing if the module is absent.
  */
 export function classSources(modules: readonly string[]): string[] {
   const packages = modules.filter((m) => m !== 'three');
   return packages.includes(CORE) ? packages : [CORE, ...packages];
 }
 
-/** The package that declares `Component`, `System` and `Effect` — and one component of its own. */
+/** The package that declares `Component`, `System` and `Effect` — and a few components of its own. */
 const CORE = '@scenoco-three/core';
 
 /**

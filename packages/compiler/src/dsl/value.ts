@@ -40,6 +40,11 @@ export function emitValue(
     diagnostics: [{ line: element.line, column: element.column, code, message, ...(element.file ? { file: element.file } : {}) }],
   });
 
+  // A slot declared `X | X[]` takes either, and the brackets say which.
+  if (prop.list && prop.shape !== 'array' && text.trim().startsWith('[')) {
+    return emitArray({ ...prop, shape: 'array', elementShape: prop.shape }, text, element, context, at);
+  }
+
   switch (prop.shape) {
     case 'number': {
       // `#rrggbb` is a spelling of a number, and three.js takes `0xffdd66` in plenty of

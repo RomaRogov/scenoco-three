@@ -1,10 +1,9 @@
-import { MathUtils, Object3D, Vector3, type Material } from 'three';
+import { MathUtils, Object3D, Vector3 } from 'three';
 import { Component } from '../Component.js';
 import { SceneRuntime, teardownComponent, teardownObject } from '../SceneRuntime.js';
 import type { NodeLifecycle } from '../types.js';
 
 const { RAD2DEG, DEG2RAD } = MathUtils;
-
 
 declare module 'three' {
   interface Object3D extends NodeLifecycle {
@@ -31,52 +30,19 @@ declare module 'three' {
     readonly activeInHierarchy: boolean;
     /** This object's own active flag, ignoring its ancestors. */
     readonly activeSelf: boolean;
-    /**
-     * True once this object has been destroyed. Never re-add a destroyed object.
-     *
-     * `isDestroyed` rather than `destroyed`: a prefab is an ordinary `Object3D` subclass now,
-     * so every name this augmentation takes is a name an authored prefab cannot use.
-     */
+    /** True once this object has been destroyed. Never re-add a destroyed object. */
     readonly isDestroyed: boolean;
     /** Read-only view of the attached components. */
     readonly components: readonly Component[];
 
     /**
-     * This node's local rotation in **degrees**, as a `Vector3` (Unity's
-     * `Transform.eulerAngles`).
+     * This node's local rotation in **degrees** — Unity's `Transform.eulerAngles`. Radians
+     * exist only on the live `THREE.Euler` underneath.
      *
-     * Like `position`, `rotation` and `quaternion` — which Three.js creates once and hands
-     * back as the *same* instance on every access — this returns one cached vector per node,
-     * refreshed from `rotation` on each read. So `node.eulerAngles === node.eulerAngles`, and
-     * reading in a loop allocates nothing.
-     *
-     * It follows that the value **aliases**, exactly as `position` does: hold on to it and it
-     * changes under you. `const before = node.eulerAngles` is not a snapshot — use
-     * `node.eulerAngles.clone()` for that.
-     *
-     * Writing a component is not writing through: `Vector3` has no change hook (`Euler` does,
-     * which is how `rotation` keeps `quaternion` in sync), so `node.eulerAngles.y = 90` sets a
-     * field the next read overwrites. Assign the whole vector instead —
-     * `node.eulerAngles = new Vector3(0, 90, 0)` — the same rule Unity's
-     * `Transform.eulerAngles` has.
-     *
-     * Degrees are the unit everywhere authored data appears; radians exist only on the live
-     * `THREE.Euler` underneath.
+     * A live view onto `rotation`, the way `position` is a live vector: one instance per node,
+     * writes of any kind land on the node, and it is never a snapshot. Clone it to keep one.
      */
     eulerAngles: Vector3;
-
-    /**
-     * This node's **own** material, cloned from the shared one on first call — Unity's
-     * `Renderer.material` (vs `sharedMaterial`), which exists for exactly this reason.
-     *
-     * A shared material is one object, so a prefab spawned fifty times
-     * shares one material and mutating it recolours all fifty. That sharing is legible — it is
-     * an `import` you can read — but it is still sharing, so this is how one node opts out.
-     *
-     * Idempotent. Throws when the node has no material (a `Group`, an empty node); handing
-     * back nothing would just move the invisible bug.
-     */
-    uniqueMaterial<T extends Material | Material[] = Material>(): T;
 
     /**
      * Activate or deactivate this object. An inactive object stops receiving every component
@@ -101,13 +67,8 @@ proto._built = false;
 
 /**
  * Every accessor below is `configurable`, so evaluating this module twice replaces the previous
- * definition instead of throwing.
- *
- * A module that patches a shared prototype has to survive being evaluated more than once: a dev
- * server re-serving it after an unrelated file changed is enough, and the failure is brutal —
- * `Cannot redefine property: scene` is thrown at import time, so whatever was importing the
- * engine never finishes loading and you are left staring at an
- * empty viewport with no obvious cause.
+ * definition instead of throwing `Cannot redefine property` at import time — which a dev server
+ * re-serving the module is enough to cause.
  */
 Object.defineProperties(proto, {
   scene: {
@@ -143,46 +104,71 @@ Object.defineProperties(proto, {
 });
 
 /**
- * One degrees-vector per node, mirroring how Three.js gives every `Object3D` its own
- * `position`/`rotation`/`quaternion` instance for the object's whole life. A WeakMap rather
- * than a constructor field because this is an augmentation — `Object3D`'s constructor is not
- * ours to add to — and it lets the entry die with the node.
+ * A `Vector3` whose components *are* the node's rotation, in degrees.
+ *
+ * `x`, `y` and `z` are accessors onto the node (installed below, because a class body may not
+ * override a base class's property with one), so every `Vector3` method writes through for free
+ * and so does `view.y = 90`. A plain vector refreshed on each read would take that assignment
+ * and lose it on the next read.
  */
-const eulerViews = new WeakMap<Object3D, Vector3>();
+class EulerDegrees extends Vector3 {
+  /** Unset while `Vector3`'s own constructor runs, which assigns through the accessors. */
+  readonly node: Object3D | undefined;
+
+  constructor(node: Object3D) {
+    super();
+    this.node = node;
+  }
+
+  // Three axes in one `Euler.set` rather than three assignments: the euler syncs the node's
+  // quaternion on every change, and a whole-vector write is one change.
+  override set(x: number, y: number, z: number): this {
+    this.node?.rotation.set(x * DEG2RAD, y * DEG2RAD, z * DEG2RAD);
+    return this;
+  }
+
+  override copy(v: Vector3): this {
+    return this.set(v.x, v.y, v.z);
+  }
+
+  /**
+   * A detached snapshot, and a plain `Vector3` — a second live view of the same node would be
+   * two names for one value.
+   *
+   * `Vector3.clone` is `new this.constructor(x, y, z)`, which here would pass a number where the
+   * node goes, so this cannot be inherited.
+   */
+  override clone(): this {
+    return new Vector3(this.x, this.y, this.z) as this;
+  }
+}
+
+for (const axis of ['x', 'y', 'z'] as const) {
+  Object.defineProperty(EulerDegrees.prototype, axis, {
+    get(this: EulerDegrees): number {
+      return this.node ? this.node.rotation[axis] * RAD2DEG : 0;
+    },
+    set(this: EulerDegrees, degrees: number) {
+      if (this.node) this.node.rotation[axis] = degrees * DEG2RAD;
+    },
+    configurable: true,
+  });
+}
+
+/** One view per node, as three.js gives each object its own `position`. */
+const eulerViews = new WeakMap<Object3D, EulerDegrees>();
 
 Object.defineProperty(proto, 'eulerAngles', {
   get(this: Object3D): Vector3 {
     let view = eulerViews.get(this);
-    if (!view) eulerViews.set(this, (view = new Vector3()));
-    // Refresh in place: same instance every read, current values every read.
-    return view.set(this.rotation.x * RAD2DEG, this.rotation.y * RAD2DEG, this.rotation.z * RAD2DEG);
+    if (!view) eulerViews.set(this, (view = new EulerDegrees(this)));
+    return view;
   },
   set(this: Object3D, degrees: Vector3) {
     this.rotation.set(degrees.x * DEG2RAD, degrees.y * DEG2RAD, degrees.z * DEG2RAD);
   },
   configurable: true,
 });
-
-/** Nodes whose material has already been cloned, so repeat calls don't pile up copies. */
-const uniqueMaterials = new WeakSet<Object3D>();
-
-proto.uniqueMaterial = function uniqueMaterial<T extends Material | Material[] = Material>(
-  this: Object3D,
-): T {
-  const host = this as Object3D & { material?: Material | Material[] };
-  const current = host.material;
-  if (!current) {
-    throw new Error(
-      `[scenoco] uniqueMaterial(): <${this.type}>${this.name ? ` name="${this.name}"` : ''} has ` +
-        'no material to clone. Only a node that carries one (a Mesh, a Sprite, …) does.',
-    );
-  }
-  if (uniqueMaterials.has(this)) return current as T;
-  // A multi-material mesh: every slot is shared, so every slot is cloned.
-  host.material = Array.isArray(current) ? current.map((m) => m.clone()) : current.clone();
-  uniqueMaterials.add(this);
-  return host.material as T;
-};
 
 // --- activation ------------------------------------------------------------------------
 
@@ -206,15 +192,13 @@ export function parentActivity(object: Object3D): boolean {
 proto.setActive = function (this: Object3D, value: boolean): Object3D {
   if (this._active === value || this._destroyed) return this;
   this._active = value;
-  // Rendering follows activation, so a deactivated object also disappears — use `.visible`
-  // directly when you want to hide something that should keep updating.
+  // Rendering follows activation. To hide something that keeps updating, use `.visible`.
   this.visible = value;
 
   const changed: Object3D[] = [];
   markHierarchy(this, parentActivity(this), changed);
   const runtime = this._runtime;
-  // Flags for the whole subtree are settled before any hook runs, so a hook that inspects
-  // another object in the same subtree sees the final state.
+  // The whole subtree settles before any hook runs, so a hook sees the final state.
   if (runtime) for (const object of changed) runtime.refreshObject(object);
   return this;
 } as Object3D['setActive'];

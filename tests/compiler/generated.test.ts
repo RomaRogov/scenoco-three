@@ -102,7 +102,7 @@ export class Counter extends Component {
 `,
   );
 
-  fixture.writeXml('assets/geometry/cube.geometry.xml', '<BoxGeometry width="1" height="1" depth="1" />');
+  fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" height="1" depth="1" />');
   // A particle effect is an asset like any other: its own document, referenced by path. The
   // vocabulary in it is read from `ParticleConfig`'s declaration in the real package.
   fixture.writeXml(
@@ -116,10 +116,10 @@ export class Counter extends Component {
   <SizeOverLifetime curve="[1, 0]" />
 </ParticleSystem>`,
   );
-  fixture.writeXml('assets/materials/plain.material.xml', '<MeshStandardMaterial color="#38bdf8" roughness="0.4" />');
+  fixture.writeXml('assets/materials/plain.asset.xml', '<MeshStandardMaterial color="#38bdf8" roughness="0.4" />');
   fixture.writeXml(
     'assets/scenes/cube.prefab.xml',
-    `<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml">
+    `<Mesh geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml">
   <Components>
     <Spinner speed="2" />
   </Components>
@@ -132,7 +132,7 @@ export class Counter extends Component {
     <Gravity acceleration="y: -20" />
   </Systems>
   <PerspectiveCamera id="cam" fov="45" position="y: 2; z: 8" />
-  <Mesh id="hero" geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml"
+  <Mesh id="hero" geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml"
         position="y: 1" eulerAngles="y: 90" scale="2">
     <Components>
       <Counter target="#hero" watched="[#a, #b]" />
@@ -140,7 +140,7 @@ export class Counter extends Component {
   </Mesh>
   <Prefab src="cube.prefab.xml" id="a" position="x: -2" />
   <Prefab src="cube.prefab.xml" id="b" position="x: 2" />
-  <Mesh id="faller" geometry="../geometry/cube.geometry.xml" material="../materials/plain.material.xml"
+  <Mesh id="faller" geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml"
         position="y: 10">
     <Components>
       <Falling />

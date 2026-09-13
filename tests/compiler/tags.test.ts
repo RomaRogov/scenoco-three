@@ -87,8 +87,7 @@ describe('tag scan', () => {
 describe('generic slots', () => {
   it('reads a Mesh’s geometry and material slots as asset references', () => {
     // `Mesh<TGeometry, TMaterial>` declares them in terms of its own type parameters, so the
-    // constraint is what says what may be authored. This is the pair `<Attachments>` used to
-    // hold, and the reason a mesh can now just point at two asset files.
+    // constraint is what says what may be authored.
     const mesh = tags.get('Mesh')!;
     expect(mesh.parameters.map((p) => p.name)).toEqual(['geometry', 'material']);
     expect(mesh.parameters.map((p) => p.shape)).toEqual(['assetRef', 'assetRef']);

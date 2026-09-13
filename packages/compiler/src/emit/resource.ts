@@ -6,26 +6,20 @@ import type { SncElement } from '../dsl/parse.js';
 import { emitValue, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
 import { TsModule, camelCase } from './module.js';
+import { isAttachable } from '../scan/families.js';
 
 /**
- * A geometry or a material document: one element, one exported value.
+ * An `.asset.xml`: one element, one exported value, rooted at any class a node is built from.
  *
- * These are the two kinds `<Attachments>` used to hold inline, and making them files is what
- * lets that concept go. A geometry is now an asset in the sense Unity and Cocos mean it — a
- * thing with a path, referenced by a mesh — rather than a sub-element that existed only inside
- * whatever node happened to declare it.
- *
- * The emitted value is a **module-scope singleton**, so fifty meshes referencing one material
- * genuinely share it, and that sharing is legible: it is an `import` a reader can follow,
- * where v1's content-addressed pooling was invisible and produced the recolour-fifty-bricks
- * bug. `Object3D.uniqueMaterial()` is how one node opts out.
+ * The value is a **module-scope singleton**, so fifty meshes naming it share one and the sharing
+ * is legible as an import. Writing the element inside a node gives that node its own instead —
+ * three.js's distinction between a `const` and a `new` in the argument.
  */
 export function emitResource(
   root: SncElement,
   options: {
     name: string;
     model: ProjectModel;
-    family: 'geometry' | 'material';
     source: string;
     /**
      * Resolve an `href` this document writes. A material's `map` is declared `Texture`, so it
@@ -34,14 +28,26 @@ export function emitResource(
     resolveAsset?: ResolveAsset;
   },
 ): { code?: string; diagnostics: SncDiagnostic[] } {
-  const { name, model, family, source } = options;
+  const { name, model, source } = options;
   const module = new TsModule(
     `// GENERATED from ${source} — do not edit.\n// Regenerate with \`scenoco build\`.`,
   );
 
   const tag = model.tags.find((t) => t.name === root.tag);
-  if (!tag || tag.family !== family) {
-    module.report(unknownTag(root, model, family));
+  if (!tag || !isAttachable(tag.family)) {
+    module.report(unknownTag(root, model, tag?.family));
+    return { diagnostics: module.diagnostics };
+  }
+  if (tag.family === 'texture') {
+    module.report({
+      line: root.line,
+      column: root.column,
+      code: 'wrong-kind',
+      message:
+        `<${root.tag}> takes its data from an image file rather than from attributes, so it is ` +
+        'written as a .texture.xml — which names the image with src=.',
+      ...(source ? { file: source } : {}),
+    });
     return { diagnostics: module.diagnostics };
   }
   if (root.children.length > 0) {
@@ -49,7 +55,7 @@ export function emitResource(
       line: root.children[0]!.line,
       column: root.children[0]!.column,
       code: 'unexpected-child',
-      message: `A ${family} document is a single <${root.tag}> element; it has no children.`,
+      message: `An .asset.xml is a single <${root.tag}> element; it has no children.`,
       ...(source ? { file: source } : {}),
     });
   }
@@ -80,6 +86,9 @@ export function emitResource(
  * Constructor parameters are emitted **positionally**, filling any gap with `undefined`, so a
  * document that sets the third parameter and not the second still produces a correct call —
  * and never silently shifts values into the wrong slots.
+ *
+ * `attached` holds parameters already built from child elements. They fill the same slots an
+ * attribute would, so a slot given both is reported rather than one of the two silently winning.
  */
 export function buildConstruction(
   tag: TagInfo,
@@ -87,6 +96,7 @@ export function buildConstruction(
   module: TsModule,
   context: EmitContext,
   skip: ReadonlySet<string> = new Set(),
+  attached: ReadonlyMap<string, string> = new Map(),
 ): { call: string; assignments: string[] } {
   const byName = new Map<string, PropInfo>();
   for (const parameter of tag.parameters) byName.set(parameter.name, parameter);
@@ -108,6 +118,22 @@ export function buildConstruction(
 
     if (tag.parameters.some((p) => p.name === attribute)) parameterCodes.set(attribute, emitted.code);
     else assignments.push(`${attribute} = ${emitted.code};`);
+  }
+
+  for (const [name, code] of attached) {
+    if (parameterCodes.has(name)) {
+      module.report({
+        line: element.line,
+        column: element.column,
+        code: 'duplicate-slot',
+        message:
+          `<${tag.name}> takes one ${name}, and this one has a ${name}= as well as a ${name} ` +
+          'element inside it. Name a file to share one, or write the element to give this node its own.',
+        ...(element.file ? { file: element.file } : {}),
+      });
+      continue;
+    }
+    parameterCodes.set(name, code);
   }
 
   const local = module.require(tag.module, tag.name);
@@ -132,16 +158,22 @@ export function buildConstruction(
   return { call: `new ${local}(${args.join(', ')})`, assignments };
 }
 
-function unknownTag(element: SncElement, model: ProjectModel, family: string): SncDiagnostic {
-  const candidates = model.tags.filter((t) => t.family === family).map((t) => t.name);
+function unknownTag(element: SncElement, model: ProjectModel, family?: string): SncDiagnostic {
+  const candidates = model.tags.filter((t) => isAttachable(t.family)).map((t) => t.name);
   const tagAdvice = hint({ near: nearestName(element.tag, candidates), as: 'tag', ask: element.tag });
+  // A node at the root is the likely mistake, and it has its own answer: it belongs in a scene
+  // or a prefab, which are the documents that hold a tree.
+  const message =
+    family === 'node'
+      ? `<${element.tag}> is a node, and an .asset.xml holds one shared object rather than a ` +
+        'tree. Put it in a .scene.xml or a .prefab.xml.'
+      : `<${element.tag}> is not a three.js class a node is built from.${tagAdvice.text}`;
   return {
     line: element.line,
     column: element.column,
     code: 'unknown-tag',
-    message:
-      `<${element.tag}> is not a ${family}.${tagAdvice.text}`,
-    ask: tagAdvice.ask,
+    message,
+    ...(family === 'node' ? {} : { ask: tagAdvice.ask }),
     ...(element.file ? { file: element.file } : {}),
   };
 }

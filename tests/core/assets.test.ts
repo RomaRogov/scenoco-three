@@ -24,7 +24,7 @@ function watch(geometry: BoxGeometry, material: MeshBasicMaterial, texture: Text
 
 describe('who owns a resource', () => {
   /**
-   * The case this whole mechanism exists for. `brick.material.xml` compiles to one module-scope
+   * The case this whole mechanism exists for. `brick.asset.xml` compiles to one module-scope
    * value, and every scene that references it imports the same one — so the first scene to
    * unload must not free it. Before `shared()`, it did.
    */

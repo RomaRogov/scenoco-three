@@ -3,65 +3,31 @@ import type { Fog, FogExp2, Scene, WebGLRenderer } from 'three';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 
 /**
- * One thing that decides how a frame is drawn — tone mapping, shadows, bloom.
+ * One thing that decides how a frame is drawn — tone mapping, shadows, bloom. Its settings are
+ * its own fields; both hooks are optional, and an effect usually has one.
  *
- * A class rather than a property on the scene: the renderer is not part of the scene graph, so
- * there is nothing in three.js to hang "this level glows" on, and hanging it on `Scene` anyway
- * would mean properties that look like three.js's and are not. An effect exists because you
- * made one, and its settings are its own fields.
- *
- * Both hooks are optional and an effect usually has one:
- *
- * ```ts
- * export class Shadows extends Effect {
- *   enabled = true;
- *   override apply(renderer: WebGLRenderer) { renderer.shadowMap.enabled = this.enabled; }
- * }
- *
- * export class Bloom extends Effect {
- *   strength = 0.75;
- *   override createPass() { return new UnrealBloomPass(…); }
- * }
- * ```
- *
- * The concrete effects live in a package (`@scenoco-three/postfx`), not here: core defines the
- * model, packages provide the vocabulary — the same division three, box2d and ui already have.
+ * Core defines the model; the concrete effects live in `@scenoco-three/postfx`.
  */
 export abstract class Effect {
   /**
-   * Configure the frame while a scene using these settings is the active one.
-   *
-   * Called when the settings become current, not every frame. Whatever it writes is restored to
-   * the default when a scene without it is loaded, so one level's look cannot leak into the next.
+   * Configure the frame, when these settings become current rather than every frame. Whatever
+   * it writes is reset for a scene without it, so one level's look cannot leak into the next.
    */
   apply?(target: { renderer: WebGLRenderer; scene: Scene }): void;
 
-  /**
-   * A postprocessing pass to insert into the chain, in order.
-   *
-   * Called once, when the chain is built. An effect that declares one makes the engine build an
-   * `EffectComposer` — and a project whose scenes declare none never loads a byte of three's
-   * postprocessing addons.
-   */
+  /** A postprocessing pass for the chain. Called once, when the chain is built. */
   createPass?(): Pass;
 }
 
 /**
- * How a scene is drawn — a set of effects, and the fog.
- *
- * Its own object rather than a block inside the scene because a *look* is shared: three levels
- * of one game are lit and graded the same way, and the alternative is the same six values
- * copied three times, drifting one edit at a time. The same reason a material is its own thing.
+ * How a scene is drawn — a set of effects, and the fog. Its own object because a look is shared:
+ * three levels of one game are lit and graded the same way.
  */
 export class RenderSettings {
   /** In order: `apply` runs in it, and passes are chained in it. */
   readonly effects: readonly Effect[];
 
-  /**
-   * The scene's fog — `scene.fog`, set while these settings are current and cleared when they
-   * are not. It lives here rather than in the tree because it is not a node, and because it is
-   * part of the look it is tuned alongside.
-   */
+  /** The scene's fog — set while these settings are current, cleared when they are not. */
   readonly fog: Fog | FogExp2 | null;
 
   constructor(effects: readonly Effect[] = [], fog: Fog | FogExp2 | null = null) {
@@ -71,21 +37,19 @@ export class RenderSettings {
 }
 
 /**
- * Which render settings are currently in force, and what changing them costs.
+ * Which render settings are currently in force, and on which scene.
  *
- * A separate object because the bookkeeping is where this goes wrong: three levels can share
- * **one** `RenderSettings`, so remembering only "which settings" and skipping when they match
- * left every level after the first with no fog — `scene.fog` is state on the scene, not on the
- * renderer, and the second scene is a different scene. What has to be remembered is the *pair*.
+ * The **pair** matters: three levels can share one `RenderSettings`, and skipping on matching
+ * settings alone leaves every level after the first with no fog, because `scene.fog` is state
+ * on the scene rather than on the renderer.
  */
 export class RenderState {
   private settings: RenderSettings | null = null;
   private scene: Scene | null = null;
 
   /**
-   * Make `scene`'s settings current. Returns true when the **pass chain** has to be rebuilt,
-   * which is only when the settings themselves changed — a level change that keeps the same
-   * look keeps its chain, and does not flash a frame without the effects.
+   * Make `scene`'s settings current. True when the pass chain has to be rebuilt, which is only
+   * when the settings themselves changed.
    */
   apply(renderer: WebGLRenderer, scene: Scene): boolean {
     const settings = scene.render;
@@ -94,8 +58,7 @@ export class RenderState {
     this.settings = settings;
     this.scene = scene;
 
-    // Defaults first, then whatever this scene asks for. Without the reset, turning an effect
-    // off would mean removing an element *and* knowing which field it had written.
+    // Defaults first: otherwise turning an effect off means knowing which field it wrote.
     renderer.toneMapping = NoToneMapping;
     renderer.toneMappingExposure = 1;
     renderer.shadowMap.enabled = false;

@@ -1,17 +1,8 @@
 /**
  * A resource whose bytes arrive later — a model, an audio clip.
  *
- * A texture needs none of this: three.js hands one back at once and fills in the image when it
- * lands. A glTF or an `AudioBuffer` does not exist until it has been fetched and parsed.
- *
- * Await them in `onLoad` and the scene is not live until they are ready:
- *
- * ```ts
- * override async onLoad(): Promise<void> {
- *   await loadAssets(hero, footsteps);
- *   this.instantiate(hero, { position: new Vector3(0, 1, 0) });
- * }
- * ```
+ * Await it in `onLoad` and the scene is not live until it is ready. A texture is not one of
+ * these: three.js hands that back at once and fills in the image when it lands.
  */
 export abstract class Asset<T> {
   /** Where the data comes from. */
@@ -29,10 +20,7 @@ export abstract class Asset<T> {
     return this.loaded !== undefined;
   }
 
-  /**
-   * The loaded value. Throws before the load finishes, naming the call that was missed — a
-   * silent `undefined` surfaces as a missing model frames later with nothing pointing at it.
-   */
+  /** The loaded value. Throws before the load finishes, naming the call that was missed. */
   get value(): T {
     if (this.loaded === undefined) {
       throw new Error(
@@ -43,10 +31,7 @@ export abstract class Asset<T> {
     return this.loaded;
   }
 
-  /**
-   * Fetch and parse, or hand back what is already there. Concurrent callers share one promise,
-   * so ten emitters on one clip cause one fetch.
-   */
+  /** Fetch and parse, or hand back what is there. Concurrent callers share one promise. */
   load(): Promise<T> {
     if (this.loaded !== undefined) return Promise.resolve(this.loaded);
     this.pending ??= this.fetch().then((value) => {
@@ -72,11 +57,9 @@ export abstract class Asset<T> {
 }
 
 /**
- * The in-flight load behind a value that is usable before it finishes — a `Texture`.
- *
- * A texture is not an `Asset`: it is usable at once, and wrapping it would mean two names for
- * one texture. Recording its promise here lets a scene wait anyway, and show no untextured
- * first frame.
+ * The in-flight load behind a value usable before it finishes — a `Texture`, which is not an
+ * `Asset` because wrapping it would mean two names for one texture. Recorded so a scene can
+ * wait for it anyway.
  */
 const pending = new WeakMap<object, Promise<unknown>>();
 
@@ -93,8 +76,8 @@ export type Loadable = Asset<unknown> | object;
 /**
  * Wait for every asset in the list — call it at the top of `onLoad`.
  *
- * Takes textures as well as `Asset`s, so one call covers a whole scene. They load in parallel,
- * and anything already loaded costs nothing.
+ * Takes textures as well as `Asset`s, loads them in parallel, and costs nothing for one that
+ * is already loaded.
  */
 export async function loadAssets(...assets: readonly Loadable[]): Promise<void> {
   await Promise.all(

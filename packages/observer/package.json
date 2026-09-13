@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/observer",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "An agent's eyes on a SceNoCo scene: an MCP server over stdio that compiles the project, runs the scene in a headless Chrome it owns, renders it from stated viewpoints, drives it frame by frame, and reads it back as text.",
   "type": "module",
   "license": "MIT",

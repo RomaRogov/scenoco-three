@@ -1,5 +1,5 @@
 <!-- A prefab whose root IS the mesh — no wrapper node. -->
-<Mesh geometry="../geometry/crate.geometry.xml" material="../materials/crate.material.xml">
+<Mesh geometry="../geometry/crate.asset.xml" material="../materials/crate.asset.xml">
   <Components>
     <RigidBody2D kind="dynamic" />
     <BoxCollider2D halfExtents="x: 0.4; y: 0.4" restitution="0.2" friction="0.4" />

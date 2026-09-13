@@ -14,10 +14,9 @@ import { ParticleRenderer } from './ParticleRenderer.js';
  * </Group>
  * ```
  *
- * The effect itself is an **asset**, exactly like a geometry or a material: it lives in one
- * `.particle.xml` and every emitter that wants it points at the same file. There is no second,
- * inline way to write one — the same rule that removed `<Attachments>`, for the same reason.
- * Tuning the effect is then one edit in one place rather than a search for every copy.
+ * The effect itself is an **asset**: it lives in one `.particle.xml` and every emitter that wants
+ * it points at the same file. There is no inline form, so tuning an effect is one edit in one
+ * place rather than a search for every copy.
  *
  * The emitter joins the scene's `ParticleRenderer` in `awake` and leaves it in `onDestroy`, so
  * nothing scans the scene for emitters that came or went. Disabling the component pauses it and

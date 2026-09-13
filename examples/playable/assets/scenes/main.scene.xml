@@ -35,7 +35,7 @@
   </PerspectiveCamera>
 
   <!-- The floor. Nothing collides with it; <Faller> just checks its own y. -->
-  <Mesh geometry="../geometry/plane.geometry.xml" material="../materials/ground.material.xml"
+  <Mesh geometry="../geometry/plane.asset.xml" material="../materials/ground.asset.xml"
         eulerAngles="x: -90" position="y: -6" scale="2" />
 
   <!-- Drops them in from above the frame. -->

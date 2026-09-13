@@ -6,7 +6,7 @@ import {
   Text as UikitText,
 } from '@pmndrs/uikit';
 import { UIRenderer } from './UIRenderer.js';
-import { applyRect, rectStateOf, whenInScene } from './rect.js';
+import { applyRect, ownVisible, rectStateOf, whenInScene } from './rect.js';
 
 /**
  * Join the scene's UI renderer as soon as this element is in a loaded scene.
@@ -16,6 +16,9 @@ import { applyRect, rectStateOf, whenInScene } from './rect.js';
  * which costs one call at load and saves the document from having to say which one is the root.
  */
 function joinRenderer(element: Container | Fullscreen | UikitText | UikitImage): void {
+  // An `<Image>` draws through a mesh of its own; everything else is painted by the root's
+  // shared instanced panel, which is the distinction `ownVisible` needs.
+  ownVisible(element, element instanceof UikitImage);
   whenInScene(element, (scene) => {
     scene.requireSystem(UIRenderer).add(element);
   });

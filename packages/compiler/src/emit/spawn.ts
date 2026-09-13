@@ -101,7 +101,7 @@ export function emitSpawn(scope: EmitScope, element: SncElement, parent: string,
  * only way to vary one is to copy the whole document, which is how a three-brick game ends up
  * with three near-identical prefab files — and how a value that belongs to the ball
  * (`ballSpeed`) ends up on the level's rules object instead, because there was nowhere else to
- * put it. Unity and Cocos both answer this the same way, and so does v1 of this compiler.
+ * put it. Unity and Cocos both answer this the same way.
  *
  * ### How it is checked
  *

@@ -15,12 +15,9 @@ export type { GraphOptions };
  *
  * ### Why a class, and not data
  *
- * v1 compiled a scene to a JSON bundle the runtime decoded by name at load. Half of core
- * existed to carry authored data across that channel and reconstitute it — a decoder, a
- * registry, reference-resolution-by-index, id scoping. Generated code *is* the channel, so all
- * of that is gone, and three things come free: `tsc` checks every reference, a bad `#id` is a
- * type error with a real file and line, and nothing has to execute user code to find out what
- * a component is.
+ * Generated code *is* the channel, so nothing decodes authored data at load. `tsc` checks every
+ * reference, a bad `#id` is a type error with a real file and line, and nothing has to execute
+ * user code to find out what a component is.
  *
  * ### Two passes, and why
  *

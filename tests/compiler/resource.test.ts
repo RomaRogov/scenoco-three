@@ -9,9 +9,9 @@ import {
 import { makeFixture, type Fixture } from './fixture.js';
 
 /**
- * Geometry and material documents are what `<Attachments>` became. A mesh no longer declares
- * its geometry inline; it references an asset, the same way Unity's MeshFilter references a
- * mesh and its MeshRenderer references a `.mat`.
+ * An `.asset.xml` is one shared three.js object — the way Unity's MeshFilter references a mesh
+ * and its MeshRenderer a `.mat`. A mesh names one to share it, or writes the element inside
+ * itself to get its own.
  */
 let fixture: Fixture;
 let model: ProjectModel;
@@ -24,10 +24,10 @@ beforeAll(() => {
 
 afterAll(() => fixture.dispose());
 
-function emit(xml: string, family: 'geometry' | 'material', name = 'brick') {
-  const parsed = parseDocument(xml, `${name}.${family}.xml`);
+function emit(xml: string, _family: 'geometry' | 'material', name = 'brick') {
+  const parsed = parseDocument(xml, `${name}.asset.xml`);
   if (!parsed.ok) throw new Error(parsed.diagnostics.map((d) => d.message).join('\n'));
-  return emitResource(parsed.root, { name, model, family, source: `${name}.${family}.xml` });
+  return emitResource(parsed.root, { name, model, source: `${name}.asset.xml` });
 }
 
 describe('geometry documents', () => {
@@ -54,9 +54,10 @@ describe('geometry documents', () => {
     expect(diagnostics[0]?.message).toContain('Did you mean "width"?');
   });
 
-  it('reports a tag that is not a geometry at all', () => {
-    const { diagnostics } = emit('<MeshStandardMaterial />', 'geometry');
+  it('reports a node at the root, which belongs in a scene rather than an asset', () => {
+    const { diagnostics } = emit('<Mesh />', 'geometry');
     expect(diagnostics[0]?.code).toBe('unknown-tag');
+    expect(diagnostics[0]?.message).toContain('.prefab.xml');
   });
 });
 

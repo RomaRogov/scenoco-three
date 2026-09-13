@@ -25,11 +25,15 @@ let fixture: Fixture;
 let model: ProjectModel;
 
 beforeAll(() => {
-  fixture = makeFixture('legibility');
+  fixture = makeFixture('legibility', { ui: true });
   fixture.write(
     'game.ts',
     `import { Component, System } from '@scenoco-three/core';
+import { Canvas } from '@scenoco-three/ui';
 import { Color, Vector2 } from 'three';
+
+// A real import, or the module's tags never resolve — the same trick package-tags.test.ts uses.
+export const uiInUse = Canvas;
 
 export class Brick extends Component {
   points = 10;
@@ -45,7 +49,7 @@ export class Physics2D extends System {
     components: scanComponents(w),
     systems: scanSystems(w),
     effects: scanEffects(w),
-    tags: scanTags(w),
+    tags: scanTags(w, ['three', '@scenoco-three/ui']),
   }));
 });
 
@@ -87,7 +91,7 @@ describe('one spelling per value', () => {
     // miss to offer, and <Mesh> has far too many attributes to list.
     const { diagnostics } = emit(
       'scene',
-      `<Scene><Mesh geometry="g.geometry.xml" material="m.material.xml" rotaton="x: 1" /></Scene>`,
+      `<Scene><Mesh geometry="g.asset.xml" material="m.asset.xml" rotaton="x: 1" /></Scene>`,
     );
     const problem = diagnostics.find((d) => d.code === 'unknown-attribute');
     expect(problem?.message).not.toContain('Did you mean');
@@ -98,8 +102,8 @@ describe('one spelling per value', () => {
     const { diagnostics } = emit(
       'scene',
       `<Scene>
-         <Mesh geometry="g.geometry.xml" material="m.material.xml" rotaton="x: 1" />
-         <Mesh geometry="g.geometry.xml" material="m.material.xml" opacty="1" />
+         <Mesh geometry="g.asset.xml" material="m.asset.xml" rotaton="x: 1" />
+         <Mesh geometry="g.asset.xml" material="m.asset.xml" opacty="1" />
        </Scene>`,
     );
     expect(whatToLookUp(diagnostics)).toEqual(['Mesh']);
@@ -151,6 +155,34 @@ describe('nothing is silently ignored', () => {
     expect(first(diagnostics)?.message).toContain('Move the block up to <Scene>');
   });
 
+  /**
+   * The failure this diagnostic exists for: a `<Canvas>` written where every other node goes
+   * compiles, runs, and draws nothing at all. A build spent forty turns on it, past a console
+   * message it had no way to see.
+   */
+  it('reports a <Canvas> that is not under a camera, and names the camera to move it into', () => {
+    const { diagnostics } = emit(
+      'scene',
+      `<Scene camera="#camera">
+         <PerspectiveCamera id="camera" />
+         <Canvas id="hud" />
+       </Scene>`,
+    );
+    expect(codes(diagnostics)).toContain('misplaced-canvas');
+    expect(first(diagnostics)?.message).toContain('child of the camera node');
+    expect(first(diagnostics)?.message).toContain('<PerspectiveCamera id="camera">');
+  });
+
+  it('says nothing about a <Canvas> that is under one', () => {
+    const { diagnostics } = emit(
+      'scene',
+      `<Scene camera="#camera">
+         <PerspectiveCamera id="camera"><Canvas id="hud" /></PerspectiveCamera>
+       </Scene>`,
+    );
+    expect(codes(diagnostics)).not.toContain('misplaced-canvas');
+  });
+
   it('reports text between tags, since every value here is an attribute', () => {
     const { diagnostics } = emit('scene', `<Scene><Group>hello</Group></Scene>`);
     expect(codes(diagnostics)).toContain('text-content');
@@ -165,12 +197,12 @@ describe('nothing is silently ignored', () => {
 });
 
 describe('a document means one thing regardless of attribute order', () => {
-  it('applies placement in a fixed order, so active always has the final say', () => {
-    // `setActive` writes `visible` too. In document order these two would differ.
-    const a = emit('scene', `<Scene><Group active="false" visible="true" /></Scene>`);
-    const b = emit('scene', `<Scene><Group visible="true" active="false" /></Scene>`);
+  it('applies placement in a fixed order', () => {
+    // Whatever order they were written in, one document means one thing.
+    const a = emit('scene', `<Scene><Group active="false" position="y: 2" /></Scene>`);
+    const b = emit('scene', `<Scene><Group position="y: 2" active="false" /></Scene>`);
     expect(a.code).toBe(b.code);
-    expect(a.code).toContain('node1.visible = true;\n    node1.setActive(false);');
+    expect(a.code).toContain('node1.setActive(false);');
   });
 });
 
@@ -212,14 +244,5 @@ describe('names describe what is there', () => {
     // No asset resolver in this fixture, so the reference fails — but on the *asset*, which
     // means the tag itself was understood.
     expect(codes(diagnostics)).toEqual(['unknown-asset']);
-  });
-
-  it('answers the old <PrefabInstance> with the new spelling', () => {
-    // v1 wrapped every spawn in a node. The wrapper is gone, so the name would describe
-    // something that does not exist — and a document written against it deserves better than
-    // "unknown tag".
-    const { diagnostics } = emit('scene', `<Scene><PrefabInstance src="brick.prefab.xml" /></Scene>`);
-    expect(first(diagnostics)?.code).toBe('renamed-tag');
-    expect(first(diagnostics)?.message).toContain('<PrefabInstance> is now <Prefab>');
   });
 });

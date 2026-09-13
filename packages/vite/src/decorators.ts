@@ -24,10 +24,9 @@ async function typescript(): Promise<Transform> {
  *
  *  - with `experimentalDecorators: true` in the nearest tsconfig, oxc applies the
  *    **legacy** transform to standard-decorator source. A field decorator is then
- *    called `(prototype, key)` instead of `(undefined, context)`, so the first
- *    `context.metadata` access throws `Cannot convert undefined or null to
- *    object` — from inside `@oxc-project/runtime/helpers/decorate.js`, pointing
- *    at a file that never asked for the legacy transform.
+ *    called `(prototype, key)` instead of `(undefined, context)` — so it is handed
+ *    a string where it expects its context, and reads nonsense out of it. There is
+ *    no error to follow: `@serializeField` silently marks nothing.
  *  - with it `false`, oxc passes the syntax through untouched. The build
  *    *succeeds* and the bundle contains literal `@component(...) class {…}`,
  *    which dies at load with `SyntaxError: Invalid or unexpected token`.

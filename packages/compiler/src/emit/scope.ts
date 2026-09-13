@@ -108,14 +108,9 @@ export class EmitScope {
   /**
    * Record which element of which document built this node.
    *
-   * The editor's whole selection model rests on this: v1 aligned a bundle's `nodes[]` with the
-   * objects the runtime made, and generated code has no such array to align to.
-   *
-   * It also answers who *owns* a node, which v1 needed a second mechanism for — a
-   * `SceneProvenance` sidecar tagging each node `scene` / `prefab-root` / `prefab-internal` so
-   * the inspector would refuse to edit prefab content. A prefab's own generated code stamps its
-   * nodes with the prefab's file, so a node whose file is not the open document came from
-   * somewhere else and is read-only here. One mechanism, and nothing to keep aligned.
+   * The editor's selection model rests on this, and so does ownership: a prefab's generated code
+   * stamps its nodes with the prefab's own file, so a node whose file is not the open document
+   * came from somewhere else and is read-only here.
    */
   stamp(element: SncElement, target: string, out: string[]): void {
     if (!this.options.provenance) return;

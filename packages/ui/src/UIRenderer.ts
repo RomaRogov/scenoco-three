@@ -1,7 +1,7 @@
 import type { Camera, PerspectiveCamera, WebGLRenderer } from 'three';
 import { forwardHtmlEvents } from '@pmndrs/pointer-events';
 import { Component as UikitComponent, Fullscreen, reversePainterSortStable } from '@pmndrs/uikit';
-import { applyRect } from './rect.js';
+import { applyRect, asUikit } from './rect.js';
 import { Engine, System } from '@scenoco-three/core';
 
 /**
@@ -68,7 +68,7 @@ export class UIRenderer extends System {
         if (host.renderer !== renderer) host.renderer = renderer;
       }
       try {
-        element.update(deltaTime * 1000); // uikit counts in milliseconds
+        asUikit(() => element.update(deltaTime * 1000)); // uikit counts in milliseconds
       } catch (error) {
         // One bad authored value must cost that UI root its frame, not the whole engine tick.
         this.report(error instanceof Error ? error.message : String(error));
@@ -93,7 +93,6 @@ export class UIRenderer extends System {
     });
   }
 
-  /** The renderer settings uikit needs, and the pointer bridge — once per renderer. */
   /** Re-lay-out an element whose `setActive` state changed, so `display` follows it. */
   private syncActivation(element: UikitComponent): void {
     const active = (element as unknown as { activeInHierarchy: boolean }).activeInHierarchy;

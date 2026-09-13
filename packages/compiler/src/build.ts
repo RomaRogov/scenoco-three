@@ -99,6 +99,20 @@ export function build(options: BuildOptions): BuildResult {
   const files = new Map<string, string>();
   const diagnostics: SncDiagnostic[] = [];
 
+  // Mistakes in the components themselves, reported with the rest so one command answers
+  // "is this project sound" whether the problem is in a document or in a class.
+  for (const info of [...model.components, ...model.systems, ...model.effects]) {
+    for (const problem of info.problems ?? []) {
+      diagnostics.push({
+        line: problem.line,
+        column: 1,
+        code: problem.code,
+        message: problem.message,
+        file: relative(root, info.file).split(sep).join('/'),
+      });
+    }
+  }
+
   // Named up front, so a prefab can reference a geometry declared anywhere and a scene can
   // reference any prefab — the file order only decides what is *emitted* first.
   for (const asset of assets) exports.set(asset.path, exportOf(asset));
@@ -302,11 +316,10 @@ function emitOne(
     return emitTexture(root, { name: asset.stem, model, source: asset.relativePath });
   }
 
-  if (asset.kind === 'geometry' || asset.kind === 'material') {
+  if (asset.kind === 'asset') {
     return emitResource(root, {
       name: asset.stem,
       model,
-      family: asset.kind,
       source: asset.relativePath,
       // A material's `map` reaches a texture document or an image file; a geometry has nothing
       // to reference, and passing the resolver anyway costs nothing and keeps one call shape.
@@ -367,7 +380,7 @@ function exportOf(asset: AssetFile): AssetImport {
   // A texture, geometry, material or particle document exports a value; a prefab or a scene
   // exports a class, because those two build something each time rather than being one shared
   // thing.
-  const values = ['texture', 'geometry', 'material', 'particle', 'render'] as const;
+  const values = ['texture', 'asset', 'particle', 'render'] as const;
   const value = values.find((kind) => kind === asset.kind);
   return {
     module: asset.outputPath,

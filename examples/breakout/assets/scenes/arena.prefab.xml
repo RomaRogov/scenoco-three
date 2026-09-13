@@ -5,7 +5,7 @@
   <!-- Walls. Restitution 1 and no friction: a Breakout ball leaves a wall as fast as it
        arrived and with the mirror angle, which is what makes the rally readable. -->
   <Mesh id="wallLeft" position="x: -9.5; y: 7.5"
-        geometry="../geometry/wall-side.geometry.xml" material="../materials/wall.material.xml">
+        geometry="../geometry/wall-side.asset.xml" material="../materials/wall.asset.xml">
     <Components>
       <RigidBody2D kind="static" />
       <BoxCollider2D halfExtents="x: 0.25; y: 8" restitution="1" friction="0" />
@@ -13,7 +13,7 @@
   </Mesh>
 
   <Mesh id="wallRight" position="x: 9.5; y: 7.5"
-        geometry="../geometry/wall-side.geometry.xml" material="../materials/wall.material.xml">
+        geometry="../geometry/wall-side.asset.xml" material="../materials/wall.asset.xml">
     <Components>
       <RigidBody2D kind="static" />
       <BoxCollider2D halfExtents="x: 0.25; y: 8" restitution="1" friction="0" />
@@ -21,7 +21,7 @@
   </Mesh>
 
   <Mesh id="wallTop" position="y: 15.75"
-        geometry="../geometry/wall-top.geometry.xml" material="../materials/wall.material.xml">
+        geometry="../geometry/wall-top.asset.xml" material="../materials/wall.asset.xml">
     <Components>
       <RigidBody2D kind="static" />
       <BoxCollider2D halfExtents="x: 9.75; y: 0.25" restitution="1" friction="0" />
@@ -31,7 +31,7 @@
   <!-- Kinematic: the controller moves the node and the body follows, so the paddle shoves the
        ball rather than being shoved by it. -->
   <Mesh id="paddle" position="y: 1"
-        geometry="../geometry/paddle.geometry.xml" material="../materials/paddle.material.xml">
+        geometry="../geometry/paddle.asset.xml" material="../materials/paddle.asset.xml">
     <!-- The paddle's own glow, and a child of the paddle so it travels with it. It used to sit
          in the level document at x=0, which meant the paddle only lit up in the middle of the
          field: the light was static and the paddle drove in and out of its pool. A light is a
@@ -46,7 +46,7 @@
 
   <!-- `bullet` so a fast ball cannot tunnel through a brick between two steps. -->
   <Mesh id="ballBody" position="y: 1.62"
-        geometry="../geometry/ball.geometry.xml" material="../materials/ball.material.xml">
+        geometry="../geometry/ball.asset.xml" material="../materials/ball.asset.xml">
     <Components>
       <!-- The id is on the component, because that is what a level overrides:
            `<Override target="#ball" speed="18" />` makes level three faster than level one
@@ -57,12 +57,12 @@
     </Components>
   </Mesh>
 
-  <!-- A sensor, not a wall: it reports the overlap and lets the ball fall through. -->
-  <Mesh id="floor" position="y: -0.6" visible="false"
-        geometry="../geometry/floor-sensor.geometry.xml" material="../materials/wall.material.xml">
+  <!-- A sensor, not a wall: it reports the overlap and lets the ball fall through. A <Group>
+       rather than an invisible <Mesh> — it is never drawn, so it needs no shape to draw. -->
+  <Group id="floor" position="y: -0.6">
     <Components>
       <RigidBody2D kind="static" />
       <BoxCollider2D halfExtents="x: 9.75; y: 0.25" isSensor="true" />
     </Components>
-  </Mesh>
+  </Group>
 </Group>

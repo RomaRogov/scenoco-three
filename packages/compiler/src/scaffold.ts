@@ -287,19 +287,19 @@ export class Spinner extends Component {
     },
 
     {
-      path: 'assets/materials/ground.material.xml',
+      path: 'assets/materials/ground.asset.xml',
       contents: `<MeshStandardMaterial color="#243047" roughness="0.95" metalness="0" />
 `,
     },
 
     {
-      path: 'assets/materials/block.material.xml',
+      path: 'assets/materials/block.asset.xml',
       contents: `<MeshStandardMaterial color="#4af0e0" roughness="0.35" metalness="0.1" />
 `,
     },
 
     {
-      path: 'assets/materials/crate.material.xml',
+      path: 'assets/materials/crate.asset.xml',
       contents: `<MeshStandardMaterial color="#f0b429" roughness="0.5" metalness="0.1" />
 `,
     },
@@ -308,7 +308,7 @@ export class Spinner extends Component {
       path: 'assets/prefabs/crate.prefab.xml',
       contents: `<!-- A prefab: the root element IS the node it makes — a Mesh, with no wrapper around it.
      scale="0.5" makes it half a unit on a side. Spawned by src/Spawner.ts, which decides where. -->
-<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/crate.material.xml" scale="0.5">
+<Mesh geometry="../geometry/cube.asset.xml" material="../materials/crate.asset.xml" scale="0.5">
   <Components>
     <Spinner speed="90" />
   </Components>
@@ -356,12 +356,12 @@ export class Spinner extends Component {
   <DirectionalLight color="#fff4e0" intensity="2" position="x: 4; y: 8; z: 5" />
 
   <!-- The ground: the 10 x 10 plane, laid flat and scaled to 40 across. -->
-  <Mesh geometry="../geometry/plane.geometry.xml" material="../materials/ground.material.xml"
+  <Mesh geometry="../geometry/plane.asset.xml" material="../materials/ground.asset.xml"
         eulerAngles="x: -90" scale="4" />
 
   <!-- The player: a 1 x 1 x 1 cube resting on the ground, with two components on it. -->
-  <Mesh id="player" geometry="../geometry/cube.geometry.xml"
-        material="../materials/block.material.xml" position="y: 0.5">
+  <Mesh id="player" geometry="../geometry/cube.asset.xml"
+        material="../materials/block.asset.xml" position="y: 0.5">
     <Components>
       <Mover speed="6" bounds="18" />
       <!-- A field typed PrefabType is filled with a document path. -->
@@ -373,7 +373,7 @@ export class Spinner extends Component {
     },
 
     ...Object.entries(PRIMITIVES).map(([name, contents]) => ({
-      path: `assets/geometry/${name}.geometry.xml`,
+      path: `assets/geometry/${name}.asset.xml`,
       contents,
     })),
 
@@ -445,9 +445,9 @@ attributes. That is the whole registration.
 | \`window.addEventListener('keydown', …)\` | \`Input.getKeyDown(KeyCode.Space)\` in \`update\` |
 | \`setTimeout(fn, 500)\` | \`this.left -= dt\` in \`update\`; \`startCoroutine\` for a sequence |
 | \`emit('died')\`, \`dispatchEvent\` | \`readonly died = new Event<[Enemy]>()\`; \`this.listen(enemy.died, fn)\` |
-| \`mesh.visible = false\` to take it out of play | \`mesh.destroy()\`, or \`mesh.setActive(false)\` to bring it back later |
+| \`mesh.visible = false\` to take it out of play | \`mesh.destroy()\`, or \`mesh.setActive(false)\` to bring it back later. \`visible\` only stops it being drawn — it keeps updating, and on a UI element it keeps its place in the layout |
 | \`new Mesh(geometry, material)\` inside a component | a prefab document, and \`instantiate\` |
-| \`<Cube>\` | \`<Mesh geometry="../geometry/cube.geometry.xml" material="…" />\` |
+| \`<Cube>\` | \`<Mesh geometry="../geometry/cube.asset.xml" material="…" />\` |
 
 ## Commands
 
@@ -518,7 +518,7 @@ shapes.
 ## Adding things
 
 \`\`\`bash
-npx scenoco new scene level-2      # or: prefab, geometry, material, texture, render, particle
+npx scenoco new scene level-2      # or: prefab, asset, texture, render, particle
 \`\`\`
 
 A component needs no scaffolding at all: write a class that extends \`Component\` in \`src/\`, give

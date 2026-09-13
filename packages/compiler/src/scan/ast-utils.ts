@@ -157,6 +157,37 @@ export function derivesFrom(
 }
 
 /**
+ * Every member name a class inherits from `baseName`, the lifecycle hooks among them.
+ *
+ * The hooks are optional and merged into the base by `interface Component extends
+ * ComponentLifecycle {}`, so they are ordinary members of its declared type.
+ */
+export function inheritedMemberNames(
+  node: ast.ClassDeclaration,
+  baseName: string,
+  checker: Checker,
+  project: Project,
+): string[] {
+  let current: ast.ClassDeclaration | undefined = node;
+  const seen = new Set<string>();
+  while (current) {
+    const base = baseClauseType(current);
+    if (!base) return [];
+    const located = checker.getSymbolAtLocation(base);
+    if (!located) return [];
+    const symbol = resolveAlias(located, checker);
+    if (symbol.name === baseName) {
+      const type = checker.getDeclaredTypeOfSymbol(symbol);
+      return type ? checker.getPropertiesOfType(type).map((member) => member.name) : [];
+    }
+    if (seen.has(symbol.name)) return [];
+    seen.add(symbol.name);
+    current = classDeclarationOf(symbol, project);
+  }
+  return [];
+}
+
+/**
  * Every class this type derives from, nearest first, by name.
  *
  * Walks `getBaseTypes` rather than the `extends` clause, so it sees through type aliases and

@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "SceNoCo core: components on Object3D, scenes/prefabs as generated classes, and the game loop. Nothing else.",
   "type": "module",
   "license": "MIT",

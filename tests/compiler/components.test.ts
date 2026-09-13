@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   Workspace,
   scanComponents,
+  scanSystems,
   type ComponentInfo,
 } from '../../packages/compiler/src/index.js';
 import { makeFixture, type Fixture } from './fixture.js';
@@ -19,7 +20,8 @@ beforeAll(() => {
   fixture = makeFixture('components');
   fixture.write(
     'game.ts',
-    `import { Component, serialize, Event } from '@scenoco-three/core';
+    `import { Component, Event } from '@scenoco-three/core';
+import { serializeField } from '@scenoco-three/compiler/serialize';
 import { Mesh, Vector3 } from 'three';
 
 /** Moves the paddle along the bottom of the field. */
@@ -36,9 +38,7 @@ export class PaddleController extends Component<Mesh> {
   ball!: Mesh;
   /** Optional target. */
   target?: Mesh;
-  /** Texture painted on the paddle. */
-  @serialize({ asset: 'texture' }) skin = '';
-  @serialize private tuning = 0.5;
+  @serializeField private tuning = 0.5;
   readonly missed = new Event<[]>();
   private velocity = 0;
   #secret = 1;
@@ -105,26 +105,20 @@ describe('scanComponents', () => {
     expect(by('speed').type).toBe('number');
     expect(by('speed').default).toBe('10');
     expect(by('speed').description).toBe('Units per second the paddle travels.');
-    // A constructed default survives verbatim — v1's runtime probe could only
-    // report the value it happened to build.
+    // A constructed default survives verbatim, because it is read rather than evaluated.
     expect(by('origin').type).toBe('Vector3');
     expect(by('origin').default).toBe('new Vector3(0, 1, 0)');
     expect(by('bricks').type).toBe('Mesh[]');
     expect(found.get('PaddleController')?.description).toBe('Moves the paddle along the bottom of the field.');
   });
 
-  it('skips private, `#private` and static fields unless @serialize takes them', () => {
+  it('skips private, `#private` and static fields unless @serializeField takes them', () => {
     const names = found.get('PaddleController')!.fields.map((f) => f.name);
     expect(names).not.toContain('velocity'); // private, undecorated
     expect(names).not.toContain('secret'); // #private — no decorator can reach it
     expect(names).not.toContain('shared'); // static
-    expect(names).toContain('tuning'); // private, but @serialize took it
+    expect(names).toContain('tuning'); // private, but @serializeField took it
     expect(found.get('PaddleController')!.fields.find((f) => f.name === 'tuning')?.explicit).toBe(true);
-  });
-
-  it('carries @serialize options through', () => {
-    const skin = found.get('PaddleController')!.fields.find((f) => f.name === 'skin')!;
-    expect(skin.serializeOptions).toBe(`{ asset: 'texture' }`);
   });
 
   it('derives how each field is authored from its type, not from a decorator', () => {
@@ -207,4 +201,70 @@ export class Body extends Component {
     expect(body.fields.find((f) => f.name === 'kind')?.description).toBe('How the body moves.');
     fixture.dispose();
   }, 60_000);
+});
+
+/**
+ * A lifecycle hook is optional, so a misspelled one is not a type error — it is a method
+ * nothing calls, and the symptom is behaviour that silently never happens. The scan reads the
+ * base class's own members, so the list it checks against is never restated here.
+ */
+describe('a method that is nearly a lifecycle hook', () => {
+  let near: Map<string, ComponentInfo>;
+  let fixture2: Fixture;
+
+  beforeAll(() => {
+    fixture2 = makeFixture('near-miss');
+    fixture2.write(
+      'game.ts',
+      `import { Component, System } from '@scenoco-three/core';
+
+export class Typo extends Component {
+  upadte(dt: number): void { void dt; }
+  onDestory(): void {}
+  update(dt: number): void { void dt; }
+
+  // Ordinary methods that a looser rule flagged. Every one of these is real code from the
+  // examples, and every one of them was reported as a typo before the rule was narrowed.
+  updateHud(): void {}
+  award(points: number): void { void points; }
+  take(): void {}
+  top(): void {}
+}
+
+export class Service extends System {
+  fixedUpdat(dt: number): void { void dt; }
+}
+`,
+    );
+    near = new Map(
+      Workspace.with(fixture2.tsconfig, (w) => [
+        ...scanComponents(w),
+        ...scanSystems(w),
+      ])!.map((c) => [c.name, c]),
+    );
+  });
+  afterAll(() => fixture2.dispose());
+
+  it('reports the typo, naming the hook it is one letter from', () => {
+    const problems = near.get('Typo')?.problems ?? [];
+    const messages = problems.map((p) => p.message);
+    expect(messages.some((m) => m.includes('Typo.upadte()') && m.includes('update()'))).toBe(true);
+    expect(messages.some((m) => m.includes('Typo.onDestory()') && m.includes('onDestroy()'))).toBe(true);
+  });
+
+  it('leaves a method that is merely similar alone', () => {
+    const messages = (near.get('Typo')?.problems ?? []).map((p) => p.message).join('\n');
+    // A different word, not a typo: `award` is two substitutions from `awake`, and `take` and
+    // `top` are short enough that one insertion is most of the word.
+    for (const safe of ['updateHud', 'award', 'take', 'top']) {
+      expect(messages).not.toContain(`.${safe}()`);
+    }
+    // And a correctly spelled hook is not a near miss of itself.
+    expect(messages).not.toContain('Typo.update()');
+  });
+
+  it('checks a system against the hooks a system has', () => {
+    const problems = near.get('Service')?.problems ?? [];
+    expect(problems[0]?.message).toContain('fixedUpdate()');
+  });
 });

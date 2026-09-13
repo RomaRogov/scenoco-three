@@ -20,12 +20,8 @@ import { RigidBody2D } from './RigidBody2D.js';
  * The simulation runs in the **XY plane**: a body's position drives the node's x and y, and its
  * angle drives `rotation.z`. Z is left alone, so a 2D game can still lay its art out in depth.
  *
- * ### What this no longer does
- *
- * v1 rebuilt its picture of the world every fixed step — create bodies for new components,
- * destroy them for gone ones, diff each node's colliders against its fixtures. All of it is
- * gone: a body joins in `awake` and leaves in `onDestroy`, and a collider attaches itself. The
- * system holds a world and steps it.
+ * Nothing is rediscovered per step: a body joins in `awake` and leaves in `onDestroy`, a collider
+ * attaches itself, and the system holds a world and steps it.
  */
 export class Physics2D extends System {
   /** Gravity, in metres per second squared. */

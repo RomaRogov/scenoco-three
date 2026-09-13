@@ -1,21 +1,32 @@
 import { SignatureKind, type Checker, type Symbol as TsSymbol, type Type } from 'typescript/unstable/sync';
-import { ASSET_TYPES } from '../assets.js';
-import type { PropInfo, ValueShape } from '../model.js';
+import type { PropInfo, TagFamily, ValueShape } from '../model.js';
 import { baseChainOf } from './ast-utils.js';
+import { familyOf, isAttachable } from './families.js';
+
+/**
+ * The types that mean "a document in this project". Everything else a document can name is
+ * recognised from the class: a three.js family, or an `Asset` subclass.
+ */
+const DOCUMENT_TYPES: ReadonlySet<string> = new Set([
+  'PrefabType',
+  'SceneType',
+  'ParticleConfig',
+  'RenderSettings',
+]);
 
 /**
  * Decide how to author a value of a given type — the single question the whole DSL rests on.
  *
- * This is where `ValueType` used to live, as a decorator argument the author had to restate
- * and keep in step with the field's real type. Here it is *derived* from the type, so
- * `speed = 10` is a number because it is a number, and `side: Side` offers the right constants
- * because `Side` is a union of them.
+ * Everything is *derived* from the type: `speed = 10` is a number because it is a number, and
+ * `side: Side` offers the right constants because `Side` is a union of them.
  */
 export function shapeOf(type: Type | undefined, checker: Checker): {
   shape: ValueShape;
   elementShape?: ValueShape;
   shapes?: ValueShape[];
   options?: string[];
+  list?: boolean;
+  assetFamily?: TagFamily;
 } {
   if (!type) return { shape: 'unsupported' };
 
@@ -49,7 +60,7 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
   // `SceneType` is `new () => Scene` — a scene *class*, which is what `SceneManager.load` takes.
   // A field declared with it is authored as a path to a `.scene.xml`, exactly like every other
   // reference to a document, so a level can name the level after it.
-  if (alias && ASSET_TYPES.has(alias)) return { shape: 'assetRef' };
+  if (alias && DOCUMENT_TYPES.has(alias)) return { shape: 'assetRef' };
 
   const name = resolved.getSymbol()?.name;
   if (name === 'Color') return { shape: 'color' };
@@ -57,11 +68,13 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
   if (name === 'Vector3') return { shape: 'vector3' };
   if (name === 'Vector4') return { shape: 'vector4' };
   if (name === 'Euler' || name === 'Quaternion') return { shape: 'euler' };
-  if (name === 'Texture') return { shape: 'assetRef' };
-  // A type a document kind produces — `ParticleConfig` for a `.particle.xml`. The geometry and
-  // material types are named here too, though the base-chain check below also reaches them:
-  // a field declared exactly `BufferGeometry` should not depend on which branch sees it first.
-  if (name && ASSET_TYPES.has(name)) return { shape: 'assetRef' };
+  if (name && DOCUMENT_TYPES.has(name)) return { shape: 'assetRef' };
+
+  const chain = name ? [name, ...baseChainOf(resolved, checker)] : [];
+  const family = name ? familyOf(name, chain) : undefined;
+  if (family && isAttachable(family)) return { shape: 'assetRef', assetFamily: family };
+  // `Model`, `AudioClip` — by the base they share, so a package may declare its own.
+  if (chain.includes('Asset')) return { shape: 'assetRef' };
 
   // An array authors as `[a, b, c]`; the element decides how each entry is written.
   const element = elementTypeOf(resolved, checker);
@@ -72,6 +85,7 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
       elementShape: inner.shape,
       ...(inner.shapes ? { shapes: inner.shapes } : {}),
       ...(inner.options ? { options: inner.options } : {}),
+      ...(inner.assetFamily ? { assetFamily: inner.assetFamily } : {}),
     };
   }
 
@@ -80,23 +94,14 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
   const literals = literalMembersOf(resolved, checker);
   if (literals) return { shape: 'enum', options: literals };
 
-  // A "one or many" union — three.js spells a material slot `Material | Material[]` — reduces
-  // to the singular shape. An attribute names one thing; a document that needs several says so
-  // with a bracketed list, which the array branch above already handles when the *declared*
-  // type is an array rather than a union with one.
+  // A "one or many" union — `Material | Material[]` — reduces to the singular shape, marked
+  // `list` so a bracketed value is read too.
   const reduced = reduceUnion(resolved, checker);
   if (reduced) return reduced;
 
-  // Anything that derives from Object3D is a reference to another node in the document.
-  if (name) {
-    const chain = [name, ...baseChainOf(resolved, checker)];
-    if (chain.includes('Object3D')) return { shape: 'nodeRef' };
-    if (chain.includes('BufferGeometry') || chain.includes('Material') || chain.includes('Texture')) {
-      return { shape: 'assetRef' };
-    }
-    // A reference to another component — a typed handle, the way `Ball` holds a `Scoreboard`.
-    if (chain.includes('Component')) return { shape: 'nodeRef' };
-  }
+  // Anything that derives from Object3D is a reference to another node in the document, and so
+  // is a component — a typed handle, the way `Ball` holds a `Scoreboard`.
+  if (chain.includes('Object3D') || chain.includes('Component')) return { shape: 'nodeRef' };
 
   return { shape: 'unsupported' };
 }
@@ -108,7 +113,7 @@ export function propOf(
   overrides: Partial<PropInfo> = {},
 ): PropInfo {
   const type = checker.getTypeOfSymbol(symbol);
-  const { shape, elementShape, shapes, options } = shapeOf(type, checker);
+  const { shape, elementShape, shapes, options, list, assetFamily } = shapeOf(type, checker);
   return {
     name: symbol.name,
     type: type ? checker.typeToString(type) : 'unknown',
@@ -116,6 +121,8 @@ export function propOf(
     ...(elementShape ? { elementShape } : {}),
     ...(shapes ? { shapes } : {}),
     ...(options ? { options } : {}),
+    ...(list ? { list } : {}),
+    ...(assetFamily ? { assetFamily } : {}),
     // Everything three.js takes is optional; a required value would mean the emitter has to
     // supply one, and there is nothing sensible to supply.
     required: false,
@@ -147,19 +154,38 @@ function elementTypeOf(type: Type, checker: Checker): Type | undefined {
 function reduceUnion(
   type: Type,
   checker: Checker,
-): { shape: ValueShape; elementShape?: ValueShape; shapes?: ValueShape[]; options?: string[] } | undefined {
+): {
+  shape: ValueShape;
+  elementShape?: ValueShape;
+  shapes?: ValueShape[];
+  options?: string[];
+  list?: boolean;
+  assetFamily?: TagFamily;
+} | undefined {
   if (!type.isUnionType()) return undefined;
   const shapes = new Set<ValueShape>();
+  const families = new Set<TagFamily>();
+  let hasArrayMember = false;
   for (const member of type.getTypes() ?? []) {
     const printed = checker.typeToString(member);
     if (printed === 'undefined' || printed === 'null') continue;
     const inner = shapeOf(member, checker);
     // An array member contributes its element's shape, so `Material[] | Material` agrees.
+    if (inner.shape === 'array') hasArrayMember = true;
     shapes.add(inner.shape === 'array' ? (inner.elementShape ?? 'unsupported') : inner.shape);
+    if (inner.assetFamily) families.add(inner.assetFamily);
   }
   shapes.delete('unsupported');
   if (shapes.size === 0) return undefined;
-  if (shapes.size === 1) return { shape: [...shapes][0]! };
+  // `X | X[]` stays singular — one value is what an attribute holds and what the inspector
+  // edits — with `list` recording that several are legal. The family has to survive too.
+  if (shapes.size === 1) {
+    return {
+      shape: [...shapes][0]!,
+      ...(hasArrayMember ? { list: true } : {}),
+      ...(families.size === 1 ? { assetFamily: [...families][0]! } : {}),
+    };
+  }
   // A union that genuinely mixes kinds — `Scene.background` is `Color | Texture | CubeTexture`.
   // Each alternative is authorable on its own, so the value stays authorable: which one a
   // document meant is decided by the text it wrote, at emit time.

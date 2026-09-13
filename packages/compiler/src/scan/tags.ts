@@ -8,20 +8,9 @@ import {
 import * as ast from 'typescript/unstable/ast';
 import type { PropInfo, TagFamily, TagInfo } from '../model.js';
 import { baseChainOf, classDeclarationOf, docOf, resolveAlias } from './ast-utils.js';
+import { familyOf } from './families.js';
 import { propOf } from './shape.js';
 import type { Workspace } from './workspace.js';
-
-/** Which base class puts a tag in which family, checked nearest-first. */
-const FAMILIES: ReadonlyArray<readonly [string, TagFamily]> = [
-  ['Object3D', 'node'],
-  ['BufferGeometry', 'geometry'],
-  ['Material', 'material'],
-  ['Texture', 'texture'],
-  // Fog is neither a node nor a resource: it is a property of the scene with a constructor
-  // worth writing as an element. `Fog` and `FogExp2` are unrelated classes, so both are named.
-  ['Fog', 'fog'],
-  ['FogExp2', 'fog'],
-];
 
 /**
  * Classes that are real exports but not authorable tags: abstract bases, internal helpers,
@@ -111,10 +100,8 @@ function describeTag(symbol: TsSymbol, module: string, checker: Checker): TagInf
   if (!instance) return undefined;
 
   const chain = baseChainOf(instance, checker);
-  // The class's own name counts: `CanvasTexture` is a texture because `Texture` is in its base
-  // chain, and `Texture` is one because it *is* `Texture`. Only the family lookup sees this —
   // `bases` below stays the real ancestry, which is what everything else reads.
-  const family = FAMILIES.find(([base]) => base === symbol.name || chain.includes(base))?.[1];
+  const family = familyOf(symbol.name, chain);
   if (!family) return undefined;
 
   const parameters = signature

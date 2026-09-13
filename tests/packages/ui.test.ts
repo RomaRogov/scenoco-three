@@ -1,4 +1,4 @@
-import { Group, PerspectiveCamera, Scene, Color } from 'three';
+import { Group, type Object3D, PerspectiveCamera, Scene, Color } from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SceneManager, type SceneType } from '@scenoco-three/core';
 import { Canvas, Panel, Text, UIRenderer, toUikitProperties } from '@scenoco-three/ui';
@@ -251,17 +251,55 @@ describe('laying out on a frame that is not simulated', () => {
 });
 
 /**
- * `setActive(false)` has to hide a UI element.
+ * The two flags every node has, on an element uikit draws.
  *
- * Core hides a node by clearing `visible`; uikit decides what to draw from its own `display`
- * property and paints every panel through one shared instanced mesh that never looks at a
- * container's `visible` flag. The two did not meet, so hiding a full-screen panel did nothing at
- * all — and since a `<Canvas>` hangs in front of the camera, a "hidden" 80%-opaque banner dimmed
- * the entire game with nothing in the scene graph to show for it.
+ * `active` is out of the layout entirely and `visible` is hidden but still in place — the same
+ * distinction they carry on any other node. Neither is three's `visible` field here: uikit
+ * writes that itself, from its own layout and traversal, so an assignment to it is overwritten
+ * within the frame and a "hidden" 80%-opaque banner in front of the camera dimmed the whole
+ * game with nothing in the scene graph to show for it.
  */
 describe('hiding an element', () => {
   const displayOf = (element: object): unknown =>
     (element as { properties: { peek(): { display?: unknown } } }).properties.peek().display;
+  const visibilityOf = (element: object): unknown =>
+    (element as { properties: { peek(): { visibility?: unknown } } }).properties.peek().visibility;
+
+  const banner = async (): Promise<{ scene: Scene; panel: Object3D; label: Object3D }> => {
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const camera = new PerspectiveCamera();
+        s.add(camera);
+        const canvas = new Canvas();
+        camera.add(canvas);
+        const panel = new Panel();
+        panel.name = 'banner';
+        canvas.add(panel);
+        const label = new Panel();
+        label.name = 'label';
+        panel.add(label);
+      }),
+    );
+    return { scene, panel: scene.getObjectByName('banner')!, label: scene.getObjectByName('label')! };
+  };
+
+  it('takes `visible` out of the drawing and leaves it in the layout', async () => {
+    const { scene, panel, label } = await banner();
+    expect(panel.visible).toBe(true);
+    // Being added to a parent is when uikit recomputes the traversal flag it keeps in three's
+    // `visible`, and that write must not read as an author hiding the element.
+    expect(label.visible).toBe(true);
+
+    panel.visible = false;
+    scene.getSystem(UIRenderer)!.layout(1 / 60);
+    expect(panel.visible).toBe(false);
+    expect(visibilityOf(panel)).toBe('hidden');
+    expect(displayOf(panel)).toBe('flex'); // still laid out: nothing beside it moves
+
+    panel.visible = true;
+    scene.getSystem(UIRenderer)!.layout(1 / 60);
+    expect(visibilityOf(panel)).toBe('visible');
+  });
 
   it('follows the node’s active state', async () => {
     const scene = await SceneManager.load(

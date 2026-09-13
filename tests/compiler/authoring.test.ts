@@ -39,9 +39,9 @@ const BRICK: AssetImport = {
 };
 
 const ASSETS: Record<string, AssetImport> = {
-  'brick.geometry.xml': { module: './brick.geometry.js', name: 'brick', kind: 'geometry' },
-  'brick.material.xml': { module: './brick.material.js', name: 'brick', kind: 'material' },
-  'hard.material.xml': { module: './hard.material.js', name: 'hard', kind: 'material' },
+  'cube.asset.xml': { module: './cube.asset.js', name: 'cube', kind: 'asset' },
+  'brick.asset.xml': { module: './brick.asset.js', name: 'brick', kind: 'asset' },
+  'hard.asset.xml': { module: './hard.asset.js', name: 'hard', kind: 'asset' },
   'brick.prefab.xml': BRICK,
   'level-2.scene.xml': { module: './level-2.scene.js', name: 'Level2Scene', kind: 'scene' },
   'neon.render.xml': { module: './neon.render.js', name: 'neon', kind: 'render' },
@@ -112,7 +112,7 @@ describe('prefab overrides', () => {
       `<Scene>
          <Prefab src="brick.prefab.xml" position="x: -4">
            <Override target="#brick" hits="3" label="hard" />
-           <Override target="#label" material="hard.material.xml" visible="false" />
+           <Override target="#label" material="hard.asset.xml" visible="false" />
            <Override target="#root" scale="2" />
          </Prefab>
        </Scene>`,
@@ -160,10 +160,10 @@ describe('prefab overrides', () => {
     // material of one spawn is the most ordinary override there is.
     const swap = emit(
       'scene',
-      `<Scene><Prefab src="brick.prefab.xml"><Override target="#label" geometry="brick.geometry.xml" /></Prefab></Scene>`,
+      `<Scene><Prefab src="brick.prefab.xml"><Override target="#label" geometry="cube.asset.xml" /></Prefab></Scene>`,
     );
     expect(swap.diagnostics).toEqual([]);
-    expect(swap.code).toContain('.label.geometry = brick;');
+    expect(swap.code).toContain('.label.geometry = cube;');
 
     const camera: AssetImport = {
       ...BRICK,
@@ -239,7 +239,7 @@ describe('the scene itself', () => {
   });
 
   it('reads a background that is an image as an asset rather than a colour', () => {
-    const { code, diagnostics } = emit('scene', `<Scene background="brick.material.xml" />`);
+    const { code, diagnostics } = emit('scene', `<Scene background="brick.asset.xml" />`);
     // The union is resolved by the text: a path is an asset, `#rrggbb` is a colour.
     expect(diagnostics).toEqual([]);
     expect(code).toContain('this.background = brick;');

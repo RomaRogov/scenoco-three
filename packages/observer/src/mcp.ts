@@ -21,8 +21,6 @@ type Without<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
  * already have — their own editing, their diff, their undo. An agent holding one can reshape a scene while believing it is only looking at
  * it.
  *
- * v1 shipped `patch`, `structural` and `save` tools alongside these. They are deleted.
- *
  * The one thing worth insisting on: `simulate` exists because a screenshot of frame zero says
  * almost nothing about whether a game works. Drive it to the interesting moment, *then* look.
  */
@@ -32,6 +30,29 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
   /** Every tool needs the page; the browser is launched on the first call that does. */
   const send = async (command: Without<ObserverCommand, 'id'>): Promise<ObserverResult> =>
     (await page()).call({ id: '', ...command } as ObserverCommand);
+
+  /**
+   * How much of the page's log has already been handed over.
+   *
+   * Everything new is appended to the next reply, so a message the page wrote cannot go unread
+   * just because nobody thought to ask. The framework reports a misplaced `<Canvas>` exactly
+   * this way, and a build once spent forty turns guessing past it.
+   */
+  let reported = 0;
+
+  /** Append anything the page has said since the last reply. */
+  const withConsole = async <T extends { content: unknown[] }>(payload: T): Promise<T> => {
+    const opened = await page();
+    const fresh = opened.consoleSince(reported).filter((e) => e.level === 'error' || e.level === 'warning');
+    reported = opened.consoleSeq;
+    if (fresh.length === 0) return payload;
+    const lines = fresh.map((e) => `  ${e.level === 'error' ? '✗' : '⚠'} ${e.text}`);
+    payload.content.push({
+      type: 'text',
+      text: `\n${fresh.length} new console message(s) from the page:\n${lines.join('\n')}`,
+    });
+    return payload;
+  };
 
   // Every field has a default, so a first call needs nothing but a viewpoint. `ui` was required
   // once, and the first thing every agent did was fail on "expected boolean, received undefined".
@@ -68,7 +89,8 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
       description: 'Open a scene or prefab document in the observer page. Everything else needs one open.',
       inputSchema: { path: z.string().describe('Project-relative path, e.g. assets/scenes/main.scene.xml') },
     },
-    async ({ path }) => text(await send({ type: 'open', path })),
+    async ({ path }) =>
+      withConsole(text(await send({ type: 'open', path }))),
   );
 
   mcp.registerTool(
@@ -80,7 +102,7 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
       inputSchema: { ...viewpoint, ...frameSchema },
     },
     async ({ cameraPos, lookAt, fov, width, height, ui }) =>
-      image(
+      withConsole(image(
         await send({
           type: 'preview',
           cameraPos,
@@ -88,7 +110,7 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
           ...(fov !== undefined ? { fov } : {}),
           frame: { width, height, ui },
         }),
-      ),
+      )),
   );
 
   mcp.registerTool(
@@ -106,7 +128,8 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
           ),
       },
     },
-    async ({ id }) => text(await send({ type: 'telemetry', targetId: id })),
+    async ({ id }) =>
+      withConsole(text(await send({ type: 'telemetry', targetId: id }))),
   );
 
   mcp.registerTool(
@@ -122,13 +145,13 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
       },
     },
     async ({ id, depth }) =>
-      text(
+      withConsole(text(
         await send({
           type: 'outline',
           ...(id ? { targetId: id } : {}),
           ...(depth !== undefined ? { depth } : {}),
         }),
-      ),
+      )),
   );
 
   for (const [name, type] of [
@@ -139,7 +162,8 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
     mcp.registerTool(
       name,
       { description: `${name[0]!.toUpperCase()}${name.slice(1)} the open scene.`, inputSchema: {} },
-      async () => text(await send({ type })),
+      async () =>
+      withConsole(text(await send({ type }))),
     );
   }
 
@@ -262,10 +286,10 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
         steps,
         frame: { width, height, ui },
       });
-      if (result.kind !== 'multi') return text(result);
+      if (result.kind !== 'multi') return withConsole(text(result));
       // Images and readings interleaved in the order they were captured, so a caller can line a
       // frame up with the numbers that went with it.
-      return {
+      return withConsole({
         content: result.results.map((one) =>
           one.kind === 'image'
             ? { type: 'image' as const, data: one.dataUrl.split(',')[1] ?? '', mimeType: 'image/png' }
@@ -273,6 +297,41 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
               ? { type: 'text' as const, text: one.text }
               : { type: 'text' as const, text: JSON.stringify(one.kind === 'json' ? one.data : one, null, 2) },
         ),
+      });
+    },
+  );
+
+  mcp.registerTool(
+    'console',
+    {
+      description:
+        "Everything the page has logged. New warnings and errors are appended to every other " +
+        "tool's reply already, so reach for this when you want the whole log, the quieter levels, " +
+        'or what happened before you started looking.',
+      inputSchema: {
+        level: z
+          .enum(['error', 'warning', 'info', 'log', 'debug'])
+          .optional()
+          .describe('Lowest level to include. Omit for warnings and errors only.'),
+        limit: z.number().int().positive().default(50).describe('Most recent entries to show'),
+      },
+    },
+    async ({ level, limit }) => {
+      const rank = { error: 0, warning: 1, info: 2, log: 3, debug: 4 } as const;
+      const floor = rank[level ?? 'warning'];
+      const opened = await page();
+      const entries = opened.consoleSince(0).filter((entry) => rank[entry.level] <= floor);
+      reported = opened.consoleSeq;
+      const shown = entries.slice(-limit);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: shown.length
+              ? shown.map((entry) => `${entry.level}: ${entry.text}`).join('\n')
+              : 'the page has logged nothing at this level',
+          },
+        ],
       };
     },
   );

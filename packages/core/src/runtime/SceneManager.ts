@@ -10,24 +10,11 @@ export type SceneEventListener = (scene: Scene, type: SceneType) => void;
 /**
  * Owns the set of loaded scenes and drives the event cycle.
  *
- * Scenes are identified by their **class**, never by a name string:
+ * Scenes are identified by their **class**, never a name string: there is no registry to
+ * populate, since the class is the key and `load` constructs it.
  *
- * ```ts
- * await SceneManager.load(MainMenu);
- * SceneManager.getScene(MainMenu)?.score;   // typed as MainMenu
- * ```
- *
- * There is no registry to populate first — the class *is* the key, so `load` can construct
- * it. Code-splitting still works, because a dynamic import hands you the class:
- *
- * ```ts
- * const { Level2 } = await import('./scenes/Level2');
- * await SceneManager.load(Level2);
- * ```
- *
- * The frame is pumped by `tick`, which runs the phases in a fixed order:
- * `fixedUpdate` (0..n times) → `update` → coroutines → `lateUpdate` → deferred destruction.
- * `Engine` calls it for you; call it yourself if you already have a render loop.
+ * `tick` runs the phases in order — `fixedUpdate` (0..n times) → `update` → coroutines →
+ * `lateUpdate` → deferred destruction. `Engine` calls it, or call it from your own loop.
  */
 class SceneManagerClass {
   private readonly loaded = new Map<SceneType, Scene>();
@@ -76,15 +63,11 @@ class SceneManagerClass {
   async load<T extends Scene>(type: SceneType<T>): Promise<T> {
     for (const other of [...this.loaded.keys()]) {
       if (other === type) continue;
-      // A scene that survives a load is the whole point of `dontDestroyOnLoad`, and the
-      // persistent scene below is one of these.
       if (this.loaded.get(other)?.dontDestroyOnLoad) continue;
       await this.unload(other);
     }
-    // Loading the scene that is already loaded is a **restart** — Unity's `LoadScene` of the
-    // current scene, the ordinary way a game says "again". It used to be a no-op, which left
-    // every "press R" reaching for an in-place reset of each component by hand; `loadAdditive`
-    // keeps the no-op, because "make sure the HUD is loaded" must never make a second HUD.
+    // Loading the scene that is already loaded is a **restart**, the ordinary way a game says
+    // "again". `loadAdditive` keeps the no-op instead: asking twice for the HUD makes one HUD.
     if (this.loaded.has(type)) await this.unload(type);
     const scene = await this.loadAdditive(type);
     this.setActiveScene(scene);
@@ -100,6 +83,7 @@ class SceneManagerClass {
 
     const operation = (async () => {
       const scene = new type();
+      requireAugmented(scene);
       this.typeOfScene.set(scene, type);
       await scene.load();
       this.loaded.set(type, scene);
@@ -146,10 +130,8 @@ class SceneManagerClass {
   /**
    * The scene persistent objects live in — Unity's `DontDestroyOnLoad` scene, by that name.
    *
-   * It is an ordinary loaded scene, which is the point: it ticks, it is searched by
-   * `findObjectOfType`, and its components get every hook. The only thing special about it is
-   * the flag that keeps `load` from unloading it. Created on first use, so a game that never
-   * persists anything never has one.
+   * An ordinary loaded scene in every respect but the flag that keeps `load` from unloading it.
+   * Created on first use.
    */
   get persistentScene(): Scene {
     let scene = this.loaded.get(PersistentScene);
@@ -158,8 +140,7 @@ class SceneManagerClass {
     scene.name = 'DontDestroyOnLoad';
     scene.dontDestroyOnLoad = true;
     this.typeOfScene.set(scene, PersistentScene);
-    // `Scene.load` has nothing to await here — no `onLoad` — so the parts that matter (the
-    // runtime, the loaded flag) are in place by the time this returns.
+    // Nothing to await — no `onLoad` — so the runtime and the loaded flag are in place already.
     void scene.load();
     this.loaded.set(PersistentScene, scene);
     return scene;
@@ -171,28 +152,14 @@ class SceneManagerClass {
   }
 
   /**
-   * Keep something across a scene load — Unity's `DontDestroyOnLoad`, with the same two uses.
+   * Keep something across a scene load — Unity's `DontDestroyOnLoad`.
    *
-   * Given a **node**, it is moved into the persistent scene: it keeps its components, its
-   * children and its local transform, and it is drawn on top of whatever scene is active.
-   * Its `onDisable`/`onEnable` fire around the move, because it really does leave one scene
-   * and join another.
+   * A **node** is moved into the persistent scene, keeping its components, children and local
+   * transform; its `onDisable`/`onEnable` fire around the move. A **scene** is marked exempt
+   * where it stands.
    *
-   * ```ts
-   * SceneManager.dontDestroyOnLoad(this.object3D);   // this node outlives the level
-   * ```
-   *
-   * Given a **scene**, it marks the scene itself exempt, which is the tidier answer when what
-   * survives is a whole document — a HUD, a pause menu, an audio rig:
-   *
-   * ```ts
-   * const hud = await SceneManager.loadAdditive(HudScene);
-   * SceneManager.dontDestroyOnLoad(hud);
-   * ```
-   *
-   * Prefer the scene form where you can. `loadAdditive` of an already-loaded scene is a no-op,
-   * so every level may ask for the HUD and exactly one exists — where a node persisted by two
-   * different levels leaves you with two of it, exactly as it does in Unity.
+   * Prefer the scene form: `loadAdditive` of a loaded scene is a no-op, so every level may ask
+   * for the HUD and one exists, where a node persisted by two levels leaves you with two.
    */
   dontDestroyOnLoad<T extends Object3D>(target: T): T {
     if (target instanceof Scene) {
@@ -206,11 +173,8 @@ class SceneManagerClass {
   // --- finding ----------------------------------------------------------------------------
 
   /**
-   * The first component of `type` in **any** loaded scene, or `null` — Unity's
-   * `Object.FindObjectOfType`, which is likewise global rather than per-scene.
-   *
-   * `scene.findObjectOfType` searches one scene. This searches all of them, which is what a
-   * freshly-loaded level needs to reach something that outlived the last one.
+   * The first component of `type` in **any** loaded scene — Unity's `Object.FindObjectOfType`,
+   * likewise global. `scene.findObjectOfType` searches one scene.
    */
   findObjectOfType<T extends Component>(type: ComponentType<T>, includeInactive = false): T | null {
     for (const scene of this.loaded.values()) {
@@ -253,19 +217,18 @@ class SceneManagerClass {
   tick(timestamp: number = performance.now()): void {
     const previous = this.lastTimestamp;
     this.lastTimestamp = timestamp;
-    // The first frame has no previous timestamp; give it a nominal delta rather than 0 so
-    // anything easing off `deltaTime` does not divide by zero.
+    // The first frame has no previous timestamp, and a delta of 0 divides by zero downstream.
     const delta = previous === null ? 1 / 60 : Math.max(0, (timestamp - previous) / 1000);
     Time.advance(delta);
-    // Before any component runs, so `update` reads an axis that belongs to this frame. Unscaled,
-    // because a game frozen at `timeScale = 0` still has to notice the key that unfreezes it.
+    // Before any component runs, so `update` reads an axis belonging to this frame. Unscaled: a
+    // game frozen at `timeScale = 0` still has to notice the key that unfreezes it.
     Input.advance(Time.unscaledDeltaTime);
 
     // A snapshot: a scene may load or unload another from inside a hook.
     const scenes = [...this.loaded.values()];
 
-    // Work out the fixed steps once, then interleave the scenes within each step, so two
-    // additive scenes never drift apart by a step.
+    // Steps counted once and the scenes interleaved within each, so two additive scenes never
+    // drift apart by a step.
     const step = Time.fixedDeltaTime;
     let steps = 0;
     if (step > 0) {
@@ -278,8 +241,7 @@ class SceneManagerClass {
       }
       if (steps === maxSteps) this.fixedAccumulator = 0;
     }
-    // Published before the phases run, so a system's `update` can blend between the two fixed
-    // poses its own `fixedUpdate` just recorded.
+    // Before the phases, so an `update` can blend the two poses its `fixedUpdate` just recorded.
     Time.interpolationAlpha = step > 0 ? this.fixedAccumulator / step : 0;
     for (let i = 0; i < steps; i++) {
       Time.advanceFixed();
@@ -302,12 +264,22 @@ class SceneManagerClass {
 }
 
 /**
- * The class of the persistent scene.
+ * Check that this scene is one core augmented, and say what it means when it is not.
  *
- * A real class rather than a bare `Scene` instance because scenes are keyed by class here, and
- * making the persistent one an ordinary entry in that map is what lets every other part of the
- * manager — the frame pump, the lookups, `unloadAll` — treat it like any other scene.
+ * The augmentation patches the prototypes of *one* `three`. A project that resolves two copies
+ * builds its scenes from the other one, and every symptom after this point — `load is not a
+ * function`, a scene that ticks nothing — points anywhere but at the cause.
  */
+function requireAugmented(scene: Scene): void {
+  if (typeof scene.load === 'function') return;
+  throw new Error(
+    `[scenoco] ${scene.constructor.name} was built from a different copy of three.js than the ` +
+      'one @scenoco-three/core augmented, so it has none of the engine on it. Check for a ' +
+      'duplicate `three` in node_modules — core declares it as a peer dependency for this reason.',
+  );
+}
+
+/** The class of the persistent scene, so it is an ordinary entry in the by-class map. */
 class PersistentScene extends Scene {}
 
 function remove<T>(list: T[], value: T): void {

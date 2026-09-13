@@ -1,5 +1,5 @@
 import { Group, Mesh, Object3D, PointLight } from 'three';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Component, SceneManager } from '@scenoco-three/core';
 import { Clock, resetEngine, sceneOf } from './helpers.js';
 
@@ -107,6 +107,37 @@ describe('components on a node', () => {
     // the `current` that `awake` computed. A prefab is the other question: build from a
     // definition, and every instance starts from the same known state.
     expect(copied?.current).toBe(42);
+  });
+
+  it('gives a clone its own plain data, and shares what it cannot copy', () => {
+    class Tally extends Component {
+      counts = new Map<string, number>([['hits', 1]]);
+      tags = new Set(['a']);
+      config = { speed: 2 };
+      /** Nothing here can duplicate a closure, so both components end up with this one. */
+      onTick: (() => void) | null = null;
+      readonly handle = { fn: () => 0 };
+    }
+
+    const source = new Group();
+    source.addComponent(Tally);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const copied = source.clone().getComponent(Tally)!;
+    const original = source.getComponent(Tally)!;
+
+    // Plain data is duplicated, so the clone owns its own.
+    copied.counts.set('hits', 9);
+    copied.tags.add('b');
+    copied.config.speed = 5;
+    expect(original.counts.get('hits')).toBe(1);
+    expect(original.tags.has('b')).toBe(false);
+    expect(original.config.speed).toBe(2);
+
+    // What it cannot copy is shared — and says so rather than doing it quietly.
+    expect(copied.handle).toBe(original.handle);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Tally.handle'));
+    warn.mockRestore();
   });
 
   it('drops a component from queries as soon as it is destroyed', async () => {

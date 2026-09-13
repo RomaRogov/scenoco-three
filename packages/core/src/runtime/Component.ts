@@ -25,9 +25,9 @@ export const ComponentState = {
 export type ComponentState = (typeof ComponentState)[keyof typeof ComponentState];
 
 /** The per-value rules behind {@link Component.copy}. */
-function copyValue(value: unknown): unknown {
+function copyValue(value: unknown, owner: string, key: string): unknown {
   if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(copyValue);
+  if (Array.isArray(value)) return value.map((entry) => copyValue(entry, owner, key));
 
   const candidate = value as { isObject3D?: boolean; dispose?: unknown; clone?: () => unknown };
   // A reference to another object in the scene stays a reference.
@@ -36,36 +36,60 @@ function copyValue(value: unknown): unknown {
   if (typeof candidate.dispose === 'function') return value;
   // Value objects get duplicated so the copy owns its own.
   if (typeof candidate.clone === 'function') return candidate.clone();
+  // So does plain data — a `Map` of counters is this component's, not every clone's.
+  if (isPlainData(value)) {
+    try {
+      return structuredClone(value);
+    } catch {
+      // A function or a DOM node somewhere inside it. Shared, and said out loud.
+    }
+  }
+  warnShared(owner, key, value);
   return value;
 }
 
+/** Data with no identity of its own: a literal, a collection, a date, a buffer. */
+function isPlainData(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  return (
+    prototype === Object.prototype ||
+    prototype === null ||
+    value instanceof Map ||
+    value instanceof Set ||
+    value instanceof Date ||
+    ArrayBuffer.isView(value)
+  );
+}
+
+/** Fields already reported, so a clone in a loop says it once. */
+const reportedShares = new Set<string>();
+
 /**
- * Base class for all behaviour. Extend it, declare the settings you want as public fields,
- * implement the hooks you need, and attach it with `object3D.addComponent(MyComponent)`.
+ * A value none of the rules can duplicate, so both components now hold the same one.
  *
- * ```ts
- * class Spinner extends Component {
- *   speed = 1;
- *   update(dt: number) { this.object3D.rotation.y += this.speed * dt; }
- * }
+ * Almost always a mistake, and an invisible one: the clone changes a field and the original
+ * changes with it. A component that owns something unclonable should build it in `awake`.
+ */
+function warnShared(owner: string, key: string, value: object): void {
+  const id = `${owner}.${key}`;
+  if (reportedShares.has(id)) return;
+  reportedShares.add(id);
+  console.warn(
+    `[scenoco] ${id} holds a ${value.constructor?.name ?? 'value'} that cannot be copied, so ` +
+      'every clone shares this one. Build it in awake() to give each instance its own, or ' +
+      'override copy().',
+  );
+}
+
+/**
+ * Base class for all behaviour. Extend it, declare the settings as public fields, implement the
+ * hooks you need, and attach it with `object3D.addComponent(MyComponent)`.
  *
- * cube.addComponent(Spinner, { speed: 2.5 });
- * ```
+ * `TObject` says what kind of node this expects underneath and types `this.object3D` as that
+ * class — `Component<PointLight>` cannot be added to a `Mesh`.
  *
- * The type parameter says what kind of `Object3D` this expects underneath, and types
- * `this.object3D` as that class with no cast:
- *
- * ```ts
- * class Flicker extends Component<PointLight> {
- *   update() { this.object3D.intensity = Math.random(); }
- * }
- *
- * mesh.addComponent(Flicker);    // type error: a Mesh is not a PointLight
- * ```
- *
- * Every hook is optional, and a component is only ticked for the hooks it defines. Constructors
- * take no arguments: the engine constructs, applies `init`, then calls `awake`, so anything
- * needing the owning object goes there.
+ * Every hook is optional, and a component is ticked only for the hooks it defines. Constructors
+ * take no arguments: the engine constructs, applies `init`, then calls `awake`.
  */
 export abstract class Component<TObject extends Object3D = Object3D> {
   /** @internal set by `Object3D.addComponent` immediately after construction. */
@@ -84,12 +108,8 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   _subscriptions: (() => void)[] | null = null;
 
   /**
-   * The `THREE.Object3D` this component is attached to, typed as whatever `TObject` says —
-   * a `Mesh`, a `PointLight`, or plain `Object3D` when the component does not care.
-   *
-   * This is a real three.js object, not a wrapper: `position`, `rotation`, `scale`,
-   * `lookAt`, `traverse`, `material` and everything else are exactly where they always were.
-   * Only valid from `awake` onwards.
+   * The `THREE.Object3D` this component is attached to — a real three.js object, not a wrapper.
+   * Valid from `awake` onwards.
    */
   get object3D(): TObject {
     return this._object3D;
@@ -115,20 +135,16 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   }
 
   /**
-   * True when the component is enabled, its object is active in hierarchy, and it is in a
-   * loaded scene — i.e. exactly when it receives ticks. Named after Unity's
-   * `Behaviour.isActiveAndEnabled`, which means the same thing.
+   * True when the component is enabled, its object active in hierarchy and its scene loaded —
+   * exactly when it receives ticks. Unity's `Behaviour.isActiveAndEnabled`.
    */
   get isActiveAndEnabled(): boolean {
     return this._active && !this._pendingDestroy;
   }
 
   /**
-   * True once `onDestroy` has run. Spelled the same as `Object3D.isDestroyed`.
-   *
-   * `isDestroyed` rather than `destroyed`, matching `isActiveAndEnabled` and `Scene.isLoaded`
-   * — and leaving the plain word free, because `readonly destroyed = new Event<[Brick]>()` is
-   * one of the most natural things a component ever declares.
+   * True once `onDestroy` has run. `isDestroyed` rather than `destroyed`, which leaves the
+   * plain word free for the event a component is likely to declare.
    */
   get isDestroyed(): boolean {
     return this._state === ComponentState.Destroyed;
@@ -186,21 +202,10 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   }
 
   /**
-   * Shorthand for `this.scene.requireSystem(type, init)`: get the scene's system of this class,
-   * creating it if this is the first component to ask.
+   * The scene's system of this class, created if this is the first component to ask — how a
+   * component reaches a scene-level service, usually as `requireSystem(X).add(this)` in `awake`.
    *
-   * This is how a component reaches a scene-level service, and it is the whole registration
-   * story — there are no queries, because the component already knows what it needs:
-   *
-   * ```ts
-   * class RigidBody2D extends Component {
-   *   override awake() { this.requireSystem(Physics2D).add(this); }
-   *   override onDestroy() { this.getSystem(Physics2D)?.remove(this); }
-   * }
-   * ```
-   *
-   * Throws on a component that is not in a scene: a scene-level service cannot be required
-   * from a detached node, and handing back a system belonging to no scene would be worse.
+   * Throws on a detached node, which has no scene to hold the system.
    */
   requireSystem<T extends System>(type: ConstructableSystem<T>, init?: SystemInit<T>): T {
     const scene = this.scene;
@@ -216,22 +221,10 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   // --- coroutines ----------------------------------------------------------------------
 
   /**
-   * Run a generator across frames.
+   * Run a generator across frames. `yield null` waits one frame, a bare number waits that many
+   * seconds, and a promise is awaited.
    *
-   * ```ts
-   * start() { this.startCoroutine(this.patrol()); }
-   *
-   * private *patrol(): IEnumerator {
-   *   while (true) {
-   *     yield new WaitForSeconds(2);
-   *     this.turn();
-   *   }
-   * }
-   * ```
-   *
-   * `yield null` waits one frame, a bare number waits that many seconds, and a promise is
-   * awaited. All of a component's coroutines stop when it is disabled or destroyed, so an
-   * endless loop like the one above is safe.
+   * Every coroutine stops when the component is disabled or destroyed, so an endless loop is safe.
    */
   startCoroutine(body: Generator<Yieldable, unknown, unknown>): Coroutine {
     const coroutine = new Coroutine(body);
@@ -255,17 +248,8 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   // --- events --------------------------------------------------------------------------
 
   /**
-   * Subscribe to another object's {@link Event} for as long as this component lives: the
+   * Subscribe to another object's {@link Event} for as long as this component lives — the
    * runtime unsubscribes during teardown, so a destroyed listener can never be called.
-   *
-   * This is how a component reacts to something it does not own, without the two classes
-   * importing each other. References point **down** (a field holding the thing you own);
-   * events travel **up and out**.
-   *
-   * ```ts
-   * start() { for (const brick of this.bricks) this.listen(brick.destroyed, this.onBrick); }
-   * private onBrick = (brick: Brick) => { this.score += brick.points; };
-   * ```
    */
   // `NoInfer` on the listener: the event's own type is the contract, so a listener that
   // ignores some arguments (the common case) can't narrow it.
@@ -287,48 +271,34 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   // --- cloning -------------------------------------------------------------------------
 
   /**
-   * Copy another instance's settings onto this one. Called by `Object3D.copy` and therefore
-   * by `Object3D.clone`, which is how components survive being cloned.
+   * Copy another instance's settings onto this one — how components survive `Object3D.clone`.
    *
-   * The default copies every own field except the engine's internals, following three rules
-   * for what to do with object values:
-   *
-   * - **References to other objects stay references.** A clone must not drag a duplicate of
-   *   whatever it was pointing at into existence.
-   * - **Disposable resources are shared**, never duplicated. Cloning a mesh should not double
-   *   its GPU memory.
-   * - **Value objects are duplicated** — `Vector3`, `Euler`, `Quaternion`, `Color` and
-   *   anything else with a `clone()` — so the copy owns its own and the two cannot drift into
-   *   each other.
-   *
-   * Override it when that is wrong for a particular component. A component that *owns* a
-   * resource should create it in `awake` rather than in a field, so each instance gets its own
-   * and there is nothing to copy.
+   * Every own field except the engine's internals, by the rules in {@link copyValue}: object
+   * references stay references, disposable resources are shared, value objects and plain data are
+   * duplicated. Anything left over is shared and warns. Override where that is wrong; a component
+   * that *owns* a resource should build it in `awake`.
    */
   copy(source: this): this {
     for (const key of Object.keys(source)) {
       // `_`-prefixed fields are the runtime's bookkeeping; a fresh component starts clean.
       if (key.startsWith('_')) continue;
       const target = this as unknown as Record<string, unknown>;
-      target[key] = copyValue((source as unknown as Record<string, unknown>)[key]);
+      const value = (source as unknown as Record<string, unknown>)[key];
+      target[key] = copyValue(value, source.constructor.name, key);
     }
     return this;
   }
 
   // --- destruction ---------------------------------------------------------------------
 
-  /**
-   * Detach and destroy this component. `onDisable` and `onDestroy` run at the end of the
-   * current frame, never in the middle of an update pass.
-   */
+  /** Detach and destroy this component. `onDisable`/`onDestroy` run at the end of the frame. */
   destroy(): void {
     this._object3D?.removeComponent(this);
   }
 }
 
 /**
- * Declaration merge, not `implements`: it gives every subclass the correctly-typed optional
- * hooks without forcing the base class to carry empty method bodies the engine would then
- * have to detect and skip.
+ * Declaration merge, not `implements`: subclasses get the typed optional hooks without the base
+ * carrying empty bodies the engine would have to detect and skip.
  */
 export interface Component extends ComponentLifecycle {}

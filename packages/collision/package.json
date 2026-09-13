@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/collision",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Detection-only collision for SceNoCo, API-identical to @scenoco-three/rapier.",
   "type": "module",
   "license": "MIT",

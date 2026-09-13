@@ -36,8 +36,8 @@ trace and you can still read what the document said.
 <!-- assets/scenes/level-1.scene.xml -->
 <Scene camera="#camera" background="#05070d" render="../render/neon.render.xml">
   <PerspectiveCamera id="camera" position="y: 8.5; z: 24" />
-  <Mesh geometry="../geometry/paddle.geometry.xml"
-        material="../materials/paddle.material.xml" position="y: 1">
+  <Mesh geometry="../geometry/paddle.asset.xml"
+        material="../materials/paddle.asset.xml" position="y: 1">
     <Components>
       <Paddle speed="16" halfRange="7.4" />
     </Components>
@@ -67,7 +67,7 @@ $ npx scenoco check
 level-1.scene.xml:14:24   unknown-attribute  Brick has no "pints". Did you mean "points"?
 level-1.scene.xml:19:12   unknown-attribute  Brick has no "strength". It takes: points, tint.
 level-1.scene.xml:26:9    bad-value          position takes keyed axes. Write position="x: 1; y: 2; z: 3"
-paddle.material.xml:4:15  bad-value          tint must be a hex colour. For tomato, write tint="#ff6347"
+paddle.asset.xml:4:15  bad-value          tint must be a hex colour. For tomato, write tint="#ff6347"
 
 4 problems. No files written.
 ```
@@ -87,7 +87,7 @@ scenoco build [dir]     compile every document in the project
 scenoco watch [dir]     compile, then recompile as documents and components change
 scenoco check [dir]     compile without writing — for CI
 scenoco new <kind> <name>
-scenoco new geometry    the primitives: cube, sphere, cylinder, capsule, cone, quad, plane
+scenoco new asset       the primitives: cube, sphere, cylinder, capsule, cone, quad, plane
 scenoco describe [name] what a name means here — a component, a tag, or a document.
                         With no name, the whole vocabulary.
 
@@ -97,7 +97,7 @@ Options
   --modules a,b           packages whose tags the documents may use, beyond three
 ```
 
-`scenoco new geometry` with no name writes the whole primitive set at Unity's dimensions — a cube
+`scenoco new asset` with no name writes the whole primitive set at Unity's dimensions — a cube
 one unit across, a sphere of radius 0.5 — so `scale` means what it means in an engine you already
 know.
 
@@ -120,8 +120,9 @@ A spawn can reach these from outside with <Override target="#id" …>:
   #ball  Ball  (a component)
 
 $ npx scenoco describe Cube
-there is no <Cube> tag. cube is a shape, and a shape is a geometry document a mesh names:
-  <Mesh geometry="../geometry/cube.geometry.xml" material="…" position="…" scale="…" />
+there is no <Cube> tag. cube is a shape, and a shape is an asset a mesh names:
+  <Mesh geometry="assets/geometry/cube.asset.xml" material="…" position="…" scale="…" />
+  (that path is from the project root; write it relative to the document that names it)
 Its numbers: <BoxGeometry width="1" height="1" depth="1" />
 ```
 
@@ -135,8 +136,8 @@ attribute.
 | --- | --- |
 | `*.scene.xml` | The `<Scene>` root with its nodes and components |
 | `*.prefab.xml` | A reusable node, spawned with `<Prefab src="…">` or `instantiate()` |
-| `*.geometry.xml` | One three.js geometry, referenced by meshes |
-| `*.material.xml` | One three.js material, referenced by meshes |
+| `*.asset.xml` | One three.js geometry, referenced by meshes |
+| `*.asset.xml` | One three.js material, referenced by meshes |
 | `*.texture.xml` | An image plus its sampler settings |
 | `*.render.xml` | How a scene is drawn: tone mapping, shadows, post effects |
 | `*.particle.xml` | A particle effect, in Unity Shuriken module form |

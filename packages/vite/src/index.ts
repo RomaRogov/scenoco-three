@@ -30,19 +30,11 @@ export interface ScenocoOptions {
  * await SceneManager.load(Breakout);
  * ```
  *
- * ### What this used to do
- *
- * v1's plugin was two hundred lines. It served each scene as a virtual module behind
- * `import scene from './x.scene.xml?bundle'`, compiled the XML to a JSON bundle, worked out which
- * component modules that scene used and emitted an import for each so the decorator registry
- * would be populated, then found every asset URL inside the bundle and rewrote it into a Vite
- * asset import so the URLs would be hashed.
- *
- * None of that has anything to describe any more. A document compiles to an ordinary `.ts` file
- * beside it, so a scene is imported by its name and the bundler's own graph decides what ships —
- * unused components are dropped because nothing imports them, not because a plugin worked out
- * that nothing used them. Asset URLs are `new URL(…, import.meta.url)`, which Vite already
- * rewrites. What is left is running the compiler at the right moments, which is this file.
+ * There are no virtual modules. A document compiles to an ordinary `.ts` file beside it, so a
+ * scene is imported by its name and the bundler's own graph decides what ships — unused
+ * components are dropped because nothing imports them. Asset URLs are
+ * `new URL(…, import.meta.url)`, which Vite already rewrites. What is left is running the
+ * compiler at the right moments, which is this file.
  */
 export function scenoco(options: ScenocoOptions = {}): Plugin {
   let root: string;
@@ -155,6 +147,6 @@ function watch(server: ViteDevServer, root: string, compile: (rescan: boolean) =
   server.watcher.on('unlink', changed);
 }
 
-// TC39 standard-decorator lowering for game code (oxc cannot do it). Core's `@serialize` and
-// `@executeInEditMode` are the only decorators left, but a project using either needs this.
+// TC39 standard-decorator lowering for game code (oxc cannot do it). `@serializeField` is the
+// only decorator left, but a project using it needs this.
 export { standardDecorators } from './decorators.js';

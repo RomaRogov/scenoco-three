@@ -8,11 +8,11 @@ editor's eyes.
 npm --prefix examples/castle run dev
 ```
 
-The shapes are ordinary geometry documents, written by `scenoco new geometry` and sized as Unity
+The shapes are ordinary assets, written by `scenoco new asset` and sized as Unity
 sizes them. A mesh names one, and `scale` says how big this one is:
 
 ```xml
-<Mesh geometry="../geometry/cube.geometry.xml" material="../materials/stone.material.xml"
+<Mesh geometry="../geometry/cube.asset.xml" material="../materials/stone.asset.xml"
       position="y: 2" scale="x: 24; y: 4; z: 1" />
 ```
 

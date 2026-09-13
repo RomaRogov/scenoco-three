@@ -1,28 +1,14 @@
 /**
- * Who owns a geometry, a material or a texture — the module that created it, or the scene using it.
+ * Who owns a geometry, material or texture — the module that created it, or the scene using it.
  *
- * `Scene.unload` frees the GPU resources it can reach, which is right for whatever the scene
- * built and wrong for a module-level export. Fifty scenes may import one material; the first to
- * unload must not dispose it out from under the rest.
- *
- * Unity draws the line with `sharedMaterial` and `material`: the asset, and this renderer's own
- * copy. Same words here. A module-level resource is `shared()`; anything built at runtime — a
- * procedural geometry, the copy `Object3D.uniqueMaterial()` makes — is not, and is freed on
- * unload.
+ * `Scene.unload` frees what the scene built; a module-level export is `shared()` and survives,
+ * because fifty scenes may import one material. Unity's `sharedMaterial`/`material` split.
  */
 
-/** Everything marked shared, so `disposeAssets` can free them and disposal can skip them. */
+/** Everything marked shared, so unload can skip them and `disposeAssets` can free them. */
 const owned = new Set<object>();
 
-/**
- * Mark a value as owned by the module that created it, and hand it back.
- *
- * ```ts
- * export const brick = shared(new BoxGeometry(1.2, 0.4, 0.5));
- * ```
- *
- * Scene unload leaves it alone from here on. Wrap anything a module exports for others to use.
- */
+/** Mark a value as owned by its module, so scene unload leaves it alone, and hand it back. */
 export function shared<T>(value: T): T {
   if (value !== null && typeof value === 'object') owned.add(value as object);
   return value;
@@ -33,12 +19,7 @@ export function isShared(value: unknown): boolean {
   return value !== null && typeof value === 'object' && owned.has(value as object);
 }
 
-/**
- * Free every shared asset and forget them.
- *
- * A game never needs this — shared assets are meant to live as long as the page. Tests and HMR
- * do, which is the whole reason it exists.
- */
+/** Free every shared asset and forget them. For tests and HMR; a game never needs it. */
 export function disposeAssets(): void {
   for (const value of owned) {
     (value as { dispose?: () => void }).dispose?.();

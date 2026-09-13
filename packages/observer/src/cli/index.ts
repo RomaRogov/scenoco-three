@@ -70,6 +70,10 @@ async function main(argv: readonly string[]): Promise<number> {
         if (command.type === 'open') current = command.path;
         return result;
       },
+      consoleSince: (after) => opened.consoleSince(after),
+      get consoleSeq() {
+        return opened.consoleSeq;
+      },
       close: () => opened.close(),
     })));
 

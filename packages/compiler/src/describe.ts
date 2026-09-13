@@ -181,19 +181,20 @@ function project(input: DescribeInput, kinds: Array<[string, ComponentInfo[]]>):
 /**
  * A shape asked for as if it were a tag.
  *
- * Every engine has a `<Cube>`, so every author expects one. Here a shape is a geometry document
- * a mesh names, and saying so is worth more than a near-miss guess — it is the single commonest
- * wrong turn measured in this project.
+ * Every engine has a `<Cube>`, so every author expects one. Here a shape is a geometry a mesh
+ * names, and saying so is worth more than a near-miss guess — it is the single commonest wrong
+ * turn measured in this project.
  */
 function describeShape(input: DescribeInput, wanted: string): string | null {
   const stem = wanted.toLowerCase();
-  const found = input.assets.find((asset) => asset.kind === 'geometry' && asset.stem === stem);
+  const found = input.assets.find((asset) => asset.kind === 'asset' && asset.stem === stem);
   if (!found) return null;
   const numbers = describeDocument(input, found.relativePath).split('\n')[1]?.trim() ?? '';
   return (
-    `there is no <${wanted}> tag. ${stem} is a shape, and a shape is a geometry document a mesh ` +
-    `names:\n  <Mesh geometry="../geometry/${stem}.geometry.xml" material="…" position="…" ` +
-    `scale="…" />\nIts numbers: ${numbers}`
+    `there is no <${wanted}> tag. ${stem} is a shape, and a shape is an asset a mesh names:` +
+    `\n  <Mesh geometry="${found.relativePath}" material="…" position="…" scale="…" />` +
+    '\n  (that path is from the project root; write it relative to the document that names it)' +
+    `\nIts numbers: ${numbers}`
   );
 }
 
@@ -438,7 +439,7 @@ const RUNTIME: Record<string, string> = {
 const GRAMMAR: Record<string, string> = {
   Prefab: [
     '<Prefab src="brick.prefab.xml" position="x: 1; y: 2" />  — spawn a prefab document.',
-    'Takes src, and the placement attributes: name, position, eulerAngles (degrees), scale, visible.',
+    'Takes src, and the placement attributes: name, position, eulerAngles (degrees), scale, active.',
     'Its children are <Override> elements, and nothing else.',
   ].join('\n'),
   Override: [
@@ -505,14 +506,63 @@ function describeDocument(input: DescribeInput, href: string): string {
   ].join('\n');
 }
 
+/**
+ * What a field list cannot say about a tag.
+ *
+ * Most tags need none of this: `<Mesh geometry material>` is its own explanation. The UI ones are
+ * not — a build read the whole list for `Canvas`, `Panel` and `Text`, wrote them exactly as the
+ * fields describe, and got a blank screen, because nothing in a list of names says a `<Canvas>`
+ * belongs under the camera or how the pieces compose.
+ */
+const TAG_NOTES: Record<string, string> = {
+  Canvas: [
+    '**A child of the camera node**, which is where a Unity Canvas in Screen Space – Camera mode',
+    'lives too; anywhere else it lays out nothing, and the compiler says so.',
+    '',
+    '  <PerspectiveCamera id="camera">',
+    '    <Canvas padding="20">',
+    '      <Panel anchor="stretchTop" height="56" layout="horizontal" alignX="between">',
+    '        <Text id="score" text="SCORE 0" fontSize="20" />',
+    '      </Panel>',
+    '    </Canvas>',
+    '  </PerspectiveCamera>',
+    '',
+    'Everything inside is pixels. A <Panel> lays its children out; a <Text> draws a run of text;',
+    'an <Image> draws a texture. Set `text` from a component to change what a label says.',
+  ].join('\n'),
+  Panel: [
+    '`layout` stacks its children (`vertical` by default), `alignX`/`alignY` place them, and',
+    '`gap`/`padding` space them. Writing `anchor` takes the element *out* of its parent’s layout',
+    'and pins it to a corner or an edge instead — the same rule Unity follows.',
+    '',
+    '`background` is the fill and `backgroundOpacity` its own transparency; `opacity` is inherited',
+    'and fades the text inside with it.',
+  ].join('\n'),
+  Text: [
+    '`text` is what it says, and a component assigns it: `this.scoreText.text = …` with',
+    '`scoreText!: Text` filled by `text="#score"` in the document.',
+    '',
+    'The bundled font is ASCII: an em dash or a curly quote draws as nothing. Hide one with',
+    '`active="false"` or `setActive(false)`, the same as any other node.',
+  ].join('\n'),
+  Image: '`src` names a texture; the rect attributes place it exactly as they place a <Panel>.',
+  UIRenderer: [
+    'Lays out and draws every UI element in the scene. Add it under <Systems> once; the elements',
+    'find it themselves. It also runs while the scene is not being simulated, so a HUD is visible',
+    'without pressing play.',
+  ].join('\n'),
+};
+
 function describeTag(tag: TagInfo): string {
   // Constructor parameters and settable properties are one list to whoever writes the document:
   // both are attributes, and which half a value lands in is the emitter's problem, not theirs.
   const all = [...tag.parameters, ...tag.properties];
   const shown = all.slice(0, 40).map(field);
+  const note = tag.module !== 'three' ? TAG_NOTES[tag.name] : undefined;
   return [
     `<${tag.name}>  — ${tag.family}, from ${tag.module}`,
     ...(tag.description ? [tag.description.split('\n')[0]!] : []),
+    ...(note ? ['', note, ''] : []),
     ...shown,
     ...(all.length > shown.length ? [`… and ${all.length - shown.length} more.`] : []),
     // The attributes no class declares and every node takes. They are also the ones a document

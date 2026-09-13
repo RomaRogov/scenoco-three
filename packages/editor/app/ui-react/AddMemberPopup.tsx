@@ -15,11 +15,7 @@ interface Candidate {
  * description.
  *
  * What it offers is every component class the project declares, read from `ProjectModel` — which
- * is read from the source. v1 asked a runtime registry that decorators populated, so a component
- * only appeared here if it had been registered; a class is the registration now.
- *
- * There is no attachment half any more: a geometry and a material are assets a mesh points at,
- * so they are attributes rather than members to add.
+ * is read from the source, so a class is its own registration.
  */
 export function AddMemberPopup(): React.JSX.Element | null {
   const adding = useUI((s) => s.adding);

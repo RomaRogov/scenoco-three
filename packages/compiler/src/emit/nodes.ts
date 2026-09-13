@@ -2,6 +2,8 @@ import { nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue } from '../dsl/value.js';
 import { buildConstruction } from './resource.js';
+import { camelCase } from './module.js';
+import type { TagInfo } from '../model.js';
 import { applyPersistence } from './persistence.js';
 import { emitSpawn } from './spawn.js';
 import type { EmitScope } from './scope.js';
@@ -27,19 +29,6 @@ export function emitNode(scope: EmitScope, element: SncElement, parent: string, 
     emitSpawn(scope, element, parent, out);
     return;
   }
-  // v1 wrapped every spawn in a `<PrefabInstance>` node. There is no wrapper any more, so the
-  // name would describe something that does not exist — and a document written against the
-  // old name deserves the new one rather than "unknown tag".
-  if (element.tag === 'PrefabInstance') {
-    scope.report(
-      element,
-      'renamed-tag',
-      '<PrefabInstance> is now <Prefab>. There is no wrapper node around a spawned prefab, ' +
-        'so the instance *is* the prefab — `<Prefab src="brick.prefab.xml" />`.',
-    );
-    return;
-  }
-
   // `<Override>` belongs to a `<Prefab>`, which reads its own children.
   if (element.tag === 'Override') {
     scope.report(
@@ -68,15 +57,94 @@ export function emitNode(scope: EmitScope, element: SncElement, parent: string, 
   const tag = scope.tagFor(element, 'node');
   if (!tag) return;
 
-  const { call, assignments } = buildConstruction(tag, element, scope.module, scope.context, STRUCTURAL);
+  const { attached, nodes } = partitionChildren(scope, element, tag, out);
+
+  const { call, assignments } = buildConstruction(
+    tag,
+    element,
+    scope.module,
+    scope.context,
+    STRUCTURAL,
+    attached,
+  );
   const placed = scope.place(element, tag.name, tag);
 
   out.push(`${scope.declaration(placed)} = ${call};`);
   scope.stamp(element, placed.reference, out);
   for (const assignment of assignments) out.push(`${placed.reference}.${assignment}`);
   applyPlacement(scope, element, placed.reference, out);
-  for (const child of element.children) emitNode(scope, child, placed.reference, out);
+  for (const child of nodes) emitNode(scope, child, placed.reference, out);
   out.push(`${parent}.add(${placed.reference});`);
+}
+
+// --- attached objects ------------------------------------------------------------------
+
+/**
+ * Split an element's children into the objects this node is built *from* and the nodes below it,
+ * emitting the former and returning the constructor slot each fills.
+ *
+ * `<Mesh><MeshStandardMaterial/></Mesh>` is `new Mesh(geo, new MeshStandardMaterial())`, so the
+ * node gets its own; naming a file reaches the shared one. A child matches a parameter by family,
+ * and **only** a parameter: every `Object3D` has Material-typed properties
+ * (`customDepthMaterial`), so matching those would quietly accept a material on a light.
+ */
+function partitionChildren(
+  scope: EmitScope,
+  element: SncElement,
+  tag: TagInfo,
+  out: string[],
+): { attached: Map<string, string>; nodes: SncElement[] } {
+  const nodes: SncElement[] = [];
+  const codesBySlot = new Map<string, string[]>();
+
+  for (const child of element.children) {
+    const childTag = scope.options.model.tags.find((t) => t.name === child.tag);
+    // A node, a block (`<Components>`), or an unknown tag: `emitNode` handles all three.
+    if (!childTag || childTag.family === 'node') {
+      nodes.push(child);
+      continue;
+    }
+
+    const slot = tag.parameters.find((p) => p.assetFamily === childTag.family);
+    if (!slot) {
+      scope.report(
+        child,
+        'unattachable',
+        `<${tag.name}> is not built from a ${childTag.family}, so <${child.tag}> cannot go ` +
+          `inside it. Its constructor is (${tag.parameters.map((p) => p.name).join(', ')}).`,
+      );
+      continue;
+    }
+
+    const { call, assignments } = buildConstruction(childTag, child, scope.module, scope.context);
+    const local = scope.module.declare(camelCase(childTag.name));
+    out.push(`const ${local} = ${call};`);
+    scope.stamp(child, local, out);
+    for (const assignment of assignments) out.push(`${local}.${assignment}`);
+
+    const codes = codesBySlot.get(slot.name) ?? [];
+    codes.push(local);
+    codesBySlot.set(slot.name, codes);
+  }
+
+  const attached = new Map<string, string>();
+  for (const [name, codes] of codesBySlot) {
+    const slot = tag.parameters.find((p) => p.name === name)!;
+    if (codes.length === 1) {
+      attached.set(name, codes[0]!);
+    } else if (slot.list) {
+      // Document order is slot order, which is how three.js reads a geometry's groups.
+      attached.set(name, `[${codes.join(', ')}]`);
+    } else {
+      scope.report(
+        element,
+        'one-only',
+        `<${tag.name}> takes one ${slot.assetFamily ?? slot.name}, not ${codes.length}. ` +
+          `Only a slot declared ${slot.type} takes a list.`,
+      );
+    }
+  }
+  return { attached, nodes };
 }
 
 export function applyPlacement(

@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import type { Object3D } from 'three';
 import type { PropInfo } from '@scenoco-three/compiler';
-import type { SceneDocument } from '../document.js';
+import type { Attachment, SceneDocument } from '../document.js';
 import { shownValue, widgetFor, type Scalar } from '../values.js';
 import { getDeps, useUI } from './store.js';
 import { cx } from './cx.js';
@@ -23,14 +23,12 @@ import styles from './ui.module.css';
  * ### Where the schema comes from
  *
  * `ProjectModel`, read from the project's own TypeScript: field names, types, defaults, doc
- * comments. v1 read a runtime registry that decorators populated, so the inspector could only
- * show what had been restated in a `@property`. Nothing is restated now, and nothing can drift.
- *
- * Attachments are gone with `<Attachments>` — a geometry and a material are assets a mesh points
- * at, so they show as ordinary attributes.
+ * comments. Nothing is restated anywhere, so nothing can drift.
  */
 const PREFAB_REASON = 'From another document — open it to edit this.';
 const TYPE_REASON = 'No attribute can express this type.';
+/** A slot an element fills. Naming a file here as well would be two materials for one mesh. */
+const ATTACHED_REASON = (tag: string) => `Written as a <${tag}> inside this node.`;
 
 /** Sections the user has folded away, by title. Module state: one inspector per page. */
 const closedSections = new Set<string>();
@@ -77,16 +75,35 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
   const tag = doc?.tagOf(node);
   const tagName = doc?.tagNameOf(node) ?? node.type;
 
-  const renderNodeProp = (prop: PropInfo): React.JSX.Element => (
-    <PropRow
-      key={prop.name}
-      prop={prop}
-      written={doc?.nodeAttr(node, prop.name)}
-      editable={mine}
-      commit={(v, c) => doc?.setNodeValue(node, prop, v, c)}
-      clear={() => doc?.clearNodeAttr(node, prop.name)}
-    />
-  );
+  // A slot written as an element is not writable as an attribute: the compiler reports a node
+  // given both, so the row says where the value lives instead of offering a second one.
+  const attachments = doc?.attachmentsOf(node) ?? [];
+  const attachedBySlot = new Map(attachments.map((a) => [a.slot, a]));
+
+  const renderNodeProp = (prop: PropInfo): React.JSX.Element => {
+    const attached = attachedBySlot.get(prop.name);
+    if (attached) {
+      return (
+        <LockRow
+          key={prop.name}
+          label={prop.name}
+          value={`<${attached.tag.name}>`}
+          reason={ATTACHED_REASON(attached.tag.name)}
+          description={prop.description}
+        />
+      );
+    }
+    return (
+      <PropRow
+        key={prop.name}
+        prop={prop}
+        written={doc?.nodeAttr(node, prop.name)}
+        editable={mine}
+        commit={(v, c) => doc?.setNodeValue(node, prop, v, c)}
+        clear={() => doc?.clearNodeAttr(node, prop.name)}
+      />
+    );
+  };
   const tagProps = split([...(tag?.parameters ?? []), ...(tag?.properties ?? [])], (p) =>
     doc?.nodeAttr(node, p.name) !== undefined,
   );
@@ -168,6 +185,18 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
       </Section>,
     );
   }
+  // What this node is built from, under the node itself: an attached object is not in the tree,
+  // because it never became one.
+  for (const [i, attachment] of attachments.entries()) {
+    sections.push(
+      <AttachmentSection
+        key={`attached-${i}`}
+        attachment={attachment}
+        editable={mine}
+        doc={doc}
+      />,
+    );
+  }
   if (doc?.canEditComponents(node)) sections.push(<AddRow key="add-comp" node={node} />);
 
   return (
@@ -228,10 +257,8 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
 
 /**
  * One attribute, dispatched by its **shape** — the single question the whole DSL rests on, and
- * the one the compiler already answered by reading the field's type.
- *
- * v1 dispatched on a `ValueType` the author restated in a decorator. There is no decorator now,
- * so a field is a colour because it is declared `Color`.
+ * the one the compiler already answered by reading the field's type. A field is a colour because
+ * it is declared `Color`.
  */
 function PropRow({
   prop,
@@ -409,6 +436,41 @@ function MemberActions({ onDelete }: { onDelete: () => void }): React.JSX.Elemen
 /** What the document writes, and everything else — the inspector's ordering everywhere. */
 function split<T>(items: readonly T[], written: (item: T) => boolean): { written: T[]; rest: T[] } {
   return { written: items.filter(written), rest: items.filter((i) => !written(i)) };
+}
+
+/** One attached object's own attributes — the inline material a mesh draws with. */
+function AttachmentSection({
+  attachment,
+  editable,
+  doc,
+}: {
+  attachment: Attachment;
+  editable: boolean;
+  doc: SceneDocument | undefined;
+}): React.JSX.Element {
+  const render = (prop: PropInfo): React.JSX.Element => (
+    <PropRow
+      key={prop.name}
+      prop={prop}
+      written={attachment.attributes.get(prop.name)}
+      editable={editable}
+      commit={(v, c) => doc?.setAttachmentValue(attachment, prop, v, c)}
+      clear={() => doc?.setAttachmentValue(attachment, prop, null)}
+    />
+  );
+  const props = split([...attachment.tag.parameters, ...attachment.tag.properties], (p) =>
+    attachment.attributes.get(p.name) !== undefined,
+  );
+  return (
+    <Section title={`<${attachment.tag.name}>`} description={`This node's own ${attachment.slot}.`}>
+      {props.written.map(render)}
+      {props.rest.length > 0 ? (
+        <Section title={`${props.rest.length} more on <${attachment.tag.name}>`} startClosed>
+          {props.rest.map(render)}
+        </Section>
+      ) : null}
+    </Section>
+  );
 }
 
 function Section({

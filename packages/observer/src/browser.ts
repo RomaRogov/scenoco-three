@@ -20,9 +20,21 @@ export interface BrowserOptions {
   executable?: string;
 }
 
+/** One line the page logged. */
+export interface ConsoleEntry {
+  /** Monotonic, so a caller can ask for "everything since last time" without keeping the text. */
+  seq: number;
+  level: 'error' | 'warning' | 'info' | 'log' | 'debug';
+  text: string;
+}
+
 export interface ScenePage {
   /** Run one command in the page and return its result; throws with the page's message on failure. */
   call(command: ObserverCommand): Promise<ObserverResult>;
+  /** Everything logged after `seq`, oldest first. */
+  consoleSince(seq: number): ConsoleEntry[];
+  /** The highest sequence number handed out so far. */
+  readonly consoleSeq: number;
   close(): Promise<void>;
 }
 
@@ -44,6 +56,27 @@ export async function openScenePage(url: string, options: BrowserOptions = {}): 
     );
   }
   const page: Page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+
+  // What the page says about itself.
+  //
+  // A framework that detects a mistake and writes it to the console has told nobody, because the
+  // only thing driving this page is an agent that cannot see one. That happened: the UI package
+  // reported a misplaced `<Canvas>` on every frame while a build spent forty turns guessing.
+  // Bounded, because a page in a loop can log faster than anyone reads.
+  const log: ConsoleEntry[] = [];
+  let seq = 0;
+  const record = (level: ConsoleEntry['level'], text: string): void => {
+    log.push({ seq: ++seq, level, text });
+    if (log.length > 500) log.splice(0, log.length - 500);
+  };
+  page.on('console', (message) => {
+    const type = message.type();
+    const level: ConsoleEntry['level'] =
+      type === 'error' ? 'error' : type === 'warning' ? 'warning' : type === 'debug' ? 'debug' : type === 'info' ? 'info' : 'log';
+    record(level, message.text());
+  });
+  // An uncaught throw never reaches `console`, and it is the one worth hearing about most.
+  page.on('pageerror', (error) => record('error', String(error)));
   // `commit`, not `networkidle`. Playwright's own guidance is to wait for the thing you actually
   // need rather than for the network to fall quiet, and here that thing is `window.scenoco` —
   // `ready()`, on the next line. `networkidle` waits for 500ms of silence on top of it, which on
@@ -72,6 +105,10 @@ export async function openScenePage(url: string, options: BrowserOptions = {}): 
       const answer = reply as { ok: true; result: ObserverResult } | { ok: false; error: string };
       if (!answer.ok) throw new Error(answer.error);
       return answer.result;
+    },
+    consoleSince: (after) => log.filter((entry) => entry.seq > after),
+    get consoleSeq() {
+      return seq;
     },
     close: () => browser.close(),
   };

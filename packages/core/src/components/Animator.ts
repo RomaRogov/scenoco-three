@@ -6,26 +6,14 @@ import {
   type AnimationClip,
   type Object3D,
 } from 'three';
-import { Component } from './Component.js';
+import { Component } from '../runtime/Component.js';
 
 /**
  * Plays the animation clips a glTF model ships with — Unity's `Animator`.
  *
- * ```ts
- * node.addComponent(Animator, { clip: 'Run', loop: true });
- *
- * class Hero extends Component {
- *   animator!: Animator;
- *   override update() { this.animator.crossFade(this.moving ? 'Run' : 'Idle', 0.2); }
- * }
- * ```
- *
- * `play` is Unity's `Animator.Play`, `crossFade` its `CrossFade`. The clips come from the model:
- * instantiating one puts them on `Object3D.animations`, three.js's own field, and this looks for
- * the nearest node below that has any. Awaiting the model in `onLoad` means they are there by
- * `start`, so nothing here retries.
- *
- * The mixer only writes transforms, so it runs headless.
+ * The clips come from the model itself: instantiating one puts them on `Object3D.animations`,
+ * and this takes the nearest node below that has any. Awaiting the model in `onLoad` means they
+ * are there by `start`, so nothing here retries.
  */
 export class Animator extends Component {
   /** The clip to play on start. Empty means the model's first. */
@@ -64,8 +52,7 @@ export class Animator extends Component {
 
   override update(deltaTime: number): void {
     if (!this.mixer) return;
-    // Assigning `speed` is how a script changes it, so the change has to reach three.js
-    // somewhere. Here rather than behind a setter, so it stays a plain field.
+    // Polled rather than set behind a setter, so `speed` stays a plain authorable field.
     if (this.speed !== this.appliedSpeed) {
       this.mixer.timeScale = this.speed;
       this.appliedSpeed = this.speed;
@@ -101,10 +88,8 @@ export class Animator extends Component {
   }
 
   /**
-   * Blend into another clip over `duration` seconds — Unity's `Animator.CrossFade`.
-   *
-   * This is the one to reach for between locomotion states; `play` snaps, which reads as a
-   * glitch on anything a character is doing.
+   * Blend into another clip over `duration` seconds — Unity's `CrossFade`, and what to use
+   * between locomotion states. `play` snaps.
    */
   crossFade(name: string, duration = 0.3): void {
     const clip = this.find(name);
@@ -125,8 +110,7 @@ export class Animator extends Component {
     if (name === '') return this.clips[0];
     const clip = this.clips.find((candidate) => candidate.name === name);
     if (!clip) {
-      // A wrong name is otherwise a character standing perfectly still with nothing to say why,
-      // so the message lists what the model actually has.
+      // A wrong name is otherwise a character standing still with nothing to say why.
       console.error(
         `[scenoco] Animator: this model has no clip "${name}". It has: ` +
           `${this.clipNames.join(', ') || '(none)'}.`,
@@ -143,10 +127,8 @@ export class Animator extends Component {
 }
 
 /**
- * The nearest node at or below `root` that carries clips.
- *
- * An `<Animator>` sits on the node a `<Prefab src="…glb">` was spawned under, so the clips are
- * usually one level down — but putting the component on the model's own root has to work too.
+ * The nearest node at or below `root` that carries clips — usually one level down, since the
+ * component sits on the node the model was spawned under.
  */
 function animatedNodeIn(root: Object3D): Object3D | undefined {
   let found: Object3D | undefined;

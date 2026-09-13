@@ -314,11 +314,9 @@ export function VecRow({
 }
 
 /**
- * Euler editor — **degrees in, degrees out**, matching the authored DSL and the
- * compiled model (`transform.eulerAngles`, `ValueType.Euler` props). Callers
- * holding a live `THREE.Euler` (radians) convert at their own boundary, e.g. via
- * `node.eulerAngles.toArray()` or `eulerDeg(...)`; this row never converts, so
- * there is exactly one place per call site where units change.
+ * Euler editor — **degrees in, degrees out**, matching the authored DSL. Callers holding a live
+ * `THREE.Euler` (radians) convert at their own boundary; this row never converts, so there is
+ * exactly one place per call site where units change.
  */
 export function EulerRow({
   label,

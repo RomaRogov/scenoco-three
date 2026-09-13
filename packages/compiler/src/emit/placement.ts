@@ -13,31 +13,26 @@ export const PLACEMENT: Readonly<Record<string, PropInfo>> = {
   eulerAngles: { name: 'eulerAngles', type: 'Vector3', shape: 'euler', required: false },
   scale: { name: 'scale', type: 'Vector3', shape: 'vector3', required: false },
   name: { name: 'name', type: 'string', shape: 'string', required: false },
-  visible: { name: 'visible', type: 'boolean', shape: 'boolean', required: false },
   /**
-   * Unity's `GameObject.SetActive`. Turns the whole subtree off — no component hooks, and no
-   * rendering. `visible` is three.js's own flag and only hides: an invisible node keeps
-   * updating. Applied after `visible`, so it always wins.
+   * Whether the node is on — Unity's `GameObject.SetActive`. Turns the whole subtree off: no
+   * component hooks, nothing drawn, and on a UI element no space taken either.
    */
   active: { name: 'active', type: 'boolean', shape: 'boolean', required: false },
+  /**
+   * Whether the node is drawn — three.js's `visible`, and Unity's renderer switch.
+   *
+   * The narrower of the two: the node is still there and still updating, it just is not drawn.
+   * A hidden UI element keeps its place in the layout, so hiding one does not shuffle the
+   * elements beside it — which is the difference between this and `active`.
+   */
+  visible: { name: 'visible', type: 'boolean', shape: 'boolean', required: false },
 };
 
 /**
- * The order placement is applied in, whatever order the document wrote it.
- *
- * Document order would make `active="false" visible="true"` and `visible="true" active="false"`
- * mean different things, because `setActive` also writes `visible`. One fixed order means one
- * meaning, and `active` goes last so it always has the final say — which matches what it is:
- * `active="false"` turns the whole subtree off, rendering included.
+ * The order placement is applied in, whatever order the document wrote it, so one document has
+ * one meaning. `active` goes last: it turns the whole subtree off, rendering included.
  */
-export const PLACEMENT_ORDER = [
-  'name',
-  'position',
-  'eulerAngles',
-  'scale',
-  'visible',
-  'active',
-] as const;
+export const PLACEMENT_ORDER = ['name', 'position', 'eulerAngles', 'scale', 'visible', 'active'] as const;
 
 /**
  * "This node outlives the scene it was declared in" — Unity's `DontDestroyOnLoad`, spelled the

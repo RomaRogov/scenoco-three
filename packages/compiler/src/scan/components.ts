@@ -1,8 +1,9 @@
 import type { Checker, Project, Symbol as TsSymbol } from 'typescript/unstable/sync';
 import * as ast from 'typescript/unstable/ast';
-import type { ComponentInfo, SerializedField } from '../model.js';
+import type { ClassProblem, ComponentInfo, SerializedField } from '../model.js';
 import {
   baseChainOf,
+  inheritedMemberNames,
   baseClauseType,
   baseTypeArgument,
   classDeclarationOf,
@@ -20,14 +21,9 @@ import type { Workspace } from './workspace.js';
 /**
  * Find every component in a workspace and describe it.
  *
- * This **replaces the runtime registry**. v1 registered components by executing a decorator as
- * an import side effect, which meant the build had to load every component module to know what
- * existed — and a circular import between two components silently registered a broken entry.
- * Reading the source executes nothing, so that entire class of failure is gone, along with the
- * duplicate-tag errors a process-global registry produced.
- *
- * A class qualifies by extending `Component`, transitively. Nothing else marks it: no
- * decorator, no tag name, no registration call.
+ * A class qualifies by extending `Component`, transitively. Nothing else marks it: no decorator,
+ * no tag name, no registration call — and reading the source executes none of it, so a circular
+ * import between two components cannot produce a broken entry.
  */
 export function scanComponents(
   workspace: Workspace,
@@ -207,6 +203,7 @@ function describe(
   const base = baseClauseType(node);
   const declaredBase = base && ast.isIdentifier(base) ? base.text : undefined;
   const fields = collectFields(node, sourceFile, checker, project, baseName);
+  const problems = misspelledMembers(node, sourceFile, baseName, checker, project);
   return {
     name: node.name!.text,
     file: fileName,
@@ -220,7 +217,78 @@ function describe(
       ? { requiresNode: nodeConstraint(node, sourceFile)! }
       : {}),
     fields,
+    ...(problems.length > 0 ? { problems } : {}),
   };
+}
+
+/**
+ * Methods whose names are a near miss of something the base declares — `upadte` for `update`.
+ *
+ * Every lifecycle hook is optional, so a misspelled one is not a type error: it is a method
+ * nothing ever calls, and the only symptom is behaviour that silently does not happen.
+ *
+ * The rule is deliberately narrow, because a false positive here is worse than a miss: it tells
+ * someone their working code is wrong. See {@link isTypoOf}.
+ */
+/**
+ * Whether `name` is a slip of the finger for `target`, rather than a different word.
+ *
+ * **One** edit apart, counting a transposition as one — which is what makes `upadte` a typo of
+ * `update` and `onDestory` one of `onDestroy`, while `award` stays two substitutions from
+ * `awake` and is left alone. Both names must be at least five characters: at three or four, a
+ * single insertion is most of the word, and `take` would read as a typo of `awake`.
+ */
+function isTypoOf(name: string, target: string): boolean {
+  if (name === target || name.length < 5 || target.length < 5) return false;
+  return alignmentDistance(name, target) === 1;
+}
+
+/** Levenshtein, plus the adjacent transposition that plain Levenshtein charges twice for. */
+function alignmentDistance(a: string, b: string): number {
+  const rows: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) rows[i]![0] = i;
+  for (let j = 0; j <= b.length; j++) rows[0]![j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      rows[i]![j] = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        rows[i]![j] = Math.min(rows[i]![j]!, rows[i - 2]![j - 2]! + 1);
+      }
+    }
+  }
+  return rows[a.length]![b.length]!;
+}
+
+function misspelledMembers(
+  node: ast.ClassDeclaration,
+  sourceFile: ast.SourceFile,
+  baseName: string,
+  checker: Checker,
+  project: Project,
+): ClassProblem[] {
+  const inherited = inheritedMemberNames(node, baseName, checker, project);
+  if (inherited.length === 0) return [];
+  const known = new Set(inherited);
+
+  const problems: ClassProblem[] = [];
+  for (const member of node.members) {
+    if (!ast.isMethodDeclaration(member) || !ast.isIdentifier(member.name)) continue;
+    const name = member.name.text;
+    if (known.has(name)) continue;
+    const near = inherited.find((candidate) => isTypoOf(name, candidate));
+    if (!near) continue;
+    problems.push({
+      line: lineOf(sourceFile, member),
+      code: 'misspelled-member',
+      message:
+        `${node.name!.text}.${name}() is one letter from ${near}(), which is what ${baseName} ` +
+        `declares. As written nothing calls it — rename it, or add \`override\` so the ` +
+        'checker catches the next one.',
+    });
+  }
+  return problems;
 }
 
 /**
@@ -295,7 +363,7 @@ function describeField(
 
   const modifiers = member.modifiers ?? [];
   const decorators = modifiers.filter((m) => ast.isDecorator(m)) as ast.Decorator[];
-  const serializeDecorator = decorators.find((d) => decoratorName(d) === 'serialize');
+  const serializeDecorator = decorators.find((d) => decoratorName(d) === 'serializeField');
   const isPrivate = modifiers.some(
     (m) => m.kind === ast.SyntaxKind.PrivateKeyword || m.kind === ast.SyntaxKind.ProtectedKeyword,
   );
@@ -341,8 +409,5 @@ function describeField(
       member.initializer === undefined &&
       member.postfixToken?.kind !== ast.SyntaxKind.QuestionToken,
     explicit: serializeDecorator !== undefined,
-    ...(serializeDecorator && ast.isCallExpression(serializeDecorator.expression)
-      ? { serializeOptions: textOf(sourceFile, serializeDecorator.expression.arguments[0]) }
-      : {}),
   };
 }

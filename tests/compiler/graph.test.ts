@@ -18,8 +18,8 @@ let model: ProjectModel;
 
 /** The generated assets a document may reference, standing in for a real project scan. */
 const ASSETS: Record<string, AssetImport> = {
-  'brick.geometry.xml': { module: './brick.geometry.js', name: 'brick', kind: 'geometry' },
-  'brick.material.xml': { module: './brick.material.js', name: 'brick', kind: 'material' },
+  'cube.asset.xml': { module: './cube.asset.js', name: 'cube', kind: 'asset' },
+  'brick.asset.xml': { module: './brick.asset.js', name: 'brick', kind: 'asset' },
   'brick.prefab.xml': { module: './brick.prefab.js', name: 'Brick', kind: 'prefab' },
 };
 
@@ -81,7 +81,7 @@ describe('prefab documents', () => {
   it('roots the class at the authored node type, with no wrapper', () => {
     const { code, diagnostics } = emit(
       'prefab',
-      `<Mesh geometry="brick.geometry.xml" material="brick.material.xml">
+      `<Mesh geometry="cube.asset.xml" material="brick.asset.xml">
          <Components><Brick points="10" /></Components>
        </Mesh>`,
       'Brick',
@@ -90,18 +90,18 @@ describe('prefab documents', () => {
     expect(code).toContain('export class Brick extends Mesh {');
     // The constructor is where geometry and material go: `instantiate` calls `new Brick()`, so
     // nothing can be passed in, and three.js reads some slots only at construction.
-    expect(code).toContain('super(brick, brick$2);');
+    expect(code).toContain('super(cube, brick);');
     expect(code).toContain('this.addComponent(Brick$2, { points: 10 });');
   });
 
   it('imports geometry and material as assets rather than building them inline', () => {
     const { code } = emit(
       'prefab',
-      `<Mesh geometry="brick.geometry.xml" material="brick.material.xml" />`,
+      `<Mesh geometry="cube.asset.xml" material="brick.asset.xml" />`,
       'Brick',
     );
-    expect(code).toContain(`import { brick } from './brick.geometry.js';`);
-    expect(code).toContain(`import { brick as brick$2 } from './brick.material.js';`);
+    expect(code).toContain(`import { cube } from './cube.asset.js';`);
+    expect(code).toContain(`import { brick } from './brick.asset.js';`);
     // Nothing constructs a BoxGeometry here — that lives in its own asset, shared by everyone
     // who references it.
     expect(code).not.toContain('BoxGeometry');
@@ -111,7 +111,7 @@ describe('prefab documents', () => {
     const { code } = emit(
       'prefab',
       `<Group>
-         <Mesh id="body" geometry="brick.geometry.xml" material="brick.material.xml" />
+         <Mesh id="body" geometry="cube.asset.xml" material="brick.asset.xml" />
          <PointLight id="glow" intensity="2" />
        </Group>`,
       'Lamp',
@@ -144,12 +144,12 @@ describe('scene documents', () => {
     const { code, diagnostics } = emit(
       'scene',
       `<Scene>
-         <Mesh id="ball" geometry="brick.geometry.xml" material="brick.material.xml">
+         <Mesh id="ball" geometry="cube.asset.xml" material="brick.asset.xml">
            <Components><Ball paddle="#paddle" bricks="[#b1, #b2]" /></Components>
          </Mesh>
-         <Mesh id="paddle" geometry="brick.geometry.xml" material="brick.material.xml" />
-         <Mesh id="b1" geometry="brick.geometry.xml" material="brick.material.xml" />
-         <Mesh id="b2" geometry="brick.geometry.xml" material="brick.material.xml" />
+         <Mesh id="paddle" geometry="cube.asset.xml" material="brick.asset.xml" />
+         <Mesh id="b1" geometry="cube.asset.xml" material="brick.asset.xml" />
+         <Mesh id="b2" geometry="cube.asset.xml" material="brick.asset.xml" />
        </Scene>`,
     );
     expect(diagnostics).toEqual([]);
@@ -266,7 +266,7 @@ describe('diagnostics', () => {
     // here at the XML line instead.
     const { diagnostics } = emit(
       'scene',
-      `<Scene><Mesh id="m" geometry="brick.geometry.xml" material="brick.material.xml">
+      `<Scene><Mesh id="m" geometry="cube.asset.xml" material="brick.asset.xml">
          <Components><Flicker rate="3" /></Components>
        </Mesh></Scene>`,
     );

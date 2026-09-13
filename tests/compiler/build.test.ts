@@ -39,15 +39,15 @@ export class Ball extends Component<Mesh> {
 `,
   );
 
-  fixture.writeXml('assets/geometry/brick.geometry.xml', '<BoxGeometry width="1.2" height="0.4" depth="0.5" />');
-  fixture.writeXml('assets/geometry/ball.geometry.xml', '<SphereGeometry radius="0.3" widthSegments="16" heightSegments="12" />');
+  fixture.writeXml('assets/geometry/brick.asset.xml', '<BoxGeometry width="1.2" height="0.4" depth="0.5" />');
+  fixture.writeXml('assets/geometry/ball.asset.xml', '<SphereGeometry radius="0.3" widthSegments="16" heightSegments="12" />');
   fixture.writeXml(
-    'assets/materials/brick.material.xml',
+    'assets/materials/brick.asset.xml',
     '<MeshStandardMaterial color="#e9c46a" emissive="#3a2f10" roughness="0.5" metalness="0.1" />',
   );
   fixture.writeXml(
     'assets/scenes/brick.prefab.xml',
-    `<Mesh geometry="../geometry/brick.geometry.xml" material="../materials/brick.material.xml">
+    `<Mesh geometry="../geometry/brick.asset.xml" material="../materials/brick.asset.xml">
   <Components>
     <Brick points="10" />
   </Components>
@@ -58,8 +58,8 @@ export class Ball extends Component<Mesh> {
     `<Scene>
   <PerspectiveCamera id="cam" fov="45" near="0.1" far="200" position="y: 7; z: 20" />
   <AmbientLight intensity="0.5" />
-  <Mesh id="paddle" geometry="../geometry/brick.geometry.xml" material="../materials/brick.material.xml" position="y: 0.5" />
-  <Mesh id="ball" geometry="../geometry/ball.geometry.xml" material="../materials/brick.material.xml" position="y: 1.1">
+  <Mesh id="paddle" geometry="../geometry/brick.asset.xml" material="../materials/brick.asset.xml" position="y: 0.5" />
+  <Mesh id="ball" geometry="../geometry/ball.asset.xml" material="../materials/brick.asset.xml" position="y: 1.1">
     <Components>
       <Ball launchSpeed="12" paddle="#paddle" bricks="[#b1, #b2]" />
     </Components>
@@ -80,9 +80,9 @@ describe('build', () => {
   it('compiles every document with no diagnostics', () => {
     expect(result.diagnostics).toEqual([]);
     expect([...result.files.keys()].map((p) => p.replace(fixture.dir + '/', '')).sort()).toEqual([
-      'assets/geometry/ball.geometry.gen.ts',
-      'assets/geometry/brick.geometry.gen.ts',
-      'assets/materials/brick.material.gen.ts',
+      'assets/geometry/ball.asset.gen.ts',
+      'assets/geometry/brick.asset.gen.ts',
+      'assets/materials/brick.asset.gen.ts',
       'assets/scenes/breakout.scene.gen.ts',
       'assets/scenes/brick.prefab.gen.ts',
     ]);
@@ -105,15 +105,15 @@ describe('build', () => {
   });
 
   it('writes each geometry as a shared module-scope value', () => {
-    expect(read('assets/geometry/brick.geometry.gen.ts')).toContain(
+    expect(read('assets/geometry/brick.asset.gen.ts')).toContain(
       'export const brick = shared(new BoxGeometry(1.2, 0.4, 0.5));',
     );
   });
 
   it('makes a prefab a real Mesh subclass that imports its assets', () => {
     const code = read('assets/scenes/brick.prefab.gen.ts');
-    expect(code).toContain(`import { brick } from '../geometry/brick.geometry.gen.js';`);
-    expect(code).toContain(`import { brick as brick$2 } from '../materials/brick.material.gen.js';`);
+    expect(code).toContain(`import { brick } from '../geometry/brick.asset.gen.js';`);
+    expect(code).toContain(`import { brick as brick$2 } from '../materials/brick.asset.gen.js';`);
     expect(code).toContain('export class BrickPrefab extends Mesh {');
     expect(code).toContain('super(brick, brick$2);');
   });

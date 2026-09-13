@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes every package at the version in its `package.json`. Tag and push to fire it:
-#   git tag v0.5.0 && git push origin v0.5.0
+#   git tag v0.6.0 && git push origin v0.6.0
 on:
   push:
     tags: ['v*']
@@ -21,12 +21,15 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - run: npm install
+      # Same two rules as CI: a committed lockfile so an upstream publish cannot change what
+      # ships, and build first because the packages typecheck against each other's declarations.
+      - run: npm ci --legacy-peer-deps
+      - run: npm run build
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
 
-      # Dependency order: everything peers on core, vite/observer sit on the compiler, the editor on the observer.
+      # Dependency order: everything peers on core; vite and observer sit on the compiler. The
+      # editor depends on neither, so its position is free.
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

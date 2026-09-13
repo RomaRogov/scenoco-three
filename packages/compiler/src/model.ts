@@ -47,6 +47,13 @@ export interface PropInfo {
   elementShape?: ValueShape;
   /** The alternatives when `shape` is `union`, in no particular order. */
   shapes?: ValueShape[];
+  /** Declared `X | X[]`, as a mesh's material is: a bracketed list goes wherever one value does. */
+  list?: boolean;
+  /**
+   * For an `assetRef`: the family of class the slot holds, which is what an element fills it by.
+   * Read from the type, so a generic slot like `Mesh.material` still says what it accepts.
+   */
+  assetFamily?: TagFamily;
   /** For `enum`: the legal identifier names, so a typo is caught before `tsc` sees it. */
   options?: string[];
   /** The initializer as written (`10`, `'#fff'`), when the source has one. */
@@ -59,12 +66,16 @@ export interface PropInfo {
 
 /** A serialized field of a component, as the source declares it. */
 export interface SerializedField extends PropInfo {
-  /** True when it took a `@serialize` decorator rather than being public. */
+  /** True when it took a `@serializeField` decorator rather than being public. */
   explicit: boolean;
-  /** Options passed to `@serialize({ … })`, unparsed. */
-  options?: string[];
-  /** `asset: 'texture'` and friends, verbatim. */
-  serializeOptions?: string;
+}
+
+/** Something wrong with a class, found while reading it. */
+export interface ClassProblem {
+  /** 1-based line in the class's own file. */
+  line: number;
+  code: string;
+  message: string;
 }
 
 /** A component class found in the workspace. */
@@ -91,6 +102,8 @@ export interface ComponentInfo {
   extends?: string;
   /** Serialized fields, own and inherited, in declaration order. */
   fields: SerializedField[];
+  /** Mistakes in the class itself, which the emitters pass through as build diagnostics. */
+  problems?: ClassProblem[];
   /**
    * The `Object3D` subclass this component requires, from `Component<PointLight>`. `undefined`
    * when it takes any node. The compiler checks a scene against it so a mis-hosted component

@@ -3,9 +3,8 @@ import type { Object3D } from 'three';
 /**
  * The few things the chrome needs to say about a live object.
  *
- * v1 read these off `Object3D` itself — the runtime carried `sceneTag` and `sceneId` because the
- * bundle put them there. Nothing does now: the *document* knows which element built a node, so
- * the editor asks it, and a node with no element is one nothing authored.
+ * Nothing is read off `Object3D`: the *document* knows which element built a node, so the editor
+ * asks it, and a node with no element is one nothing authored.
  */
 
 /**

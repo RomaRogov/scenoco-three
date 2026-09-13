@@ -1,11 +1,6 @@
 /**
- * The component half of the `Object3D` surface: attaching behaviour to a node and finding it
- * again.
- *
- * Each of these files declares the members it implements. The augmentation writes every name
- * twice — once as a documented signature in a `declare module` block, once as the function — so
- * one file held both halves of fifty members and read as the longest file in core while being
- * an ordinary amount of API. Split by concern, "where is `addComponent`" has an answer.
+ * The component half of the `Object3D` surface: attaching behaviour to a node, and finding it
+ * again. Each file in here declares the members it implements.
  */
 import { Object3D } from 'three';
 import { Component } from '../Component.js';
@@ -18,17 +13,8 @@ declare module 'three' {
     /**
      * Construct a component, apply `init` to it, and attach it.
      *
-     * ```ts
-     * cube.addComponent(Bobber, { amplitude: 0.3, frequency: 0.5 });
-     * ```
-     *
-     * `init` is applied before `awake` runs, so a component always wakes up configured.
-     * `awake` fires immediately if the object is already live in a loaded scene, otherwise
-     * as soon as it becomes live.
-     *
-     * A component that declares a required Three.js type — `class Flicker extends
-     * Component<PointLight>` — can only be added to that type. Attaching it to a `Mesh` is a
-     * type error on the receiver, not a crash later.
+     * `init` lands before `awake`, so a component always wakes up configured. `awake` fires at
+     * once if the object is already live in a loaded scene, otherwise as soon as it becomes so.
      */
     addComponent<T extends Component>(
       this: OwnerOf<T>,
@@ -46,10 +32,7 @@ declare module 'three' {
     getComponentInChildren<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T | null;
     /** Every matching component on this object and everything below it. */
     getComponentsInChildren<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T[];
-    /**
-     * First matching component on this object or any ancestor, starting here. Inactive objects
-     * are skipped unless `includeInactive` — the same rule the children searches follow.
-     */
+    /** First matching component on this object or any ancestor, starting here. */
     getComponentInParent<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T | null;
     /** Every matching component on this object and its ancestors, nearest first. */
     getComponentsInParent<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T[];
@@ -92,17 +75,13 @@ proto.addComponent = function (
 
   component._object3D = this;
   (this._components ??= []).push(component);
-  // Configure before registering: `add` is what fires `awake`, and a component should never
-  // wake up looking at defaults it was about to have overwritten.
+  // Before registering: `add` fires `awake`, which must not see defaults about to be replaced.
   if (init) Object.assign(component, init);
   this._runtime?.add(component);
   return component;
 } as Object3D['addComponent'];
 
-/**
- * The one place `instanceof` is used for component lookup. As a type predicate it hands the
- * narrowing back to the type checker, so nothing downstream needs a cast.
- */
+/** The one place `instanceof` is used for lookup; as a predicate it saves every caller a cast. */
 function isType<T extends Component>(component: Component, type: ComponentType<T>): component is T {
   return component instanceof type;
 }
@@ -183,10 +162,7 @@ proto.getComponentInParent = function <T extends Component>(
 ): T | null {
   let current: Object3D | null = this;
   while (current) {
-    // One rule for every query: an inactive object is not searched unless asked for. Letting
-    // the parent walk ignore activity while the child walk honours it would be two rules for
-    // one concept, and the wrong one is invisible until something returns a component that
-    // should not have been there.
+    // One rule for every query: an inactive object is not searched unless asked for.
     if (!includeInactive && !current._active) return null;
     const component = current.getComponent(type);
     if (component) return component;

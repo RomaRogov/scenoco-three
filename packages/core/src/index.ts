@@ -2,8 +2,8 @@
  * `@scenoco-three/core` — a Unity-shaped scene and component layer for Three.js.
  *
  * Importing this module installs the augmentations: every `THREE.Object3D` can carry components
- * and every `THREE.Scene` can load, unload and run an event cycle. There is no wrapper type and
- * nothing to unwrap — a `Mesh` is still a `Mesh`, with the whole three.js API on it.
+ * and every `THREE.Scene` can load, unload and run an event cycle. There is no wrapper type — a
+ * `Mesh` is still a `Mesh`, with the whole three.js API on it.
  *
  * | | is | lives on | you write |
  * | --- | --- | --- | --- |
@@ -12,41 +12,19 @@
  * | **Prefab** | a node that builds itself | — | `parent.instantiate(Brick, { position })` |
  * | **Scene** | a `THREE.Scene` with a lifecycle | — | `SceneManager.load(Breakout)` |
  *
- * ```ts
- * import { Component, SceneManager } from '@scenoco-three/core';
- * import { Scene } from 'three';
- *
- * class Spinner extends Component {
- *   speed = 1;                                     // a public field is a setting
- *   override update(dt: number) { this.object3D.rotation.y += this.speed * dt; }
- * }
- *
- * class Level extends Scene {
- *   override onLoad() {
- *     this.createObject('cube').addComponent(Spinner, { speed: 2 });
- *   }
- * }
- *
- * await SceneManager.load(Level);
- * ```
- *
  * ## The rules
  *
- * **Nothing is addressed by a string.** Components are found by class, scenes loaded by class,
- * keys named by `KeyCode`, events are typed `Event` fields. Strings are for text a person reads.
- *
- * **Components never declare a constructor.** `addComponent(Type, init)` constructs, applies
- * `init`, then wakes, so a component always wakes up configured. Field initializers run after
- * `super()`, which is why a constructor taking settings would have them silently overwritten.
- *
- * **`awake` for your own state, `start` for reaching other components.** Nothing has started
- * when `awake` runs, so a `start` that depends on another `start` is a bug.
- *
- * **Every destroy is deferred** to the end of the frame — components, objects and systems alike.
- * Destroying inside a hook is always safe, and every phase skips a doomed thing at once.
- *
- * **Angles you set are degrees.** `Object3D.eulerAngles` is the degrees view; radians exist only
- * on the live `THREE.Euler` underneath.
+ * - **Nothing is addressed by a string.** Components are found by class, scenes loaded by class,
+ *   keys named by `KeyCode`, events are typed `Event` fields.
+ * - **Components never declare a constructor.** `addComponent(Type, init)` constructs, applies
+ *   `init`, then wakes — field initializers run after `super()`, so a constructor taking
+ *   settings would have them overwritten.
+ * - **`awake` for your own state, `start` for reaching other components.**
+ * - **Every destroy is deferred** to the end of the frame, so destroying inside a hook is safe.
+ * - **Angles you set are degrees** — `Object3D.eulerAngles`. Radians exist only on the live
+ *   `THREE.Euler` underneath.
+ * - **No engine object, no registry, no reflection, no queries, no tags.** A class extending
+ *   `Component` is the whole registration.
  *
  * ## The frame
  *
@@ -61,20 +39,11 @@
  *                   deferred destruction
  * ```
  *
- * ## What outlives a scene
- *
- * `SceneManager.load` replaces everything except what said otherwise:
- * `dontDestroyOnLoad(node)` moves a node into a persistent scene that is ticked and drawn over
- * the active one, and `scene.dontDestroyOnLoad = true` exempts a whole scene.
- * `SceneManager.findObjectOfType` searches every loaded scene, which is how a new level reaches
- * what survived the last one.
- *
- * ## What is deliberately absent
- *
- * No engine object, no registry, no wire format, no reflection, no queries, no tags, no
- * `sendMessage`. A class extending `Component` is the whole registration.
+ * `SceneManager.load` replaces every scene except one marked `dontDestroyOnLoad`, and
+ * `SceneManager.findObjectOfType` searches all of them — which is how a new level reaches what
+ * survived the last one.
  */
-// The `Object3D` augmentation, split by concern: each file declares the members it implements.
+// The `Object3D` augmentation, split by concern.
 import './runtime/augment/object3d.js';
 import './runtime/augment/components.js';
 import './runtime/augment/prefabs.js';
@@ -82,13 +51,10 @@ import './runtime/augment/lifetime.js';
 import './runtime/augment/scene.js';
 
 export { Component } from './runtime/Component.js';
-// A scene-level service with no node of its own — a physics world, an audio bus. Same hook
-// names as a component; runs after every component in the matching phase.
 export { System } from './runtime/System.js';
 export { SceneManager, type SceneEventListener } from './runtime/SceneManager.js';
 export { SceneRuntime } from './runtime/SceneRuntime.js';
 export { disposeSceneResources } from './runtime/dispose.js';
-// Where a node came from, for tooling. Present only in a build that asked for it.
 export {
   findProvenance,
   nodesFrom,
@@ -96,32 +62,22 @@ export {
   type Provenance,
 } from './runtime/provenance.js';
 
-// Resources that live in files. A geometry or a material is built when its module is evaluated;
-// a texture is handed over before its image lands; a model has to be awaited. `shared()` is what
-// says the module owns a resource, so scene unload leaves it alone.
+// Resources that live in files. A texture is handed over before its image lands, a model has to
+// be awaited, and `shared()` says a module owns a resource so scene unload leaves it alone.
 export { Asset, loadAssets, type Loadable } from './assets/Asset.js';
 export { Model, sharedModel } from './assets/Model.js';
 export { sharedTexture, type TextureSettings } from './assets/textures.js';
 export { shared, isShared, disposeAssets } from './assets/shared.js';
 export { Engine, type EngineOptions } from './runtime/Engine.js';
-// How a frame is drawn. `Effect` is the model; the effects themselves live in a package, the
-// way node tags live in three and physics tags live in box2d.
 export { Effect, RenderSettings, RenderState } from './runtime/RenderSettings.js';
-// The components core ships. Each is a component rather than a property on a three.js class,
-// because three.js has no such concept and a document has to be able to tell the two apart.
-export { CameraFit, type FitMode } from './runtime/CameraFit.js';
-// Plays the clips a glTF model arrives with. Here rather than in a package because the models
-// are here: `Model.instantiate` is what puts the clips on the node.
-export { Animator } from './runtime/Animator.js';
-// Attaches a node to a bone inside a model — a sword in a hand.
-export { AttachTo } from './runtime/AttachTo.js';
-// Runs a tween library on the engine's clock, so pause and slow motion reach it. SceNoCo has no
-// tween of its own: three.js ships tween.js in its addons, and that is the one to use.
-export { Tweens, type TweenTicker, type TweenStarter } from './runtime/Tweens.js';
-export { Time } from './runtime/Time.js';
 
-// Typed events: how components signal each other without importing each other. A class
-// field, never a string name — every subscriber is type-checked.
+// The components core ships, each one a class rather than a property on a three.js class.
+export { CameraFit, type FitMode } from './components/CameraFit.js';
+export { Animator } from './components/Animator.js';
+export { AttachTo } from './components/AttachTo.js';
+export { Tweens, type TweenTicker, type TweenStarter } from './runtime/Tweens.js';
+
+export { Time } from './runtime/Time.js';
 export { Event } from './runtime/Event.js';
 
 export { Input } from './input/Input.js';
@@ -139,15 +95,6 @@ export {
   type IEnumerator,
   type Yieldable,
 } from './runtime/Coroutine.js';
-
-// A component needs no decorators: extending `Component` registers it, and its public fields
-// are serialized. These exist only for what the source cannot say on its own.
-export {
-  serialize,
-  serializedFieldsOf,
-  type SerializeOptions,
-  type SerializedBag,
-} from './decorators.js';
 
 export type {
   AuthorableFields,

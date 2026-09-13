@@ -37,25 +37,25 @@ export class Brick extends Component {
 
   // The layout the format is taught with.
   fixture.writeXml(
-    'assets/geometry/brick.geometry.xml',
+    'assets/geometry/brick.asset.xml',
     '<BoxGeometry width="1.2" height="0.4" depth="0.5" />',
   );
   fixture.writeXml(
-    'assets/geometry/paddle.geometry.xml',
+    'assets/geometry/paddle.asset.xml',
     '<BoxGeometry width="3" height="0.4" depth="0.5" />',
   );
   fixture.writeXml(
-    'assets/materials/brick.material.xml',
+    'assets/materials/brick.asset.xml',
     '<MeshStandardMaterial color="#e9c46a" emissive="#3a2f10" roughness="0.5" metalness="0.1" />',
   );
   fixture.writeXml(
-    'assets/materials/paddle.material.xml',
+    'assets/materials/paddle.asset.xml',
     '<MeshStandardMaterial color="#38bdf8" />',
   );
   fixture.writeXml(
     'assets/scenes/brick.prefab.xml',
-    `<Mesh geometry="../geometry/brick.geometry.xml"
-      material="../materials/brick.material.xml">
+    `<Mesh geometry="../geometry/brick.asset.xml"
+      material="../materials/brick.asset.xml">
   <Components>
     <Brick points="10" />
   </Components>
@@ -72,8 +72,8 @@ export class Brick extends Component {
   <AmbientLight intensity="0.5" />
 
   <Mesh id="paddle"
-        geometry="../geometry/paddle.geometry.xml"
-        material="../materials/paddle.material.xml"
+        geometry="../geometry/paddle.asset.xml"
+        material="../materials/paddle.asset.xml"
         position="y: 0.5">
     <Components>
       <PaddleController speed="10" halfRange="6" />
@@ -98,8 +98,8 @@ describe('the documented example', () => {
   });
 
   it('produces what the file table promises', () => {
-    expect(read('assets/geometry/brick.geometry.gen.ts')).toContain('export const brick =');
-    expect(read('assets/materials/brick.material.gen.ts')).toContain('export const brick =');
+    expect(read('assets/geometry/brick.asset.gen.ts')).toContain('export const brick =');
+    expect(read('assets/materials/brick.asset.gen.ts')).toContain('export const brick =');
     expect(read('assets/scenes/brick.prefab.gen.ts')).toContain('export class BrickPrefab extends Mesh');
     expect(read('assets/scenes/breakout.scene.gen.ts')).toContain('export class BreakoutScene extends Scene');
   });

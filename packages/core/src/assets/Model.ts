@@ -9,20 +9,11 @@ interface LoadedGltf {
 }
 
 /**
- * A glTF/GLB model — **a prefab that came from a file**.
+ * A glTF/GLB model — a prefab that came from a file, and something `instantiate` takes.
  *
- * That is Unity's idea: an `.fbx` dropped into a project gives you a prefab you `Instantiate()`.
- * Here the file gives you something `instantiate` takes:
- *
- * ```ts
- * const model = new Model('/models/hero.glb');
- * await loadAssets(model);                       // in onLoad
- * const enemy = this.instantiate(model, { position: spawn });
- * ```
- *
- * No wrapper node — the model's own root is the node you get. Each instance is a
- * `SkeletonUtils` clone, so skinned meshes rebind to their own skeleton while geometry,
- * materials and textures stay shared with every other instance.
+ * No wrapper node: the model's own root is the node you get. Each instance is a `SkeletonUtils`
+ * clone, so skinned meshes rebind to their own skeleton while geometry, materials and textures
+ * stay shared.
  */
 export class Model extends Asset<LoadedGltf> {
   /** The animation clips the file ships with, for an `AnimationMixer` to play. Empty until loaded. */
@@ -30,10 +21,7 @@ export class Model extends Asset<LoadedGltf> {
     return this.isLoaded ? (this.value.animations ?? []) : [];
   }
 
-  /**
-   * A fresh copy of the model's root, ready to add to the scene. `instantiate` on a node calls
-   * this; call it directly only when you want the node without parenting it anywhere.
-   */
+  /** A fresh copy of the model's root. `instantiate` calls this; call it for an unparented node. */
   instantiate(): Object3D {
     if (!cloneSkinned) {
       throw new Error(
@@ -42,16 +30,14 @@ export class Model extends Asset<LoadedGltf> {
       );
     }
     const copy = cloneSkinned(this.value.scene);
-    // `Object3D.animations` is three.js's own field for exactly this, so an `Animator` on the
-    // instance finds its clips without anyone having to keep a reference to the asset — and
-    // without a `userData` key that only this engine would know to look under.
+    // three.js's own field for this, so an `Animator` on the instance finds its clips without
+    // a reference to the asset.
     if (this.clips.length > 0) copy.animations = [...this.clips];
     return copy;
   }
 
   protected override async fetch(): Promise<LoadedGltf> {
-    // Imported here rather than at the top of the file so a project with no model ships neither
-    // the glTF loader nor the skeleton utilities — both are three.js addons, and both are large.
+    // Imported here so a project with no model ships neither addon — both are large.
     const [{ GLTFLoader }, skeletonUtils] = await Promise.all([
       import('three/addons/loaders/GLTFLoader.js'),
       import('three/addons/utils/SkeletonUtils.js'),

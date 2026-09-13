@@ -7,18 +7,11 @@ import { Time } from './Time.js';
 const EPSILON = 1e-6;
 
 /**
- * Base class for the objects a coroutine yields to suspend itself, matching Unity's
- * `YieldInstruction`. Subclass it for a wait the built-ins do not cover.
+ * Base class for the objects a coroutine yields to suspend itself — Unity's `YieldInstruction`.
+ * Subclass it for a wait the built-ins do not cover.
  *
- * ```ts
- * class WaitForClick extends YieldInstruction {
- *   keepWaiting() { return !Input.getMouseButtonDown(MouseButton.Left); }
- * }
- * ```
- *
- * Unity models `keepWaiting` as a property. Here it is a method, because the runtime polls it
- * once per frame and the timed instructions count down on each poll — a getter with a side
- * effect would be a trap.
+ * `keepWaiting` is a method, where Unity has a property: the runtime polls it once per frame
+ * and the timed waits count down on each poll, so a getter with a side effect would be a trap.
  */
 export abstract class YieldInstruction {
   /** Return true while the coroutine should stay suspended. Polled once per frame. */
@@ -106,19 +99,8 @@ export class WaitWhile extends YieldInstruction {
 export type Yieldable = YieldInstruction | null | undefined | number | Promise<unknown>;
 
 /**
- * The return type of a coroutine method, named after the `IEnumerator` a Unity coroutine
- * returns. It is an ordinary TypeScript `Generator`:
- *
- * ```ts
- * private *patrol(): IEnumerator {
- *   while (true) {
- *     yield new WaitForSeconds(2);
- *     this.turn();
- *   }
- * }
- *
- * this.startCoroutine(this.patrol());
- * ```
+ * The return type of a coroutine method — an ordinary `Generator`, named after the
+ * `IEnumerator` a Unity coroutine returns.
  */
 export type IEnumerator = Generator<Yieldable, void, unknown>;
 

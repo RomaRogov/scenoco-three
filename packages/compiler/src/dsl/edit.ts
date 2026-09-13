@@ -14,9 +14,6 @@ import { SaxesParser } from 'saxes';
  * compiler stamps into `userData.scenoco`. So a live `Object3D` under the cursor names an element
  * with no lookup table, no ids required, and no structural path to go stale: both sides run the
  * same parser over the same bytes and get the same numbers.
- *
- * v1 addressed edits by `id`, falling back to an ordinal path among sibling elements, with a
- * whole `unresolved` channel for the times that missed. None of that is needed.
  */
 
 /** One element, and where every part of it sits in the source. */

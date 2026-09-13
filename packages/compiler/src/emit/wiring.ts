@@ -2,6 +2,7 @@ import type { ComponentInfo, TagInfo } from '../model.js';
 import { hint, nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue } from '../dsl/value.js';
+import { isCamera } from './scene.js';
 import { moduleFor, type EmitScope } from './scope.js';
 import { sanitizeIdentifier } from './module.js';
 
@@ -78,13 +79,7 @@ function walkComponents(scope: EmitScope, element: SncElement, self: string, out
   }
 }
 
-/**
- * `<Systems>` at the scene root — the scene-level counterpart of `<Components>` on a node.
- *
- * This is where `<Attachments><Physics2D gravity="0 0" /></Attachments>` went. A physics
- * world was never an attachment on the scene; it is a service the scene runs, which is what
- * a system is.
- */
+/** `<Systems>` at the scene root — the scene-level counterpart of `<Components>` on a node. */
 export function emitSystems(scope: EmitScope, root: SncElement, create: string[], wire: string[]): void {
   for (const child of root.children) {
     if (child.tag !== 'Systems') continue;
@@ -93,6 +88,49 @@ export function emitSystems(scope: EmitScope, root: SncElement, create: string[]
   // Anywhere but the scene root, the block would be read by nobody. An ignored block is the
   // worst outcome here: the document looks right and the world is missing.
   reportMisplacedSystems(scope, root);
+  reportMisplacedCanvas(scope, root);
+}
+
+/**
+ * A `<Canvas>` that is not under a camera, which lays out nothing.
+ *
+ * The same failure as a misplaced `<Systems>` block and the same reason to catch it here: the
+ * document reads correctly, the compiler is happy, and the screen is empty. A screen-space
+ * canvas is sized from a camera's frustum, so it has to hang off one — and the runtime says so
+ * to the console, which is exactly where nobody is looking.
+ */
+function reportMisplacedCanvas(scope: EmitScope, root: SncElement): void {
+  const canvas = scope.options.model.tags.find(
+    (tag) => tag.name === 'Canvas' && tag.module !== 'three',
+  );
+  if (!canvas) return;
+
+  // The camera to name in the message: the one the scene will render through, else any camera in
+  // the document. Naming the id is the difference between "move it" and the text to write.
+  const cameras = [...scope.byElement.values()].filter(isCamera);
+  const named = cameras.find((placed) => placed.element.attributes.get('id'));
+  const where = named
+    ? ` Move it inside <${named.element.tag} id="${named.element.attributes.get('id')!}">.`
+    : '';
+
+  const visit = (element: SncElement): void => {
+    for (const child of element.children) {
+      if (child.tag === canvas.name) {
+        const parent = scope.byElement.get(element);
+        if (!parent || !isCamera(parent)) {
+          scope.report(
+            child,
+            'misplaced-canvas',
+            `<${canvas.name}> lays out in screen pixels in front of a camera, so it has to be a ` +
+              `child of the camera node — it cannot hang off <${element.tag}>.${where}`,
+          );
+        }
+        continue;
+      }
+      visit(child);
+    }
+  };
+  visit(root);
 }
 
 /** Walk everything below the root looking for a `<Systems>` block that will never be read. */

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -28,7 +28,11 @@ describe('filenames', () => {
     for (const file of tracked) {
       if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue;
       // The import text comes from the working tree; the filename it must match comes from git.
-      const source = readFileSync(join(ROOT, file), 'utf8');
+      // A file git still records but the tree no longer has — a rename mid-review — has no
+      // imports to check, and reading it would fail the run for the wrong reason.
+      const full = join(ROOT, file);
+      if (!existsSync(full)) continue;
+      const source = readFileSync(full, 'utf8');
       const directory = file.slice(0, file.lastIndexOf('/'));
       for (const match of source.matchAll(/from '(\.[^']+\.js)'/g)) {
         const specifier = match[1]!;

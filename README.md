@@ -55,8 +55,8 @@ real file and line, and no XML, parser or registry ships to the browser at all.
     </Components>
   </PerspectiveCamera>
 
-  <Mesh id="paddle" geometry="../geometry/paddle.geometry.xml"
-        material="../materials/paddle.material.xml" position="y: 1">
+  <Mesh id="paddle" geometry="../geometry/paddle.asset.xml"
+        material="../materials/paddle.asset.xml" position="y: 1">
     <Components>
       <Paddle speed="16" halfRange="7.4" />
       <RigidBody2D kind="kinematic" />
@@ -140,8 +140,8 @@ folder or a URL and edits it in place, hosted on GitHub Pages.
 
 ## The document kinds
 
-`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.particle.xml` · `*.material.xml` ·
-`*.geometry.xml` · `*.texture.xml`. Each compiles to a `.gen.ts` beside it (a build artifact —
+`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.particle.xml` · `*.asset.xml` ·
+`*.asset.xml` · `*.texture.xml`. Each compiles to a `.gen.ts` beside it (a build artifact —
 gitignore it). A prefab exports `XPrefab`, a scene exports `XScene`.
 
 `scenoco new` lists the kinds this project can create and writes a starter that compiles.

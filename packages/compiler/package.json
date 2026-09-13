@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/compiler",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Build-time half of SceNoCo: finds components by scanning the workspace and reads their serialized fields from the TypeScript source.",
   "type": "module",
   "license": "MIT",
@@ -21,6 +21,10 @@
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
+    },
+    "./serialize": {
+      "types": "./dist/serialize.d.ts",
+      "import": "./dist/serialize.js"
     },
     "./browser": {
       "types": "./dist/browser.d.ts",

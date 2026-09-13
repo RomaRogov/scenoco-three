@@ -16,21 +16,15 @@ class TimeClass {
   /** Scaled time consumed by fixed steps so far. */
   fixedTime = 0;
   /**
-   * How far the current frame sits into the next fixed step, in `[0, 1)`.
-   *
-   * Anything that moves objects at the fixed rate — a physics world, above all — reads this to
-   * blend between its last two fixed poses, so motion stays smooth when the render rate and the
-   * fixed rate differ. `0` right after a step, approaching `1` just before the next one.
+   * How far the current frame sits into the next fixed step, in `[0, 1)`. Anything moving at
+   * the fixed rate blends its last two poses with this, so motion stays smooth.
    */
   interpolationAlpha = 0;
   /** Speed multiplier for `deltaTime` / `fixedUpdate` frequency. `0` freezes gameplay. */
   timeScale = 1;
   /** Frames rendered since start. */
   frameCount = 0;
-  /**
-   * Upper bound for a single frame's unscaled delta. Prevents the fixed-step accumulator
-   * from spiralling after a tab has been backgrounded.
-   */
+  /** Upper bound for one frame's unscaled delta, so a backgrounded tab cannot spiral. */
   maximumDeltaTime = 1 / 6;
 
   /** @internal advanced by the SceneManager */
