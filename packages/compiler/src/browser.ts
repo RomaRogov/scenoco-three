@@ -28,3 +28,4 @@ export type {
   TagInfo,
   ValueShape,
 } from './model.js';
+export { MODEL_FILE } from './model.js';

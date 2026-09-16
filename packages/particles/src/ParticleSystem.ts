@@ -33,7 +33,11 @@ export class ParticleSystem extends Component {
   playOnAwake = true;
 
   /** The live three.quarks system. Exists from `awake` until `onDestroy`. */
-  system: QuarksSystem | null = null;
+  get system(): QuarksSystem | null {
+    return this._system;
+  }
+
+  private _system: QuarksSystem | null = null;
 
   private renderer: ParticleRenderer | null = null;
   /**
@@ -59,7 +63,7 @@ export class ParticleSystem extends Component {
     // `requireSystem` rather than `getSystem`: a scene that never declared `<ParticleRenderer>`
     // still gets one. Declaring it is only ever about ordering it against other systems.
     this.renderer = this.requireSystem(ParticleRenderer);
-    this.system = this.renderer.createSystem(this);
+    this._system = this.renderer.createSystem(this);
     // three.quarks systems emit from the moment they are built.
     if (!this.playOnAwake) this.stop();
   }
@@ -76,7 +80,7 @@ export class ParticleSystem extends Component {
   override onDestroy(): void {
     this.renderer?.destroySystem(this);
     this.renderer = null;
-    this.system = null;
+    this._system = null;
   }
 
   // --- playback --------------------------------------------------------------------------

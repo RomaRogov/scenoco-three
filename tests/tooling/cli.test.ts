@@ -115,7 +115,9 @@ describe('scenoco build and check', () => {
     );
 
     expect(await cli('build')).toBe(0);
-    expect(out.join('\n')).toMatch(/wrote 3 file\(s\)/);
+    // Three modules, and the model the editor reads.
+    expect(out.join('\n')).toMatch(/wrote 4 file\(s\)/);
+    expect(readFileSync(join(fixture.dir, '.scenoco/model.json'), 'utf8')).toContain('"Spinner"');
     expect(readFileSync(join(fixture.dir, 'assets/scenes/level1.scene.gen.ts'), 'utf8')).toContain(
       'export class Level1Scene extends Scene',
     );

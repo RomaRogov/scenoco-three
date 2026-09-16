@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { Color, Object3D, Scene, TextureLoader, Vector2, Vector3, Vector4 } from 'three';
 import type { SceneType } from '@scenoco-three/core';
-import { parseDocument, type ProjectModel, type PropInfo, type SncElement, type TagInfo } from '@scenoco-three/compiler/browser';
+import { parseDocument, type ProjectModel, type PropInfo, type SncElement, type TagInfo, type ValueShape } from '@scenoco-three/compiler/browser';
 import { parseValue } from '../values.js';
 import type { Source } from './source.js';
 
@@ -28,7 +28,14 @@ export interface LiveScene {
   SceneClass: SceneType;
   /** What could not be honoured, in the order it was met. Never fatal: the rest still shows. */
   problems: string[];
+  /**
+   * An attribute's text as the object it names — a shared asset from the same cache the scene was
+   * built from, or an enum constant — for an edit to put on the live object.
+   */
+  resolve: Resolve;
 }
+
+export type Resolve = (name: string, shape: ValueShape, text: string) => Promise<unknown>;
 
 const PLACEMENT = new Set(['id', 'name', 'position', 'eulerAngles', 'scale', 'visible', 'active', 'dontDestroyOnLoad']);
 const SCENE_ONLY = new Set(['camera', 'render', 'dontDestroyOnLoad', 'disposeOnUnload']);
@@ -61,7 +68,9 @@ export async function buildLive(path: string, source: Source, model: ProjectMode
       }
     }
   }
-  return { SceneClass: LiveSceneClass, problems };
+  const resolve: Resolve = (name, shape, text) =>
+    builder.valueOf({ name, type: '', shape, list: true, required: false }, text, path, new Map());
+  return { SceneClass: LiveSceneClass, problems, resolve };
 }
 
 class Builder {
@@ -326,7 +335,14 @@ class Builder {
     }
   }
 
-  private async valueOf(prop: PropInfo, text: string, file: string, ids: Map<string, object>): Promise<unknown> {
+  async valueOf(prop: PropInfo, text: string, file: string, ids: Map<string, object>): Promise<unknown> {
+    // A slot declared `X | X[]` takes either, and the brackets say which — as the compiler reads it.
+    const trimmed = text.trim();
+    if (prop.list && trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      const inner = trimmed.slice(1, -1).trim();
+      const entries = inner === '' ? [] : inner.split(',').map((entry) => entry.trim());
+      return Promise.all(entries.map((entry) => this.valueOf({ ...prop, list: false }, entry, file, ids)));
+    }
     switch (prop.shape) {
       case 'number':
       case 'boolean':

@@ -2,7 +2,8 @@ import type { Checker, Project, Symbol as TsSymbol } from 'typescript/unstable/s
 import * as ast from 'typescript/unstable/ast';
 import type { ClassProblem, ComponentInfo, SerializedField } from '../model.js';
 import {
-  baseChainOf,
+  baseSymbolsOf,
+  declarationIdOf,
   inheritedMemberNames,
   baseClauseType,
   baseTypeArgument,
@@ -10,6 +11,7 @@ import {
   decoratorName,
   isAbstractClass,
   derivesFrom,
+  type BaseTest,
   docOf,
   lineOf,
   resolveAlias,
@@ -68,6 +70,7 @@ function scanClasses(
   const { checker, project } = workspace;
   const found: ComponentInfo[] = [];
   const claimed = new Map<string, ComponentInfo>();
+  const isBase = baseTest(workspace, baseName);
 
   /**
    * Record one class under its name, or reject a genuine name clash.
@@ -110,7 +113,7 @@ function scanClasses(
       // An abstract subclass is a base other classes share — `Collider2D` — not a tag a
       // document can write. The same rule as for a package's exports; one rule, both routes.
       if (isAbstractClass(statement)) continue;
-      if (!derivesFrom(statement, baseName, checker, project)) continue;
+      if (!derivesFrom(statement, isBase, checker, project)) continue;
       claim(describe(statement, sourceFile, checker, project, fileName, baseName));
     }
   }
@@ -120,13 +123,30 @@ function scanClasses(
   // `scanTags` uses for `three`, and described by exactly the same code as a project's own
   // class so the two are indistinguishable downstream.
   for (const specifier of modules) {
-    for (const info of scanModule(workspace, specifier, baseName)) claim(info);
+    for (const info of scanModule(workspace, specifier, baseName, isBase)) claim(info);
   }
   return found;
 }
 
+/**
+ * Which class *is* the base: core's `Component` — not any class that shares its name.
+ *
+ * Matched by name alone, uikit's elements were components. Every one of them derives from a
+ * `Component` of uikit's own, so `<Panel>` was offered as something to add to a node's
+ * `<Components>`, with no fields, and the document it produced did not compile. A project that
+ * cannot resolve core has no such base to point at, and falls back to the name.
+ */
+function baseTest(workspace: Workspace, baseName: string): BaseTest {
+  const { checker, project } = workspace;
+  const core = workspace.resolveModule('@scenoco-three/core');
+  const exported = core ? checker.getExportsOfModule(core).find((e) => e.name === baseName) : undefined;
+  const id = exported ? declarationIdOf(resolveAlias(exported, checker), project) : undefined;
+  if (!id) return (symbol) => symbol.name === baseName;
+  return (symbol) => symbol.name === baseName && declarationIdOf(symbol, project) === id;
+}
+
 /** Every class exported by `specifier` that derives from `baseName`. */
-function scanModule(workspace: Workspace, specifier: string, baseName: string): ComponentInfo[] {
+function scanModule(workspace: Workspace, specifier: string, baseName: string, isBase: BaseTest): ComponentInfo[] {
   const { checker, project } = workspace;
   const moduleSymbol = workspace.resolveModule(specifier);
   if (!moduleSymbol) return [];
@@ -142,8 +162,8 @@ function scanModule(workspace: Workspace, specifier: string, baseName: string): 
     // Checked through the type first, which sees through however many intermediate classes a
     // package puts between its shapes and `Component`.
     const type = checker.getDeclaredTypeOfSymbol(declared);
-    const chain = type ? baseChainOf(type, checker) : [];
-    if (!chain.includes(baseName) && !derivesFrom(declaration, baseName, checker, project)) continue;
+    const chain = type ? baseSymbolsOf(type, checker) : [];
+    if (!chain.some(isBase) && !derivesFrom(declaration, isBase, checker, project)) continue;
 
     const sourceFile = sourceFileOfDeclaration(declared, project);
     if (!sourceFile) continue;
@@ -202,8 +222,8 @@ function describe(
 ): ComponentInfo {
   const base = baseClauseType(node);
   const declaredBase = base && ast.isIdentifier(base) ? base.text : undefined;
-  const fields = collectFields(node, sourceFile, checker, project, baseName);
-  const problems = misspelledMembers(node, sourceFile, baseName, checker, project);
+  const { fields, nonSerialized, problems: markers } = collectFields(node, sourceFile, checker, project, baseName);
+  const problems = [...markers, ...misspelledMembers(node, sourceFile, baseName, checker, project)];
   return {
     name: node.name!.text,
     file: fileName,
@@ -217,6 +237,7 @@ function describe(
       ? { requiresNode: nodeConstraint(node, sourceFile)! }
       : {}),
     fields,
+    ...(nonSerialized.length > 0 ? { nonSerialized } : {}),
     ...(problems.length > 0 ? { problems } : {}),
   };
 }
@@ -307,9 +328,11 @@ function collectFields(
   checker: Checker,
   project: Project,
   stopAt: string,
-): SerializedField[] {
+): { fields: SerializedField[]; nonSerialized: string[]; problems: ClassProblem[] } {
   const fields: SerializedField[] = [];
   const seen = new Set<string>();
+  const hidden = new Set<string>();
+  const problems: ClassProblem[] = [];
 
   const visit = (current: ast.ClassDeclaration, file: ast.SourceFile, depth: number): void => {
     if (depth > 8) return;
@@ -324,8 +347,20 @@ function collectFields(
       if (declaration && declarationFile) visit(declaration, declarationFile, depth + 1);
     }
     for (const member of current.members) {
-      const field = describeField(member, file, checker);
+      // A marker's misuse is reported on the class that wrote it, not on every subclass.
+      const described = describeField(member, file, checker, depth === 0 ? problems : []);
+      if (described === 'nonSerialized') {
+        const name = (member as ast.PropertyDeclaration).name as ast.Identifier;
+        hidden.add(name.text);
+        // A base's public field that a subclass marks goes out with it.
+        const inherited = fields.findIndex((f) => f.name === name.text);
+        if (inherited !== -1) fields.splice(inherited, 1);
+        seen.delete(name.text);
+        continue;
+      }
+      const field = described;
       if (!field) continue;
+      hidden.delete(field.name);
       if (seen.has(field.name)) {
         // Redeclared lower down: the subclass's version replaces the base's, in place, so the
         // declaration order a reader sees is still base-first.
@@ -338,7 +373,7 @@ function collectFields(
   };
 
   visit(node, sourceFile, 0);
-  return fields;
+  return { fields, nonSerialized: [...hidden], problems };
 }
 
 /** `PointLight` from `class Flicker extends Component<PointLight>`, if it declared one. */
@@ -358,18 +393,43 @@ function describeField(
   member: ast.ClassElement,
   sourceFile: ast.SourceFile,
   checker: Checker,
-): SerializedField | undefined {
+  problems: ClassProblem[],
+): SerializedField | 'nonSerialized' | undefined {
   if (!ast.isPropertyDeclaration(member) || ast.isComputedPropertyName(member.name)) return undefined;
 
   const modifiers = member.modifiers ?? [];
   const decorators = modifiers.filter((m) => ast.isDecorator(m)) as ast.Decorator[];
   const serializeDecorator = decorators.find((d) => decoratorName(d) === 'serializeField');
+  const nonSerializedDecorator = decorators.find((d) => decoratorName(d) === 'nonSerialized');
   const isPrivate = modifiers.some(
     (m) => m.kind === ast.SyntaxKind.PrivateKeyword || m.kind === ast.SyntaxKind.ProtectedKeyword,
   );
   const isStatic = modifiers.some((m) => m.kind === ast.SyntaxKind.StaticKeyword);
+  const name = ast.isIdentifier(member.name) ? member.name.text : '';
+
+  // The markers do nothing at run time — the build is the only thing that can say they are
+  // misused, so it says so here, on the line that wrote them.
+  const misuse = (code: string, message: string): void => {
+    problems.push({ line: lineOf(sourceFile, member), code, message });
+  };
+  if (serializeDecorator && nonSerializedDecorator) {
+    misuse(
+      'conflicting-markers',
+      `"${name}" is marked both @serializeField and @nonSerialized. Keep the one you mean: ` +
+        '@serializeField puts a private field in documents, @nonSerialized keeps a public one out.',
+    );
+    return undefined;
+  }
+  if (serializeDecorator && isStatic) {
+    misuse(
+      'static-serialize-field',
+      `@serializeField cannot serialize the static field "${name}" — a document writes one ` +
+        'instance, and a static belongs to none of them.',
+    );
+  }
   // `#field` is private in a way no decorator can reach — skip it outright.
   if (isStatic || ast.isPrivateIdentifier(member.name)) return undefined;
+  if (nonSerializedDecorator) return 'nonSerialized';
   if (isPrivate && !serializeDecorator) return undefined;
   // A `readonly` field is state the component owns, not a knob — `readonly destroyed = new
   // Event<…>()` is the common case, and assigning to it in generated code would not compile.

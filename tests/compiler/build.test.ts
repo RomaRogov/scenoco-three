@@ -80,6 +80,7 @@ describe('build', () => {
   it('compiles every document with no diagnostics', () => {
     expect(result.diagnostics).toEqual([]);
     expect([...result.files.keys()].map((p) => p.replace(fixture.dir + '/', '')).sort()).toEqual([
+      '.scenoco/model.json',
       'assets/geometry/ball.asset.gen.ts',
       'assets/geometry/brick.asset.gen.ts',
       'assets/materials/brick.asset.gen.ts',
@@ -102,6 +103,22 @@ describe('build', () => {
     expect(result.model.components.find((c) => c.name === 'Brick')?.description).toBe(
       'Awards points when the ball hits it.',
     );
+  });
+
+  it('leaves the model beside the project, for a reader with no checker of its own', () => {
+    const written = JSON.parse(read('.scenoco/model.json')) as BuildResult['model'];
+    // The project's own classes and the ones its packages bring, each with the fields a document
+    // may write — the same model the emitters used, so the editor offers exactly what compiles.
+    expect(written.components.map((c) => c.name).sort()).toEqual(result.model.components.map((c) => c.name).sort());
+    const ball = written.components.find((c) => c.name === 'Ball')!;
+    expect(ball.fields.map((f) => [f.name, f.shape])).toEqual([
+      ['launchSpeed', 'number'],
+      ['paddle', 'nodeRef'],
+      ['bricks', 'array'],
+    ]);
+    // Where the class lives, relative to the project: the build machine's layout is no one's business.
+    expect(ball.file).toBe('src/components/Ball.ts');
+    expect(written.tags.some((t) => t.name === 'Mesh')).toBe(true);
   });
 
   it('writes each geometry as a shared module-scope value', () => {

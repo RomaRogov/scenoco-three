@@ -52,6 +52,7 @@ beforeAll(() => {
   fixture.write(
     'components.ts',
     `import { Component, System, type PrefabType, type SceneType } from '@scenoco-three/core';
+import { nonSerialized } from '@scenoco-three/compiler/serialize';
 import { Color, Mesh, Object3D, Vector3 } from 'three';
 
 /** Scores a brick. */
@@ -59,6 +60,8 @@ export class Brick extends Component {
   points = 10;
   hits = 1;
   label = 'brick';
+  /** Set when the ball first touches it. */
+  @nonSerialized cracked = false;
 }
 
 /** The rules of the game — a scene service that reads the scene it serves. */
@@ -368,5 +371,19 @@ describe('surviving a scene load', () => {
     expect(
       codes(emit('prefab', `<Group dontDestroyOnLoad="true" />`, 'ForeverPrefab').diagnostics),
     ).toEqual(['persist-in-prefab']);
+  });
+});
+
+describe('a field the class keeps out of documents', () => {
+  it('is an error to write, naming the marker — on the component and through an override', () => {
+    const { diagnostics } = emit(
+      'scene',
+      `<Scene>
+         <Mesh><Components><Brick cracked="true" /></Components></Mesh>
+         <Prefab src="brick.prefab.xml"><Override target="#brick" cracked="true" /></Prefab>
+       </Scene>`,
+    );
+    expect(codes(diagnostics)).toEqual(['non-serialized', 'non-serialized']);
+    expect(diagnostics[0]!.message).toContain('Brick marks it @nonSerialized');
   });
 });

@@ -53,7 +53,7 @@ async function documents(): Promise<Array<{ kind: string; path: string; stem: st
 
 async function open(path: string): Promise<void> {
   const info = await host.open(path);
-  model ??= await host.model();
+  model = info.model;
 
   const reopening = doc?.path === info.path;
   await session.open(info.scene);
@@ -72,7 +72,7 @@ async function open(path: string): Promise<void> {
   } else {
     frame_(session.frameAll());
   }
-  doc = new SceneDocument(info.path, info.text, info.elements, model);
+  doc = new SceneDocument(info.path, info.text, info.elements, model, info.resolve);
   doc.onChange(() => ui?.refresh());
   history.replaceState(null, '', `?path=${encodeURIComponent(path)}`);
   ui?.refresh(); // a document is open now — the open dialog stands down, the toolbar wakes up
@@ -129,7 +129,7 @@ function attachGizmo(): void {
  */
 function pick(event: PointerEvent): void {
   if (event.button !== 0 || !session.scene || gizmo?.dragging) return;
-  select(pickAt(event, canvas, session.scene, session.renderCamera()));
+  select(pickAt(event, canvas, session.scene, session.editorCamera));
 }
 
 canvas.addEventListener('pointerdown', pick);

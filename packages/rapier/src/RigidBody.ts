@@ -49,7 +49,11 @@ export class RigidBody extends Component {
   ccd = false;
 
   /** The live Rapier body. Exists from `awake` until `onDestroy`. */
-  body: RAPIER.RigidBody | null = null;
+  get body(): RAPIER.RigidBody | null {
+    return this._body;
+  }
+
+  private _body: RAPIER.RigidBody | null = null;
 
   private physics: Physics | null = null;
   /** Colliders currently contributing a shape, so a disable can remove exactly one. */
@@ -61,12 +65,17 @@ export class RigidBody extends Component {
     // `requireSystem` rather than `getSystem`: a scene that never declared `<Physics>` still
     // gets a world with default gravity. Declaring one only configures it.
     this.physics = this.requireSystem(Physics);
-    this.body = this.physics.createBody(this);
+    this._body = this.physics.createBody(this);
     // A collider that already started — the body was added afterwards — has nothing left to
     // attach it. Sweeping the node closes that direction, so the two may arrive in either order.
     for (const collider of this.object3D.getComponents(Collider)) {
       if (collider.isActiveAndEnabled) this.attachCollider(collider);
     }
+  }
+
+  /** @internal called by `Physics` when its world goes, taking every body with it. */
+  releaseBody(): void {
+    this._body = null;
   }
 
   override onEnable(): void {
@@ -86,7 +95,7 @@ export class RigidBody extends Component {
   override onDestroy(): void {
     this.physics?.destroyBody(this);
     this.colliders.clear();
-    this.body = null;
+    this._body = null;
     this.physics = null;
   }
 

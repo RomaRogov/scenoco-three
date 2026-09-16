@@ -66,10 +66,24 @@ export class EditLog {
   push(edit: Edit, label: string): void {
     this.commit(
       label,
-      () => this.pending.push(edit),
-      () => this.pending.pop(),
+      () => this.queue(edit),
+      () => this.unqueue(edit),
       false,
     );
+  }
+
+  /** Add a splice to what the next save writes, for a step that does more than queue it. */
+  queue(edit: Edit): void {
+    this.pending.push(edit);
+  }
+
+  /**
+   * Take back that one splice. By identity, not the last one queued: an attribute written since
+   * sits after it, and undoing the structural step must not take that write with it.
+   */
+  unqueue(edit: Edit): void {
+    const index = this.pending.indexOf(edit);
+    if (index !== -1) this.pending.splice(index, 1);
   }
 
   /**

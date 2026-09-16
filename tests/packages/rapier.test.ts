@@ -74,6 +74,31 @@ describe('bodies', () => {
     expect(ball.position.y).toBeLessThan(1.6);
   });
 
+  it('writes a nested body’s pose back through its parent', async () => {
+    // The body's pose is read from where the node is in the **world**, so it has to be written
+    // back the same way: straight into `position` it would be its parent's offset twice over.
+    Time.fixedDeltaTime = 1 / 60;
+    let crate!: Mesh;
+    await SceneManager.load(sceneOf((s) => {
+      const holder = new Object3D();
+      holder.position.set(4, 10, 0);
+      s.add(holder);
+      crate = new Mesh(geometry, material);
+      holder.add(crate);
+      crate.addComponent(RigidBody);
+      crate.addComponent(BoxCollider, { halfExtents: new Vector3(0.5, 0.5, 0.5) });
+    }));
+
+    const clock = new Clock();
+    clock.frames(40, 1 / 60);
+
+    const world = crate.getWorldPosition(new Vector3());
+    const simulated = crate.getComponent(RigidBody)!.body!.translation();
+    expect(world.y).toBeCloseTo(simulated.y, 5);
+    expect(world.x).toBeCloseTo(4, 5);
+    expect(world.y).toBeLessThan(10); // it fell
+  });
+
   it('joins the world in awake and leaves it in onDestroy', async () => {
     let crate!: Mesh;
     const scene = await SceneManager.load(sceneOf((s) => { crate = box(s, 'crate'); }));

@@ -17,12 +17,16 @@ export class AttachTo extends Component {
   bone = '';
 
   /** The bone it attached to, or null when it could not find one. */
-  attached: Object3D | null = null;
+  get attached(): Object3D | null {
+    return this._attached;
+  }
+
+  private _attached: Object3D | null = null;
 
   override start(): void {
     const bone = this.find();
     if (!bone) return;
-    this.attached = bone;
+    this._attached = bone;
     // `add` moves it and leaves the local transform alone, which makes it an offset.
     bone.add(this.object3D);
   }

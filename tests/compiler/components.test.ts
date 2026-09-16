@@ -21,7 +21,7 @@ beforeAll(() => {
   fixture.write(
     'game.ts',
     `import { Component, Event } from '@scenoco-three/core';
-import { serializeField } from '@scenoco-three/compiler/serialize';
+import { nonSerialized, serializeField } from '@scenoco-three/compiler/serialize';
 import { Mesh, Vector3 } from 'three';
 
 /** Moves the paddle along the bottom of the field. */
@@ -55,9 +55,35 @@ export class GridLayout extends Component {
   spacing = 1;
 }
 
+/** Tracks what it saw, which nobody authors. */
+export class Tracker extends Component {
+  /** How far it looks. */
+  range = 5;
+  /** State it keeps for itself. */
+  @nonSerialized hits = 0;
+  @serializeField @nonSerialized private both = 1;
+  @serializeField static shared = 0;
+}
+
+export class QuietTracker extends Tracker {
+  @nonSerialized override range = 10;
+}
+
 /** Not a component at all. */
 export class Helper {
   speed = 3;
+}
+`,
+  );
+  // A library with a \`Component\` of its own, as uikit has: its classes are not SceNoCo's.
+  fixture.write(
+    'widgets.ts',
+    `export class Component {
+  width = 0;
+}
+
+export class Panel extends Component {
+  anchor = 'center';
 }
 `,
   );
@@ -79,8 +105,33 @@ describe('scanComponents', () => {
       'FastPaddle',
       'GridLayout',
       'PaddleController',
+      'QuietTracker',
+      'Tracker',
     ]);
     expect(found.has('Helper')).toBe(false);
+  });
+
+  it('leaves a @nonSerialized field out, and remembers it so a document writing one is told why', () => {
+    const tracker = found.get('Tracker')!;
+    expect(tracker.fields.map((f) => f.name)).toEqual(['range']);
+    expect(tracker.nonSerialized).toEqual(['hits']);
+    // A subclass may take a base's public field back out; it inherits the base's markers too.
+    const quiet = found.get('QuietTracker')!;
+    expect(quiet.fields).toEqual([]);
+    expect(quiet.nonSerialized?.sort()).toEqual(['hits', 'range']);
+  });
+
+  it('reports a marker that cannot mean what it says, on the class that wrote it', () => {
+    // Nothing checks them when the code runs — the markers never reach it — so the build does.
+    expect(found.get('Tracker')!.problems?.map((p) => p.code)).toEqual(['conflicting-markers', 'static-serialize-field']);
+    expect(found.get('QuietTracker')!.problems).toBeUndefined();
+  });
+
+  it('means core’s Component, not another class that shares the name', () => {
+    // uikit's elements derive from a \`Component\` of uikit's own; matched by name, every
+    // \`<Panel>\` was offered as something to put in a node's \`<Components>\`.
+    expect(found.has('Panel')).toBe(false);
+    expect(found.has('Component')).toBe(false);
   });
 
   it('follows the chain, so a subclass of a component is a component', () => {

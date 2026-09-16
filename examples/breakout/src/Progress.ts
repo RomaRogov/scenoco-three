@@ -2,6 +2,7 @@ import type { Object3D } from 'three';
 import { Component, Input, KeyCode, MouseButton, SceneManager, type SceneType } from '@scenoco-three/core';
 import type { Text } from '@scenoco-three/ui';
 import type { GameState } from './GameState.js';
+import { nonSerialized } from '@scenoco-three/compiler/serialize';
 
 /**
  * The run — score, lives, which level — and the HUD that shows it.
@@ -41,10 +42,11 @@ export class Progress extends Component {
   headline!: Text;
   hint!: Text;
 
-  score = 0;
-  lives = 3;
+  // The run itself: what the game counts, not what a document configures.
+  @nonSerialized score = 0;
+  @nonSerialized lives = 3;
   /** 0-based index into `levels`. */
-  index = 0;
+  @nonSerialized index = 0;
 
   /** The level being played, which owns the phase. Null between loads. */
   private game: GameState | null = null;

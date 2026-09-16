@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer, type ViteDevServer } from 'vite';
-import { build, formatDiagnostic, indexDocument, type ProjectModel } from '@scenoco-three/compiler';
+import { createServer, parseSync, type ViteDevServer } from 'vite';
+import { build, formatDiagnostic, indexDocument, withoutMarkers, type ProjectModel } from '@scenoco-three/compiler';
 
 export interface ServerOptions {
   /** Project root — the directory holding `tsconfig.json` and `assets/`. Defaults to cwd. */
@@ -68,7 +68,16 @@ export async function startProjectServer(options: ServerOptions = {}): Promise<P
   const vite = await createServer({
     root: appRoot,
     configFile: false,
-    plugins: [documentApi(root)],
+    plugins: [
+      documentApi(root),
+      // The project's components run here too, and the build's markers must not reach the page:
+      // no browser parses a decorator. `scenoco()` does the same in a project's own Vite.
+      {
+        name: 'scenoco:markers',
+        enforce: 'pre',
+        transform: (code, id) => withoutMarkers(code, id, (file, source) => parseSync(file, source).program),
+      },
+    ],
     ...(options.quiet ? { logLevel: 'silent' as const } : {}),
     clearScreen: false,
     server: {

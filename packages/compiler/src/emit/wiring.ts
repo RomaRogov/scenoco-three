@@ -187,6 +187,17 @@ function emitSystem(scope: EmitScope, element: SncElement, create: string[], wir
 }
 
 /**
+ * Why a field the class declares is still not an attribute: its author said so. Worded apart from
+ * "no such field", because the fix is not a spelling — it is setting the value from code.
+ */
+export function nonSerializedMessage(what: string, info: ComponentInfo, attribute: string): string {
+  return (
+    `${what} keeps "${attribute}" out of documents — ${info.name} marks it @nonSerialized, ` +
+    'as state it manages itself. Set it from code rather than from the document.'
+  );
+}
+
+/**
  * Read an element's attributes against a class's serialized fields.
  *
  * Shared by components and systems because the two are authored identically — public fields,
@@ -206,6 +217,10 @@ function readFields(
   for (const [attribute, text] of element.attributes) {
     if (attribute === 'id' || attribute.includes(':')) continue;
     const field = info.fields.find((f) => f.name === attribute);
+    if (!field && info.nonSerialized?.includes(attribute)) {
+      scope.report(element, 'non-serialized', nonSerializedMessage(what, info, attribute));
+      continue;
+    }
     if (!field) {
       const advice = hint({
         near: nearestName(attribute, info.fields.map((f) => f.name)),

@@ -51,7 +51,11 @@ export class AudioSource extends Component {
   maxDistance = 10_000;
 
   /** The live three.js audio node. Null before `start`, and where there is no Web Audio. */
-  audio: Audio | PositionalAudio | null = null;
+  get audio(): Audio | PositionalAudio | null {
+    return this._audio;
+  }
+
+  private _audio: Audio | PositionalAudio | null = null;
 
   private mixer: AudioMixer | null = null;
 
@@ -85,7 +89,7 @@ export class AudioSource extends Component {
     audio.setLoop(this.loop);
     audio.setVolume(this.volume);
     audio.setPlaybackRate(this.pitch);
-    this.audio = audio;
+    this._audio = audio;
 
     if (this.playOnAwake) this.play();
   }
@@ -101,7 +105,7 @@ export class AudioSource extends Component {
     if (audio.isPlaying) audio.stop();
     audio.disconnect();
     audio.removeFromParent();
-    this.audio = null;
+    this._audio = null;
     this.mixer = null;
   }
 

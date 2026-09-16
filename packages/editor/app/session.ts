@@ -21,10 +21,9 @@ export interface FocusTarget {
 /**
  * The live scene, and everything that can be done to it.
  *
- * Two modes, and the difference is only who drives. In **edit** the scene is loaded but not
- * ticked, and an editor camera flies around it; in **play** the scene's own `mainCamera` renders
- * and `SceneManager` ticks. Both look at the same objects — there is no separate preview build,
- * which is what makes "it looked right in the editor" mean something.
+ * The scene is loaded but not ticked, and an editor camera flies around it. It is the same objects
+ * the game builds — there is no separate preview build, which is what makes "it looked right in
+ * the editor" mean something.
  */
 export class EditorSession {
   readonly canvas: HTMLCanvasElement;
@@ -43,8 +42,6 @@ export class EditorSession {
   readonly editorCamera: PerspectiveCamera;
 
   scene: Scene | null = null;
-  mode: EditorMode = 'edit';
-  playing = false;
   /** The class the open module exports, so the scene can be rebuilt from scratch. */
   private sceneClass: SceneType | null = null;
   /** Raised whenever the loaded scene is replaced, so the host can rebind to it. */

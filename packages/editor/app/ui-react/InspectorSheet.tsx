@@ -29,6 +29,10 @@ const PREFAB_REASON = 'From another document — open it to edit this.';
 const TYPE_REASON = 'No attribute can express this type.';
 /** A slot an element fills. Naming a file here as well would be two materials for one mesh. */
 const ATTACHED_REASON = (tag: string) => `Written as a <${tag}> inside this node.`;
+const UNKNOWN_COMPONENT = 'Not in this project’s model — its attributes are shown as written. Run `scenoco build` to read its fields.';
+
+/** An attribute of a class the model does not know, as plain text. */
+const asText = (name: string): PropInfo => ({ name, type: 'string', shape: 'string', required: false });
 
 /** Sections the user has folded away, by title. Module state: one inspector per page. */
 const closedSections = new Set<string>();
@@ -143,39 +147,34 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
     </Section>
   );
 
-  // The components on this node, each with what its class declares.
-  for (const [i, { component, info }] of (doc?.componentsOf(node) ?? []).entries()) {
-    const name = component.constructor.name;
-    // Per component, not per node: a prefab instance sits in this document while its components
-    // are declared in the prefab's, and only the second question decides whether a field writes.
-    const editableHere = doc?.canEditComponent(component) ?? false;
+  // The components this node's element declares, each with what the build read from its class.
+  for (const [i, entry] of (doc?.componentsOf(node) ?? []).entries()) {
     sections.push(
       <Section
         key={`comp-${i}`}
-        title={name}
-        {...(info?.description ? { description: info.description } : {})}
-        actions={
-          editableHere ? <MemberActions onDelete={() => doc?.removeComponent(component)} /> : undefined
-        }
+        title={entry.tag}
+        description={entry.info?.description ?? (entry.info ? undefined : UNKNOWN_COMPONENT)}
+        actions={<MemberActions onDelete={() => doc?.removeComponent(entry)} />}
       >
         {(() => {
           const render = (prop: PropInfo): React.JSX.Element => (
             <PropRow
               key={prop.name}
               prop={prop}
-              written={doc?.componentProp(component, prop.name)}
-              editable={editableHere}
-              {...(editableHere ? {} : { live: liveText(component, prop.name) })}
-              commit={(v, c) => doc?.setComponentValue(component, prop, v, c)}
-              clear={() => doc?.clearComponentProp(component, prop.name)}
+              written={doc?.componentProp(entry, prop.name)}
+              editable
+              commit={(v, c) => doc?.setComponentValue(entry, prop, v, c)}
+              clear={() => doc?.clearComponentProp(entry, prop.name)}
             />
           );
-          const fields = split(info?.fields ?? [], (p) => doc?.componentProp(component, p.name) !== undefined);
+          // A class the model does not know still has its attributes: shown as the text they are.
+          const declared = entry.info?.fields ?? [...entry.attributes.keys()].map(asText);
+          const fields = split(declared, (p) => entry.attributes.has(p.name));
           return (
             <>
               {fields.written.map(render)}
               {fields.rest.length > 0 ? (
-                <Section title={`${fields.rest.length} more on ${name}`} startClosed>
+                <Section title={`${fields.rest.length} more on ${entry.tag}`} startClosed>
                   {fields.rest.map(render)}
                 </Section>
               ) : null}
@@ -264,15 +263,12 @@ function PropRow({
   prop,
   written,
   editable,
-  live,
   commit,
   clear,
 }: {
   prop: PropInfo;
   written: string | undefined;
   editable: boolean;
-  /** What the object actually holds — shown on a locked row, where `written` says nothing. */
-  live?: string | undefined;
   commit: (value: Scalar, opts?: { coalesce?: boolean }) => void;
   clear: () => void;
 }): React.JSX.Element | null {
@@ -283,20 +279,10 @@ function PropRow({
   const onClear = !unset && editable ? clear : undefined;
 
   if (shape === null) return <LockRow label={prop.name} value={String(value)} reason={TYPE_REASON} description={prop.description} />;
-  // A locked row prefers the live value. The document has nothing written for something another
-  // file declares, and falling back to the class default *looks* like a fact: a crate whose
-  // prefab sets `gravityScale` to 1 would read 0 here, which is worse than saying nothing.
+  // A locked row shows what the document writes, and nothing when it writes nothing: the class
+  // default would look like a fact about a file that says no such thing.
   if (!editable) {
-    return (
-      <LockRow
-        label={prop.name}
-        // Blank rather than the class default when the live value is not something a row can
-        // show: the document says nothing about this field, so neither should the inspector.
-        value={live ?? ''}
-        reason={PREFAB_REASON}
-        description={prop.description}
-      />
-    );
+    return <LockRow label={prop.name} value={written ?? ''} reason={PREFAB_REASON} description={prop.description} />;
   }
 
   const common = { label: prop.name, description, unset, ...(onClear ? { onClear } : {}) };
@@ -509,29 +495,4 @@ function Section({
       {!closed && <div className={styles.secBody}>{children}</div>}
     </div>
   );
-}
-
-/**
- * What a component actually holds for one field, as text a locked row can show.
- *
- * Undefined for anything an attribute could not have written in the first place — a live physics
- * body, a texture — where the honest row is the name and the lock, not `[object Object]`.
- */
-function liveText(target: object, name: string): string | undefined {
-  const value = (target as Record<string, unknown>)[name];
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') return String(value);
-  const v = value as {
-    isColor?: boolean;
-    isVector2?: boolean;
-    isVector3?: boolean;
-    x?: number;
-    y?: number;
-    z?: number;
-    getHexString?: () => string;
-  };
-  if (v.isColor) return `#${v.getHexString?.() ?? ''}`;
-  if (v.isVector3) return `x: ${v.x}; y: ${v.y}; z: ${v.z}`;
-  if (v.isVector2) return `x: ${v.x}; y: ${v.y}`;
-  return undefined;
 }

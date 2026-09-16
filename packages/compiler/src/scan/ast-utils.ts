@@ -121,16 +121,33 @@ export function isAbstractClass(node: ast.ClassDeclaration): boolean {
   return (node.modifiers ?? []).some((m) => m.kind === ast.SyntaxKind.AbstractKeyword);
 }
 
+/** Whether a symbol is the one base class a scan is looking for. */
+export type BaseTest = (symbol: TsSymbol) => boolean;
+
 /**
- * Whether a class derives from a class named `baseName`, at any depth.
+ * Where a class is declared — file and position — which is what makes two symbols one class.
+ *
+ * A name does not: uikit exports a `Component` of its own, and every element it has derives from
+ * it. The path is case-folded for the reason `identityOf` folds it: the routes to one declaration
+ * report its path in different casing on a case-insensitive filesystem.
+ */
+export function declarationIdOf(symbol: TsSymbol, project: Project): string | undefined {
+  for (const handle of symbol.declarations) {
+    const node = handle.resolve(project);
+    if (node && ast.isClassDeclaration(node)) return `${String(handle.path).toLowerCase()}:${node.pos}`;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a class derives from the base `isBase` recognises, at any depth.
  *
  * Resolved through the **type checker**, not by matching the name in the `extends` clause, so
- * `class Enemy extends Character` is found when `Character` extends `Component` — and a local
- * class that merely happens to be called `Component` is not.
+ * `class Enemy extends Character` is found when `Character` extends `Component`.
  */
 export function derivesFrom(
   node: ast.ClassDeclaration,
-  baseName: string,
+  isBase: BaseTest,
   checker: Checker,
   project: Project,
 ): boolean {
@@ -145,7 +162,7 @@ export function derivesFrom(
     // came from another module. Without this step the walk stops at the import clause and a
     // component two modules deep is never found.
     const symbol = resolveAlias(located, checker);
-    if (symbol.name === baseName) return true;
+    if (isBase(symbol)) return true;
     // Guard against a cycle in malformed sources — the walk is over declarations the checker
     // resolved, so it should terminate, but a loop here would hang the build rather than
     // report anything.
@@ -195,23 +212,28 @@ export function inheritedMemberNames(
  * `Material` and `MeshStandardMaterialProperties`).
  */
 export function baseChainOf(type: Type, checker: Checker, limit = 16): string[] {
-  const names: string[] = [];
+  return baseSymbolsOf(type, checker, limit).map((symbol) => symbol.name);
+}
+
+/** The same walk as `baseChainOf`, keeping the symbols — for a caller that needs to know *which* class. */
+export function baseSymbolsOf(type: Type, checker: Checker, limit = 16): TsSymbol[] {
+  const symbols: TsSymbol[] = [];
   const seen = new Set<string>();
   let frontier: Type[] = [type];
   for (let depth = 0; depth < limit && frontier.length > 0; depth++) {
     const next: Type[] = [];
     for (const current of frontier) {
       for (const base of basesOf(current, checker)) {
-        const name = base.getSymbol()?.name;
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
-        names.push(name);
+        const symbol = base.getSymbol();
+        if (!symbol || seen.has(symbol.name)) continue;
+        seen.add(symbol.name);
+        symbols.push(symbol);
         next.push(base);
       }
     }
     frontier = next;
   }
-  return names;
+  return symbols;
 }
 
 /**

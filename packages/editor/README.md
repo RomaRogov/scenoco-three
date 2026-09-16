@@ -31,6 +31,16 @@ TypeScript, and there is no TypeScript in a static page — so this is an editor
 move things, arrange the hierarchy, set attributes, save. What it could not build it says rather
 than drops. To see a scene *run*, an agent uses the observer, and a person runs the game.
 
+## Components
+
+A node's components are read from its element — the `<Components>` block — never from a running
+instance. What each one takes comes from the project's model: every `scenoco build` (and the
+Vite plugin, and `scenoco watch`) leaves what it read from the project's TypeScript in
+`.scenoco/model.json`, and the editor uses the nearest one at or above the open document. So the
+inspector offers exactly the fields the compiler accepts, for the project's own components and
+for its packages' alike. Without a model it knows only the tag packages' components, and says so;
+a component it does not know still shows, with its attributes as written.
+
 ## CLI
 
 ```bash

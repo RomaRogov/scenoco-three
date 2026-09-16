@@ -4,6 +4,7 @@ import { BoxGeometry, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3 } f
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CameraRig } from '../../packages/editor/app/cameraRig.js';
 import { SceneDocument } from '../../packages/editor/app/document.js';
+import { projectModelAt } from '../../packages/editor/app/host.js';
 import { applyEdits } from '../../packages/editor/app/live/edits.js';
 import { buildLive } from '../../packages/editor/app/live/build.js';
 import { joinPath, type Source } from '../../packages/editor/app/live/source.js';
@@ -80,6 +81,23 @@ describe('saving', () => {
     const moved = indexDocument(text).find((e) => e.tag === 'Mesh')!;
     expect(moved.parent?.tag).toBe('Group');
     expect(indexDocument(text).map((e) => e.tag)).toContain('CircleCollider2D');
+  });
+
+  it('finds every element an edit names after an earlier splice has moved the text under it', () => {
+    // Every position is where the element stood when the file was opened — what the live objects
+    // are stamped with. A component added to the first node pushes the rest down three lines.
+    const { text, problems } = applyEdits(DOC, [
+      { op: 'insertChild', at: at('PerspectiveCamera'), xml: '<Components>\n  <CameraFit />\n</Components>' },
+      { op: 'setAttribute', at: at('CircleCollider2D'), name: 'restitution', value: '0.95' },
+      { op: 'moveElement', at: at('Mesh'), parent: at('Group') },
+      { op: 'setAttribute', at: at('Group'), name: 'name', value: 'props' },
+    ]);
+    expect(problems).toEqual([]);
+    const index = indexDocument(text);
+    expect(index.find((e) => e.tag === 'CameraFit')?.parent?.parent?.tag).toBe('PerspectiveCamera');
+    expect(index.find((e) => e.tag === 'CircleCollider2D')?.attributes.restitution).toBe('0.95');
+    expect(index.find((e) => e.tag === 'Mesh')?.parent?.attributes.name).toBe('props');
+    expect(text).not.toContain('scenoco-edit-target');
   });
 
   it('adds a component under the node’s <Components>', () => {
@@ -220,6 +238,162 @@ describe('an edit and the live object', () => {
     const { doc, mesh } = open();
     doc.setNodeValue(mesh, { name: 'position', type: 'Vector3', shape: 'vector3', required: false }, [4, 5, 6]);
     expect(mesh.position.toArray()).toEqual([4, 5, 6]);
+  });
+
+  it('puts the object a reference names on the node, never the path, and undo puts the shared one back', async () => {
+    const { mesh } = open();
+    const shared = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const other = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+    mesh.material = shared;
+    const elements = indexDocument(DOCUMENT).map((e) => ({ ...e, attributes: e.attributes }));
+    const doc = new SceneDocument(
+      'scene.xml',
+      DOCUMENT,
+      elements,
+      { components: [], systems: [], effects: [], tags: [] },
+      async (_name, _shape, text) => (text === 'blue.asset.xml' ? other : shared),
+    );
+    const material: PropInfo = { name: 'material', type: 'Material', shape: 'assetRef', required: false };
+
+    doc.setNodeValue(mesh, material, 'blue.asset.xml');
+    // A path in the slot is a string three draws with, and the next frame throws.
+    expect(mesh.material).toBe(shared);
+    await Promise.resolve();
+    expect(mesh.material).toBe(other);
+
+    doc.undoLast();
+    // The shared material comes back as itself — not `other`, overwritten with a copy of its look.
+    expect(mesh.material).toBe(shared);
+    expect(other.color.getHex()).toBe(0x0000ff);
+  });
+});
+
+/**
+ * Components, as the document writes them.
+ *
+ * The editor runs nothing, so there is no component instance to ask: what a node has is what its
+ * element declares, and what each one takes is what the build read from the class.
+ */
+describe('components in the inspector', () => {
+  const SOURCE = `<Scene>
+  <Mesh id="ball">
+    <MeshStandardMaterial color="#ff0000" />
+    <Components>
+      <Spin speed="2" />
+      <Mystery label="hello" />
+    </Components>
+    <Mesh id="child">
+      <Components>
+        <Spin />
+      </Components>
+    </Mesh>
+  </Mesh>
+  <Group id="empty" />
+</Scene>
+`;
+  const number = (name: string): PropInfo => ({ name, type: 'number', shape: 'number', required: false });
+
+  function open() {
+    const elements = indexDocument(SOURCE).map((e) => ({ ...e, attributes: e.attributes }));
+    const stamped = (id: string) => {
+      const element = elements.find((e) => e.attributes.id === id)!;
+      const node = new THREE.Object3D();
+      node.userData.scenoco = { file: 'scene.xml', line: element.line, column: element.column };
+      return node;
+    };
+    const doc = new SceneDocument('scene.xml', SOURCE, elements, {
+      components: [
+        { name: 'Spin', file: 'src/Spin.ts', line: 1, fields: [{ ...number('speed'), explicit: false }] },
+      ],
+      systems: [],
+      effects: [],
+      tags: [{ name: 'Mesh', family: 'node', module: 'three', bases: ['Object3D'], parameters: [], properties: [] }],
+    });
+    return { doc, ball: stamped('ball'), empty: stamped('empty') };
+  }
+  const save = (doc: SceneDocument) => applyEdits(SOURCE, doc.edits());
+
+  it('comes from the build of the project the document is in — the nearest model at or above it', async () => {
+    const model = (name: string) => JSON.stringify({ components: [{ name }], systems: [], effects: [], tags: [] });
+    const files: Record<string, string> = {
+      '.scenoco/model.json': model('Outer'),
+      'game/.scenoco/model.json': model('Inner'),
+      // What a static host answers for a path it does not have: its index page, not a 404.
+      'game/assets/.scenoco/model.json': '<!doctype html><title>editor</title>',
+    };
+    const source: Source = {
+      label: 'folder',
+      read: async (path) => files[path] ?? Promise.reject(new Error(`${path}: not found`)),
+      url: async (path) => path,
+      resolve: (from, ref) => joinPath(from.split('/').slice(0, -1).join('/'), ref),
+    };
+    expect((await projectModelAt(source, 'game/assets/scenes/main.scene.xml'))?.components[0]?.name).toBe('Inner');
+    expect((await projectModelAt(source, 'other/main.scene.xml'))?.components[0]?.name).toBe('Outer');
+    delete files['.scenoco/model.json'];
+    expect(await projectModelAt(source, 'other/main.scene.xml')).toBeNull();
+  });
+
+  it('reads them from the element — its own block, past an inline material, not a child node’s', () => {
+    const { doc, ball } = open();
+    const entries = doc.componentsOf(ball);
+    expect(entries.map((e) => e.tag)).toEqual(['Spin', 'Mystery']);
+    expect(entries[0]!.info?.fields.map((f) => f.name)).toEqual(['speed']);
+    expect(doc.componentProp(entries[0]!, 'speed')).toBe('2');
+    // A class this project's model does not know is still there, with its attributes as written.
+    expect(entries[1]!.info).toBeUndefined();
+    expect(entries[1]!.attributes.get('label')).toBe('hello');
+  });
+
+  it('writes an attribute into the element, and undo takes it back', () => {
+    const { doc, ball } = open();
+    doc.setComponentValue(doc.componentsOf(ball)[0]!, number('speed'), 5);
+    expect(doc.componentProp(doc.componentsOf(ball)[0]!, 'speed')).toBe('5');
+    expect(save(doc).text).toContain('<Spin speed="5" />');
+    doc.undoLast();
+    expect(doc.componentProp(doc.componentsOf(ball)[0]!, 'speed')).toBe('2');
+  });
+
+  it('shows a component added since opening, whose attributes go into the insert that writes it', () => {
+    const { doc, ball, empty } = open();
+    doc.addComponent(empty, 'Spin');
+    doc.addComponent(empty, 'Mystery');
+    const [spin] = doc.componentsOf(empty);
+    expect(doc.componentsOf(empty).map((e) => e.tag)).toEqual(['Spin', 'Mystery']);
+    doc.setComponentValue(spin!, number('speed'), 3);
+    // A node below the insert, edited after it: the save still finds its element.
+    doc.addComponent(ball, 'Spin');
+
+    const { text, problems } = save(doc);
+    expect(problems).toEqual([]);
+    expect(text).toContain(`<Group id="empty">
+    <Components>
+      <Spin speed="3" />
+      <Mystery />
+    </Components>
+  </Group>`);
+    // Into the block the ball already has, not a second one.
+    expect(text.match(/<Components>/g)).toHaveLength(3);
+
+    doc.undoLast(); // the ball's Spin
+    doc.undoLast(); // speed
+    doc.undoLast(); // Mystery
+    expect(doc.componentsOf(empty).map((e) => [e.tag, e.attributes.get('speed')])).toEqual([['Spin', undefined]]);
+    doc.undoLast();
+    expect(doc.componentsOf(empty)).toEqual([]);
+    expect(doc.edits()).toEqual([]);
+  });
+
+  it('removes one, and undo brings it back without taking a later write with it', () => {
+    const { doc, ball } = open();
+    doc.removeComponent(doc.componentsOf(ball)[1]!);
+    expect(doc.componentsOf(ball).map((e) => e.tag)).toEqual(['Spin']);
+    doc.setComponentValue(doc.componentsOf(ball)[0]!, number('speed'), 7);
+    expect(save(doc).text).not.toContain('Mystery');
+
+    doc.undoLast(); // speed
+    doc.undoLast(); // the removal
+    expect(doc.componentsOf(ball).map((e) => e.tag)).toEqual(['Spin', 'Mystery']);
+    expect(save(doc).text).toContain('<Mystery label="hello" />');
   });
 });
 
@@ -478,6 +652,60 @@ describe('an attached object', () => {
     doc.undoLast();
     expect(material.roughness).toBe(0.5);
     expect(doc.attachmentsOf(mesh)[0]!.attributes.get('roughness')).toBe('0.5');
+  });
+
+  it('rebuilds a geometry whose constructor argument changed, and undo puts the old one back', () => {
+    const source = `<Scene>
+  <Mesh id="ring">
+    <TorusGeometry radius="0.5" tube="0.2" />
+  </Mesh>
+</Scene>
+`;
+    const elements = indexDocument(source).map((e) => ({
+      tag: e.tag,
+      line: e.line,
+      column: e.column,
+      start: e.start,
+      end: e.end,
+      attributes: e.attributes,
+    }));
+    const geometry = new THREE.TorusGeometry(0.5, 0.2);
+    const mesh = new Mesh(geometry);
+    const element = elements.find((e) => e.tag === 'Mesh')!;
+    mesh.userData.scenoco = { file: 'scene.xml', line: element.line, column: element.column };
+    const number = (name: string): PropInfo => ({ name, type: 'number', shape: 'number', required: false });
+    const doc = new SceneDocument('scene.xml', source, elements, {
+      components: [],
+      systems: [],
+      effects: [],
+      tags: [
+        {
+          name: 'Mesh',
+          family: 'node',
+          module: 'three',
+          bases: ['Object3D'],
+          parameters: [{ name: 'geometry', type: 'BufferGeometry', shape: 'assetRef', assetFamily: 'geometry', required: false }],
+          properties: [],
+        },
+        {
+          name: 'TorusGeometry',
+          family: 'geometry',
+          module: 'three',
+          bases: ['BufferGeometry'],
+          parameters: [number('radius'), number('tube')],
+          properties: [],
+        },
+      ],
+    });
+
+    // three reads `radius` once, in the constructor, so writing it onto the object shows nothing.
+    doc.setAttachmentValue(doc.attachmentsOf(mesh)[0]!, number('radius'), 1);
+    expect(mesh.geometry).not.toBe(geometry);
+    expect((mesh.geometry as THREE.TorusGeometry).parameters).toMatchObject({ radius: 1, tube: 0.2 });
+    expect(doc.attachmentsOf(mesh)[0]!.live).toBe(mesh.geometry);
+
+    doc.undoLast();
+    expect(mesh.geometry).toBe(geometry);
   });
 
   it('does not mistake a nested node’s material for this one’s', () => {

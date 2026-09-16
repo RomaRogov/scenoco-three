@@ -123,6 +123,8 @@ dist/
 # build. The document is the source of truth, so committing both means reviewing every change
 # twice and resolving conflicts in generated code.
 *.gen.ts
+# What the build read from the project's TypeScript, for the editor. Rewritten on every build.
+.scenoco/
 `,
     },
 

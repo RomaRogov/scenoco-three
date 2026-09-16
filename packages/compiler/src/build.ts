@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { detectTagPackages, fileKindOf, findAssets, type AssetFile } from './assets.js';
 import { formatDiagnostic, type SncDiagnostic } from './dsl/diagnostics.js';
@@ -16,7 +16,7 @@ import type {
 } from './emit/assets.js';
 import { camelCase, pascalCase } from './emit/module.js';
 import { emitResource } from './emit/resource.js';
-import type { ProjectModel } from './model.js';
+import { MODEL_FILE, type ProjectModel } from './model.js';
 import { scanConfigShape, type ConfigShape } from './scan/interfaces.js';
 import { Workspace } from './scan/workspace.js';
 import { scanComponents, scanEffects, scanSystems } from './scan/components.js';
@@ -183,6 +183,8 @@ export function build(options: BuildOptions): BuildResult {
     if (emitted.code) files.set(asset.outputPath, rewriteComponentImports(emitted.code, asset.outputPath));
   }
 
+  files.set(resolve(root, MODEL_FILE), serializeModel(model, root));
+
   if (!options.dryRun) {
     for (const [path, source] of files) {
       // Only when it changed: a watcher that rewrites an unchanged file restarts the dev
@@ -193,11 +195,32 @@ export function build(options: BuildOptions): BuildResult {
       } catch {
         existing = undefined;
       }
-      if (existing !== source) writeFileSync(path, source);
+      if (existing === source) continue;
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
     }
   }
 
   return { files, diagnostics, model };
+}
+
+/**
+ * The model as a file, for a reader with no checker of its own.
+ *
+ * A class's `file` is written relative to the root: the absolute path says where it was on the
+ * machine that built it, which means nothing to a browser and is nobody else's business.
+ */
+function serializeModel(model: ProjectModel, root: string): string {
+  const portable = <T extends { file: string }>(info: T): T => ({
+    ...info,
+    file: relative(root, info.file).split(sep).join('/'),
+  });
+  return JSON.stringify({
+    components: model.components.map(portable),
+    systems: model.systems.map(portable),
+    effects: model.effects.map(portable),
+    tags: model.tags,
+  } satisfies ProjectModel);
 }
 
 /**

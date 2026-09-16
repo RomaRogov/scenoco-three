@@ -1,4 +1,4 @@
-import { BoxGeometry, Mesh, MeshBasicMaterial, Object3D, Scene, Vector2 } from 'three';
+import { BoxGeometry, Mesh, MeshBasicMaterial, Object3D, Scene, Vector2, Vector3 } from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Component, SceneManager, Time, type SceneType } from '@scenoco-three/core';
 import {
@@ -77,6 +77,63 @@ describe('bodies', () => {
     expect(crate.position.y).toBeLessThan(9);
     // Z is left alone, so a 2D game can still lay its art out in depth.
     expect(crate.position.z).toBe(3);
+  });
+
+  it('simulates where the node *is*, not where its parent’s offset leaves it', async () => {
+    // A wall of bricks is laid out under one node, as it would be in Unity. Reading the local
+    // position put every body at its offset from that node instead: the wall was drawn where
+    // the document said and collided with nothing, ten units below.
+    Time.fixedDeltaTime = 1 / 60;
+    let ball!: Mesh;
+    let shelf!: Object3D;
+    await SceneManager.load(sceneOf((s) => {
+      shelf = new Object3D();
+      shelf.position.set(0, 10, 0);
+      s.add(shelf);
+      const plank = new Mesh(geometry, material);
+      shelf.add(plank); // world y = 10, local y = 0
+      plank.addComponent(RigidBody2D, { kind: 'static' });
+      plank.addComponent(BoxCollider2D, WIDE);
+      // Placed before its components, which is the order generated code writes.
+      ball = new Mesh(geometry, material);
+      s.add(ball);
+      ball.position.set(0, 14, 0);
+      ball.addComponent(RigidBody2D);
+      ball.addComponent(BoxCollider2D, { halfExtents: new Vector2(0.5, 0.5) });
+    }));
+
+    const clock = new Clock();
+    clock.frames(180, 1 / 60);
+
+    // Landed on the plank at world y = 10, rather than falling past it.
+    expect(ball.position.y).toBeGreaterThan(10.5);
+    expect(ball.position.y).toBeLessThan(11.5);
+  });
+
+  it('writes a nested body’s pose back through its parent', async () => {
+    Time.fixedDeltaTime = 1 / 60;
+    let crate!: Mesh;
+    let holder!: Object3D;
+    await SceneManager.load(sceneOf((s) => {
+      holder = new Object3D();
+      holder.position.set(4, 10, 0);
+      s.add(holder);
+      crate = new Mesh(geometry, material);
+      holder.add(crate);
+      crate.addComponent(RigidBody2D);
+      crate.addComponent(BoxCollider2D, { halfExtents: new Vector2(0.5, 0.5) });
+    }));
+
+    const clock = new Clock();
+    clock.frames(40, 1 / 60);
+
+    // The body is the world's, the node's transform is its parent's: the two have to agree
+    // about where the crate is, which they only do if the pose is converted on the way back.
+    const world = crate.getWorldPosition(new Vector3());
+    const simulated = crate.getComponent(RigidBody2D)!.body!.getPosition();
+    expect(world.y).toBeCloseTo(simulated.y, 5);
+    expect(world.x).toBeCloseTo(4, 5);
+    expect(world.y).toBeLessThan(10); // it fell
   });
 
   it('rests a dynamic body on a static one', async () => {

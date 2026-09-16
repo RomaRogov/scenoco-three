@@ -2,6 +2,7 @@ import { Vec2, World, type Body, type Contact } from 'planck';
 import { Vector2, type Object3D } from 'three';
 import { Component, System, Time } from '@scenoco-three/core';
 import { RigidBody2D } from './RigidBody2D.js';
+import { applyWorldPose, worldPose } from './transform.js';
 
 /**
  * The 2D physics world, on planck — a pure-JS Box2D port, so there is no async init.
@@ -32,7 +33,11 @@ export class Physics2D extends System {
   positionIterations = 3;
 
   /** The live planck world. Reach for it when the wrapper does not expose something. */
-  world!: World;
+  get world(): World {
+    return this._world;
+  }
+
+  private _world!: World;
 
   /** Every body in the world, so `update` can interpolate the dynamic ones. */
   private readonly bodies = new Set<RigidBody2D>();
@@ -42,7 +47,7 @@ export class Physics2D extends System {
   private readonly contacts: QueuedContact[] = [];
 
   override awake(): void {
-    this.world = new World({ gravity: new Vec2(this.gravity.x, this.gravity.y) });
+    this._world = new World({ gravity: new Vec2(this.gravity.x, this.gravity.y) });
     // Resolved to nodes at event time and dispatched after the step: a hook is free to destroy
     // things, and the node stays valid even when the body that raised the contact does not.
     this.world.on('begin-contact', (contact) => this.queue(contact, 'enter'));
@@ -50,7 +55,7 @@ export class Physics2D extends System {
   }
 
   override onDestroy(): void {
-    for (const rigidBody of this.bodies) rigidBody.body = null;
+    for (const rigidBody of this.bodies) rigidBody.releaseBody();
     this.bodies.clear();
     this.poses.clear();
     this.contacts.length = 0;
@@ -60,11 +65,11 @@ export class Physics2D extends System {
 
   /** @internal called by `RigidBody2D.awake`. */
   createBody(rigidBody: RigidBody2D): Body {
-    const { position, rotation } = rigidBody.object3D;
+    const { x, y, angle } = worldPose(rigidBody.object3D);
     const body = this.world.createBody({
       type: rigidBody.bodyType(),
-      position: new Vec2(position.x, position.y),
-      angle: rotation.z,
+      position: new Vec2(x, y),
+      angle,
       linearDamping: rigidBody.linearDamping,
       angularDamping: rigidBody.angularDamping,
       fixedRotation: rigidBody.fixedRotation,
@@ -139,10 +144,12 @@ export class Physics2D extends System {
     for (const [rigidBody, pose] of this.poses) {
       // A disabled body's node belongs to whatever script disabled it.
       if (!rigidBody.isActiveAndEnabled) continue;
-      const node = rigidBody.object3D;
-      node.position.x = pose.previousX + (pose.x - pose.previousX) * t;
-      node.position.y = pose.previousY + (pose.y - pose.previousY) * t;
-      node.rotation.z = lerpAngle(pose.previousAngle, pose.angle, t);
+      applyWorldPose(
+        rigidBody.object3D,
+        pose.previousX + (pose.x - pose.previousX) * t,
+        pose.previousY + (pose.y - pose.previousY) * t,
+        lerpAngle(pose.previousAngle, pose.angle, t),
+      );
     }
   }
 

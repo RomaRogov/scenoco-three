@@ -2,6 +2,7 @@ import { Vec2, type Body, type BodyType, type Fixture } from 'planck';
 import { Component } from '@scenoco-three/core';
 import { Collider2D } from './Collider2D.js';
 import { Physics2D } from './Physics2D.js';
+import { worldPose } from './transform.js';
 
 // These three modules import one another. That is safe here and worth stating rather than
 // working around: an import cycle only bites when a module *evaluates* something from the
@@ -48,7 +49,11 @@ export class RigidBody2D extends Component {
   bullet = false;
 
   /** The live planck body. Exists from `awake` until `onDestroy`. */
-  body: Body | null = null;
+  get body(): Body | null {
+    return this._body;
+  }
+
+  private _body: Body | null = null;
 
   /** The physics world this body belongs to. */
   private physics: Physics2D | null = null;
@@ -61,13 +66,18 @@ export class RigidBody2D extends Component {
     // `requireSystem` rather than `getSystem`: a scene that never declared `<Physics2D>` still
     // gets a world, with the default gravity. Declaring one only configures it.
     this.physics = this.requireSystem(Physics2D);
-    this.body = this.physics.createBody(this);
+    this._body = this.physics.createBody(this);
     // A collider that already started — because the body was added to the node afterwards —
     // has nothing left to attach it. Sweeping the node here closes that direction, so the two
     // may arrive in either order.
     for (const collider of this.object3D.getComponents(Collider2D)) {
       if (collider.isActiveAndEnabled) this.attachCollider(collider);
     }
+  }
+
+  /** @internal called by `Physics2D` when its world goes, taking every body with it. */
+  releaseBody(): void {
+    this._body = null;
   }
 
   override onEnable(): void {
@@ -87,7 +97,7 @@ export class RigidBody2D extends Component {
   override onDestroy(): void {
     this.physics?.destroyBody(this);
     this.fixtures.clear();
-    this.body = null;
+    this._body = null;
     this.physics = null;
   }
 
@@ -118,8 +128,8 @@ export class RigidBody2D extends Component {
 
   /** Copy the node's XY position and Z rotation onto the body. */
   syncFromNode(): void {
-    const { position, rotation } = this.object3D;
-    this.body?.setTransform(new Vec2(position.x, position.y), rotation.z);
+    const { x, y, angle } = worldPose(this.object3D);
+    this.body?.setTransform(new Vec2(x, y), angle);
   }
 
   /** Apply an instantaneous impulse at the body's centre, in world space, waking it. */

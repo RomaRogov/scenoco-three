@@ -102,6 +102,11 @@ export interface ComponentInfo {
   extends?: string;
   /** Serialized fields, own and inherited, in declaration order. */
   fields: SerializedField[];
+  /**
+   * Public fields the class keeps out of documents with `@nonSerialized`, own and inherited — so
+   * writing one is reported as exactly that, rather than as an attribute that does not exist.
+   */
+  nonSerialized?: string[];
   /** Mistakes in the class itself, which the emitters pass through as build diagnostics. */
   problems?: ClassProblem[];
   /**
@@ -164,3 +169,12 @@ export interface ProjectModel {
   systems: ComponentInfo[];
   tags: TagInfo[];
 }
+
+/**
+ * Where a build leaves the model, relative to the project root.
+ *
+ * For whatever reads a project without a TypeScript checker of its own — the standalone editor,
+ * which opens a folder in a browser. It is the same model the emitters used, so a field the
+ * editor offers is exactly a field the compiler accepts. A build artifact, like a `.gen.ts`.
+ */
+export const MODEL_FILE = '.scenoco/model.json';

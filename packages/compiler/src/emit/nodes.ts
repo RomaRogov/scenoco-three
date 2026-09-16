@@ -88,7 +88,7 @@ export function emitNode(scope: EmitScope, element: SncElement, parent: string, 
  * and **only** a parameter: every `Object3D` has Material-typed properties
  * (`customDepthMaterial`), so matching those would quietly accept a material on a light.
  */
-function partitionChildren(
+export function partitionChildren(
   scope: EmitScope,
   element: SncElement,
   tag: TagInfo,

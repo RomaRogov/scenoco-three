@@ -31,15 +31,19 @@ export class AudioMixer extends System {
   volume = 1;
 
   /** The three.js listener — the "ears". Null where there is no Web Audio. */
-  listener: AudioListener | null = null;
+  get listener(): AudioListener | null {
+    return this._listener;
+  }
+
+  private _listener: AudioListener | null = null;
 
   private attachedTo: unknown = null;
   private appliedVolume = 1;
 
   override awake(): void {
     if (!hasWebAudio()) return;
-    this.listener = new AudioListener();
-    this.listener.setMasterVolume(this.volume);
+    this._listener = new AudioListener();
+    this._listener.setMasterVolume(this.volume);
     this.appliedVolume = this.volume;
     window.addEventListener('pointerdown', this.resume);
     window.addEventListener('keydown', this.resume);
@@ -72,7 +76,7 @@ export class AudioMixer extends System {
     window.removeEventListener('pointerdown', this.resume);
     window.removeEventListener('keydown', this.resume);
     this.listener.removeFromParent();
-    this.listener = null;
+    this._listener = null;
     this.attachedTo = null;
   }
 

@@ -1,7 +1,9 @@
 import type { Object3D, Vector3 } from 'three';
-import { provenanceOf, type Component, type Provenance } from '@scenoco-three/core';
+import { provenanceOf, type Provenance } from '@scenoco-three/core';
 import type { ComponentInfo, ElementAt, ProjectModel, PropInfo, TagInfo, ValueShape } from '@scenoco-three/compiler';
+import { indexDocument, setAttribute } from '@scenoco-three/compiler/browser';
 import { EditLog } from './editLog.js';
+import type { Resolve } from './live/build.js';
 import { formatValue, parseValue, type Scalar } from './values.js';
 
 /** A pending change, in the shape the server splices. */
@@ -22,8 +24,48 @@ export interface Attachment {
   slot: string;
   /** The object the compiler built from it, so an edit shows without waiting for a rebuild. */
   live: object;
+  /** The node whose slot holds it, and where in that slot when the slot is a list. */
+  owner: Object3D;
+  ordinal: number;
   at: ElementAt;
   attributes: ReadonlyMap<string, string>;
+}
+
+/**
+ * One component, as the document writes it: an element inside a node's `<Components>`.
+ *
+ * Read from the text, never from a live instance. The editor runs nothing, so there is no
+ * instance to read — and what a person edits is the element anyway.
+ */
+export interface ComponentEntry {
+  /** The element name, which is the class name: all a document says about the class. */
+  tag: string;
+  /** What the build read from the class, or undefined when this project's model does not know it. */
+  info: ComponentInfo | undefined;
+  /** The attributes as written. */
+  attributes: ReadonlyMap<string, string>;
+  /** An element of the file as opened, or one added since, which exists only in its pending insert. */
+  readonly source: { at: ElementAt } | { added: Added };
+}
+
+/** A component added since the file was opened. Its text is the insert that will write it. */
+interface Added {
+  tag: string;
+  attributes: Map<string, string>;
+  block: PendingBlock;
+}
+
+/**
+ * The components added to one node, and the single insert that writes them.
+ *
+ * One insert per node rather than one per component: a node with no `<Components>` gets the block
+ * with its first component, and a second insert would write a second block.
+ */
+interface PendingBlock {
+  members: Added[];
+  /** Into the node itself, wrapped in a new `<Components>`, or into the block it already has. */
+  wrap: boolean;
+  edit: Extract<Edit, { op: 'insertChild' }>;
 }
 
 interface ElementView {
@@ -56,10 +98,20 @@ export class SceneDocument {
   /** What has changed since the document was opened, and how to take it back. */
   private readonly log = new EditLog();
 
-  constructor(path: string, text: string, elements: readonly RawElement[], model: ProjectModel) {
+  /** Turns the text of a reference into what it names; without one, a reference edit waits for a rebuild. */
+  private readonly resolve: Resolve | undefined;
+  /** The latest write to each live field, so a reference that resolves late cannot undo a newer one. */
+  private readonly writes = new WeakMap<object, Map<string, number>>();
+  /** Components added since opening, by the node they were added to (`line:column`). */
+  private readonly added = new Map<string, PendingBlock>();
+  /** Components of the file as opened that a pending edit removes (`line:column`). */
+  private readonly removed = new Set<string>();
+
+  constructor(path: string, text: string, elements: readonly RawElement[], model: ProjectModel, resolve?: Resolve) {
     this.path = path;
     this.text = text;
     this.model = model;
+    this.resolve = resolve;
     this.adopt(elements);
   }
 
@@ -97,19 +149,6 @@ export class SceneDocument {
    */
   canEditComponents(node: Object3D): boolean {
     return this.mine(node) !== null && this.tagNameOf(node) !== 'Prefab';
-  }
-
-  /**
-   * Whether *this* document declares the component, as opposed to a prefab it spawns.
-   *
-   * A prefab instance is the case that needs it: the `<Prefab>` element is in this file, so the
-   * node is ours and its placement is editable — but the components came with the prefab and are
-   * declared in that file. Asking the node is the wrong question, and answering it with the node
-   * gave an inspector full of live-looking fields whose writes went nowhere: `setComponentProp`
-   * finds no element and returns, so typing into them did nothing at all.
-   */
-  canEditComponent(component: Component): boolean {
-    return this.componentElement(component) !== undefined;
   }
 
   canEditStructure(node: Object3D): boolean {
@@ -164,14 +203,9 @@ export class SceneDocument {
     const parentTag = this.tagOf(node);
     if (!parent || !parentTag) return [];
 
-    const inside = this.elements.filter((e) => e !== parent && e.start > parent.start && e.end <= parent.end);
     const found: Attachment[] = [];
     const filled = new Map<string, number>();
-    for (const element of inside) {
-      // Anything nested deeper belongs to a node between here and there, not to this one.
-      if (inside.some((other) => other !== element && other.start < element.start && element.end <= other.end)) {
-        continue;
-      }
+    for (const element of this.childrenOf(parent)) {
       const tag = this.model.tags.find((t) => t.name === element.tag);
       if (!tag || tag.family === 'node') continue;
       const slot = parentTag.parameters.find((p) => p.assetFamily === tag.family);
@@ -184,7 +218,7 @@ export class SceneDocument {
       const held = (node as unknown as Record<string, unknown>)[slot.name];
       const live = Array.isArray(held) ? held[ordinal] : held;
       if (typeof live !== 'object' || live === null) continue;
-      found.push({ tag, slot: slot.name, live, at: element.at, attributes: element.attributes });
+      found.push({ tag, slot: slot.name, live, owner: node, ordinal, at: element.at, attributes: element.attributes });
     }
     return found;
   }
@@ -201,7 +235,33 @@ export class SceneDocument {
   ): void {
     const text = value === null ? null : formatValue(prop.shape, value);
     const before = attachment.attributes.get(prop.name) ?? null;
-    const live = snapshot(attachment.live, prop.name);
+    const params = (attachment.live as { parameters?: Record<string, unknown> }).parameters;
+    if (params && attachment.tag.parameters.some((p) => p.name === prop.name)) {
+      // A geometry *is* its constructor: three reads `radius` once, keeps the vertices, and
+      // records the arguments in `parameters`. So an edit to one builds a new geometry from those
+      // arguments and puts it in the slot, and undo puts the old one back.
+      const previous = attachment.live;
+      const Built = previous.constructor as new (...args: unknown[]) => object;
+      const next = new Built(
+        ...attachment.tag.parameters.map((p) =>
+          p.name !== prop.name ? params[p.name] : text === null ? undefined : parseValue(p.shape, text),
+        ),
+      );
+      this.log.commit(
+        `${prop.name} on <${attachment.tag.name}>`,
+        () => {
+          this.writeAttribute(attachment.at, prop.name, text);
+          fillSlot(attachment, next);
+        },
+        () => {
+          this.writeAttribute(attachment.at, prop.name, before);
+          fillSlot(attachment, previous);
+        },
+        opts?.coalesce === true,
+      );
+      return;
+    }
+    const live = snapshot(attachment.live, prop.name, prop.shape);
     this.log.commit(
       `${prop.name} on <${attachment.tag.name}>`,
       () => {
@@ -216,35 +276,36 @@ export class SceneDocument {
     );
   }
 
-  /** The components on a node, paired with what the compiler knows about each class. */
-  componentsOf(node: Object3D): Array<{ component: Component; info: ComponentInfo | undefined }> {
-    return node.components.map((component) => ({
-      component,
-      info: this.model.components.find((c) => c.name === component.constructor.name),
-    }));
+  /**
+   * The components a node's element declares, in document order, each with what the build read
+   * from its class — then the ones added since the file was opened.
+   *
+   * A spawned prefab has none here: its components are declared in the prefab's own file.
+   */
+  componentsOf(node: Object3D): ComponentEntry[] {
+    if (!this.canEditComponents(node)) return [];
+    const info = (tag: string) => this.model.components.find((c) => c.name === tag);
+    const block = this.componentsBlockOf(node);
+    const written: ComponentEntry[] = (block ? this.childrenOf(block) : [])
+      .filter((e) => !this.removed.has(keyOf(e.at)))
+      .map((e) => ({ tag: e.tag, info: info(e.tag), attributes: e.attributes, source: { at: e.at } }));
+    const added = this.added.get(keyOf(this.mine(node)!))?.members ?? [];
+    return [
+      ...written,
+      ...added.map((a) => ({ tag: a.tag, info: info(a.tag), attributes: a.attributes, source: { added: a } })),
+    ];
   }
 
-  /** The element of one component — the Nth `<Type>` inside this node's `<Components>`. */
-  private componentElement(component: Component): ElementView | undefined {
-    const owner = this.elementOf(component.object3D);
-    if (!owner) return undefined;
-    const name = component.constructor.name;
-    const ordinal = component.object3D.components
-      .filter((c) => c.constructor.name === name)
-      .indexOf(component);
-    // Elements are in document order, so the components of a node are the ones that follow it
-    // before the next node's element — and the Nth of a name is the Nth match.
-    const start = this.elements.indexOf(owner);
-    const matches = this.elements.slice(start + 1).filter((e) => e.tag === name);
-    return matches[ordinal];
+  /** The elements directly inside one — not those inside a node nested in it. */
+  private childrenOf(parent: ElementView): ElementView[] {
+    const inside = this.elements.filter((e) => e !== parent && e.start > parent.start && e.end <= parent.end);
+    return inside.filter(
+      (element) => !inside.some((other) => other !== element && other.start < element.start && element.end <= other.end),
+    );
   }
 
-  componentProp(component: Component, name: string): string | undefined {
-    return this.componentElement(component)?.attributes.get(name);
-  }
-
-  isComponentPropSet(component: Component, name: string): boolean {
-    return this.componentProp(component, name) !== undefined;
+  componentProp(entry: ComponentEntry, name: string): string | undefined {
+    return entry.attributes.get(name);
   }
 
   /**
@@ -259,24 +320,12 @@ export class SceneDocument {
     return parseValue(prop.shape, this.nodeAttr(node, prop.name));
   }
 
-  componentValue(component: Component, prop: PropInfo): Scalar | undefined {
-    return parseValue(prop.shape, this.componentProp(component, prop.name));
-  }
-
   setNodeValue(node: Object3D, prop: PropInfo, value: Scalar, opts?: { coalesce?: boolean }): void {
     this.setNodeAttr(node, prop.name, formatValue(prop.shape, value), { ...opts, shape: prop.shape });
   }
 
-  setComponentValue(
-    component: Component,
-    prop: PropInfo,
-    value: Scalar,
-    opts?: { coalesce?: boolean },
-  ): void {
-    this.setComponentProp(component, prop.name, formatValue(prop.shape, value), {
-      ...opts,
-      shape: prop.shape,
-    });
+  setComponentValue(entry: ComponentEntry, prop: PropInfo, value: Scalar, opts?: { coalesce?: boolean }): void {
+    this.setComponentProp(entry, prop.name, formatValue(prop.shape, value), opts);
   }
 
   // --- writing -----------------------------------------------------------------------------
@@ -299,7 +348,7 @@ export class SceneDocument {
     const before = this.nodeAttr(node, attr) ?? null;
     // `from` when the caller knows the value from before the change — a gizmo does, because the
     // drag it is reporting has already moved the object. Sampling here would be a frame late.
-    const live = opts?.from ?? snapshot(node, attr);
+    const live = opts?.from ?? snapshot(node, attr, opts?.shape);
     this.log.commit(
       `${attr} on <${this.elementOf(node)?.tag ?? '?'}>`,
       () => {
@@ -318,32 +367,25 @@ export class SceneDocument {
     this.setNodeAttr(node, attr, null);
   }
 
-  setComponentProp(
-    component: Component,
-    name: string,
-    value: string | null,
-    opts?: { coalesce?: boolean; shape?: ValueShape },
-  ): void {
-    const element = this.componentElement(component);
-    if (!element) return;
-    const before = element.attributes.get(name) ?? null;
-    const live = snapshot(component, name);
-    this.log.commit(
-      `${name} on <${element.tag}>`,
-      () => {
-        this.writeAttribute(element.at, name, value);
-        this.applyLive(component, name, value, opts?.shape, live);
-      },
-      () => {
-        this.writeAttribute(element.at, name, before);
-        this.applyLive(component, name, before, opts?.shape, live);
-      },
-      opts?.coalesce === true,
-    );
+  /**
+   * Set or clear one of a component's attributes. The document is all there is: nothing runs in
+   * the editor, so there is no live component to write through to.
+   */
+  setComponentProp(entry: ComponentEntry, name: string, value: string | null, opts?: { coalesce?: boolean }): void {
+    const before = entry.attributes.get(name) ?? null;
+    const write = (text: string | null): void => {
+      if ('at' in entry.source) return this.writeAttribute(entry.source.at, name, text);
+      // Not in the file yet: the attribute goes into the insert that will write it.
+      const { added } = entry.source;
+      if (text === null) added.attributes.delete(name);
+      else added.attributes.set(name, text);
+      rewriteBlock(added.block);
+    };
+    this.log.commit(`${name} on <${entry.tag}>`, () => write(value), () => write(before), opts?.coalesce === true);
   }
 
-  clearComponentProp(component: Component, name: string): void {
-    this.setComponentProp(component, name, null);
+  clearComponentProp(entry: ComponentEntry, name: string): void {
+    this.setComponentProp(entry, name, null);
   }
 
   /**
@@ -410,34 +452,78 @@ export class SceneDocument {
     this.log.push({ op: 'insertChild', at, xml }, 'paste');
   }
 
-  /** Add a component to a node — a `<Type />` inside its `<Components>`. */
+  /** Add a component to a node — a `<Type />` inside its `<Components>`, which comes with it if need be. */
   addComponent(node: Object3D, type: string): void {
     const at = this.mine(node);
-    if (!at) return;
-    const components = this.componentsBlockOf(node);
-    if (components) {
-      this.log.push({ op: 'insertChild', at: components.at, xml: `<${type} />` }, `add <${type}>`);
-      return;
-    }
-    // No `<Components>` yet, so the block comes with it.
-    this.log.push(
-      { op: 'insertChild', at, xml: `<Components>\n  <${type} />\n</Components>` },
+    if (!at || !this.canEditComponents(node)) return;
+    const key = keyOf(at);
+    const existing = this.componentsBlockOf(node);
+    const block: PendingBlock = this.added.get(key) ?? {
+      members: [],
+      wrap: !existing,
+      edit: { op: 'insertChild', at: existing?.at ?? at, xml: '' },
+    };
+    const member: Added = { tag: type, attributes: new Map(), block };
+    this.log.commit(
       `add <${type}>`,
+      () => this.attach(key, member, block.members.length),
+      () => this.detach(key, member),
+      false,
     );
   }
 
-  removeComponent(component: Component): void {
-    const element = this.componentElement(component);
-    if (!element) return;
-    this.log.push({ op: 'removeElement', at: element.at }, `remove <${element.tag}>`);
+  removeComponent(entry: ComponentEntry): void {
+    const { source } = entry;
+    if ('added' in source) {
+      const key = [...this.added].find(([, block]) => block === source.added.block)?.[0];
+      if (key === undefined) return;
+      const index = source.added.block.members.indexOf(source.added);
+      this.log.commit(
+        `remove <${entry.tag}>`,
+        () => this.detach(key, source.added),
+        () => this.attach(key, source.added, index),
+        false,
+      );
+      return;
+    }
+    const edit: Edit = { op: 'removeElement', at: source.at };
+    this.log.commit(
+      `remove <${entry.tag}>`,
+      () => {
+        this.log.queue(edit);
+        this.removed.add(keyOf(source.at));
+      },
+      () => {
+        this.log.unqueue(edit);
+        this.removed.delete(keyOf(source.at));
+      },
+      false,
+    );
   }
 
+  /** Put an added component back into its node's pending block, queuing the block's insert with the first. */
+  private attach(key: string, member: Added, index: number): void {
+    const { block } = member;
+    if (block.members.length === 0) {
+      this.added.set(key, block);
+      this.log.queue(block.edit);
+    }
+    block.members.splice(index, 0, member);
+    rewriteBlock(block);
+  }
+
+  private detach(key: string, member: Added): void {
+    const { block } = member;
+    block.members.splice(block.members.indexOf(member), 1);
+    if (block.members.length > 0) return rewriteBlock(block);
+    this.added.delete(key);
+    this.log.unqueue(block.edit);
+  }
+
+  /** The node's own `<Components>` — a direct child, wherever it sits among the node's other children. */
   private componentsBlockOf(node: Object3D): ElementView | undefined {
     const owner = this.elementOf(node);
-    if (!owner) return undefined;
-    const start = this.elements.indexOf(owner);
-    const next = this.elements[start + 1];
-    return next?.tag === 'Components' ? next : undefined;
+    return owner ? this.childrenOf(owner).find((e) => e.tag === 'Components') : undefined;
   }
 
   // --- the edit log ------------------------------------------------------------------------
@@ -466,9 +552,21 @@ export class SceneDocument {
     shape: ValueShape | undefined,
     fallback: unknown,
   ): void {
-    if (text === null || shape === undefined) return restore(target, name, fallback);
+    const token = (this.writes.get(target)?.get(name) ?? 0) + 1;
+    this.writes.set(target, (this.writes.get(target) ?? new Map()).set(name, token));
+    if (text === null || shape === undefined) return restore(target, name, fallback, shape);
+    if (REFERENCE.has(shape)) {
+      // The text names the object; it is not the object. Written as it stands, a mesh's geometry
+      // became a string and the next frame threw. So it is resolved the way the scene was built
+      // — the shared asset from the same cache — and put on only if no newer write came first.
+      void this.resolve?.(name, shape, text).then((resolved) => {
+        if (resolved === undefined || this.writes.get(target)?.get(name) !== token) return;
+        (target as Record<string, unknown>)[name] = resolved;
+      });
+      return;
+    }
     const value = parseValue(shape, text);
-    if (value === undefined) return restore(target, name, fallback);
+    if (value === undefined) return restore(target, name, fallback, shape);
     write(target, name, value);
   }
 
@@ -511,6 +609,8 @@ export class SceneDocument {
   markSaved(text: string, elements: readonly RawElement[]): void {
     this.text = text;
     this.log.clear();
+    this.added.clear();
+    this.removed.clear();
     this.adopt(elements);
     this.log.emit();
   }
@@ -569,17 +669,54 @@ export function formatVector(x: number, y: number, z: number): string {
  */
 const ASSIGN_WHOLE = new Set(['eulerAngles']);
 
-/** The live value of one attribute, detached so a later mutation cannot change it. */
-function snapshot(target: object, name: string): unknown {
+/** Shapes whose text names something else — a file, a constant — rather than spelling a value. */
+const REFERENCE = new Set<ValueShape>(['assetRef', 'enum']);
+
+/**
+ * The live value of one attribute, detached so a later mutation cannot change it.
+ *
+ * A reference is kept as the reference: a material is cloneable, and restoring a clone with
+ * `copy` would write this node's old look into a material every other node shares.
+ */
+function snapshot(target: object, name: string, shape?: ValueShape): unknown {
   const value = (target as Record<string, unknown>)[name];
+  if (shape && REFERENCE.has(shape)) return value;
   const cloneable = value as { clone?: () => unknown } | null;
   return cloneable && typeof cloneable.clone === 'function' ? cloneable.clone() : value;
 }
 
+function keyOf(at: ElementAt): string {
+  return `${at.line}:${at.column}`;
+}
+
+/**
+ * Write a pending block's insert from its members, through the compiler's own attribute splice so
+ * a value is escaped exactly as a save of an existing element would escape it.
+ */
+function rewriteBlock(block: PendingBlock): void {
+  const elements = block.members.map((member) => {
+    let xml = `<${member.tag} />`;
+    for (const [name, value] of member.attributes) xml = setAttribute(xml, indexDocument(xml)[0]!, name, value).text;
+    return xml;
+  });
+  block.edit.xml = block.wrap
+    ? `<Components>\n${elements.map((e) => `  ${e}`).join('\n')}\n</Components>`
+    : elements.join('\n');
+}
+
+/** Put an object in the slot an attachment fills — the nth entry, when the slot is a list. */
+function fillSlot(attachment: Attachment, thing: object): void {
+  const owner = attachment.owner as unknown as Record<string, unknown>;
+  const held = owner[attachment.slot];
+  if (Array.isArray(held)) held[attachment.ordinal] = thing;
+  else owner[attachment.slot] = thing;
+}
+
 /** Put a snapshot back where it came from. */
-function restore(target: object, name: string, snap: unknown): void {
+function restore(target: object, name: string, snap: unknown, shape?: ValueShape): void {
   const current = (target as Record<string, unknown>)[name] as { copy?: (v: unknown) => void } | null;
-  if (!ASSIGN_WHOLE.has(name) && current && snap && typeof current.copy === 'function') {
+  const whole = ASSIGN_WHOLE.has(name) || (shape !== undefined && REFERENCE.has(shape));
+  if (!whole && current && snap && typeof current.copy === 'function') {
     current.copy(snap);
     return;
   }

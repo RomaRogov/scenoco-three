@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
-import { build, formatDiagnostic, type ProjectModel } from '@scenoco-three/compiler';
-import type { Plugin, ViteDevServer } from 'vite';
+import { build, formatDiagnostic, withoutMarkers, type ProjectModel } from '@scenoco-three/compiler';
+import { parseSync, type Plugin, type ViteDevServer } from 'vite';
 
 export interface ScenocoOptions {
   /** Project root — the directory holding `tsconfig.json` and `assets/`. Defaults to Vite's root. */
@@ -96,6 +96,18 @@ export function scenoco(options: ScenocoOptions = {}): Plugin {
     configureServer(server) {
       watch(server, root, compile);
     },
+
+    /**
+     * `@serializeField` and `@nonSerialized` are for the build, which has already read them. Out
+     * before anything else transforms the file: no browser parses a decorator, and these have no
+     * job to do once the document is compiled.
+     */
+    transform: {
+      order: 'pre',
+      handler(code, id) {
+        return withoutMarkers(code, id, (file, source) => parseSync(file, source).program);
+      },
+    },
   };
 }
 
@@ -147,6 +159,6 @@ function watch(server: ViteDevServer, root: string, compile: (rescan: boolean) =
   server.watcher.on('unlink', changed);
 }
 
-// TC39 standard-decorator lowering for game code (oxc cannot do it). `@serializeField` is the
-// only decorator left, but a project using it needs this.
+// TC39 standard-decorator lowering, for a project's **own** decorators (oxc cannot do it).
+// SceNoCo's markers need none of it: `scenoco()` removes them before they would reach the page.
 export { standardDecorators } from './decorators.js';

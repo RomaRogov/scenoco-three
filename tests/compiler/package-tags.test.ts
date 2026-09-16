@@ -37,6 +37,8 @@ import { Mesh } from 'three';
 
 export class Ball extends Component<Mesh> {
   launchSpeed = 12;
+  /** Built in \`awake\`. */
+  seen!: WeakMap<object, number>;
 }
 
 export const used = RigidBody2D;
@@ -97,8 +99,8 @@ describe('scanning a tag package', () => {
     expect(field('kind').options).toEqual(['"dynamic"', '"kinematic"', '"static"']);
     expect(field('bullet').shape).toBe('boolean');
     expect(field('gravityScale').shape).toBe('number');
-    // `body: Body | null` is planck's own type — nothing a document can write.
-    expect(field('body')?.shape).toBe('unsupported');
+    // The live planck body is a getter: state the component owns, which no document writes.
+    expect(rigidBody.fields.some((f) => f.name === 'body')).toBe(false);
 
     const physics = byName(model.systems, 'Physics2D')!;
     expect(physics.fields.find((f) => f.name === 'gravity')!.shape).toBe('vector2');
@@ -120,12 +122,12 @@ describe('scanning a tag package', () => {
   });
 
   it('does not ask a document to supply what only the runtime can build', () => {
-    // `world!: World` uses `!` because `awake` builds it, not because a document must. The
-    // distinction is the type: an attribute cannot express a planck World, so requiring one
-    // would be asking for something unwritable.
-    const world = byName(model.systems, 'Physics2D')!.fields.find((f) => f.name === 'world')!;
-    expect(world.shape).toBe('unsupported');
-    expect(world.required).toBe(false);
+    // `seen!: WeakMap<…>` uses `!` because `awake` builds it, not because a document must. The
+    // distinction is the type: an attribute cannot express a WeakMap, so requiring one would be
+    // asking for something unwritable.
+    const seen = byName(model.components, 'Ball')!.fields.find((f) => f.name === 'seen')!;
+    expect(seen.shape).toBe('unsupported');
+    expect(seen.required).toBe(false);
 
     // A node reference is the opposite case: `!` there does mean the document supplies it.
     const ball = byName(model.components, 'Ball');

@@ -49,7 +49,7 @@
   },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/bin.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

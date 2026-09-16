@@ -3,7 +3,7 @@ import type { SncElement } from '../dsl/parse.js';
 import { TsModule } from './module.js';
 import { buildConstruction } from './resource.js';
 import { EmitScope, identifier, type GraphOptions } from './scope.js';
-import { emitNode, applyPlacement } from './nodes.js';
+import { emitNode, applyPlacement, partitionChildren } from './nodes.js';
 import { emitComponentsFor, emitSystems } from './wiring.js';
 import { applySceneSettings, emitMainCamera } from './scene.js';
 import { STRUCTURAL } from './placement.js';
@@ -152,7 +152,18 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
   if (!tag) return scope.module.render();
 
   const base = scope.module.require(tag.module, tag.name);
-  const { call, assignments } = buildConstruction(tag, root, scope.module, scope.context, STRUCTURAL);
+  // What the root is built from goes before `super()`, in the constructor, so every instance
+  // `instantiate` makes builds its own — the same `new` per node a scene's inline material gets.
+  const construct: string[] = [];
+  const { attached, nodes } = partitionChildren(scope, root, tag, construct);
+  const { call, assignments } = buildConstruction(
+    tag,
+    root,
+    scope.module,
+    scope.context,
+    STRUCTURAL,
+    attached,
+  );
   const superArgs = call.slice(call.indexOf('(') + 1, call.lastIndexOf(')'));
 
   // A system is a scene service; a prefab is a node. Silently dropping the block would leave
@@ -174,7 +185,7 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
   scope.stamp(root, 'this', build);
   for (const assignment of assignments) build.push(`this.${assignment}`);
   applyPlacement(scope, root, 'this', build);
-  for (const child of root.children) emitNode(scope, child, 'this', build);
+  for (const child of nodes) emitNode(scope, child, 'this', build);
 
   const wiring: string[] = [];
   emitComponentsFor(scope, root, 'this', wiring);
@@ -204,6 +215,7 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
       // in. Assigning it after `super()` would be wrong for the slots three.js only reads
       // once (`InstancedMesh`'s count, a geometry a Mesh caches).
       scope.module.block('constructor() {', () => {
+        for (const line of construct) scope.module.line(line);
         scope.module.line(`super(${superArgs});`);
       });
       scope.module.line();

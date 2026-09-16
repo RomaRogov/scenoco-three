@@ -1,6 +1,14 @@
 <!-- The furniture every level shares: the walls that bounce, the paddle, the ball, and the
      sensor across the floor. Only the bricks change from level to level, so only the bricks are
-     written three times. -->
+     written three times.
+
+     Where each shape and each look is written says how many of it there are. A thing that exists
+     once here — the paddle, the ball, the top wall — carries its own, written inside the element
+     that uses it. What several nodes share is named as a file, so there is one instance between
+     them: the two side walls have one shape, all three walls one material, and the bricks take
+     both from files, so a wall of fifty holds one geometry and one material rather than fifty of
+     each. That is one upload and one shader, not one draw call — three.js draws a mesh at a
+     time, and `InstancedMesh` is what turns many into one call. -->
 <Group>
   <!-- Walls. Restitution 1 and no friction: a Breakout ball leaves a wall as fast as it
        arrived and with the mirror angle, which is what makes the rally readable. -->
@@ -20,8 +28,9 @@
     </Components>
   </Mesh>
 
-  <Mesh id="wallTop" position="y: 15.75"
-        geometry="../geometry/wall-top.asset.xml" material="../materials/wall.asset.xml">
+  <!-- One top wall, so its shape is written here; the material is the walls' shared one. -->
+  <Mesh id="wallTop" position="y: 15.75" material="../materials/wall.asset.xml">
+    <BoxGeometry width="19.5" height="0.5" depth="0.9" />
     <Components>
       <RigidBody2D kind="static" />
       <BoxCollider2D halfExtents="x: 9.75; y: 0.25" restitution="1" friction="0" />
@@ -30,8 +39,18 @@
 
   <!-- Kinematic: the controller moves the node and the body follows, so the paddle shoves the
        ball rather than being shoved by it. -->
-  <Mesh id="paddle" position="y: 1"
-        geometry="../geometry/paddle.asset.xml" material="../materials/paddle.asset.xml">
+  <Mesh id="paddle" position="y: 1">
+    <BoxGeometry width="3.2" height="0.45" depth="0.7" />
+    <!-- The paddle glows on its own, wherever it is.
+
+         What decides whether something blooms is its emissive colour **in linear space** times
+         `emissiveIntensity`, against the `<Bloom threshold>`. #0d9488 at 1.1 came to 0.33 with
+         the threshold at 1, so the paddle never glowed by itself — it only lit up when it drove
+         through the warm light that used to sit at the centre of the field. A brighter teal at
+         1.3 comes to 0.86: over the threshold, so it glows at both ends of its travel, and under
+         white, so the surface keeps its colour instead of clipping. -->
+    <MeshStandardMaterial color="#5eead4" emissive="#2dd4bf" emissiveIntensity="1.3"
+                          roughness="0.2" metalness="0.5" />
     <!-- The paddle's own glow, and a child of the paddle so it travels with it. It used to sit
          in the level document at x=0, which meant the paddle only lit up in the middle of the
          field: the light was static and the paddle drove in and out of its pool. A light is a
@@ -45,8 +64,10 @@
   </Mesh>
 
   <!-- `bullet` so a fast ball cannot tunnel through a brick between two steps. -->
-  <Mesh id="ballBody" position="y: 1.62"
-        geometry="../geometry/ball.asset.xml" material="../materials/ball.asset.xml">
+  <Mesh id="ballBody" position="y: 1.62">
+    <SphereGeometry radius="0.32" widthSegments="28" heightSegments="20" />
+    <MeshStandardMaterial color="#fef3c7" emissive="#f59e0b" emissiveIntensity="1.4"
+                          roughness="0.15" metalness="0.2" />
     <Components>
       <!-- The id is on the component, because that is what a level overrides:
            `<Override target="#ball" speed="18" />` makes level three faster than level one

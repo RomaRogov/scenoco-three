@@ -5,7 +5,7 @@ import type { PrefabSurface, PrefabTarget } from './assets.js';
 import { applyPersistence } from './persistence.js';
 import { emitComponent } from './wiring.js';
 import type { EmitScope } from './scope.js';
-import { camelCaseOf } from './wiring.js';
+import { camelCaseOf, nonSerializedMessage } from './wiring.js';
 import { PERSIST, PLACEMENT, placementStatement, uniformScale } from './placement.js';
 import { sanitizeIdentifier } from './module.js';
 
@@ -223,6 +223,10 @@ export function overrideStatement(
   if (target.kind === 'component') {
     const component = scope.options.model.components.find((c) => c.name === target.tag);
     const field = component?.fields.find((f) => f.name === attribute);
+    if (!field && component?.nonSerialized?.includes(attribute)) {
+      scope.report(element, 'non-serialized', nonSerializedMessage(`<${target.tag}>`, component, attribute));
+      return undefined;
+    }
     if (!field) {
       const suggestion = nearestName(attribute, component?.fields.map((f) => f.name) ?? []);
       scope.report(

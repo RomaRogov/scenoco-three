@@ -29,7 +29,11 @@ export class Physics extends System {
   gravity = new Vector3(0, -9.81, 0);
 
   /** The live Rapier world. Reach for it when the wrapper does not expose something. */
-  world!: RAPIER.World;
+  get world(): RAPIER.World {
+    return this._world;
+  }
+
+  private _world!: RAPIER.World;
 
   private events!: RAPIER.EventQueue;
   /** Every body in the world, so `update` can interpolate the dynamic ones. */
@@ -49,12 +53,12 @@ export class Physics extends System {
           'Rapier is WebAssembly, so it cannot be ready at import time.',
       );
     }
-    this.world = new RAPIER.World({ x: this.gravity.x, y: this.gravity.y, z: this.gravity.z });
+    this._world = new RAPIER.World({ x: this.gravity.x, y: this.gravity.y, z: this.gravity.z });
     this.events = new RAPIER.EventQueue(true);
   }
 
   override onDestroy(): void {
-    for (const rigidBody of this.bodies) rigidBody.body = null;
+    for (const rigidBody of this.bodies) rigidBody.releaseBody();
     this.bodies.clear();
     this.poses.clear();
     this.colliders.clear();
@@ -158,8 +162,11 @@ export class Physics extends System {
     for (const [rigidBody, pose] of this.poses) {
       // A disabled body's node belongs to whatever script disabled it.
       if (!rigidBody.isActiveAndEnabled) continue;
-      rigidBody.object3D.position.lerpVectors(pose.previousPosition, pose.position, t);
-      rigidBody.object3D.quaternion.slerpQuaternions(pose.previousRotation, pose.rotation, t);
+      applyWorldPose(
+        rigidBody.object3D,
+        BLEND_POSITION.lerpVectors(pose.previousPosition, pose.position, t),
+        BLEND_ROTATION.slerpQuaternions(pose.previousRotation, pose.rotation, t),
+      );
     }
   }
 
@@ -250,9 +257,32 @@ function advance(pose: Pose, body: RAPIER.RigidBody, dt: number): void {
 function writeThrough(rigidBody: RigidBody): void {
   const t = rigidBody.body!.translation();
   const r = rigidBody.body!.rotation();
-  rigidBody.object3D.position.set(t.x, t.y, t.z);
-  rigidBody.object3D.quaternion.set(r.x, r.y, r.z, r.w);
+  applyWorldPose(rigidBody.object3D, BLEND_POSITION.set(t.x, t.y, t.z), BLEND_ROTATION.set(r.x, r.y, r.z, r.w));
 }
+
+/**
+ * Put a world pose back on the node, through whatever it hangs under.
+ *
+ * The body's pose is read from the node's place in the **world** — a body is free to sit under
+ * any node, as it is in Unity — so the result has to come back the same way. Writing it straight
+ * into `position` drew a nested body at its parent's offset twice over.
+ */
+function applyWorldPose(node: Object3D, position: Vector3, rotation: Quaternion): void {
+  const parent = node.parent;
+  if (!parent) {
+    node.position.copy(position);
+    node.quaternion.copy(rotation);
+    return;
+  }
+  parent.updateWorldMatrix(true, false);
+  node.position.copy(parent.worldToLocal(LOCAL_POSITION.copy(position)));
+  node.quaternion.copy(parent.getWorldQuaternion(LOCAL_ROTATION).invert().multiply(rotation));
+}
+
+const BLEND_POSITION = new Vector3();
+const BLEND_ROTATION = new Quaternion();
+const LOCAL_POSITION = new Vector3();
+const LOCAL_ROTATION = new Quaternion();
 
 const TELEPORT_FACTOR = 4;
 const TELEPORT_MARGIN = 0.1;

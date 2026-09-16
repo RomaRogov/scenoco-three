@@ -26,7 +26,11 @@ export class Animator extends Component {
   playOnStart = true;
 
   /** The live mixer. Null when there is no animated model below this node. */
-  mixer: AnimationMixer | null = null;
+  get mixer(): AnimationMixer | null {
+    return this._mixer;
+  }
+
+  private _mixer: AnimationMixer | null = null;
 
   private clips: readonly AnimationClip[] = [];
   private action: AnimationAction | null = null;
@@ -44,8 +48,8 @@ export class Animator extends Component {
       return;
     }
     this.clips = root.animations;
-    this.mixer = new AnimationMixer(root);
-    this.mixer.timeScale = this.speed;
+    this._mixer = new AnimationMixer(root);
+    this._mixer.timeScale = this.speed;
     this.appliedSpeed = this.speed;
     if (this.playOnStart) this.play(this.clip);
   }
@@ -62,7 +66,7 @@ export class Animator extends Component {
 
   override onDestroy(): void {
     this.mixer?.stopAllAction();
-    this.mixer = null;
+    this._mixer = null;
     this.action = null;
   }
 

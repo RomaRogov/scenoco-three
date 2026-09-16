@@ -125,6 +125,29 @@ describe('an inline material', () => {
   });
 });
 
+describe('an inline material on a prefab root', () => {
+  it('is built in the constructor, so every spawned instance gets its own', () => {
+    fixture.writeXml(
+      'assets/scenes/gem.prefab.xml',
+      `<Mesh>
+  <IcosahedronGeometry radius="0.5" />
+  <MeshStandardMaterial color="#ff0000" />
+</Mesh>`,
+    );
+    fixture.writeXml('assets/scenes/main.scene.xml', '<Scene><Prefab src="gem.prefab.xml" /></Scene>');
+    const result = build({ root: fixture.dir, tsconfig: fixture.tsconfig, dryRun: true });
+    const code = [...result.files].find(([path]) => path.endsWith('gem.prefab.gen.ts'))?.[1] ?? '';
+    fixture.remove('assets/scenes/gem.prefab.xml');
+
+    expect(result.diagnostics).toEqual([]);
+    // `instantiate` calls `new GemPrefab()`: a `new` before `super` runs once per instance.
+    const constructor = code.slice(code.indexOf('constructor() {'), code.indexOf('super('));
+    expect(constructor).toContain('new IcosahedronGeometry(0.5)');
+    expect(constructor).toContain('new MeshStandardMaterial(');
+    expect(code).toContain('super(icosahedronGeometry, meshStandardMaterial);');
+  });
+});
+
 describe('what a node cannot be built from', () => {
   it('refuses a material on a node whose constructor takes none', () => {
     const { diagnostics } = compile(

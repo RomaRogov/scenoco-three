@@ -25,12 +25,16 @@ import type { ParticleSystem } from './ParticleSystem.js';
  */
 export class ParticleRenderer extends System {
   /** The three.quarks renderer, in the scene graph so it draws. */
-  renderer!: BatchedRenderer;
+  get renderer(): BatchedRenderer {
+    return this._renderer;
+  }
+
+  private _renderer!: BatchedRenderer;
 
   private readonly built = new Map<ParticleSystem, QuarksSystem>();
 
   override awake(): void {
-    this.renderer = new BatchedRenderer();
+    this._renderer = new BatchedRenderer();
     this.scene.add(this.renderer);
   }
 
