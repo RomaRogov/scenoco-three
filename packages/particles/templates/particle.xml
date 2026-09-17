@@ -1,0 +1,11 @@
+<!-- {{name}}: a short one-shot burst. Play it with
+     <ParticleSystem effect="../vfx/{{name}}.particle.xml" />. -->
+<ParticleEffect duration="1" looping="false" simulationSpace="World"
+                startLifetime="0.8" startSpeed="2" startSize="0.15" startColor="#ffdd66">
+  <Emission rateOverTime="0">
+    <Burst time="0" count="24" />
+  </Emission>
+  <Shape type="Sphere" radius="0.2" />
+  <ColorOverLifetime colors="[#ffee88, #ff6622]" />
+  <SizeOverLifetime curve="[1, 0.6, 0]" />
+</ParticleEffect>

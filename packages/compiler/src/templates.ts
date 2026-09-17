@@ -1,4 +1,6 @@
-import { ASSET_KINDS, type AssetKind } from './assets.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { BUILTIN_KINDS, type AssetKind, type BuiltinKind } from './assets.js';
 
 /**
  * What `scenoco new <kind> <name>` writes.
@@ -14,7 +16,7 @@ import { ASSET_KINDS, type AssetKind } from './assets.js';
  * format wrong, and it is the first thing anyone runs. The two exceptions name what their own
  * name implies: a `.texture.xml` for `brick` expects `brick.png` beside it.
  */
-const TEMPLATES: Record<AssetKind['kind'], (name: string, tag?: string) => string> = {
+const TEMPLATES: Record<BuiltinKind, (name: string, tag?: string) => string> = {
   texture: (name) => `<!-- ${name}: an image plus how to sample it. Point a material at this file
      instead of at the image when the settings matter. -->
 <Texture src="${name}.png" colorSpace="SRGBColorSpace" />
@@ -35,19 +37,6 @@ const TEMPLATES: Record<AssetKind['kind'], (name: string, tag?: string) => strin
 <${tag} />
 `;
   },
-
-  particle: (name) => `<!-- ${name}: a short one-shot burst. Play it with
-     <ParticleSystem effect="../vfx/${name}.particle.xml" />. -->
-<ParticleSystem duration="1" looping="false" simulationSpace="World"
-                startLifetime="0.8" startSpeed="2" startSize="0.15" startColor="#ffdd66">
-  <Emission rateOverTime="0">
-    <Burst time="0" count="24" />
-  </Emission>
-  <Shape type="Sphere" radius="0.2" />
-  <ColorOverLifetime colors="[#ffee88, #ff6622]" />
-  <SizeOverLifetime curve="[1, 0.6, 0]" />
-</ParticleSystem>
-`,
 
   render: (name) => `<!-- ${name}: how a scene is drawn. Point a scene at it with
      <Scene render="../render/${name}.render.xml">, and every scene that names it shares one look.
@@ -124,14 +113,40 @@ export const PRIMITIVES: Readonly<Record<string, string>> = {
 `,
 };
 
-/** The starter document for a kind, and the file name to write it to. */
+/**
+ * The starter document for a kind, and the file name to write it to.
+ *
+ * A package's kind brings its own starter, as a file inside the package — the one place that can
+ * say what a good first `.particle.xml` looks like is the package that defines what one is. It is
+ * read at `scenoco new` time and `{{name}}` in it becomes the name being created, so a starter may
+ * refer to the file it is writing.
+ */
 export function templateFor(
-  kind: AssetKind['kind'],
+  kind: string,
   name: string,
   tag?: string,
-): { path: string; contents: string } {
-  const asset = ASSET_KINDS.find((k) => k.kind === kind)!;
-  return { path: `${asset.dir}/${name}${asset.extension}`, contents: TEMPLATES[kind](name, tag) };
+  kinds: readonly AssetKind[] = BUILTIN_KINDS,
+): { path: string; contents?: string; problem?: string } {
+  const asset = kinds.find((k) => k.kind === kind);
+  if (!asset) throw new Error(`[scenoco] internal: no document kind "${kind}".`);
+  const path = `${asset.dir}/${name}${asset.extension}`;
+
+  if (!asset.package) return { path, contents: TEMPLATES[asset.kind as BuiltinKind]!(name, tag) };
+  // Nothing shipped: the smallest document of this kind that compiles is one empty element.
+  if (!asset.template) return { path, contents: `<${asset.type} />\n` };
+
+  try {
+    const source = readFileSync(resolve(asset.package.dir, asset.template), 'utf8');
+    return { path, contents: source.replaceAll('{{name}}', name).replaceAll('{{Name}}', pascal(name)) };
+  } catch {
+    return {
+      path,
+      problem:
+        `"${asset.package.name}" declares a starter for ${kind} documents at ${asset.template}, ` +
+        `which is not in the installed package. Reinstall it, or write the document by hand — ` +
+        `a ${kind} document is one <${asset.type}> element.`,
+    };
+  }
 }
 
 /** `brick-wall` → `BrickWall` — the class name a scene or prefab document produces. */

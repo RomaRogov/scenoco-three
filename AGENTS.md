@@ -60,7 +60,8 @@ knows nothing about them**. No upward (`core`→`compiler`) or sideways (`rapier
 | **A system** (a scene service) | A class extending `System`. Reached with `requireSystem`; components register themselves in `awake`. | It runs *after* every component in each phase. Read the scene in `start`, not `awake`. |
 | **A render effect** | A class extending `Effect` in a tag package. `apply(ctx)` configures the frame; `createPass()` contributes a post-processing pass. | Concrete effects live in `postfx`, not core. |
 | **A node tag** | Nothing — the vocabulary is three.js's exported classes, read from its declarations. | If a class is missing, it is filtered by `NOT_A_TAG` or by family in `scan/tags.ts`. |
-| **A new document kind** | An entry in `ASSET_KINDS` (`compiler/src/assets.ts`), an emitter under `emit/`, a branch in `build.ts`'s `emitOne`, and a starter in `templates.ts`. | The starter must **compile in a fresh project** — no reference to a file or package it cannot expect. |
+| **A new document kind** | A `"scenoco"` block in the declaring package's `package.json`: an extension and the exported type whose declaration *is* the document. Nothing in the compiler. | The element names come from the **types**: a field holding a named type is that element, an array of one is it repeated. An inline object type has no name to be called by, and is refused. |
+| **A component preview** | `"previews": { "<Component>": "./src/x.preview.js" }` in the declaring package's `package.json` — a project declares its own the same way. | One JS file, a pure `(props) => Object3D`, importing only `three`. The build refuses anything else; see [MODULES.md](MODULES.md). |
 | **A DSL value shape** | `ValueShape` in `model.ts`, the reader in `scan/shape.ts`, the writer in `dsl/value.ts`. | The shape must be *derived* from the declared type, never from a name table. |
 | **A diagnostic** | Wherever it is detected, with `file:line:col` and the text to write instead. | Give it a `file:line:col` and the exact text to write instead. |
 | **Observer / MCP behaviour** | `packages/observer/src/` (server, browser, MCP, protocol) and `app/session.ts` (what the page can do: preview, telemetry, outline, simulate, eval). | The MCP surface **observes**; `eval` reaches the running scene only. |
@@ -68,9 +69,10 @@ knows nothing about them**. No upward (`core`→`compiler`) or sideways (`rapier
 
 ## The document kinds
 
-`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.particle.xml` · `*.material.xml` ·
-`*.geometry.xml` · `*.texture.xml`. Each compiles to a `.gen.ts` beside it (gitignored). A
-prefab exports `XPrefab`, a scene exports `XScene`.
+`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.texture.xml` · `*.asset.xml`, plus whatever the
+installed packages declare — `*.particle.xml` comes from `@scenoco-three/particles`. Each compiles
+to a `.gen.ts` beside it (gitignored). A prefab exports `XPrefab`, a scene exports `XScene`; every
+other kind exports one shared value.
 
 ## Build, check, test
 

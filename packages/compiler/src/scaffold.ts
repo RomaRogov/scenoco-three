@@ -520,7 +520,7 @@ shapes.
 ## Adding things
 
 \`\`\`bash
-npx scenoco new scene level-2      # or: prefab, asset, texture, render, particle
+npx scenoco new scene level-2      # or: prefab, asset, texture, render
 \`\`\`
 
 A component needs no scaffolding at all: write a class that extends \`Component\` in \`src/\`, give
@@ -529,7 +529,8 @@ registration.
 
 Physics, in-canvas UI, particles, audio and post-processing are separate packages —
 \`@scenoco-three/box2d\`, \`rapier\`, \`ui\`, \`particles\`, \`audio\`, \`postfx\`. Install one and its tags
-join the vocabulary; install none and none of it ships.
+join the vocabulary; install none and none of it ships. A package may bring a whole kind of
+document with it — install \`particles\` and \`scenoco new particle sparks\` starts working.
 `,
     },
   ];

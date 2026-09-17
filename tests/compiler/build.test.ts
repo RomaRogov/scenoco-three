@@ -154,14 +154,16 @@ describe('build', () => {
   });
 });
 
-describe('particle documents in a build', () => {
-  it('reports clearly when the particles package is not in the project', () => {
-    // The kind is recognised; what is missing is the package that declares its config. Saying
-    // so beats emitting nothing and beats guessing at a shape.
-    fixture.writeXml('assets/vfx/fire.particle.xml', '<ParticleSystem duration="3" />');
+describe('a document of a kind nothing declares', () => {
+  it('is reported, rather than walked past in silence', () => {
+    // The worst possible failure: no output, no message, and the breakage lands wherever the
+    // effect was named. This project has no VFX package, so nothing says what a `.particle.xml`
+    // even is — and that is exactly what it should be told.
+    fixture.writeXml('assets/vfx/fire.particle.xml', '<ParticleEffect duration="3" />');
     const { diagnostics } = build({ root: fixture.dir, tsconfig: fixture.tsconfig, dryRun: true });
-    const missing = diagnostics.find((d) => d.code === 'missing-package');
-    expect(missing?.message).toContain('@scenoco-three/particles');
-    expect(missing?.file).toBe('assets/vfx/fire.particle.xml');
+    const unknown = diagnostics.find((d) => d.code === 'unknown-document');
+    expect(unknown?.message).toContain('".particle.xml"');
+    expect(unknown?.file).toBe('assets/vfx/fire.particle.xml');
+    fixture.remove('assets/vfx/fire.particle.xml');
   });
 });

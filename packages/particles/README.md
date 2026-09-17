@@ -12,12 +12,12 @@ emitters want it.
 
 ```xml
 <!-- assets/vfx/fire.particle.xml -->
-<ParticleSystem duration="3" startLifetime="1.6" startSpeed="4.5" startColor="#ffdd66">
+<ParticleEffect duration="3" startLifetime="1.6" startSpeed="4.5" startColor="#ffdd66">
   <Emission rateOverTime="90"><Burst time="0" count="10" /></Emission>
   <Shape type="Cone" radius="0.35" angle="14" />
   <ColorOverLifetime colors="[#ffee88, #ff6622, #661100]" />
   <SizeOverLifetime curve="[0.4, 1, 0.2]" />
-</ParticleSystem>
+</ParticleEffect>
 ```
 
 ```xml
@@ -40,8 +40,11 @@ Modules mirror Unity's, and this is all of them: `<Emission>`, `<Burst>`, `<Shap
 `<Renderer>`, `<Noise>`, `<ColorOverLifetime>`, `<SizeOverLifetime>`, `<RotationOverLifetime>`.
 
 **There is no second way to spell an effect.** No inline form on the component, no separate parser,
-no schema file: the compiler reads `ParticleConfig`'s own TypeScript declaration to decide what a
-document may say, so an attribute exists because a field does.
+no schema file, and nothing about particles anywhere in the toolchain. This package's own
+`package.json` says a `.particle.xml` is a `ParticleEffect`; the compiler reads that type's
+declaration and the document follows from it — an attribute exists because a field does, and an
+element exists because a field holds a named type (`emission?: Emission` is `<Emission>`,
+`bursts?: Burst[]` is `<Burst>` written as often as you like). See [MODULES.md](../../MODULES.md).
 
 ## License
 

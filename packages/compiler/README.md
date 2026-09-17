@@ -140,7 +140,7 @@ attribute.
 | `*.asset.xml` | One three.js material, referenced by meshes |
 | `*.texture.xml` | An image plus its sampler settings |
 | `*.render.xml` | How a scene is drawn: tone mapping, shadows, post effects |
-| `*.particle.xml` | A particle effect, in Unity Shuriken module form |
+| `*.particle.xml` | A particle effect — declared by `@scenoco-three/particles`, not by the compiler |
 
 Each compiles to a `.gen.ts` beside it — a build artifact, so gitignore `*.gen.ts`. The full format
 reference, every value form and every diagnostic, is in

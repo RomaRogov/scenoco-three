@@ -104,17 +104,17 @@ export class Counter extends Component {
 
   fixture.writeXml('assets/geometry/cube.asset.xml', '<BoxGeometry width="1" height="1" depth="1" />');
   // A particle effect is an asset like any other: its own document, referenced by path. The
-  // vocabulary in it is read from `ParticleConfig`'s declaration in the real package.
+  // vocabulary in it is read from `ParticleEffect`'s declaration in the real package.
   fixture.writeXml(
     'assets/vfx/spark.particle.xml',
-    `<ParticleSystem duration="1" looping="false" startLifetime="0.8" startColor="#ffdd66">
+    `<ParticleEffect duration="1" looping="false" startLifetime="0.8" startColor="#ffdd66">
   <Emission rateOverTime="60">
     <Burst time="0" count="8" />
   </Emission>
   <Shape type="Sphere" radius="0.2" />
   <ColorOverLifetime colors="[#ffee88, #661100]" />
   <SizeOverLifetime curve="[1, 0]" />
-</ParticleSystem>`,
+</ParticleEffect>`,
   );
   fixture.writeXml('assets/materials/plain.asset.xml', '<MeshStandardMaterial color="#38bdf8" roughness="0.4" />');
   fixture.writeXml(
@@ -294,8 +294,8 @@ describe('a particle effect, end to end', () => {
     const { readFileSync } = await import('node:fs');
     const effect = readFileSync(join(fixture.dir, 'assets/vfx/spark.particle.gen.ts'), 'utf8');
     // Unity's module names in, one `ParticleConfig` out — with real `THREE.Color`s.
-    expect(effect).toContain(`import { ParticleConfig } from '@scenoco-three/particles';`);
-    expect(effect).toContain('export const spark: ParticleConfig = {');
+    expect(effect).toContain(`import type { ParticleEffect } from '@scenoco-three/particles';`);
+    expect(effect).toContain('export const spark: ParticleEffect = {');
     expect(effect).toContain('startColor: new Color(0xffdd66),');
     expect(effect).toContain('bursts: [{ count: 8, time: 0 }],');
 

@@ -1,6 +1,8 @@
 import type { Object3D, Scene } from 'three';
 import type { Engine } from '@scenoco-three/core';
 import type { ProjectModel } from '@scenoco-three/compiler';
+import type { ConfigDocument } from '../config.js';
+import type { Previews } from '../live/preview.js';
 import type { SceneDocument } from '../document.js';
 import type { GizmoMode, GizmoSpace } from '../gizmo.js';
 
@@ -43,6 +45,13 @@ export interface ToolbarHandlers {
 export interface EditorDeps {
   getEngine: () => Engine;
   getDoc: () => SceneDocument | undefined;
+  /**
+   * The open document when it is one a package declared — one typed value rather than a scene.
+   * Exactly one of `getDoc` and `getConfig` ever answers.
+   */
+  getConfig: () => ConfigDocument | undefined;
+  /** What the open document's components draw — and the transport for the ones that move. */
+  getPreviews: () => Previews | undefined;
   /** What the project's TypeScript declares — the inspector's and the picker's schema. */
   getModel: () => ProjectModel | undefined;
   /** The live scene, which the editor owns rather than `Engine` (it drives its own loop). */

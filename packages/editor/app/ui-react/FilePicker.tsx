@@ -12,9 +12,6 @@ interface Pickable {
   group?: string;
 }
 
-/** Only these two are a thing to *open*: the rest are referenced by path from inside one. */
-const OPENABLE = new Set(['scene', 'prefab']);
-
 /**
  * The open dialog: two ways in, then a list.
  *
@@ -25,19 +22,22 @@ const OPENABLE = new Set(['scene', 'prefab']);
  */
 export function FilePicker(): React.JSX.Element | null {
   useUI((s) => s.rev);
-  const { getDoc, listDocuments, openDocument, actions } = getDeps();
+  const { getDoc, getConfig, listDocuments, openDocument, actions } = getDeps();
   const [files, setFiles] = useState<Pickable[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [url, setUrl] = useState('');
-  const open = getDoc() !== undefined;
+  // Either kind of document counts as open: a config document has no scene, and the dialog
+  // standing over its form was the difference between "opened" and "looks like nothing happened".
+  const open = getDoc() !== undefined || getConfig() !== undefined;
   const folder = actions.folder();
 
   useEffect(() => {
     if (open) return;
     let live = true;
     setFiles(null);
+    // Already filtered to what opens: the host knows the project's kinds, this does not.
     void listDocuments().then(
-      (all) => live && setFiles(all.filter((f) => OPENABLE.has(f.kind))),
+      (all) => live && setFiles(all),
       () => live && setFiles([]),
     );
     return () => {
@@ -90,7 +90,7 @@ export function FilePicker(): React.JSX.Element | null {
               >
                 <span className={styles.modalItemTag}>Open a URL…</span>
                 <span className={styles.modalItemDesc}>
-                  a .scene.xml or .prefab.xml on the web; what it refers to is fetched relative to it
+                  a document on the web; what it refers to is fetched relative to it
                 </span>
                 <span style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                   <input
@@ -115,7 +115,7 @@ export function FilePicker(): React.JSX.Element | null {
             </>
           )}
           {folder && files !== null && own.length === 0 && (
-            <div className={styles.empty}>No .scene.xml or .prefab.xml in this folder.</div>
+            <div className={styles.empty}>Nothing to open in this folder.</div>
           )}
           {folder && own.map(row)}
           {examples.length > 0 && (

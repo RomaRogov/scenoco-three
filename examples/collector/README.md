@@ -18,6 +18,7 @@ npm --prefix examples/collector run dev
 | `src/Depot.ts` | the drop-off; walk in carrying anything and it all counts |
 | `src/Scatter.ts` | lays crates out and keeps the level topped up |
 | `src/Run.ts` | the clock, the quota, the two endings |
+| `assets/vfx/depot.particle.xml` | the glow over the pad — a document, with no code behind it |
 
 ## The decisions worth copying
 
@@ -35,6 +36,11 @@ npm --prefix examples/collector run dev
   ordinary node the whole time, which is what lets the depot simply destroy it.
 - **Sensors and the detection-only back-end.** Pickups and the depot need to know they were
   touched; nothing needs to bounce. `@scenoco-three/collision` is the whole physics bill.
+- **The depot's glow is a document, not code.** Installing `@scenoco-three/particles` is what makes
+  `.particle.xml` a kind of document this project has — the compiler ships no particle vocabulary of
+  its own. The effect is then two elements in the scene and a file, with nothing in `src/` to match:
+  `<ParticleRenderer />` under `<Systems>`, and a `<ParticleSystem effect="…">` on a node of its own.
+  It has a node to itself because the depot is scaled flat and children inherit that.
 
 ## Traps this hit
 

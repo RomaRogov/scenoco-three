@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { BoxGeometry, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CameraRig } from '../../packages/editor/app/cameraRig.js';
+import { ConfigDocument } from '../../packages/editor/app/config.js';
 import { SceneDocument } from '../../packages/editor/app/document.js';
 import { projectModelAt } from '../../packages/editor/app/host.js';
 import { applyEdits } from '../../packages/editor/app/live/edits.js';
@@ -735,5 +736,95 @@ describe('an attached object', () => {
       tags: [{ name: 'Group', family: 'node', module: 'three', bases: ['Object3D'], parameters: [], properties: [] }],
     });
     expect(doc.attachmentsOf(group)).toEqual([]);
+  });
+});
+
+/**
+ * A document that is one typed value — a `.particle.xml` — edited as a form.
+ *
+ * The editor knows nothing about the kind: the shape below is what a build wrote into the model
+ * after reading the declaring package's own TypeScript, and the form, the widgets and these
+ * splices all come from it. So the test declares a shape and asserts what the file ends up saying.
+ */
+describe('a config document', () => {
+  /** Stands in for what `scenoco build` puts in `.scenoco/model.json`. */
+  const number = (name: string): PropInfo => ({ name, type: 'number', shape: 'number', required: false });
+  const KIND = {
+    kind: 'particle',
+    extension: '.particle.xml',
+    dir: 'assets/vfx',
+    description: 'A particle effect',
+    module: '@acme/vfx',
+    shape: {
+      name: 'ParticleEffect',
+      fields: [number('duration')],
+      groups: {
+        emission: {
+          name: 'Emission',
+          fields: [number('rateOverTime')],
+          groups: {},
+          lists: { bursts: { name: 'Burst', fields: [number('count'), number('time')], groups: {}, lists: {} } },
+        },
+      },
+      lists: {},
+    },
+  };
+
+  const SOURCE = `<ParticleEffect duration="2">
+  <Emission rateOverTime="90" />
+</ParticleEffect>
+`;
+
+  const saved = (doc: ConfigDocument, text = SOURCE): string => applyEdits(text, doc.edits()).text;
+
+  it('writes an attribute of the element the form is showing', () => {
+    const doc = new ConfigDocument('fire.particle.xml', SOURCE, KIND);
+    const emission = doc.childrenOf(doc.root!, KIND.shape.groups.emission)[0]!;
+    doc.setValue(emission, number('rateOverTime'), 120);
+    expect(saved(doc)).toContain('<Emission rateOverTime="120" />');
+  });
+
+  it('adds an element the document had not written, named after its type', () => {
+    const doc = new ConfigDocument('fire.particle.xml', SOURCE, KIND);
+    const emission = doc.childrenOf(doc.root!, KIND.shape.groups.emission)[0]!;
+    doc.add(emission, KIND.shape.groups.emission.lists.bursts);
+    expect(saved(doc)).toContain('<Burst />');
+  });
+
+  /**
+   * An element added a moment ago has no position in the file to address, so its attributes go
+   * into the one splice that inserts it — the whole subtree written at once.
+   */
+  it('carries an added element’s attributes into the splice that inserts it', () => {
+    const doc = new ConfigDocument('fire.particle.xml', SOURCE, KIND);
+    const emission = doc.childrenOf(doc.root!, KIND.shape.groups.emission)[0]!;
+    doc.add(emission, KIND.shape.groups.emission.lists.bursts);
+    const burst = doc.childrenOf(emission, KIND.shape.groups.emission.lists.bursts)[0]!;
+    doc.setValue(burst, number('count'), 24);
+    doc.setValue(burst, number('time'), 0);
+    expect(doc.edits()).toHaveLength(1);
+    expect(saved(doc)).toContain('<Burst count="24" time="0" />');
+  });
+
+  it('takes an element back out', () => {
+    const doc = new ConfigDocument('fire.particle.xml', SOURCE, KIND);
+    const emission = doc.childrenOf(doc.root!, KIND.shape.groups.emission)[0]!;
+    doc.remove(emission);
+    expect(saved(doc)).not.toContain('<Emission');
+  });
+
+  it('undoes a write back to what the file said', () => {
+    const doc = new ConfigDocument('fire.particle.xml', SOURCE, KIND);
+    doc.setValue(doc.root!, number('duration'), 5);
+    expect(saved(doc)).toContain('duration="5"');
+    doc.undoLast();
+    expect(saved(doc)).toBe(SOURCE);
+    expect(doc.canRedo).toBe(true);
+  });
+
+  it('refuses a document rooted at the wrong element, saying which is wanted', () => {
+    const doc = new ConfigDocument('fire.particle.xml', '<Emitter />\n', KIND);
+    expect(doc.root).toBeNull();
+    expect(doc.problem).toContain('<ParticleEffect>');
   });
 });

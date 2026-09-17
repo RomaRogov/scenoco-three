@@ -6,7 +6,7 @@ import {
   ParticleRenderer,
   ParticleSystem,
   configToParameters,
-  type ParticleConfig,
+  type ParticleEffect,
 } from '@scenoco-three/particles';
 import { Clock, resetEngine } from '../core/helpers.js';
 
@@ -22,20 +22,19 @@ function sceneOf(build: (scene: Scene) => void): SceneType {
 }
 
 /** What `fire.particle.xml` compiles to — a plain typed value, the way a geometry does. */
-const FIRE: ParticleConfig = {
+const FIRE: ParticleEffect = {
   duration: 2,
   looping: true,
   startLifetime: 1,
   startSpeed: 2,
   startColor: new Color(0xffdd66),
-  rateOverTime: 120,
-  bursts: [{ time: 0, count: 5 }],
+  emission: { rateOverTime: 120, bursts: [{ time: 0, count: 5 }] },
   shape: { type: 'Sphere', radius: 0.5 },
-  colorOverLifetime: [new Color(0xffee88), new Color(0x661100)],
-  sizeOverLifetime: [1, 0],
+  colorOverLifetime: { colors: [new Color(0xffee88), new Color(0x661100)] },
+  sizeOverLifetime: { curve: [1, 0] },
 };
 
-function emitterIn(scene: Scene, effect: ParticleConfig = FIRE, init: Partial<ParticleSystem> = {}) {
+function emitterIn(scene: Scene, effect: ParticleEffect = FIRE, init: Partial<ParticleSystem> = {}) {
   const node = new Group();
   scene.add(node);
   // Through `init`, which is what generated code does: the effect is in place before `awake`,
@@ -93,7 +92,7 @@ describe('an emitter', () => {
   });
 
   /**
-   * The compiler is the first line here: `effect` is declared `effect!: ParticleConfig`, so a
+   * The compiler is the first line here: `effect` is declared `effect!: ParticleEffect`, so a
    * document that omits it is a `missing-attribute` build error. This is the second line, for
    * an emitter built in code — and it reports rather than throwing outward, because core
    * catches what a lifecycle hook throws so one bad component cannot take down the frame.
@@ -215,7 +214,7 @@ describe('the effect, as three.quarks sees it', () => {
   it('adds a behavior only for the modules the effect actually declares', () => {
     expect(configToParameters({}).behaviors).toHaveLength(0);
     expect(
-      configToParameters({ gravityModifier: 1, sizeOverLifetime: [1, 0], noise: { strength: 1 } })
+      configToParameters({ gravityModifier: 1, sizeOverLifetime: { curve: [1, 0] }, noise: { strength: 1 } })
         .behaviors,
     ).toHaveLength(3);
   });

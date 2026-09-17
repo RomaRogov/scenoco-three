@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,18 +48,53 @@ export interface FixtureOptions {
   rapier?: boolean;
   /** The detection-only back-end, which shares rapier's tag names on purpose. */
   collision?: boolean;
-  /** The VFX package, which is also where `ParticleConfig` — a `.particle.xml`'s type — lives. */
+  /** The VFX package, which is also where `ParticleEffect` — a `.particle.xml`'s type — lives. */
   particles?: boolean;
   /** The audio package, which declares `AudioClip` — what a `clip="…"` reference resolves to. */
   audio?: boolean;
   /** The UI package: `<Canvas>`, `<Panel>`, `<Text>`, `<Image>`. */
   ui?: boolean;
+  /** What the project declares about *itself*, in its own `package.json` — a preview, say. */
+  scenoco?: Record<string, unknown>;
 }
+
+/** Where each optional package lives in this repository, by its npm name. */
+const PACKAGES: Record<Exclude<keyof FixtureOptions, 'scenoco'>, string> = {
+  box2d: box2dPath,
+  rapier: rapierPath,
+  collision: collisionPath,
+  particles: particlesPath,
+  audio: audioPath,
+  ui: uiPath,
+};
 
 export function makeFixture(name: string, options: FixtureOptions = {}): Fixture {
   const dir = mkdtempSync(join(tmpdir(), `scenoco-${name}-`));
   mkdirSync(join(dir, 'src'), { recursive: true });
   const tsconfig = join(dir, 'tsconfig.json');
+
+  // A real install, because a package now *declares* things — its document kinds, the files it
+  // loads, its prose — in its own `package.json`, and the toolchain reads that off disk. Linking
+  // the workspace package rather than writing a stand-in manifest means these tests read what
+  // ships: a package that renames a field or drops a starter goes red here.
+  const enabled = (Object.keys(PACKAGES) as Array<keyof typeof PACKAGES>).filter((key) => options[key]);
+  mkdirSync(join(dir, 'node_modules', '@scenoco-three'), { recursive: true });
+  for (const key of [...enabled, 'core' as const]) {
+    const source = key === 'core' ? corePath : PACKAGES[key];
+    symlinkSync(join(source, '..', '..'), join(dir, 'node_modules', '@scenoco-three', key), 'dir');
+  }
+  writeFileSync(
+    join(dir, 'package.json'),
+    JSON.stringify({
+      name: `scenoco-fixture-${name}`,
+      private: true,
+      type: 'module',
+      dependencies: Object.fromEntries(
+        ['core', ...enabled].map((key) => [`@scenoco-three/${key}`, '*']),
+      ),
+      ...(options.scenoco ? { scenoco: options.scenoco } : {}),
+    }),
+  );
 
   writeFileSync(
     tsconfig,

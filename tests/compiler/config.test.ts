@@ -1,26 +1,25 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  PARTICLE_CONFIG,
-  PARTICLE_MODULES,
   Workspace,
+  documentKinds,
   emitConfigDocument,
   parseDocument,
   scanConfigShape,
+  shapeProblems,
   type ConfigShape,
   type SncDiagnostic,
 } from '../../packages/compiler/src/index.js';
 import { makeFixture, type Fixture } from './fixture.js';
 
 /**
- * A `.particle.xml` is written in Unity's Shuriken vocabulary and compiles to one typed
- * config object. The module *names* come from a table (Unity's names and the config's field
- * names are two conventions, and no type relates them); everything else — which attributes
- * exist, what they accept — is read from the config interface itself.
+ * A document kind declared by a package compiles to one typed config object, and its whole
+ * vocabulary is read from the type the package named: **an element is the name of the type a
+ * field holds, and its attributes are that type's fields.**
  *
- * The interface read here is the **real** `ParticleConfig`, from `@scenoco-three/particles`.
- * That is the whole point of the arrangement: the compiler holds no copy of the particle
- * vocabulary, so if that package renames a field or retypes one, this goes red rather than
- * emitting a document that no longer typechecks.
+ * The type read here is the **real** `ParticleEffect`, reached the way a project reaches it — the
+ * kind comes from `@scenoco-three/particles`'s own `package.json`. That is the point of the
+ * arrangement: the compiler holds no copy of the particle vocabulary, so if that package renames a
+ * field or retypes one, this goes red rather than emitting a document that no longer typechecks.
  */
 let fixture: Fixture;
 let shape: ConfigShape;
@@ -29,11 +28,12 @@ beforeAll(() => {
   fixture = makeFixture('config', { particles: true });
   fixture.write(
     'game.ts',
-    `import type { ParticleConfig } from '@scenoco-three/particles';\nexport type C = ParticleConfig;\n`,
+    `import type { ParticleEffect } from '@scenoco-three/particles';\nexport type C = ParticleEffect;\n`,
   );
 
+  const particle = documentKinds(fixture.dir).find((kind) => kind.kind === 'particle')!;
   shape = Workspace.with(fixture.tsconfig, (w) =>
-    scanConfigShape(w, PARTICLE_CONFIG.module, PARTICLE_CONFIG.name),
+    scanConfigShape(w, particle.package!.name, particle.type!),
   )!;
 });
 
@@ -46,20 +46,28 @@ function emit(xml: string, name = 'fire') {
     name,
     source: `${name}.particle.xml`,
     shape,
-    type: PARTICLE_CONFIG,
-    rootTag: PARTICLE_CONFIG.rootTag,
-    bindings: PARTICLE_MODULES,
+    module: '@scenoco-three/particles',
   });
 }
 
 const codes = (d: SncDiagnostic[]) => d.map((x) => x.code);
 
 describe('the config shape', () => {
-  it('reads flat fields, groups and lists out of the interface', () => {
-    expect(shape.fields.map((f) => f.name)).toContain('startLifetime');
-    expect([...shape.groups.keys()].sort()).toEqual(['noise', 'renderer', 'shape']);
-    expect([...shape.lists.keys()]).toEqual(['bursts']);
-    expect(shape.lists.get('bursts')!.fields.map((f) => f.name)).toEqual(['count', 'time']);
+  it('names the document and every element after the type that holds it', () => {
+    expect(shape.name).toBe('ParticleEffect');
+    expect([...shape.groups.values()].map((g) => g.name).sort()).toEqual([
+      'ColorOverLifetime',
+      'Emission',
+      'Noise',
+      'Renderer',
+      'RotationOverLifetime',
+      'Shape',
+      'SizeOverLifetime',
+    ]);
+    // Nested one deeper, and a list rather than a group, because the field is an array.
+    const emission = shape.groups.get('emission')!;
+    expect([...emission.lists.values()].map((l) => l.name)).toEqual(['Burst']);
+    expect(emission.lists.get('bursts')!.fields.map((f) => f.name)).toEqual(['count', 'time']);
   });
 
   it('derives each field’s authoring shape from its type', () => {
@@ -70,14 +78,26 @@ describe('the config shape', () => {
     // `THREE.Color` rather than a hex number that only happens to work in some positions.
     expect(by('startColor').shape).toBe('color');
     expect(by('simulationSpace').shape).toBe('enum');
-    expect(by('colorOverLifetime').shape).toBe('array');
+  });
+
+  it('refuses an inline object type, which leaves no name for its element', () => {
+    const anonymous: ConfigShape = {
+      name: 'Thing',
+      fields: [],
+      groups: new Map(),
+      lists: new Map(),
+      problems: ['"trail" is written as an inline object type'],
+    };
+    expect(shapeProblems(anonymous)[0]).toContain('inline object type');
+    // The real one has none, which is what makes the rule liveable.
+    expect(shapeProblems(shape)).toEqual([]);
   });
 });
 
 describe('particle documents', () => {
-  it('compiles the Shuriken modules into one typed config', () => {
+  it('compiles the modules into one typed config', () => {
     const { code, diagnostics } = emit(
-      `<ParticleSystem duration="3" looping="true" simulationSpace="World"
+      `<ParticleEffect duration="3" looping="true" simulationSpace="World"
                        startLifetime="1.6" startSpeed="4.5" startColor="#ffdd66" gravityModifier="-0.15">
          <Emission rateOverTime="90">
            <Burst time="0" count="10" />
@@ -89,39 +109,40 @@ describe('particle documents', () => {
          <SizeOverLifetime curve="[0.4, 1, 0.2]" />
          <RotationOverLifetime angularVelocity="40" />
          <Noise strength="0.4" frequency="1.5" />
-       </ParticleSystem>`,
+       </ParticleEffect>`,
     );
     expect(diagnostics).toEqual([]);
-    expect(code).toContain(`import { ParticleConfig } from '@scenoco-three/particles';`);
-    expect(code).toContain('export const fire: ParticleConfig = {');
+    expect(code).toContain(`import type { ParticleEffect } from '@scenoco-three/particles';`);
+    expect(code).toContain('export const fire: ParticleEffect = {');
     expect(code).toContain('startColor: new Color(0xffdd66),');
     expect(code).toContain(`simulationSpace: 'World',`);
-    // `<Emission rateOverTime>` merges into the root; `<Burst>` appends to `bursts`.
+    // `<Emission>` is the `emission` field, and `<Burst>` written twice is its `bursts` array.
     expect(code).toContain('rateOverTime: 90,');
     expect(code).toContain('bursts: [{ count: 10, time: 0 }, { count: 4, time: 1.5 }],');
-    // `<Shape>` nests.
-    expect(code).toContain('shape: {');
-    expect(code).toContain(`type: 'Cone',`);
-    // A one-attribute module writes the field directly.
-    expect(code).toContain(
-      'colorOverLifetime: [new Color(0xffee88), new Color(0xff6622), new Color(0x661100)],',
-    );
-    expect(code).toContain('rotationOverLifetime: 40,');
+    expect(code).toContain(`shape: { angle: 14, radius: 0.35, type: 'Cone' },`);
+    expect(code).toContain('colors: [new Color(0xffee88), new Color(0xff6622), new Color(0x661100)],');
+    expect(code).toContain('rotationOverLifetime: { angularVelocity: 40 },');
   });
 
-  it('reports a module the config has no field for', () => {
-    const { diagnostics } = emit('<ParticleSystem><Trails width="1" /></ParticleSystem>');
-    expect(codes(diagnostics)).toContain('unknown-module');
+  it('reports an element the type has no field for, offering the ones it has', () => {
+    const { diagnostics } = emit('<ParticleEffect><Trails width="1" /></ParticleEffect>');
+    expect(diagnostics[0]?.code).toBe('unknown-element');
+    expect(diagnostics[0]?.message).toContain('<Emission>');
   });
 
-  it('reports an attribute the interface does not declare, with a suggestion', () => {
-    const { diagnostics } = emit('<ParticleSystem startLifetim="2" />');
+  it('reports an element written twice where one value goes', () => {
+    const { diagnostics } = emit('<ParticleEffect><Shape radius="1" /><Shape radius="2" /></ParticleEffect>');
+    expect(codes(diagnostics)).toContain('duplicate-element');
+  });
+
+  it('reports an attribute the type does not declare, with a suggestion', () => {
+    const { diagnostics } = emit('<ParticleEffect startLifetim="2" />');
     expect(diagnostics[0]?.code).toBe('unknown-attribute');
     expect(diagnostics[0]?.message).toContain('Did you mean "startLifetime"?');
   });
 
   it('reports a value of the wrong type', () => {
-    const { diagnostics } = emit('<ParticleSystem looping="yes" />');
+    const { diagnostics } = emit('<ParticleEffect looping="yes" />');
     expect(codes(diagnostics)).toContain('bad-boolean');
   });
 

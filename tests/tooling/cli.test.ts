@@ -1,15 +1,16 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ASSET_KINDS, runCli, templateFor } from '../../packages/compiler/src/index.js';
+import { BUILTIN_KINDS, documentKinds, runCli, templateFor } from '../../packages/compiler/src/index.js';
 import { makeFixture, type Fixture } from '../compiler/fixture.js';
 
 /**
  * The `scenoco` command, driven as the function the executable calls.
  *
- * Every command is a view over `build()` or over `ASSET_KINDS`; nothing here knows a document
- * format. So what is worth testing is that the views stay attached: a kind that exists is a kind
- * `new` can scaffold, and what it scaffolds is a document `build` accepts.
+ * Every command is a view over `build()` or over the project's document kinds; nothing here knows
+ * a document format. So what is worth testing is that the views stay attached: a kind that exists
+ * — the compiler's own, or one a package declared — is a kind `new` can scaffold, and what it
+ * scaffolds is a document `build` accepts.
  */
 let fixture: Fixture;
 let out: string[];
@@ -47,12 +48,14 @@ describe('scenoco new', () => {
    * The load-bearing case. A starter document that the compiler then rejects is worse than no
    * starter at all — it teaches the format wrong, and it is the first thing anyone runs.
    */
-  it.each(ASSET_KINDS.map((k) => k.kind))('scaffolds a %s that compiles', async (kind) => {
+  // Collected before any fixture exists, so the sweep is over the builtins; the kind a package
+  // declares gets its own test below, where a project is there to read it from.
+  it.each(BUILTIN_KINDS.map((k) => k.kind))('scaffolds a %s that compiles', async (kind) => {
     // The starters reference each other by convention — a prefab names a material and a cube
     // geometry — so the whole set is written and compiled together, which is also how a real
     // project starts.
     // The starters are written and compiled together, which is how a project starts anyway.
-    for (const other of ASSET_KINDS) await cli('new', other.kind, 'cube');
+    for (const other of documentKinds(fixture.dir)) await cli('new', other.kind, 'cube');
     // A `.texture.xml` for `cube` expects `cube.png` beside it — the one thing a starter is
     // allowed to assume, because its own name says so.
     fixture.writeXml('assets/textures/cube.png', 'not really a png');
@@ -95,6 +98,30 @@ describe('scenoco new', () => {
     expect(await cli('check', '--modules', 'three')).toBe(0);
   }, 120_000);
 
+  /**
+   * The whole point of the arrangement: `particle` is not a kind the compiler knows. It is in
+   * this project because `@scenoco-three/particles` is installed and says so, and the starter
+   * written here is the file that package ships.
+   */
+  it('scaffolds a kind a package declared, from that package’s own starter', async () => {
+    expect(await cli('new', 'particle', 'sparks')).toBe(0);
+    const written = readFileSync(join(fixture.dir, 'assets/vfx/sparks.particle.xml'), 'utf8');
+    expect(written).toContain('<ParticleEffect');
+    // The starter names the file it is writing, so the name has to reach it.
+    expect(written).toContain('sparks.particle.xml');
+    expect(written).not.toContain('{{name}}');
+  });
+
+  it('names the package when its starter is not in the installed copy', () => {
+    const kinds = documentKinds(fixture.dir).map((kind) =>
+      kind.kind === 'particle' ? { ...kind, template: './templates/gone.xml' } : kind,
+    );
+    const { contents, problem } = templateFor('particle', 'sparks', undefined, kinds);
+    expect(contents).toBeUndefined();
+    expect(problem).toContain('@scenoco-three/particles');
+    expect(problem).toContain('<ParticleEffect>');
+  });
+
   it('lists the kinds when asked for one that is not', async () => {
     expect(await cli('new', 'shader', 'water')).toBe(1);
     expect(err.join('\n')).toContain('asset');
@@ -115,8 +142,10 @@ describe('scenoco build and check', () => {
     );
 
     expect(await cli('build')).toBe(0);
-    // Three modules, and the model the editor reads.
-    expect(out.join('\n')).toMatch(/wrote 4 file\(s\)/);
+    // Three modules, the model the editor reads, and the preview the particles package declares
+    // — a project that installs a module gets what that module says its components look like.
+    expect(out.join('\n')).toMatch(/wrote 5 file\(s\)/);
+    expect(existsSync(join(fixture.dir, '.scenoco/previews/ParticleSystem.js'))).toBe(true);
     expect(readFileSync(join(fixture.dir, '.scenoco/model.json'), 'utf8')).toContain('"Spinner"');
     expect(readFileSync(join(fixture.dir, 'assets/scenes/level1.scene.gen.ts'), 'utf8')).toContain(
       'export class Level1Scene extends Scene',
@@ -313,7 +342,9 @@ describe('scenoco init', () => {
     // install resolves them through node_modules. The fixture declares a `Spinner` of its own, so
     // it is emptied first: two classes cannot answer to one tag, and the compiler says so. The
     // components keep their file names, because they import each other.
-    fixture.write('game.ts', 'export {};\n');
+    // The package this project depends on still has to be imported somewhere, exactly as the
+    // scaffold's own `src/tags.ts` does it.
+    fixture.write('game.ts', `import '@scenoco-three/particles';\n`);
     for (const file of readdirSync(join(target, 'src'))) {
       if (file === 'main.ts' || file === 'tags.ts') continue;
       fixture.write(file, readFileSync(join(target, 'src', file), 'utf8'));
@@ -412,7 +443,7 @@ describe('running it in the wrong place', () => {
 describe('scenoco help', () => {
   it('lists every kind, so the list never goes stale', async () => {
     expect(await runCli([])).toBe(0);
-    for (const kind of ASSET_KINDS) expect(out.join('\n')).toContain(kind.kind);
+    for (const kind of BUILTIN_KINDS) expect(out.join('\n')).toContain(kind.kind);
   });
 
   it('names an unknown command rather than silently doing nothing', async () => {

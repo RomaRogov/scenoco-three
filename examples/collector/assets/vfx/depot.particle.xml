@@ -1,0 +1,20 @@
+<!-- The glow over the drop-off, so the middle of the field reads as somewhere to go.
+
+     A slow upward drift rather than a burst: it is a marker, not an event, and it runs for the
+     whole thirty seconds. `simulationSpace="World"` leaves each mote where it was born, so the
+     column stands still while the player runs past it — `Local` would drag the whole plume along
+     with the node if anything ever moved it.
+
+     The colours are the depot's own #3ddc84 fading to the crates' #f0b429: the two things the
+     run is about, in the order they happen. -->
+<ParticleEffect duration="3" looping="true" simulationSpace="World"
+                startLifetime="2.4" startSpeed="1.1" startSize="0.42" startColor="#3ddc84"
+                gravityModifier="-0.04">
+  <!-- Thin on purpose. Enough to catch the eye from across the field, few enough that the crates
+       stacked on the pad stay readable through it. -->
+  <Emission rateOverTime="20" />
+  <!-- A disc the width of the pad, so the motes rise from the whole surface rather than a point. -->
+  <Shape type="Circle" radius="1.4" />
+  <ColorOverLifetime colors="[#3ddc84, #a8e88c, #f0b429]" />
+  <SizeOverLifetime curve="[0.2, 1, 0]" />
+</ParticleEffect>

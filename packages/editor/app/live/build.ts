@@ -18,6 +18,7 @@ import { Color, Object3D, Scene, TextureLoader, Vector2, Vector3, Vector4 } from
 import type { SceneType } from '@scenoco-three/core';
 import { parseDocument, type ProjectModel, type PropInfo, type SncElement, type TagInfo, type ValueShape } from '@scenoco-three/compiler/browser';
 import { parseValue } from '../values.js';
+import { Previews } from './preview.js';
 import type { Source } from './source.js';
 
 /** Tag name → class, plus the constants an `enum` attribute names (`FrontSide`). */
@@ -41,8 +42,14 @@ const PLACEMENT = new Set(['id', 'name', 'position', 'eulerAngles', 'scale', 'vi
 const SCENE_ONLY = new Set(['camera', 'render', 'dontDestroyOnLoad', 'disposeOnUnload']);
 
 /** Build a scene class for the document at `path`. The tree is rebuilt on every load. */
-export async function buildLive(path: string, source: Source, model: ProjectModel, registry: Registry): Promise<LiveScene> {
-  const builder = new Builder(source, model, registry);
+export async function buildLive(
+  path: string,
+  source: Source,
+  model: ProjectModel,
+  registry: Registry,
+  previews?: Previews,
+): Promise<LiveScene> {
+  const builder = new Builder(source, model, registry, previews);
   const text = await source.read(path);
   const parsed = parseDocument(text, path);
   if (!parsed.ok) {
@@ -81,11 +88,14 @@ class Builder {
   private readonly source: Source;
   private readonly model: ProjectModel;
   private readonly registry: Registry;
+  /** What a component looks like, for the few components that can be looked at. */
+  private readonly previews: Previews | undefined;
 
-  constructor(source: Source, model: ProjectModel, registry: Registry) {
+  constructor(source: Source, model: ProjectModel, registry: Registry, previews?: Previews) {
     this.source = source;
     this.model = model;
     this.registry = registry;
+    this.previews = previews;
   }
 
   async populateScene(scene: Scene, root: SncElement, file: string): Promise<void> {
@@ -135,7 +145,23 @@ class Builder {
       const built = await this.buildNode(child, file, ids);
       if (built) node.add(built);
     }
+    await this.preview(node, element);
     return node;
+  }
+
+  /**
+   * Draw whatever this node's components can be drawn as.
+   *
+   * Almost none can — a component's effect is the game running. The exception is one whose output
+   * is geometry the document already fully describes, and those say so by declaring a preview.
+   */
+  private async preview(node: Object3D, element: SncElement): Promise<void> {
+    if (!this.previews) return;
+    const block = element.children.find((child) => child.tag === 'Components');
+    for (const component of block?.children ?? []) {
+      const info = this.model.components.find((c) => c.name === component.tag);
+      if (info?.preview) await this.previews.mount(node, info, component.attributes);
+    }
   }
 
   /**

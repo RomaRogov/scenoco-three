@@ -21,8 +21,8 @@ The examples the site carries are offered underneath either way.
 ## What it builds, and what it cannot
 
 The page parses the document with the compiler's own parser (`@scenoco-three/compiler/browser`)
-and builds the scene from the same vocabulary the compiler uses: three's classes and the tag
-packages the site carries (collision, ui, postfx, audio, particles, box2d). Nodes, assets,
+and builds the scene from the same vocabulary the compiler uses: three's classes and the SceNoCo
+packages the site carries, which are the ones listed in `static/package.json`. Nodes, assets,
 references, placement, prefabs and overrides are all live, stamped with the parser's positions,
 so the tree, the inspector and the gizmos find every element.
 

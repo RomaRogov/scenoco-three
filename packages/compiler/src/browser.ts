@@ -21,6 +21,9 @@ export {
 export type { SncDiagnostic } from './dsl/diagnostics.js';
 export type {
   ComponentInfo,
+  DocumentKindInfo,
+  DocumentShape,
+  ModuleInfo,
   ProjectModel,
   PropInfo,
   SerializedField,
@@ -28,4 +31,4 @@ export type {
   TagInfo,
   ValueShape,
 } from './model.js';
-export { MODEL_FILE } from './model.js';
+export { MODEL_FILE, PREVIEW_THREE } from './model.js';

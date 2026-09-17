@@ -15,6 +15,18 @@
 }
 .topbar::-webkit-scrollbar { height: 0; }
 
+/* What the editor has to say, under the toolbar. Short-lived — `report()` clears it. */
+.status {
+  position: fixed; top: 56px; left: 8px; right: 8px; margin: 0 auto;
+  width: max-content; max-width: calc(100% - 16px);
+  padding: 6px 12px; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--edge);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px); pointer-events: none;
+  font-size: 12px; line-height: 1.4; color: #cfe0f5;
+  white-space: pre-wrap; text-align: center;
+}
+
 .tbtn {
   position: relative; flex: 0 0 auto;
   width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;

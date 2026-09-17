@@ -15,7 +15,7 @@ export interface Source {
   url(path: string): Promise<string>;
   /** `ref` as written in the document at `from`, made into a path this source can read. */
   resolve(from: string, ref: string): string;
-  /** The scenes and prefabs in here, if it can be listed. */
+  /** Every document in here, if it can be listed. Which of them *open* is the model's to say. */
   list?(): Promise<Array<{ kind: string; path: string; stem: string }>>;
   /** Write text back, when this source can. */
   write?(path: string, text: string): Promise<void>;
@@ -100,7 +100,9 @@ export class FolderSource implements Source {
           if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
           await walk(entry, `${prefix}${entry.name}/`, depth + 1);
         } else {
-          const match = /^(.*)\.(scene|prefab)\.xml$/.exec(entry.name);
+          // Any `name.<kind>.xml`, whatever the kind: a package may have brought one along, and
+          // the walk cannot know which. The picker filters against the project's model.
+          const match = /^(.*)\.([A-Za-z][A-Za-z0-9-]*)\.xml$/.exec(entry.name);
           if (match) found.push({ kind: match[2]!, path: `${prefix}${entry.name}`, stem: match[1]! });
         }
       }

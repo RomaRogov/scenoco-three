@@ -18,8 +18,8 @@ let model: ProjectModel;
 
 /** The generated assets a document may reference, standing in for a real project scan. */
 const ASSETS: Record<string, AssetImport> = {
-  'cube.asset.xml': { module: './cube.asset.js', name: 'cube', kind: 'asset' },
-  'brick.asset.xml': { module: './brick.asset.js', name: 'brick', kind: 'asset' },
+  'cube.asset.xml': { module: './cube.asset.js', name: 'cube', kind: 'value' },
+  'brick.asset.xml': { module: './brick.asset.js', name: 'brick', kind: 'value' },
   'brick.prefab.xml': { module: './brick.prefab.js', name: 'Brick', kind: 'prefab' },
 };
 

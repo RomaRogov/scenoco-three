@@ -35,6 +35,23 @@
   "publishConfig": {
     "access": "public"
   },
+  "scenoco": {
+    "files": [
+      {
+        "extensions": [
+          "mp3",
+          "ogg",
+          "wav",
+          "m4a",
+          "aac",
+          "flac"
+        ],
+        "helper": "sharedClip",
+        "suffix": "Clip",
+        "await": true
+      }
+    ]
+  },
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

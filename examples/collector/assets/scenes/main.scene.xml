@@ -10,6 +10,7 @@
     <Run duration="30" quota="10" />
     <Collision />
     <UIRenderer />
+    <ParticleRenderer />
   </Systems>
 
   <AmbientLight color="#9fb6d4" intensity="1.2" />
@@ -59,6 +60,14 @@
       <SphereCollider radius="0.55" isSensor="true" />
     </Components>
   </Mesh>
+
+  <!-- The glow over the pad. Its own node rather than a component on the depot, because the depot
+       is scaled flat — x: 3; y: 0.05 — and everything under a node inherits that. -->
+  <Group id="depotGlow" position="y: 0.1">
+    <Components>
+      <ParticleSystem effect="../vfx/depot.particle.xml" />
+    </Components>
+  </Group>
 
   <Mesh id="player" geometry="../geometry/capsule.asset.xml"
         material="../materials/player.asset.xml" position="x: 3; y: 0.5; z: 3" scale="0.5">

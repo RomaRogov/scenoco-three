@@ -115,7 +115,26 @@ export interface ComponentInfo {
    * is a build error at the XML line, not a `tsc` error in generated code.
    */
   requiresNode?: string;
+  /** See {@link PreviewPath}. Absent for the overwhelming majority of components. */
+  preview?: PreviewPath;
 }
+
+/**
+ * Where an editor can find this component's preview — a build artifact, project-root-relative.
+ *
+ * Set only for a component some manifest declared one for. The module's default export turns the
+ * component's authored attributes into an `Object3D`, and that is all an editor may assume of it.
+ */
+export type PreviewPath = string;
+
+/**
+ * The global a copied preview reads `three` from.
+ *
+ * The artifact imports nothing — see the copy step in `build.ts` for why — so the editor that
+ * loads it puts its own three here first. Declared in the model rather than in the build so that
+ * a page can name it without pulling a Node compiler in behind it.
+ */
+export const PREVIEW_THREE = '__scenocoThree';
 
 /** What family a tag belongs to — which decides where it may appear and how it is emitted. */
 export type TagFamily = 'node' | 'geometry' | 'material' | 'texture' | 'fog';
@@ -150,6 +169,56 @@ export interface TagInfo {
   bases: string[];
 }
 
+/**
+ * One kind of document a package declared, with its whole authoring surface.
+ *
+ * Carried in the model because a reader with no TypeScript checker — the standalone editor — has
+ * no other way to learn what a `.particle.xml` may say. The shape is the same tree the emitter
+ * compiles against, so what the editor offers is exactly what the compiler accepts.
+ */
+export interface DocumentKindInfo {
+  /** The `scenoco new <kind>` name, and the word before `.xml` in the extension. */
+  kind: string;
+  extension: string;
+  /** Where new ones go, project-relative. */
+  dir: string;
+  description: string;
+  /** The package that declared it. */
+  module: string;
+  /**
+   * The type whose declaration *is* this document, and whose name is the root element.
+   * Absent when the package did not resolve — the kind is known, its vocabulary is not.
+   */
+  shape?: DocumentShape;
+}
+
+/**
+ * A config type as a tree of authorable values, JSON-shaped.
+ *
+ * `name` is the element's name, at every level: an element is named by the type of the field it
+ * fills. A child element is a `group`, a repeatable one is a `list`, everything else an attribute.
+ */
+export interface DocumentShape {
+  name: string;
+  description?: string;
+  fields: PropInfo[];
+  /** Child elements, by the field each fills. */
+  groups: Record<string, DocumentShape>;
+  /** Repeatable child elements, by the array field each appends to. */
+  lists: Record<string, DocumentShape>;
+}
+
+/** A SceNoCo module this project depends on. */
+export interface ModuleInfo {
+  name: string;
+  version?: string;
+  /**
+   * A single ESM bundle the standalone editor may load to construct this package's tags, copied
+   * beside this file as a build artifact. Relative to the project root.
+   */
+  editor?: string;
+}
+
 /** Everything the emitters need to turn one project's XML into TypeScript. */
 export interface ProjectModel {
   components: ComponentInfo[];
@@ -168,6 +237,14 @@ export interface ProjectModel {
    */
   systems: ComponentInfo[];
   tags: TagInfo[];
+  /**
+   * The document kinds this project's packages declared, and the modules that declared them.
+   *
+   * Optional because a model written by an older build has neither, and a reader that only wants
+   * components and tags should not have to care.
+   */
+  documents?: DocumentKindInfo[];
+  modules?: ModuleInfo[];
 }
 
 /**

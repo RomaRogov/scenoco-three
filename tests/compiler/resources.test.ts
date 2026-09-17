@@ -56,9 +56,9 @@ export class Engine extends Component {
 
   fixture.writeXml(
     'assets/vfx/spark.particle.xml',
-    `<ParticleSystem duration="1" startColor="#ffdd66">
+    `<ParticleEffect duration="1" startColor="#ffdd66">
   <Renderer blending="Additive" texture="../textures/brick.png" />
-</ParticleSystem>`,
+</ParticleEffect>`,
   );
 
   // A prefab that needs a file, so it has to publish what it needs rather than await it.
@@ -225,7 +225,12 @@ describe('audio', () => {
 describe('what it refuses', () => {
   it('reports a file that is not there, rather than emitting a 404', () => {
     const missing = makeFixture('resources-missing', { audio: true });
-    missing.write('game.ts', `import { Component } from '@scenoco-three/core';\nexport class A extends Component {}\n`);
+    // The import is what makes a dependency's vocabulary readable, and this project depends on
+    // the audio package; without it the build stops on that instead of on the missing file.
+    missing.write(
+      'game.ts',
+      `import '@scenoco-three/audio';\nimport { Component } from '@scenoco-three/core';\nexport class A extends Component {}\n`,
+    );
     missing.writeXml('assets/materials/x.asset.xml', '<MeshStandardMaterial map="../textures/nope.png" />');
     const { diagnostics } = build({ root: missing.dir, tsconfig: missing.tsconfig });
     expect(diagnostics[0]?.code).toBe('unknown-asset');
@@ -254,13 +259,13 @@ describe('what it refuses', () => {
 
 describe('a particle effect names an image the same way', () => {
   it('resolves <Renderer texture> to the shared texture, not a URL string', () => {
-    // `ParticleConfig.renderer.texture` is declared `Texture`, so it is an asset reference like
+    // `Renderer.texture` is declared `Texture`, so it is an asset reference like
     // any other — and the same image used by a material is the same object, uploaded once.
     const code = read('assets/vfx/spark.particle.gen.ts');
     expect(code).toContain(
       "const brickTexture = sharedTexture(new URL('../textures/brick.png', import.meta.url).href);",
     );
-    expect(code).toContain('texture: brickTexture,');
+    expect(code).toContain('texture: brickTexture }');
   });
 });
 

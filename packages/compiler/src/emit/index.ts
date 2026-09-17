@@ -11,4 +11,4 @@ export {
 } from './assets.js';
 export { TsModule, camelCase, pascalCase, sanitizeIdentifier } from './module.js';
 export { PLACEMENT, STRUCTURAL } from './placement.js';
-export { emitConfigDocument, type ConfigDocumentOptions, type ModuleBinding } from './config.js';
+export { emitConfigDocument, type ConfigDocumentOptions } from './config.js';

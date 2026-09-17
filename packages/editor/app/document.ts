@@ -38,6 +38,8 @@ export interface Attachment {
  * instance to read — and what a person edits is the element anyway.
  */
 export interface ComponentEntry {
+  /** The node it is on — what a preview of it hangs under. */
+  node: Object3D;
   /** The element name, which is the class name: all a document says about the class. */
   tag: string;
   /** What the build read from the class, or undefined when this project's model does not know it. */
@@ -97,6 +99,14 @@ export class SceneDocument {
   private elements: ElementView[] = [];
   /** What has changed since the document was opened, and how to take it back. */
   private readonly log = new EditLog();
+
+  /**
+   * Something about a node's components changed, so whatever is drawn from them is stale.
+   *
+   * Assigned by the page rather than taken in the constructor, the way the session's own hooks
+   * are: the document knows an edit happened and nothing about what an editor draws.
+   */
+  onComponentEdit?: (node: Object3D) => void;
 
   /** Turns the text of a reference into what it names; without one, a reference edit waits for a rebuild. */
   private readonly resolve: Resolve | undefined;
@@ -288,11 +298,11 @@ export class SceneDocument {
     const block = this.componentsBlockOf(node);
     const written: ComponentEntry[] = (block ? this.childrenOf(block) : [])
       .filter((e) => !this.removed.has(keyOf(e.at)))
-      .map((e) => ({ tag: e.tag, info: info(e.tag), attributes: e.attributes, source: { at: e.at } }));
+      .map((e) => ({ node, tag: e.tag, info: info(e.tag), attributes: e.attributes, source: { at: e.at } }));
     const added = this.added.get(keyOf(this.mine(node)!))?.members ?? [];
     return [
       ...written,
-      ...added.map((a) => ({ tag: a.tag, info: info(a.tag), attributes: a.attributes, source: { added: a } })),
+      ...added.map((a) => ({ node, tag: a.tag, info: info(a.tag), attributes: a.attributes, source: { added: a } })),
     ];
   }
 
@@ -382,6 +392,7 @@ export class SceneDocument {
       rewriteBlock(added.block);
     };
     this.log.commit(`${name} on <${entry.tag}>`, () => write(value), () => write(before), opts?.coalesce === true);
+    this.onComponentEdit?.(entry.node);
   }
 
   clearComponentProp(entry: ComponentEntry, name: string): void {

@@ -6,11 +6,14 @@ import { familyOf, isAttachable } from './families.js';
 /**
  * The types that mean "a document in this project". Everything else a document can name is
  * recognised from the class: a three.js family, or an `Asset` subclass.
+ *
+ * A package declaring a document kind adds its own — a field typed `ParticleEffect` is written as
+ * a path to a `.particle.xml`, and which types those are is a question only the project's
+ * installed packages can answer. So the set travels with the scan.
  */
-const DOCUMENT_TYPES: ReadonlySet<string> = new Set([
+export const BUILTIN_DOCUMENT_TYPES: ReadonlySet<string> = new Set([
   'PrefabType',
   'SceneType',
-  'ParticleConfig',
   'RenderSettings',
 ]);
 
@@ -20,7 +23,11 @@ const DOCUMENT_TYPES: ReadonlySet<string> = new Set([
  * Everything is *derived* from the type: `speed = 10` is a number because it is a number, and
  * `side: Side` offers the right constants because `Side` is a union of them.
  */
-export function shapeOf(type: Type | undefined, checker: Checker): {
+export function shapeOf(
+  type: Type | undefined,
+  checker: Checker,
+  documents: ReadonlySet<string> = BUILTIN_DOCUMENT_TYPES,
+): {
   shape: ValueShape;
   elementShape?: ValueShape;
   shapes?: ValueShape[];
@@ -60,7 +67,7 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
   // `SceneType` is `new () => Scene` — a scene *class*, which is what `SceneManager.load` takes.
   // A field declared with it is authored as a path to a `.scene.xml`, exactly like every other
   // reference to a document, so a level can name the level after it.
-  if (alias && DOCUMENT_TYPES.has(alias)) return { shape: 'assetRef' };
+  if (alias && documents.has(alias)) return { shape: 'assetRef' };
 
   const name = resolved.getSymbol()?.name;
   if (name === 'Color') return { shape: 'color' };
@@ -68,7 +75,7 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
   if (name === 'Vector3') return { shape: 'vector3' };
   if (name === 'Vector4') return { shape: 'vector4' };
   if (name === 'Euler' || name === 'Quaternion') return { shape: 'euler' };
-  if (name && DOCUMENT_TYPES.has(name)) return { shape: 'assetRef' };
+  if (name && documents.has(name)) return { shape: 'assetRef' };
 
   const chain = name ? [name, ...baseChainOf(resolved, checker)] : [];
   const family = name ? familyOf(name, chain) : undefined;
@@ -79,7 +86,7 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
   // An array authors as `[a, b, c]`; the element decides how each entry is written.
   const element = elementTypeOf(resolved, checker);
   if (element) {
-    const inner = shapeOf(element, checker);
+    const inner = shapeOf(element, checker, documents);
     return {
       shape: 'array',
       elementShape: inner.shape,
@@ -96,7 +103,7 @@ export function shapeOf(type: Type | undefined, checker: Checker): {
 
   // A "one or many" union — `Material | Material[]` — reduces to the singular shape, marked
   // `list` so a bracketed value is read too.
-  const reduced = reduceUnion(resolved, checker);
+  const reduced = reduceUnion(resolved, checker, documents);
   if (reduced) return reduced;
 
   // Anything that derives from Object3D is a reference to another node in the document, and so
@@ -111,9 +118,10 @@ export function propOf(
   symbol: TsSymbol,
   checker: Checker,
   overrides: Partial<PropInfo> = {},
+  documents: ReadonlySet<string> = BUILTIN_DOCUMENT_TYPES,
 ): PropInfo {
   const type = checker.getTypeOfSymbol(symbol);
-  const { shape, elementShape, shapes, options, list, assetFamily } = shapeOf(type, checker);
+  const { shape, elementShape, shapes, options, list, assetFamily } = shapeOf(type, checker, documents);
   return {
     name: symbol.name,
     type: type ? checker.typeToString(type) : 'unknown',
@@ -154,6 +162,7 @@ function elementTypeOf(type: Type, checker: Checker): Type | undefined {
 function reduceUnion(
   type: Type,
   checker: Checker,
+  documents: ReadonlySet<string>,
 ): {
   shape: ValueShape;
   elementShape?: ValueShape;
@@ -169,7 +178,7 @@ function reduceUnion(
   for (const member of type.getTypes() ?? []) {
     const printed = checker.typeToString(member);
     if (printed === 'undefined' || printed === 'null') continue;
-    const inner = shapeOf(member, checker);
+    const inner = shapeOf(member, checker, documents);
     // An array member contributes its element's shape, so `Material[] | Material` agrees.
     if (inner.shape === 'array') hasArrayMember = true;
     shapes.add(inner.shape === 'array' ? (inner.elementShape ?? 'unsupported') : inner.shape);

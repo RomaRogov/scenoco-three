@@ -1,5 +1,11 @@
 import { resolve } from 'node:path';
-import { build, formatDiagnostic, withoutMarkers, type ProjectModel } from '@scenoco-three/compiler';
+import {
+  build,
+  formatDiagnostic,
+  withoutMarkers,
+  type ConfigShape,
+  type ProjectModel,
+} from '@scenoco-three/compiler';
 import { parseSync, type Plugin, type ViteDevServer } from 'vite';
 
 export interface ScenocoOptions {
@@ -39,21 +45,34 @@ export interface ScenocoOptions {
 export function scenoco(options: ScenocoOptions = {}): Plugin {
   let root: string;
   let tsconfig: string;
-  /** The last scan, reused while only documents change. */
+  /**
+   * The last scan, reused while only documents change.
+   *
+   * The two halves are one cache: both are read from the same declarations in the same pass, so
+   * a rescan drops them together. Keeping the shapes while dropping the model would leave a
+   * package's edited config type reported as it was, which reads as the compiler refusing an
+   * attribute that is plainly declared.
+   */
   let model: ProjectModel | undefined;
+  let shapes: ReadonlyMap<string, ConfigShape | undefined> | undefined;
 
   const compile = (rescan: boolean): void => {
     // A document's vocabulary comes from the project's TypeScript, so a change there can change
     // what a document means — but scanning is the expensive half, so it only happens when the
     // TypeScript actually changed.
-    if (rescan) model = undefined;
+    if (rescan) {
+      model = undefined;
+      shapes = undefined;
+    }
     const result = build({
       root,
       tsconfig,
       ...(options.modules ? { modules: options.modules } : {}),
       ...(model ? { model } : {}),
+      ...(shapes ? { shapes } : {}),
     });
     model = result.model;
+    shapes = result.shapes;
     if (result.diagnostics.length > 0) {
       throw new Error(
         `[scenoco] ${result.diagnostics.length} problem(s) in this project's documents:\n` +

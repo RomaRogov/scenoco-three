@@ -5,11 +5,13 @@
  * writing the file back — into the folder it was opened from, with the compiler's own edit
  * splices applied to the text.
  */
-import type { ProjectModel } from '@scenoco-three/compiler';
+import type { DocumentKindInfo, ProjectModel } from '@scenoco-three/compiler';
 import { indexDocument, MODEL_FILE } from '@scenoco-three/compiler/browser';
 import type { SceneType } from '@scenoco-three/core';
+import { Scene } from 'three';
 import type { Edit, RawElement } from './document.js';
 import { buildLive, type Registry, type Resolve } from './live/build.js';
+import { Previews } from './live/preview.js';
 import { applyEdits } from './live/edits.js';
 import { FolderSource, UrlSource, type Source } from './live/source.js';
 
@@ -31,9 +33,21 @@ export interface Opened {
   resolve: Resolve;
   /** The project's model when a build left one beside it; otherwise the tag packages' own. */
   model: ProjectModel;
+  /** What draws this document's components, for the few that can be drawn. */
+  previews?: Previews;
+  /**
+   * Set when this document is one a package declared — a `.particle.xml`.
+   *
+   * It is one typed value rather than a tree of nodes, so there is nothing to build and nothing
+   * to pick: the stage stays empty and the form is the whole interface.
+   */
+  config?: DocumentKindInfo;
 }
 
 export type Saved = { ok: true; text: string; elements: RawElement[] } | { ok: false; error: string };
+
+/** What a config document opens onto: nothing, because it describes no scene. */
+class EmptyStage extends Scene {}
 
 export class Host {
   private folderSource: FolderSource | null = null;
@@ -51,13 +65,31 @@ export class Host {
     return this.folderSource?.label ?? null;
   }
 
-  /** The documents in the open folder, then the examples the site carries. */
+  /** The documents in the open folder that can be opened, then the examples the site carries. */
   async documents(): Promise<Pickable[]> {
     const own = this.folderSource ? await this.folderSource.list() : [];
+    const openable = await this.openableKinds();
     const examples = await (this.bundled ??= fetch('./examples.json')
       .then((r) => (r.ok ? (r.json() as Promise<Pickable[]>) : []))
       .catch(() => [] as Pickable[]));
-    return [...own.map((d) => ({ ...d, group: this.folderSource!.label })), ...examples];
+    return [
+      ...own.filter((d) => openable.has(d.kind)).map((d) => ({ ...d, group: this.folderSource!.label })),
+      ...examples,
+    ];
+  }
+
+  /**
+   * Which kinds are a thing to *open* — the rest are referenced by path from inside one.
+   *
+   * A scene and a prefab always are. Everything else is whatever the project's packages declared,
+   * which is a question only the project's own model can answer, so it is read from the folder's
+   * root before anything is opened.
+   */
+  private async openableKinds(): Promise<ReadonlySet<string>> {
+    const model = this.folderSource
+      ? ((await projectModelAt(this.folderSource, '')) ?? (await this.bundledModel()))
+      : await this.bundledModel();
+    return new Set(['scene', 'prefab', ...(model.documents ?? []).map((kind) => kind.kind)]);
   }
 
   /** The vocabulary this site was built with: three and every tag package it carries. */
@@ -82,18 +114,30 @@ export class Host {
       end: e.end,
       attributes: e.attributes instanceof Map ? Object.fromEntries(e.attributes) : e.attributes,
     })) as RawElement[];
-    const project = await projectModelAt(source, path);
-    const model = project ?? (await this.bundledModel());
-    const live = await buildLive(path, source, model, await this.registry());
+    const project = await projectAt(source, path);
+    const model = project?.model ?? (await this.bundledModel());
+
+    // A kind a package declared is one value, not a tree of nodes: nothing to build, nothing to
+    // pick. The stage stays empty and the form does the work.
+    const config = (model.documents ?? []).find((kind) => path.endsWith(kind.extension));
+    if (config) {
+      this.opened = { path, source };
+      return { path, text, elements, scene: EmptyStage, problems: [], resolve: async () => undefined, model, config };
+    }
+
+    // A preview is read relative to the document, because that is what this source understands:
+    // the model was found by walking up from here, and the previews sit beside it.
+    const previews = project ? new Previews(source, path, project.base, model.documents ?? []) : undefined;
+    const live = await buildLive(path, source, model, await this.registry(), previews);
     this.opened = { path, source };
     const problems = project
-      ? live.problems
+      ? [...live.problems, ...(previews?.problems ?? [])]
       : [
           `No ${MODEL_FILE} at or above ${path} — only the tag packages' components are known. ` +
             'Run `scenoco build` in the project to read its own.',
           ...live.problems,
         ];
-    return { path, text, elements, scene: live.SceneClass, problems, resolve: live.resolve, model };
+    return { path, text, elements, scene: live.SceneClass, problems, resolve: live.resolve, model, ...(previews ? { previews } : {}) };
   }
 
   async save(path: string, edits: readonly Edit[]): Promise<Saved> {
@@ -132,6 +176,20 @@ export class Host {
  * the nearest project root: a document belongs to the project that contains it.
  */
 export async function projectModelAt(source: Source, path: string): Promise<ProjectModel | null> {
+  return (await projectAt(source, path))?.model ?? null;
+}
+
+/**
+ * The project a document belongs to: its model, and how to reach the rest of what the build left.
+ *
+ * `base` is what a root-relative build artifact hangs off — a preview module sits beside the model
+ * it is named in, and the page has to turn ".scenoco/previews/Terrain.js" back into something this
+ * source can read.
+ */
+export async function projectAt(
+  source: Source,
+  path: string,
+): Promise<{ model: ProjectModel; base: string } | null> {
   const tried = new Set<string>();
   for (let up = ''; ; up += '../') {
     const candidate = source.resolve(path, `${up}${MODEL_FILE}`);
@@ -139,7 +197,7 @@ export async function projectModelAt(source: Source, path: string): Promise<Proj
     if (tried.has(candidate)) return null;
     tried.add(candidate);
     const model = await source.read(candidate).then(asModel, () => null);
-    if (model) return model;
+    if (model) return { model, base: up };
   }
 }
 

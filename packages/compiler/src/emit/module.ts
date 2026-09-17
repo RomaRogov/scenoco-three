@@ -13,6 +13,8 @@ export class TsModule {
 
   /** module specifier → exported name → local name. */
   private readonly imports = new Map<string, Map<string, string>>();
+  /** `"<module> <name>"` for every import wanted only as a type. */
+  private readonly typeOnly = new Set<string>();
   /** Modules imported purely for their side effect, printed before the named imports. */
   private readonly sideEffects = new Set<string>();
   /** Every local name in the module, so a collision is renamed rather than shadowed. */
@@ -33,12 +35,28 @@ export class TsModule {
     let byName = this.imports.get(module);
     if (!byName) this.imports.set(module, (byName = new Map()));
     const existing = byName.get(name);
-    if (existing) return existing;
+    if (existing) {
+      this.typeOnly.delete(`${module} ${name}`); // wanted as a value after all
+      return existing;
+    }
 
     let local = name;
     for (let n = 2; this.taken.has(local); n++) local = `${name}$${n}`;
     this.taken.add(local);
     byName.set(name, local);
+    return local;
+  }
+
+  /**
+   * Import a name used **only as a type** — an interface a generated value is annotated with.
+   *
+   * It has to be spelled `import type`, because a project compiled with `verbatimModuleSyntax`
+   * emits the import exactly as written: a plain import of an interface survives to runtime and
+   * throws `does not provide an export named …` the moment a browser loads the file.
+   */
+  requireType(module: string, name: string): string {
+    const local = this.require(module, name);
+    this.typeOnly.add(`${module} ${name}`);
     return local;
   }
 
@@ -116,9 +134,18 @@ export class TsModule {
     }
     for (const module of [...this.imports.keys()].sort(sortImports)) {
       const byName = this.imports.get(module)!;
-      const clauses = [...byName.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([name, local]) => (name === local ? name : `${name} as ${local}`));
+      const entries = [...byName.entries()].sort(([a], [b]) => a.localeCompare(b));
+      const clause = ([name, local]: [string, string]) => (name === local ? name : `${name} as ${local}`);
+      const types = entries.filter(([name]) => this.typeOnly.has(`${module} ${name}`));
+      // All types: `import type`, which a `verbatimModuleSyntax` build erases outright. Mixed:
+      // one import with the type names marked, which erases the bindings and keeps the module.
+      if (types.length === entries.length) {
+        out.push(`import type { ${entries.map(clause).join(', ')} } from '${module}';`);
+        continue;
+      }
+      const clauses = entries.map((entry) =>
+        this.typeOnly.has(`${module} ${entry[0]}`) ? `type ${clause(entry)}` : clause(entry),
+      );
       out.push(`import { ${clauses.join(', ')} } from '${module}';`);
     }
     if (this.imports.size > 0 || this.sideEffects.size > 0) out.push('');

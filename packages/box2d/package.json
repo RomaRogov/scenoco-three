@@ -36,8 +36,9 @@
   "publishConfig": {
     "access": "public"
   },
-  "//sideEffects": "contacts.ts merges the Unity-style contact hooks onto Component \u2014 a declaration-only import a bundler could otherwise elide. Everything else is pure.",
+  "//sideEffects": "contacts.ts merges the Unity-style contact hooks onto Component — a declaration-only import a bundler could otherwise elide. Everything else is pure.",
   "sideEffects": true,
+  "scenoco": {},
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

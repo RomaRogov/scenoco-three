@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
-import { ASSET_KINDS, findAssets, type AssetKind } from './assets.js';
+import { BUILTIN_KINDS, findAssets, type AssetKind } from './assets.js';
+import { documentKinds, notesOf, readModuleManifests } from './manifest.js';
 import { build } from './build.js';
 import { describe } from './describe.js';
 import { describeApi } from './scan/api.js';
@@ -12,10 +13,10 @@ import { PRIMITIVES, templateFor } from './templates.js';
 /**
  * `scenoco` — the command line over the compiler.
  *
- * Every command here is a thin view over `build()` or over `ASSET_KINDS`; none of them knows a
- * document format. That is deliberate: the list of kinds, their extensions and their directories
- * are declared once, so a new kind appears in `new`, in `check` and in this help text without an
- * edit here.
+ * Every command here is a thin view over `build()` or over the project's document kinds; none of
+ * them knows a document format. That is deliberate: a kind, its extension and its directory are
+ * declared once — by the compiler or by a package — so a new one appears in `new`, in `check` and
+ * in this help text without an edit here.
  */
 export async function run(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -86,6 +87,7 @@ function explain(args: readonly string[]): number {
     ...(flags.modules ? { modules: flags.modules } : {}),
     dryRun: true,
   };
+  const modules_ = readModuleManifests(flags.root).modules;
   let model;
   try {
     ({ model } = build(options));
@@ -96,9 +98,11 @@ function explain(args: readonly string[]): number {
     // "no file imports @scenoco-three/ui" and nothing else. Say it, then answer from what is
     // wired: three and the project's own components.
     const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('no file in this project imports')) throw error;
-    console.error(`${message}\nAnswering from what is imported so far.\n`);
-    ({ model } = build({ ...options, modules: ['three'] }));
+    // Anything the toolchain refuses outright — an unimported package, two packages claiming one
+    // document kind — is a reason not to *build*. It is never a reason not to answer a question.
+    if (!message.startsWith('[scenoco] ')) throw error;
+    console.error(`${message}\nAnswering from what is wired up so far.\n`);
+    ({ model } = build({ ...options, modules: ['three'], kinds: BUILTIN_KINDS }));
   }
 
   // A second, short-lived workspace for the declarations. `build` closes its own, and opening
@@ -107,9 +111,10 @@ function explain(args: readonly string[]): number {
   const answer = Workspace.with(tsconfig, (workspace) => {
     const context = {
       model,
-      assets: findAssets(flags.root),
+      assets: findAssets(flags.root, documentKinds(flags.root)).documents,
       read: (path: string) => readFileSync(path, 'utf8'),
       api: (name: string) => describeApi(workspace, name, modules),
+      notes: notesOf(modules_),
     };
     if (names.length <= 1) return describe(context, wanted);
     // A rule between answers, so a reader can see where one ends — the same job a heading does.
@@ -217,48 +222,54 @@ function create(args: readonly string[]): number {
   // `scenoco new asset crate MeshStandardMaterial` — the root tag, which is what an asset is.
   const tag = afterName[0]?.startsWith('-') ? undefined : afterName[0];
   const rest = tag === undefined ? afterName : afterName.slice(1);
-  const kinds = ASSET_KINDS.map((k) => k.kind);
+  const flags = parseFlags(rest);
+  // What *this* project can make: the builtins plus whatever its packages declare.
+  const kinds = documentKinds(flags.root);
+  const names = kinds.map((k) => k.kind);
 
-  if (!kind || !kinds.includes(kind as AssetKind['kind'])) {
+  if (!kind || !names.includes(kind)) {
     console.error(
       kind
-        ? `scenoco new: "${kind}" is not a kind of document. Try one of: ${kinds.join(', ')}.`
-        : `scenoco new <kind> <name>\n\nKinds: ${kinds.join(', ')}`,
+        ? `scenoco new: "${kind}" is not a kind of document. Try one of: ${names.join(', ')}.`
+        : `scenoco new <kind> <name>\n\nKinds: ${names.join(', ')}`,
     );
     return 1;
   }
   // `scenoco new asset` with no name means the whole set of primitives. Unity has its built-in
   // meshes; a SceNoCo project has these documents, and needing seven commands to get a cube and a
   // cylinder is the sort of friction that ends with someone typing numbers into a mesh instead.
-  if (!name && kind === 'asset') return createAll(Object.keys(PRIMITIVES), parseFlags(rest));
+  if (!name && kind === 'asset') return createAll(Object.keys(PRIMITIVES), flags, kinds);
   if (!name) {
     console.error(`scenoco new ${kind} <name>${kind === 'asset' ? ' [Tag]' : ''}`);
     return 1;
   }
 
-  const flags = parseFlags(rest);
-  return write(kind as AssetKind['kind'], name, flags, tag) ? 0 : 1;
+  return write(kind, name, flags, kinds, tag) ? 0 : 1;
 }
 
 /** Every primitive geometry, skipping any the project already has. */
-function createAll(names: readonly string[], flags: Flags): number {
+function createAll(names: readonly string[], flags: Flags, kinds: readonly AssetKind[]): number {
   let written = 0;
   for (const name of names) {
-    const template = templateFor('asset', name);
+    const template = templateFor('asset', name, undefined, kinds);
     if (existsSync(resolve(flags.root, template.path))) continue;
-    if (write('asset', name, flags)) written += 1;
+    if (write('asset', name, flags, kinds)) written += 1;
   }
   if (written === 0) console.log('scenoco: every primitive geometry is already there.');
   return 0;
 }
 
 /** Write one starter document. False when it was refused. */
-function write(kind: AssetKind['kind'], name: string, flags: Flags, tag?: string): boolean {
-  const template = templateFor(kind, name, tag);
+function write(kind: string, name: string, flags: Flags, kinds: readonly AssetKind[], tag?: string): boolean {
+  const template = templateFor(kind, name, tag, kinds);
   const path = resolve(flags.root, template.path);
   if (existsSync(path)) {
     // Never silently: a starter document overwriting real work is unrecoverable.
     console.error(`scenoco new: ${relative(flags.root, path)} already exists.`);
+    return false;
+  }
+  if (template.contents === undefined) {
+    console.error(`scenoco new: ${template.problem}`);
     return false;
   }
   mkdirSync(dirname(path), { recursive: true });
@@ -280,7 +291,10 @@ function parseFlags(args: readonly string[]): Flags {
 }
 
 function help(): void {
-  const width = Math.max(...ASSET_KINDS.map((k) => k.kind.length));
+  // The kinds you can actually make *here* — help printed in a project with a VFX package should
+  // list its documents, and outside a project the builtins are the honest answer.
+  const kinds = documentKinds(process.cwd());
+  const width = Math.max(...kinds.map((k) => k.kind.length));
   console.log(`scenoco — compile SceNoCo documents to TypeScript
 
   scenoco build [dir]     compile every document in the project
@@ -304,6 +318,6 @@ Options
   --modules a,b           packages whose tags the documents may use, beyond three
 
 Kinds
-${ASSET_KINDS.map((k) => `  ${k.kind.padEnd(width)}  ${k.description}`).join('\n')}
+${kinds.map((k) => `  ${k.kind.padEnd(width)}  ${k.description}`).join('\n')}
 `);
 }

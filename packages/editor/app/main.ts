@@ -4,6 +4,8 @@ import { CameraRig } from './cameraRig.js';
 import { DesktopControls } from './desktopControls.js';
 import { TouchControls, isTouchDevice } from './touchControls.js';
 import { SceneDocument } from './document.js';
+import { ConfigDocument } from './config.js';
+import type { Previews } from './live/preview.js';
 import { Gizmo, type GizmoSpace } from './gizmo.js';
 import { pickAt } from './picking.js';
 import { EditorSession, type FocusTarget } from './session.js';
@@ -11,7 +13,7 @@ import { mountEditorUI } from './ui-react/mount.js';
 import type { EditorUIHandle } from './ui-react/types.js';
 import { Host } from './host.js';
 
-const host = new Host(async () => (await import('./static/registry.js')).registry);
+const host = new Host(async () => (await import('./static/registry.gen.js')).registry);
 
 /**
  * The editor page.
@@ -36,6 +38,16 @@ const touchControls = new TouchControls(rig, canvas, () => gizmo?.dragging ?? fa
 
 let model: ProjectModel | null = null;
 let doc: SceneDocument | null = null;
+/**
+ * The open document when it is one a package declared — a `.particle.xml`.
+ *
+ * Exactly one of `doc` and `config` is set. They share the surface the top bar drives (dirty,
+ * undo, redo, save), which is why `editing()` can answer for either; everything else — a
+ * selection, a gizmo, a tree — belongs to a scene and is simply absent for the other.
+ */
+let config: ConfigDocument | null = null;
+/** What the open document's components draw, and the transport that drives the moving ones. */
+let previews: Previews | null = null;
 let selected: Object3D | null = null;
 let gizmo: Gizmo | null = null;
 let ui: EditorUIHandle | null = null;
@@ -51,9 +63,26 @@ async function documents(): Promise<Array<{ kind: string; path: string; stem: st
   return host.documents();
 }
 
+/** Whichever document is open, for the things both kinds answer. */
+function editing(): SceneDocument | ConfigDocument | null {
+  return doc ?? config;
+}
+
 async function open(path: string): Promise<void> {
   const info = await host.open(path);
   model = info.model;
+
+  if (info.config) {
+    doc = null;
+    await session.open(info.scene);
+    config = new ConfigDocument(info.path, info.text, info.config);
+    config.onChange(() => ui?.refresh());
+    if (config.problem) report(config.problem);
+    history.replaceState(null, '', `?path=${encodeURIComponent(path)}`);
+    ui?.refresh();
+    return;
+  }
+  config = null;
 
   const reopening = doc?.path === info.path;
   await session.open(info.scene);
@@ -74,6 +103,32 @@ async function open(path: string): Promise<void> {
   }
   doc = new SceneDocument(info.path, info.text, info.elements, model, info.resolve);
   doc.onChange(() => ui?.refresh());
+  // What a component draws is a function of what the document says about it, so an edit to either
+  // makes it stale. Coalesced to a frame: a scrubbed number is hundreds of edits, and rebuilding
+  // geometry on each one is the difference between a live preview and a slideshow.
+  previews = info.previews ?? null;
+  if (previews) {
+    const mounted = previews;
+    // A preview is rebuilt asynchronously, and the chrome reads what is drawn at render time.
+    mounted.onChanged = () => ui?.refresh();
+    mounted.onProblem = (message) => report(message);
+    const dirty = new Set<Object3D>();
+    let queued = 0;
+    doc.onComponentEdit = (node) => {
+      dirty.add(node);
+      if (queued) return;
+      queued = requestAnimationFrame(() => {
+        queued = 0;
+        const nodes = [...dirty];
+        dirty.clear();
+        for (const target of nodes) {
+          for (const entry of doc?.componentsOf(target) ?? []) {
+            if (entry.info?.preview) void mounted.mount(target, entry.info, entry.attributes);
+          }
+        }
+      });
+    };
+  }
   history.replaceState(null, '', `?path=${encodeURIComponent(path)}`);
   ui?.refresh(); // a document is open now — the open dialog stands down, the toolbar wakes up
 }
@@ -195,7 +250,7 @@ window.addEventListener('pagehide', saveView);
 
 /** Remember the current view. Called from the frame loop, at most once a second. */
 function saveView(): void {
-  if (!doc) return;
+  if (!doc) return; // a config document has no view to remember
   const { x, y, z } = session.editorCamera.position;
   try {
     sessionStorage.setItem(
@@ -232,7 +287,7 @@ window.addEventListener('keydown', (event) => {
   if (accel) {
     const key = event.key.toLowerCase();
     if (key === 's') doNow(event, () => void save());
-    else if (key === 'z') doNow(event, () => (event.shiftKey ? doc?.redoLast() : doc?.undoLast()));
+    else if (key === 'z') doNow(event, () => (event.shiftKey ? editing()?.redoLast() : editing()?.undoLast()));
     return;
   }
   if (event.altKey) return;
@@ -262,15 +317,17 @@ function doNow(event: KeyboardEvent, run: () => void): void {
 // --- saving ----------------------------------------------------------------------------------
 
 async function save(): Promise<void> {
-  if (!doc || !doc.isDirty) return;
-  const saved = await host.save(doc.path, doc.edits());
+  const active = editing();
+  if (!active?.isDirty) return;
+  const saved = await host.save(active.path, active.edits());
   if (!saved.ok) {
     // The document is untouched on disk when a save is refused, so the edits stay pending and
     // the next attempt can succeed — nothing is lost by showing the reason and stopping.
     report(saved.error);
     return;
   }
-  doc.markSaved(saved.text, saved.elements);
+  if (active instanceof SceneDocument) active.markSaved(saved.text, saved.elements);
+  else active.markSaved(saved.text);
   report('saved');
 }
 
@@ -285,6 +342,9 @@ function step(dt: number): void {
   // The rig accumulates yaw and pitch and only writes them to the camera here — once, after
   // every input adapter has had its say, so two of them can never fight over the transform.
   rig.sync(dt);
+  // Before the frame is drawn: a preview that moves is moved by the editor, not by the engine —
+  // nothing here is running, and that is the point.
+  previews?.step(dt);
   session.frame(dt);
 }
 
@@ -315,6 +375,8 @@ async function boot(): Promise<void> {
   ui = mountEditorUI({
     getEngine: () => session.engine,
     getDoc: () => doc ?? undefined,
+    getConfig: () => config ?? undefined,
+    getPreviews: () => previews ?? undefined,
     getModel: () => model ?? undefined,
     getScene: () => session.scene,
     onSelect: applySelection,
@@ -341,13 +403,13 @@ async function boot(): Promise<void> {
         session.uiInEditor = on;
         ui?.refresh();
       },
-      undo: () => doc?.undoLast(),
-      redo: () => doc?.redoLast(),
+      undo: () => editing()?.undoLast(),
+      redo: () => editing()?.redoLast(),
       save: () => void save(),
       state: () => ({
-        canUndo: doc?.canUndo ?? false,
-        canRedo: doc?.canRedo ?? false,
-        dirty: doc?.isDirty ?? false,
+        canUndo: editing()?.canUndo ?? false,
+        canRedo: editing()?.canRedo ?? false,
+        dirty: editing()?.isDirty ?? false,
         saving: false,
         enabled: selected !== null && (doc?.canEditTransform(selected) ?? false),
         status,
@@ -415,6 +477,9 @@ Object.assign(window as unknown as Record<string, unknown>, {
     },
     get gizmo() {
       return gizmo;
+    },
+    get previews() {
+      return previews;
     },
     controls,
     touchControls,

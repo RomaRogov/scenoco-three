@@ -20,7 +20,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "templates"
   ],
   "sideEffects": true,
   "keywords": [
@@ -36,10 +37,25 @@
   "publishConfig": {
     "access": "public"
   },
+  "scenoco": {
+    "documents": [
+      {
+        "extension": ".particle.xml",
+        "type": "ParticleEffect",
+        "dir": "assets/vfx",
+        "description": "A particle effect, in Unity Shuriken module form",
+        "template": "./templates/particle.xml"
+      }
+    ],
+    "previews": {
+      "ParticleSystem": "./dist/particle.preview.js"
+    }
+  },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+    "build": "tsc -p tsconfig.build.json && npm run build:preview",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json",
+    "build:preview": "esbuild src/preview.ts --bundle --format=esm --platform=browser --external:three --outfile=dist/particle.preview.js --log-level=warning"
   },
   "dependencies": {
     "@scenoco-three/core": "^0.6.0",

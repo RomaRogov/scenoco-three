@@ -30,8 +30,9 @@ import type { Workspace } from './workspace.js';
 export function scanComponents(
   workspace: Workspace,
   modules: readonly string[] = [],
+  documents?: ReadonlySet<string>,
 ): ComponentInfo[] {
-  return scanClasses(workspace, 'Component', modules);
+  return scanClasses(workspace, 'Component', modules, documents);
 }
 
 /**
@@ -44,8 +45,9 @@ export function scanComponents(
 export function scanSystems(
   workspace: Workspace,
   modules: readonly string[] = [],
+  documents?: ReadonlySet<string>,
 ): ComponentInfo[] {
-  return scanClasses(workspace, 'System', modules);
+  return scanClasses(workspace, 'System', modules, documents);
 }
 
 /**
@@ -58,14 +60,17 @@ export function scanSystems(
 export function scanEffects(
   workspace: Workspace,
   modules: readonly string[] = [],
+  documents?: ReadonlySet<string>,
 ): ComponentInfo[] {
-  return scanClasses(workspace, 'Effect', modules);
+  return scanClasses(workspace, 'Effect', modules, documents);
 }
 
 function scanClasses(
   workspace: Workspace,
   baseName: string,
   modules: readonly string[],
+  /** The types that author as a path — a project's document kinds. See `shapeOf`. */
+  documents?: ReadonlySet<string>,
 ): ComponentInfo[] {
   const { checker, project } = workspace;
   const found: ComponentInfo[] = [];
@@ -114,7 +119,7 @@ function scanClasses(
       // document can write. The same rule as for a package's exports; one rule, both routes.
       if (isAbstractClass(statement)) continue;
       if (!derivesFrom(statement, isBase, checker, project)) continue;
-      claim(describe(statement, sourceFile, checker, project, fileName, baseName));
+      claim(describe(statement, sourceFile, checker, project, fileName, baseName, documents));
     }
   }
 
@@ -123,7 +128,7 @@ function scanClasses(
   // `scanTags` uses for `three`, and described by exactly the same code as a project's own
   // class so the two are indistinguishable downstream.
   for (const specifier of modules) {
-    for (const info of scanModule(workspace, specifier, baseName, isBase)) claim(info);
+    for (const info of scanModule(workspace, specifier, baseName, isBase, documents)) claim(info);
   }
   return found;
 }
@@ -146,7 +151,13 @@ function baseTest(workspace: Workspace, baseName: string): BaseTest {
 }
 
 /** Every class exported by `specifier` that derives from `baseName`. */
-function scanModule(workspace: Workspace, specifier: string, baseName: string, isBase: BaseTest): ComponentInfo[] {
+function scanModule(
+  workspace: Workspace,
+  specifier: string,
+  baseName: string,
+  isBase: BaseTest,
+  documents?: ReadonlySet<string>,
+): ComponentInfo[] {
   const { checker, project } = workspace;
   const moduleSymbol = workspace.resolveModule(specifier);
   if (!moduleSymbol) return [];
@@ -168,7 +179,7 @@ function scanModule(workspace: Workspace, specifier: string, baseName: string, i
     const sourceFile = sourceFileOfDeclaration(declared, project);
     if (!sourceFile) continue;
     found.push({
-      ...describe(declaration, sourceFile, checker, project, handlePath(declared, project), baseName),
+      ...describe(declaration, sourceFile, checker, project, handlePath(declared, project), baseName, documents),
       module: specifier,
     });
   }
@@ -219,10 +230,11 @@ function describe(
   project: Project,
   fileName: string,
   baseName: string,
+  documents?: ReadonlySet<string>,
 ): ComponentInfo {
   const base = baseClauseType(node);
   const declaredBase = base && ast.isIdentifier(base) ? base.text : undefined;
-  const { fields, nonSerialized, problems: markers } = collectFields(node, sourceFile, checker, project, baseName);
+  const { fields, nonSerialized, problems: markers } = collectFields(node, sourceFile, checker, project, baseName, documents);
   const problems = [...markers, ...misspelledMembers(node, sourceFile, baseName, checker, project)];
   return {
     name: node.name!.text,
@@ -328,6 +340,7 @@ function collectFields(
   checker: Checker,
   project: Project,
   stopAt: string,
+  documents?: ReadonlySet<string>,
 ): { fields: SerializedField[]; nonSerialized: string[]; problems: ClassProblem[] } {
   const fields: SerializedField[] = [];
   const seen = new Set<string>();
@@ -348,7 +361,7 @@ function collectFields(
     }
     for (const member of current.members) {
       // A marker's misuse is reported on the class that wrote it, not on every subclass.
-      const described = describeField(member, file, checker, depth === 0 ? problems : []);
+      const described = describeField(member, file, checker, depth === 0 ? problems : [], documents);
       if (described === 'nonSerialized') {
         const name = (member as ast.PropertyDeclaration).name as ast.Identifier;
         hidden.add(name.text);
@@ -394,6 +407,7 @@ function describeField(
   sourceFile: ast.SourceFile,
   checker: Checker,
   problems: ClassProblem[],
+  documents?: ReadonlySet<string>,
 ): SerializedField | 'nonSerialized' | undefined {
   if (!ast.isPropertyDeclaration(member) || ast.isComputedPropertyName(member.name)) return undefined;
 
@@ -436,7 +450,7 @@ function describeField(
   if (modifiers.some((m) => m.kind === ast.SyntaxKind.ReadonlyKeyword)) return undefined;
 
   const type = checker.getTypeAtLocation(member);
-  const { shape, elementShape, options } = shapeOf(type, checker);
+  const { shape, elementShape, options } = shapeOf(type, checker, documents);
 
   return {
     name: (member.name as ast.Identifier).text,

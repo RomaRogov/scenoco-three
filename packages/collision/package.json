@@ -35,6 +35,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "scenoco": {},
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

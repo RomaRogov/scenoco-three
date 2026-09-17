@@ -36,6 +36,7 @@
   },
   "//sideEffects": "Importing the package registers its @component/@setting tags (decorator side effects), so it must not be tree-shaken away when imported for registration.",
   "sideEffects": true,
+  "scenoco": {},
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",

@@ -1,6 +1,6 @@
 import { Component } from '@scenoco-three/core';
 import type { ParticleSystem as QuarksSystem } from 'three.quarks';
-import type { ParticleConfig } from './config.js';
+import type { ParticleEffect } from './config.js';
 import { ParticleRenderer } from './ParticleRenderer.js';
 
 /**
@@ -27,7 +27,7 @@ export class ParticleSystem extends Component {
    * The effect to play. Required: an emitter with nothing to emit is a document that meant to
    * say something and did not.
    */
-  effect!: ParticleConfig;
+  effect!: ParticleEffect;
 
   /** Start emitting as soon as the component starts. Unity's `playOnAwake`. */
   playOnAwake = true;

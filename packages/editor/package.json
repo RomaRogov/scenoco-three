@@ -36,7 +36,7 @@
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js && npm run build:app",
-    "build:app": "node scripts/static-model.mjs && node scripts/static-assets.mjs && vite build --config vite.static.config.ts",
+    "build:app": "node scripts/static-tags.mjs && node scripts/static-model.mjs && node scripts/static-assets.mjs && vite build --config vite.static.config.ts",
     "preview:app": "vite preview --config vite.static.config.ts --port 5195 --strictPort",
     "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && tsc --noEmit -p tsconfig.json"
   },

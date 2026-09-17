@@ -1,26 +1,42 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+
+/** The kinds the compiler itself has an emitter for. */
+export type BuiltinKind = 'scene' | 'prefab' | 'asset' | 'texture' | 'render';
 
 /** What kinds of document a SceNoCo project holds, and what each compiles to. */
 export interface AssetKind {
-  /** The `scenoco new <kind>` name. */
-  kind: 'scene' | 'prefab' | 'asset' | 'particle' | 'texture' | 'render';
+  /** The `scenoco new <kind>` name. A builtin's, or one a package declared. */
+  kind: string;
   /** File suffix. */
   extension: string;
   /** One-line summary — what `scenoco new` prints. */
   description: string;
   /** Project-relative directory new files of this kind go in. */
   dir: string;
+  /** Absent for a builtin; the package that declared this kind otherwise. */
+  package?: { name: string; dir: string };
+  /**
+   * Package-declared kinds only: the exported type whose declaration *is* the document's shape.
+   * Its name is the root tag; its fields are the attributes and the nested elements.
+   */
+  type?: string;
+  /** Package-declared kinds only: the starter document, relative to `package.dir`. */
+  template?: string;
 }
 
 /**
- * The document kinds, in the order a project reads them.
+ * The document kinds the compiler ships with, in the order a project reads them.
  *
  * No kind per three.js class: a material and a geometry construct from attributes, so one
  * `.asset.xml` holds either and its root tag says which. What is here is what three.js has no
  * constructor for — a texture's data comes from an image file, and the rest are ours.
+ *
+ * A package adds to this list by declaring a kind in its own `package.json`; see
+ * {@link ModuleManifest}. Everything a package declares is a *config document* — one typed value,
+ * built from one element tree — because an emitter is code and a manifest is not.
  */
-export const ASSET_KINDS: readonly AssetKind[] = [
+export const BUILTIN_KINDS: readonly AssetKind[] = [
   {
     kind: 'texture',
     extension: '.texture.xml',
@@ -32,12 +48,6 @@ export const ASSET_KINDS: readonly AssetKind[] = [
     extension: '.asset.xml',
     description: 'A shared three.js object — a material, a geometry — named by its root tag',
     dir: 'assets',
-  },
-  {
-    kind: 'particle',
-    extension: '.particle.xml',
-    description: 'A particle effect, in Unity Shuriken module form',
-    dir: 'assets/vfx',
   },
   {
     kind: 'render',
@@ -94,7 +104,11 @@ export interface FileKind {
   await: boolean;
 }
 
-export const FILE_KINDS: readonly FileKind[] = [
+/**
+ * What the compiler loads on its own: the two whose helper is core's. A sound is not here — the
+ * package that can play one is the package that says how it loads.
+ */
+export const BUILTIN_FILE_KINDS: readonly FileKind[] = [
   {
     extensions: ['png', 'jpg', 'jpeg', 'webp', 'avif', 'bmp', 'gif'],
     helper: { module: '@scenoco-three/core', name: 'sharedTexture' },
@@ -107,21 +121,15 @@ export const FILE_KINDS: readonly FileKind[] = [
     suffix: 'Model',
     await: true,
   },
-  {
-    extensions: ['mp3', 'ogg', 'wav', 'm4a', 'aac', 'flac'],
-    helper: { module: '@scenoco-three/audio', name: 'sharedClip' },
-    suffix: 'Clip',
-    await: true,
-  },
 ];
 
 /** The file kind for a path, or undefined when nothing here loads it. */
-export function fileKindOf(path: string): FileKind | undefined {
+export function fileKindOf(path: string, kinds: readonly FileKind[] = BUILTIN_FILE_KINDS): FileKind | undefined {
   const clean = path.split(/[?#]/)[0] ?? path;
   const dot = clean.lastIndexOf('.');
   if (dot === -1) return undefined;
   const extension = clean.slice(dot + 1).toLowerCase();
-  return FILE_KINDS.find((kind) => kind.extensions.includes(extension));
+  return kinds.find((kind) => kind.extensions.includes(extension));
 }
 
 /** One document found in a project. */
@@ -142,24 +150,59 @@ export function outputPathFor(xmlPath: string): string {
   return `${xmlPath.replace(/\.xml$/, '')}.gen.ts`;
 }
 
+/** What a walk of a project found. */
+export interface FoundAssets {
+  /** The documents, in the order they are emitted. */
+  documents: AssetFile[];
+  /**
+   * Files that look like a document of a kind nothing declared — `fire.particle.xml` in a project
+   * whose VFX package is not installed.
+   *
+   * Walking past those silently is the one failure worse than not compiling at all: no output, no
+   * message, and the breakage lands wherever the missing module was named. The walk has no
+   * diagnostics channel, so it hands them back and the driver reports them.
+   */
+  unclaimed: string[];
+}
+
 /**
- * Every document under `root`, in dependency order: geometry and material first, then prefabs,
+ * Every document under `root`, in the order they are emitted: resources first, then prefabs,
  * then scenes.
  *
- * The order matters because a scene imports the prefabs it spawns and a prefab imports the
- * geometry it uses, and the driver resolves each document's references against what it has
- * already seen. A cycle between two prefabs is therefore reported rather than emitted.
+ * Only the order of *messages* rides on this now — every document's export is registered before
+ * anything is parsed, so a prefab may reference a geometry declared anywhere and a scene may
+ * spawn any prefab whichever way the two sort.
  */
-export function findAssets(root: string): AssetFile[] {
-  const found: AssetFile[] = [];
-  walk(root, root, found);
-  const order = new Map(ASSET_KINDS.map((k, index) => [k.kind, index]));
-  return found.sort(
-    (a, b) => order.get(a.kind)! - order.get(b.kind)! || a.relativePath.localeCompare(b.relativePath),
+export function findAssets(root: string, kinds: readonly AssetKind[] = BUILTIN_KINDS): FoundAssets {
+  const found: FoundAssets = { documents: [], unclaimed: [] };
+  // Longest suffix first: `.asset.xml` and a package's `.fx.asset.xml` both end a file's name, and
+  // which one claims it must not depend on the order packages were installed in.
+  const matching = [...kinds].sort((a, b) => b.extension.length - a.extension.length);
+  walk(root, root, matching, found);
+  const rank = new Map(orderedKinds(kinds).map((kind, index) => [kind.kind, index]));
+  found.documents.sort(
+    (a, b) => rank.get(a.kind)! - rank.get(b.kind)! || a.relativePath.localeCompare(b.relativePath),
+  );
+  return found;
+}
+
+/** Resources, then whatever packages declared, then prefabs, then scenes. */
+function orderedKinds(kinds: readonly AssetKind[]): readonly AssetKind[] {
+  const tier = (kind: AssetKind): number =>
+    kind.kind === 'scene' ? 3 : kind.kind === 'prefab' ? 2 : kind.package ? 1 : 0;
+  return [...kinds].sort(
+    (a, b) =>
+      tier(a) - tier(b) ||
+      (tier(a) === 0
+        ? BUILTIN_KINDS.findIndex((k) => k.kind === a.kind) - BUILTIN_KINDS.findIndex((k) => k.kind === b.kind)
+        : a.kind.localeCompare(b.kind)),
   );
 }
 
-function walk(dir: string, root: string, out: AssetFile[]): void {
+/** A file named like a document — `something.<word>.xml` — whoever turns out to own it. */
+const DOCUMENT_SHAPED = /\.[A-Za-z][A-Za-z0-9-]*\.xml$/;
+
+function walk(dir: string, root: string, kinds: readonly AssetKind[], out: FoundAssets): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -170,12 +213,15 @@ function walk(dir: string, root: string, out: AssetFile[]): void {
     if (entry === 'node_modules' || entry.startsWith('.')) continue;
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) {
-      walk(path, root, out);
+      walk(path, root, kinds, out);
       continue;
     }
-    const kind = ASSET_KINDS.find((k) => entry.endsWith(k.extension));
-    if (!kind) continue;
-    out.push({
+    const kind = kinds.find((k) => entry.endsWith(k.extension));
+    if (!kind) {
+      if (DOCUMENT_SHAPED.test(entry)) out.unclaimed.push(relative(root, path).split(sep).join('/'));
+      continue;
+    }
+    out.documents.push({
       kind: kind.kind,
       path,
       relativePath: relative(root, path).split(sep).join('/'),
@@ -183,37 +229,4 @@ function walk(dir: string, root: string, out: AssetFile[]): void {
       outputPath: outputPathFor(path),
     });
   }
-}
-
-/** `@scenoco-three/*` packages that are toolchain or runtime, and declare no tags. */
-const NOT_TAG_PACKAGES = new Set([
-  '@scenoco-three/core',
-  '@scenoco-three/compiler',
-  '@scenoco-three/vite',
-  '@scenoco-three/observer',
-  '@scenoco-three/editor',
-]);
-
-/**
- * The tag packages a project depends on, read from its `package.json`.
- *
- * A document's vocabulary is `three` plus whatever packages the project brings in, and a project
- * already declares those — in its dependencies. Making every caller repeat the list as
- * `--modules` is asking the same question twice and getting two answers: the editor refusing to
- * open a project its own `vite.config.ts` compiles happily is what that looks like in practice.
- *
- * The toolchain packages are excluded because they export no tags; everything else under the
- * scope qualifies, so a new tag package works the moment it is installed.
- */
-export function detectTagPackages(root: string): string[] {
-  const manifest = resolve(root, 'package.json');
-  if (!existsSync(manifest)) return [];
-  let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
-  try {
-    pkg = JSON.parse(readFileSync(manifest, 'utf8')) as typeof pkg;
-  } catch {
-    return []; // an unreadable manifest is not a reason to refuse to compile
-  }
-  const names = new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})]);
-  return [...names].filter((n) => n.startsWith('@scenoco-three/') && !NOT_TAG_PACKAGES.has(n)).sort();
 }

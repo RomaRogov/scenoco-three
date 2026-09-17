@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "dependencies": {
     "@scenoco-three/collision": "*",
     "@scenoco-three/core": "*",
+    "@scenoco-three/particles": "*",
     "@scenoco-three/ui": "*"
   }
 }

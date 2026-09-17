@@ -1,10 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   Workspace,
-  detectTagPackages,
   emitGraph,
   parseDocument,
   scanComponents,
@@ -232,41 +228,4 @@ export const used = [RigidBody, Collision];
       only.dispose();
     }
   }, 60_000);
-});
-
-/**
- * Which packages a build reads is a question the project already answered.
- *
- * A document's vocabulary is `three` plus the tag packages the project installed, and a project
- * declares those in its `package.json`. Making every caller repeat the list is asking twice and
- * getting two answers: an editor refusing to open a project its own `vite.config.ts` compiles is
- * what that looks like from the outside.
- */
-describe('the default module list', () => {
-  it('is the project’s own @scenoco-three dependencies, minus the toolchain', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'scenoco-manifest-'));
-    try {
-      writeFileSync(
-        join(dir, 'package.json'),
-        JSON.stringify({
-          dependencies: { '@scenoco-three/core': '*', '@scenoco-three/box2d': '*', three: '*' },
-          devDependencies: { '@scenoco-three/vite': '*', '@scenoco-three/ui': '*' },
-        }),
-      );
-      // core and vite are runtime/toolchain — they declare no tags. `three` is always in the
-      // list and is not a tag package of ours.
-      expect(detectTagPackages(dir)).toEqual(['@scenoco-three/box2d', '@scenoco-three/ui']);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('is empty rather than an error when there is no manifest to read', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'scenoco-no-manifest-'));
-    try {
-      expect(detectTagPackages(dir)).toEqual([]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
 });

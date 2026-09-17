@@ -39,12 +39,12 @@ const BRICK: AssetImport = {
 };
 
 const ASSETS: Record<string, AssetImport> = {
-  'cube.asset.xml': { module: './cube.asset.js', name: 'cube', kind: 'asset' },
-  'brick.asset.xml': { module: './brick.asset.js', name: 'brick', kind: 'asset' },
-  'hard.asset.xml': { module: './hard.asset.js', name: 'hard', kind: 'asset' },
+  'cube.asset.xml': { module: './cube.asset.js', name: 'cube', kind: 'value' },
+  'brick.asset.xml': { module: './brick.asset.js', name: 'brick', kind: 'value' },
+  'hard.asset.xml': { module: './hard.asset.js', name: 'hard', kind: 'value' },
   'brick.prefab.xml': BRICK,
   'level-2.scene.xml': { module: './level-2.scene.js', name: 'Level2Scene', kind: 'scene' },
-  'neon.render.xml': { module: './neon.render.js', name: 'neon', kind: 'render' },
+  'neon.render.xml': { module: './neon.render.js', name: 'neon', kind: 'value' },
 };
 
 beforeAll(() => {

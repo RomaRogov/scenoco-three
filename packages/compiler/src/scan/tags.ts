@@ -48,7 +48,12 @@ const NOT_A_TAG = new Set([
  * @param modules module specifiers to read, in priority order. A later module may not
  * shadow an earlier one's tag — a duplicate is reported rather than silently resolved.
  */
-export function scanTags(workspace: Workspace, modules: readonly string[] = ['three']): TagInfo[] {
+export function scanTags(
+  workspace: Workspace,
+  modules: readonly string[] = ['three'],
+  /** The types that author as a path — a project's document kinds. See `shapeOf`. */
+  documents?: ReadonlySet<string>,
+): TagInfo[] {
   const { checker } = workspace;
   const resolved = resolveAll(workspace, modules);
   const tags: TagInfo[] = [];
@@ -58,7 +63,7 @@ export function scanTags(workspace: Workspace, modules: readonly string[] = ['th
     const moduleSymbol = resolved.get(specifier);
     if (!moduleSymbol) continue;
     for (const exported of checker.getExportsOfModule(moduleSymbol)) {
-      const tag = describeTag(exported, specifier, checker);
+      const tag = describeTag(exported, specifier, checker, documents);
       if (!tag) continue;
       // What the class says about itself, for the classes *we* ship. three's hundred are
       // documented on three's own site, and resolving a declaration per tag to fetch a comment
@@ -83,7 +88,12 @@ export function scanTags(workspace: Workspace, modules: readonly string[] = ['th
 }
 
 /** Describe one exported symbol as a tag, or skip it. */
-function describeTag(symbol: TsSymbol, module: string, checker: Checker): TagInfo | undefined {
+function describeTag(
+  symbol: TsSymbol,
+  module: string,
+  checker: Checker,
+  documents?: ReadonlySet<string>,
+): TagInfo | undefined {
   if (NOT_A_TAG.has(symbol.name)) return undefined;
   // A tag name is a class name, so it starts with a capital. This also drops the hundreds of
   // constants (`FrontSide`, `AddEquation`) that share the module.
@@ -106,7 +116,7 @@ function describeTag(symbol: TsSymbol, module: string, checker: Checker): TagInf
 
   const parameters = signature
     .getParameters()
-    .map((parameter) => propOf(parameter, checker))
+    .map((parameter) => propOf(parameter, checker, {}, documents))
     // A parameter the DSL cannot express is not an error on its own — it simply cannot be
     // authored, and the emitter passes `undefined` in its slot.
     .map((parameter, index) => ({ ...parameter, name: parameter.name || `arg${index}` }));
@@ -116,7 +126,7 @@ function describeTag(symbol: TsSymbol, module: string, checker: Checker): TagInf
     family,
     module,
     parameters,
-    properties: settableProperties(instance, signature, checker, family, module),
+    properties: settableProperties(instance, signature, checker, family, module, documents),
     bases: chain,
   };
 }
@@ -134,8 +144,9 @@ function settableProperties(
   checker: Checker,
   family: TagFamily,
   module: string,
+  documents?: ReadonlySet<string>,
 ): PropInfo[] {
-  if (family === 'material') return materialParameters(signature, checker);
+  if (family === 'material') return materialParameters(signature, checker, documents);
   if (family === 'geometry') return [];
 
   const constructorNames = new Set(signature.getParameters().map((p) => p.name));
@@ -145,7 +156,7 @@ function settableProperties(
     if (!isAuthorable(symbol.name)) continue;
     if (!declaredByItsOwnPackage(symbol, module)) continue;
     if (!isWritable(symbol)) continue;
-    const prop = propOf(symbol, checker);
+    const prop = propOf(symbol, checker, {}, documents);
     if (prop.shape === 'unsupported') continue;
     // `readonly System[]` and friends: the type prints its own readonly-ness, and assigning to
     // one in generated code would not compile.
@@ -165,6 +176,7 @@ function settableProperties(
 function materialParameters(
   signature: ReturnType<Checker['getSignaturesOfType']>[number],
   checker: Checker,
+  documents?: ReadonlySet<string>,
 ): PropInfo[] {
   const parameter = signature.getParameters()[0];
   if (!parameter) return [];
@@ -173,7 +185,7 @@ function materialParameters(
   const resolved = checker.getNonNullableType(type) ?? type;
   return checker
     .getPropertiesOfType(resolved)
-    .map((symbol) => propOf(symbol, checker))
+    .map((symbol) => propOf(symbol, checker, {}, documents))
     .filter((prop) => prop.shape !== 'unsupported')
     .sort((a, b) => a.name.localeCompare(b.name));
 }

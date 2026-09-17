@@ -134,17 +134,19 @@ folder or a URL and edits it in place, hosted on GitHub Pages.
 | | [`@scenoco-three/rapier`](packages/rapier) | 3D physics (Rapier), same shapes. |
 | | [`@scenoco-three/collision`](packages/collision) | Detection only, with rapier's exact tags — swap one import to switch. Zero deps. |
 | | [`@scenoco-three/ui`](packages/ui) | In-canvas UI on pmndrs uikit: `<Canvas>`, `<Panel>`, `<Text>`, `<Image>`, placed the way Unity's RectTransform places things. |
-| | [`@scenoco-three/particles`](packages/particles) | Unity-Shuriken-shaped `<ParticleSystem>` on three.quarks; effects are `.particle.xml` documents. |
+| | [`@scenoco-three/particles`](packages/particles) | Unity-Shuriken-shaped particles on three.quarks. It declares the `.particle.xml` document kind itself — see [MODULES.md](MODULES.md). |
 | | [`@scenoco-three/audio`](packages/audio) | `<AudioSource>`, 2D and positional. |
 | | [`@scenoco-three/postfx`](packages/postfx) | Render settings: `<ToneMapping>`, `<Shadows>`, `<Bloom>`, `<Vignette>` — the tags a `.render.xml` holds. |
 
 ## The document kinds
 
-`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.particle.xml` · `*.asset.xml` ·
-`*.asset.xml` · `*.texture.xml`. Each compiles to a `.gen.ts` beside it (a build artifact —
-gitignore it). A prefab exports `XPrefab`, a scene exports `XScene`.
+`*.scene.xml` · `*.prefab.xml` · `*.render.xml` · `*.asset.xml` · `*.texture.xml`, **plus whatever
+the installed packages declare** — `*.particle.xml` comes from `@scenoco-three/particles`, not from
+the compiler. Each compiles to a `.gen.ts` beside it (a build artifact — gitignore it). A prefab
+exports `XPrefab`, a scene exports `XScene`; every other kind exports one shared value.
 
-`scenoco new` lists the kinds this project can create and writes a starter that compiles.
+`scenoco new` lists the kinds this project can create and writes a starter that compiles. To add
+one of your own, see [MODULES.md](MODULES.md).
 
 ## Examples
 

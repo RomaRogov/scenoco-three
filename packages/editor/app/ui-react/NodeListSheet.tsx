@@ -18,7 +18,8 @@ export function NodeListSheet(): React.JSX.Element | null {
   const openInspector = useUI((s) => s.openInspector);
   const closeNodes = useUI((s) => s.closeNodes);
   const { focusSelected, copy, cut, paste, remove, hasClipboard } = getDeps();
-  if (!open) return null;
+  // A config document has no nodes; its own form stands in for both of these sheets.
+  if (!open || getDeps().getConfig()) return null;
 
   return (
     <div className={cx(styles.sheet, styles.sheetNodes)}>

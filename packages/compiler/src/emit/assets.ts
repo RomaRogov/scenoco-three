@@ -7,7 +7,12 @@ export interface AssetImport {
   module: string;
   /** Exported name. */
   name: string;
-  kind: 'asset' | 'particle' | 'texture' | 'render' | 'prefab' | 'scene';
+  /**
+   * What importing it gets you. `value` is every document that compiles to one shared thing — a
+   * geometry, a material, a texture, a render setting, a particle effect — because nothing that
+   * resolves a reference needs to tell those apart; only "is this a class I spawn" matters.
+   */
+  kind: 'value' | 'prefab' | 'scene';
   /**
    * Prefabs only: this prefab publishes a `static assets`, because it — or something it spawns —
    * is built from a file. Whoever spawns it has to wait for that list.
