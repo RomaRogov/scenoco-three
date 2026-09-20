@@ -82,7 +82,7 @@ export { Event } from './runtime/Event.js';
 
 export { Input } from './input/Input.js';
 export { KeyCode, MouseButton } from './input/KeyCode.js';
-export { AXES, AXIS_NAMES, BUTTON_NAMES, type Axis, type Button } from './input/axes.js';
+export { AXES, AXIS_NAMES, BUTTON_NAMES, type AxisName, type ButtonName } from './input/axes.js';
 
 export {
   Coroutine,

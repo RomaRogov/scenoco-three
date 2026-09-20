@@ -17,7 +17,7 @@
  */
 import { SignatureKind, type Checker, type Symbol as TsSymbol, type Type } from 'typescript/unstable/sync';
 import * as ast from 'typescript/unstable/ast';
-import { docOf, resolveAlias, textOf } from './ast-utils.js';
+import { docOf, docOfSymbol, resolveAlias, textOf } from './ast-utils.js';
 import type { Workspace } from './workspace.js';
 
 const CORE = '@scenoco-three/core';
@@ -55,7 +55,7 @@ export function describeApi(workspace: Workspace, name: string, modules: readonl
     const instance = instanceTypeOf(declared, checker) ?? checker.getTypeOfSymbol(declared);
     if (!instance) continue;
     const members = membersOf(instance, workspace, () => true);
-    const summary = docOfSymbol(declared, workspace);
+    const summary = firstSentence(docOfSymbol(declared, workspace.project) ?? '');
     const heading = `${name} — from ${specifier}${summary ? `. ${summary}` : ''}`;
     return members.length ? [heading, ...render(members)].join('\n') : heading;
   }
@@ -130,17 +130,6 @@ function signatureOf(node: ast.Node, sourceFile: ast.SourceFile): string | undef
   text = text.replace(/\s+/g, ' ').replace(/\s*;\s*$/, '').trim();
   if (text.length === 0 || text.length > 240) return undefined;
   return text;
-}
-
-function docOfSymbol(symbol: TsSymbol, workspace: Workspace): string | undefined {
-  for (const handle of symbol.declarations) {
-    const node = handle.resolve(workspace.project);
-    const sourceFile = node && workspace.project.program.getSourceFile(handle.path);
-    if (!node || !sourceFile) continue;
-    const doc = docOf(sourceFile, node);
-    if (doc) return firstSentence(doc);
-  }
-  return undefined;
 }
 
 function render(members: Member[]): string[] {

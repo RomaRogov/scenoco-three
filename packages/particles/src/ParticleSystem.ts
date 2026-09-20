@@ -14,9 +14,21 @@ import { ParticleRenderer } from './ParticleRenderer.js';
  * </Group>
  * ```
  *
- * The effect itself is an **asset**: it lives in one `.particle.xml` and every emitter that wants
- * it points at the same file. There is no inline form, so tuning an effect is one edit in one
- * place rather than a search for every copy.
+ * The effect has the two forms every shared thing in the DSL has, and they mean what they mean
+ * for a material. A **path** names a `.particle.xml` that every emitter pointing at it shares, so
+ * tuning it is one edit in one place. An **element** gives this emitter its own:
+ *
+ * ```xml
+ * <ParticleSystem>
+ *   <ParticleEffect duration="3" startSize="0.4">
+ *     <Emission rateOverTime="20" />
+ *   </ParticleEffect>
+ * </ParticleSystem>
+ * ```
+ *
+ * The text inside is byte-identical to what the file holds, so the two are cut-and-paste in
+ * either direction. Write the file when more than one emitter wants the effect; write the element
+ * when this one is the only one that does.
  *
  * The emitter joins the scene's `ParticleRenderer` in `awake` and leaves it in `onDestroy`, so
  * nothing scans the scene for emitters that came or went. Disabling the component pauses it and
@@ -56,7 +68,7 @@ export class ParticleSystem extends Component {
     // contribution — and the emitter is left inert rather than half-built.
     if (!this.effect) {
       throw new Error(
-        'ParticleSystem has no effect. Point it at a .particle.xml: ' +
+        'ParticleSystem has no effect. Point it at a .particle.xml, or write one inside it: ' +
           '<ParticleSystem effect="../vfx/fire.particle.xml" />',
       );
     }

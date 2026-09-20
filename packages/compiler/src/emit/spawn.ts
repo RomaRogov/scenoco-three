@@ -31,10 +31,14 @@ export function emitSpawn(scope: EmitScope, element: SncElement, parent: string,
     return;
   }
   if (!asset || (asset.kind !== 'prefab' && !isModel)) {
+    // Offered only when it is a prefab from here: the same check the spawn itself makes.
+    const near = asset ? undefined : scope.assets.near(href);
+    const fits = near !== undefined && scope.assets.lookup(near)?.kind === 'prefab';
     scope.report(
       element,
       'unknown-asset',
-      `src="${href}" does not resolve to a prefab document or a model file in this project.`,
+      `src="${href}" does not resolve to a prefab document or a model file in this project.` +
+        (fits ? ` Paths are relative to this document. Write src="${near}".` : ''),
     );
     return;
   }

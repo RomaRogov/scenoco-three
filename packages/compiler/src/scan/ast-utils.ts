@@ -16,6 +16,24 @@ export function lineOf(sourceFile: ast.SourceFile, node: ast.Node): number {
 }
 
 /**
+ * The doc comment above whatever declared a symbol.
+ *
+ * A symbol is what a type query hands back — a property of an interface, a class a module exports —
+ * and its declarations are handles, so reaching the comment costs a resolve. The first declaration
+ * that has one wins; an overload set or a merged interface documents itself once.
+ */
+export function docOfSymbol(symbol: TsSymbol, project: Project): string | undefined {
+  for (const handle of symbol.declarations) {
+    const node = handle.resolve(project);
+    const sourceFile = node && project.program.getSourceFile(handle.path);
+    if (!node || !sourceFile) continue;
+    const doc = docOf(sourceFile, node);
+    if (doc) return doc;
+  }
+  return undefined;
+}
+
+/**
  * The doc comment above a node, as one line.
  *
  * Read from the leading comment range rather than a symbol lookup: the summary has to come
@@ -23,17 +41,8 @@ export function lineOf(sourceFile: ast.SourceFile, node: ast.Node): number {
  * JSDoc instead of a decorator argument.
  */
 export function docOf(sourceFile: ast.SourceFile, node: ast.Node): string | undefined {
-  const comments: string[] = [];
-  ast.forEachLeadingCommentRange(sourceFile.text, node.pos, (pos, end) => {
-    comments.push(sourceFile.text.slice(pos, end));
-  });
-  const block = comments.find((c) => c.startsWith('/**'));
-  if (!block) return undefined;
-  const lines = block
-    .replace(/^\/\*\*/, '')
-    .replace(/\*\/$/, '')
-    .split('\n')
-    .map((l) => l.replace(/^\s*\*/, '').trim());
+  const lines = commentLines(sourceFile, node);
+  if (!lines) return undefined;
 
   // The **first paragraph only**. A good doc comment on a component runs to twenty lines with a
   // worked XML example in it; all of that belongs in the source, and none of it belongs in an
@@ -51,6 +60,53 @@ export function docOf(sourceFile: ast.SourceFile, node: ast.Node): string | unde
   }
   const text = summary.join(' ').trim();
   return text.length > 0 ? text : undefined;
+}
+
+/** The lines of the doc comment above a node, stripped of its `*`s. */
+function commentLines(sourceFile: ast.SourceFile, node: ast.Node): string[] | undefined {
+  const comments: string[] = [];
+  ast.forEachLeadingCommentRange(sourceFile.text, node.pos, (pos, end) => {
+    comments.push(sourceFile.text.slice(pos, end));
+  });
+  const block = comments.find((c) => c.startsWith('/**'));
+  if (!block) return undefined;
+  return block
+    .replace(/^\/\*\*/, '')
+    .replace(/\*\/$/, '')
+    .split('\n')
+    .map((l) => l.replace(/^\s*\*/, '').trim());
+}
+
+/**
+ * The text of one JSDoc tag above a node — `@tip Leave width off to size by content.` — as one
+ * line, running on until the next tag or the end of the comment.
+ *
+ * How a package speaks through the compiler without the compiler knowing the package: a `@tip`
+ * on a class or a field is appended to whatever the compiler reports about it.
+ */
+export function docTagOf(sourceFile: ast.SourceFile, node: ast.Node, tag: string): string | undefined {
+  const lines = commentLines(sourceFile, node);
+  if (!lines) return undefined;
+  const start = lines.findIndex((line) => line === `@${tag}` || line.startsWith(`@${tag} `));
+  if (start === -1) return undefined;
+  const text = [lines[start]!.slice(tag.length + 1)];
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith('@')) break;
+    text.push(line);
+  }
+  const joined = text.join(' ').replace(/\s+/g, ' ').trim();
+  return joined.length > 0 ? joined : undefined;
+}
+
+/** {@link docTagOf} for a symbol read through the checker: the first declaration that has it. */
+export function docTagOfSymbol(symbol: TsSymbol, project: Project, tag: string): string | undefined {
+  for (const handle of symbol.declarations) {
+    const node = handle.resolve(project);
+    const file = project.program.getSourceFile(handle.path);
+    const found = node && file ? docTagOf(file, node, tag) : undefined;
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** The identifier of a decorator, whether it is `@x` or `@x(...)`. */
@@ -234,6 +290,42 @@ export function baseSymbolsOf(type: Type, checker: Checker, limit = 16): TsSymbo
     frontier = next;
   }
   return symbols;
+}
+
+/**
+ * Which base class declares each inherited property, by name — `opacity` → `Material`.
+ *
+ * One property list per base rather than a declaration lookup per property: there are thousands
+ * of properties across the vocabulary and a few dozen bases, so the lists are cached by class.
+ * The farthest base that has a name is the one that declared it.
+ */
+export function ownersOf(
+  type: Type,
+  checker: Checker,
+  cache: Map<string, readonly string[]>,
+): Map<string, string> {
+  const owners = new Map<string, string>();
+  const seen = new Set<string>();
+  let frontier: Type[] = [type];
+  for (let depth = 0; depth < 16 && frontier.length > 0; depth++) {
+    const next: Type[] = [];
+    for (const current of frontier) {
+      for (const base of basesOf(current, checker)) {
+        const name = base.getSymbol()?.name;
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        let names = cache.get(name);
+        if (!names) {
+          names = checker.getPropertiesOfType(base).map((symbol) => symbol.name);
+          cache.set(name, names);
+        }
+        for (const property of names) owners.set(property, name);
+        next.push(base);
+      }
+    }
+    frontier = next;
+  }
+  return owners;
 }
 
 /**

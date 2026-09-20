@@ -141,6 +141,9 @@ export function teardownSystem(system: System): void {
       report(system, 'onDestroy', error);
     }
   }
+  // Last, as for a component: `onDestroy` may still be listening to what it is about to leave.
+  for (const unsubscribe of system._subscriptions ?? []) unsubscribe();
+  system._subscriptions = null;
   system._scene = null!;
 }
 

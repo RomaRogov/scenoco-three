@@ -2,12 +2,13 @@ import {
   SignatureKind,
   SymbolFlags,
   type Checker,
+  type Project,
   type Symbol as TsSymbol,
   type Type,
 } from 'typescript/unstable/sync';
 import * as ast from 'typescript/unstable/ast';
 import type { PropInfo, TagFamily, TagInfo } from '../model.js';
-import { baseChainOf, classDeclarationOf, docOf, resolveAlias } from './ast-utils.js';
+import { baseChainOf, classDeclarationOf, docOf, docTagOfSymbol, ownersOf, resolveAlias } from './ast-utils.js';
 import { familyOf } from './families.js';
 import { propOf } from './shape.js';
 import type { Workspace } from './workspace.js';
@@ -21,9 +22,11 @@ import type { Workspace } from './workspace.js';
  * emitter builds the texture through a loader, so the class is a vocabulary now: `wrapS` and
  * `colorSpace` are attributes because `Texture` declares them. The subclasses below stay out,
  * because each of them needs real decoded data rather than a URL.
+ *
+ * `Object3D` is not here: three.js scenes use a bare one as a plain node, and `Group` beside it,
+ * so a document takes both as three.js does.
  */
 const NOT_A_TAG = new Set([
-  'Object3D',
   'BufferGeometry',
   'InstancedBufferGeometry',
   'Material',
@@ -54,16 +57,19 @@ export function scanTags(
   /** The types that author as a path — a project's document kinds. See `shapeOf`. */
   documents?: ReadonlySet<string>,
 ): TagInfo[] {
-  const { checker } = workspace;
+  const { checker, project } = workspace;
   const resolved = resolveAll(workspace, modules);
   const tags: TagInfo[] = [];
   const claimed = new Map<string, string>();
+  // A base class's property names, read once however many tags derive from it — per scan, so a
+  // rescan after a package changed reads them again.
+  const bases = new Map<string, readonly string[]>();
 
   for (const specifier of modules) {
     const moduleSymbol = resolved.get(specifier);
     if (!moduleSymbol) continue;
     for (const exported of checker.getExportsOfModule(moduleSymbol)) {
-      const tag = describeTag(exported, specifier, checker, documents);
+      const tag = describeTag(exported, specifier, checker, bases, documents, project);
       if (!tag) continue;
       // What the class says about itself, for the classes *we* ship. three's hundred are
       // documented on three's own site, and resolving a declaration per tag to fetch a comment
@@ -72,6 +78,10 @@ export function scanTags(
       if (specifier !== 'three') {
         const description = docOfClass(exported, workspace, checker);
         if (description) tag.description = description;
+        const declared = resolveAlias(exported, checker);
+        const tip = docTagOfSymbol(declared, project, 'tip');
+        if (tip) tag.tip = tip;
+        if (docTagOfSymbol(declared, project, 'parent') === 'camera') tag.parent = 'camera';
       }
       const owner = claimed.get(tag.name);
       if (owner) {
@@ -92,7 +102,9 @@ function describeTag(
   symbol: TsSymbol,
   module: string,
   checker: Checker,
+  bases: Map<string, readonly string[]>,
   documents?: ReadonlySet<string>,
+  project?: Project,
 ): TagInfo | undefined {
   if (NOT_A_TAG.has(symbol.name)) return undefined;
   // A tag name is a class name, so it starts with a capital. This also drops the hundreds of
@@ -116,17 +128,28 @@ function describeTag(
 
   const parameters = signature
     .getParameters()
-    .map((parameter) => propOf(parameter, checker, {}, documents))
+    .map((parameter) => propOf(parameter, checker, {}, documents, project))
     // A parameter the DSL cannot express is not an error on its own — it simply cannot be
     // authored, and the emitter passes `undefined` in its slot.
     .map((parameter, index) => ({ ...parameter, name: parameter.name || `arg${index}` }));
+
+  // Which of these the class inherits, and from whom. Constructor parameters are always its own.
+  const owners = ownersOf(instance, checker, bases);
+  const properties = settableProperties(instance, signature, checker, family, module, documents, project).map(
+    (prop) => {
+      // three declares a material's settings on `MeshStandardMaterialProperties` and merges it
+      // into the class, so that interface *is* the class's own — named after it, as three's docs do.
+      const owner = owners.get(prop.name)?.replace(/(Properties|Parameters)$/, '');
+      return owner && owner !== symbol.name ? { ...prop, owner } : prop;
+    },
+  );
 
   return {
     name: symbol.name,
     family,
     module,
     parameters,
-    properties: settableProperties(instance, signature, checker, family, module, documents),
+    properties,
     bases: chain,
   };
 }
@@ -145,8 +168,9 @@ function settableProperties(
   family: TagFamily,
   module: string,
   documents?: ReadonlySet<string>,
+  project?: Project,
 ): PropInfo[] {
-  if (family === 'material') return materialParameters(signature, checker, documents);
+  if (family === 'material') return materialParameters(signature, checker, documents, project);
   if (family === 'geometry') return [];
 
   const constructorNames = new Set(signature.getParameters().map((p) => p.name));
@@ -156,8 +180,11 @@ function settableProperties(
     if (!isAuthorable(symbol.name)) continue;
     if (!declaredByItsOwnPackage(symbol, module)) continue;
     if (!isWritable(symbol)) continue;
-    const prop = propOf(symbol, checker, {}, documents);
+    const prop = propOf(symbol, checker, {}, documents, project);
     if (prop.shape === 'unsupported') continue;
+    // A package's own settings may carry a `@tip`; three's thousands are not read for one.
+    const tip = module !== 'three' && project ? docTagOfSymbol(symbol, project, 'tip') : undefined;
+    if (tip) prop.tip = tip;
     // `readonly System[]` and friends: the type prints its own readonly-ness, and assigning to
     // one in generated code would not compile.
     if (prop.type.startsWith('readonly ')) continue;
@@ -177,6 +204,7 @@ function materialParameters(
   signature: ReturnType<Checker['getSignaturesOfType']>[number],
   checker: Checker,
   documents?: ReadonlySet<string>,
+  project?: Project,
 ): PropInfo[] {
   const parameter = signature.getParameters()[0];
   if (!parameter) return [];
@@ -185,7 +213,7 @@ function materialParameters(
   const resolved = checker.getNonNullableType(type) ?? type;
   return checker
     .getPropertiesOfType(resolved)
-    .map((symbol) => propOf(symbol, checker, {}, documents))
+    .map((symbol) => propOf(symbol, checker, {}, documents, project))
     .filter((prop) => prop.shape !== 'unsupported')
     .sort((a, b) => a.name.localeCompare(b.name));
 }

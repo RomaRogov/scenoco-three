@@ -69,6 +69,8 @@ export function emitRender(
     require: (m, n) => module.require(m, n),
     nodeRef: () => undefined, // a render document has no nodes to reference
     assetRef: (href) => assets.reference(href),
+    nearAsset: (href) => assets.near(href),
+    assetType: (href) => assets.typeOf(href),
   };
 
   const locals: string[] = [];

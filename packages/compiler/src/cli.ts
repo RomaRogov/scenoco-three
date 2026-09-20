@@ -1,10 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BUILTIN_KINDS, findAssets, type AssetKind } from './assets.js';
 import { documentKinds, notesOf, readModuleManifests } from './manifest.js';
 import { build } from './build.js';
-import { describe } from './describe.js';
+import { configIndex, describe } from './describe.js';
 import { describeApi } from './scan/api.js';
+import type { ConfigShape } from './scan/interfaces.js';
 import { Workspace } from './scan/workspace.js';
 import { scaffold } from './scaffold.js';
 import { formatDiagnostic, whatToLookUp } from './dsl/diagnostics.js';
@@ -34,6 +36,10 @@ export async function run(argv: readonly string[]): Promise<number> {
       return explain(rest);
     case 'init':
       return init(rest);
+    case '-v':
+    case '--version':
+      console.log(identity());
+      return 0;
     case undefined:
     case '-h':
     case '--help':
@@ -89,8 +95,9 @@ function explain(args: readonly string[]): number {
   };
   const modules_ = readModuleManifests(flags.root).modules;
   let model;
+  let shapes: ReadonlyMap<string, ConfigShape | undefined>;
   try {
-    ({ model } = build(options));
+    ({ model, shapes } = build(options));
   } catch (error) {
     // A tag package installed but not yet imported stops `build` and `check`, rightly — a
     // document could name a tag nothing ships. It must not stop a *question*: the answer to
@@ -102,19 +109,23 @@ function explain(args: readonly string[]): number {
     // document kind — is a reason not to *build*. It is never a reason not to answer a question.
     if (!message.startsWith('[scenoco] ')) throw error;
     console.error(`${message}\nAnswering from what is wired up so far.\n`);
-    ({ model } = build({ ...options, modules: ['three'], kinds: BUILTIN_KINDS }));
+    ({ model, shapes } = build({ ...options, modules: ['three'], kinds: BUILTIN_KINDS }));
   }
 
   // A second, short-lived workspace for the declarations. `build` closes its own, and opening
   // one costs about what a question is worth; it is paid only when a name reaches the API.
   const modules = [...new Set(model.tags.map((tag) => tag.module))];
+  const kinds = documentKinds(flags.root);
   const answer = Workspace.with(tsconfig, (workspace) => {
     const context = {
       model,
-      assets: findAssets(flags.root, documentKinds(flags.root)).documents,
+      kinds,
+      assets: findAssets(flags.root, kinds).documents,
       read: (path: string) => readFileSync(path, 'utf8'),
       api: (name: string) => describeApi(workspace, name, modules),
       notes: notesOf(modules_),
+      // The elements of every config document this project has, each askable by its own name.
+      configs: configIndex(shapes.values()),
     };
     if (names.length <= 1) return describe(context, wanted);
     // A rule between answers, so a reader can see where one ends — the same job a heading does.
@@ -163,10 +174,15 @@ async function compile(args: readonly string[], options: { watch: boolean; dryRu
             shown.map((name) => `scenoco describe ${name}`).join('  ·  '),
         );
       }
+      // Who said all this. A project can resolve a different compiler than the one you think it
+      // does — an older one installed beside it answers with an older vocabulary, and every message
+      // above then reads as the toolchain contradicting itself. Printed only on the way out.
+      console.error(identity());
       return false;
     }
     const verb = options.dryRun ? 'checked' : 'wrote';
     console.log(`scenoco: ${verb} ${result.files.size} file(s) in ${Date.now() - started}ms`);
+    for (const note of unloadedScenes(flags.root, result.files)) console.log(note);
     return true;
   };
 
@@ -290,6 +306,21 @@ function parseFlags(args: readonly string[]): Flags {
   return flags;
 }
 
+/**
+ * Which compiler this is, and where it was run from.
+ *
+ * Both halves matter: the version says what vocabulary to expect, and the directory says *which*
+ * copy answered — the one in the project, or one a level up.
+ */
+function identity(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const manifest = resolve(here, '..', 'package.json');
+  const version = existsSync(manifest)
+    ? (JSON.parse(readFileSync(manifest, 'utf8')) as { version?: string }).version
+    : undefined;
+  return `@scenoco-three/compiler ${version ?? '(unknown version)'} · ${dirname(manifest)}`;
+}
+
 function help(): void {
   // The kinds you can actually make *here* — help printed in a project with a VFX package should
   // list its documents, and outside a project the builtins are the honest answer.
@@ -321,3 +352,60 @@ Kinds
 ${kinds.map((k) => `  ${k.kind.padEnd(width)}  ${k.description}`).join('\n')}
 `);
 }
+
+/**
+ * A scene the app never reaches — no import leads to it from the page's entry — never runs. The
+ * observer opens a document, not the app, so a whole game built in `game.scene.xml` and checked
+ * there can ship while `main.ts` still loads the starter's scene — a build did exactly that. A
+ * note, not a failure: a spare scene is no error.
+ *
+ * Followed through the module graph, from the module scripts `index.html` loads (else
+ * `src/main.ts`), across the project's sources and the generated documents — so a level another
+ * level loads counts, and a scene only mentioned somewhere does not.
+ */
+function unloadedScenes(root: string, generated: ReadonlyMap<string, string>): string[] {
+  const reached = new Set<string>();
+  const queue = entryModules(root, generated);
+  if (queue.length === 0) return [];
+  while (queue.length > 0) {
+    const file = queue.pop()!;
+    if (reached.has(file)) continue;
+    reached.add(file);
+    const text = generated.get(file) ?? readFileSync(file, 'utf8');
+    for (const match of text.matchAll(IMPORTS)) {
+      const specifier = match[1] ?? match[2] ?? match[3]!;
+      if (!specifier.startsWith('.')) continue;
+      const target = moduleAt(resolve(dirname(file), specifier), generated);
+      if (target) queue.push(target);
+    }
+  }
+  const notes: string[] = [];
+  for (const file of generated.keys()) {
+    if (!file.endsWith('.scene.gen.ts') || reached.has(file)) continue;
+    const document = relative(root, file).replace(/\.gen\.ts$/, '.xml');
+    notes.push(`note: ${document} is loaded by nothing (no import reaches it from the app's entry), so it never runs: src/main.ts decides which scene loads.`);
+  }
+  return notes;
+}
+
+/** `import … from '…'`, `export … from '…'`, `import('…')`, `import '…'`. */
+const IMPORTS = /\b(?:import|export)\s[^'";]*?\sfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)|\bimport\s*['"]([^'"]+)['"]/g;
+
+/** The modules the page starts from: `index.html`'s module scripts, else `src/main.ts`. */
+function entryModules(root: string, generated: ReadonlyMap<string, string>): string[] {
+  const page = join(root, 'index.html');
+  const scripts = existsSync(page)
+    ? [...readFileSync(page, 'utf8').matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g)].map((m) => m[1]!)
+    : [];
+  const entries = scripts.flatMap((src) => moduleAt(join(root, src), generated) ?? []);
+  if (entries.length > 0) return entries;
+  const main = moduleAt(join(root, 'src', 'main'), generated);
+  return main ? [main] : [];
+}
+
+/** The file an import names — `./a.js` is `a.ts` in source — or undefined outside the project. */
+function moduleAt(path: string, generated: ReadonlyMap<string, string>): string | undefined {
+  const candidates = [path, path.replace(/\.js$/, '.ts'), path.replace(/\.js$/, '.tsx'), `${path}.ts`, join(path, 'index.ts')];
+  return candidates.find((file) => generated.has(file) || (existsSync(file) && lstatSync(file).isFile()));
+}
+

@@ -1,4 +1,5 @@
-import { SignatureKind, type Checker, type Symbol as TsSymbol, type Type } from 'typescript/unstable/sync';
+import { SignatureKind, type Checker, type Project, type Symbol as TsSymbol, type Type } from 'typescript/unstable/sync';
+import * as ast from 'typescript/unstable/ast';
 import type { PropInfo, TagFamily, ValueShape } from '../model.js';
 import { baseChainOf } from './ast-utils.js';
 import { familyOf, isAttachable } from './families.js';
@@ -27,6 +28,11 @@ export function shapeOf(
   type: Type | undefined,
   checker: Checker,
   documents: ReadonlySet<string> = BUILTIN_DOCUMENT_TYPES,
+  /**
+   * The open project, when there is one. Only one question needs it — what a union of three.js
+   * constants is *called* — and that answer lives in the declaration rather than in the type.
+   */
+  project?: Project,
 ): {
   shape: ValueShape;
   elementShape?: ValueShape;
@@ -34,6 +40,7 @@ export function shapeOf(
   options?: string[];
   list?: boolean;
   assetFamily?: TagFamily;
+  document?: string;
 } {
   if (!type) return { shape: 'unsupported' };
 
@@ -67,7 +74,7 @@ export function shapeOf(
   // `SceneType` is `new () => Scene` — a scene *class*, which is what `SceneManager.load` takes.
   // A field declared with it is authored as a path to a `.scene.xml`, exactly like every other
   // reference to a document, so a level can name the level after it.
-  if (alias && documents.has(alias)) return { shape: 'assetRef' };
+  if (alias && documents.has(alias)) return { shape: 'assetRef', document: alias };
 
   const name = resolved.getSymbol()?.name;
   if (name === 'Color') return { shape: 'color' };
@@ -75,7 +82,7 @@ export function shapeOf(
   if (name === 'Vector3') return { shape: 'vector3' };
   if (name === 'Vector4') return { shape: 'vector4' };
   if (name === 'Euler' || name === 'Quaternion') return { shape: 'euler' };
-  if (name && documents.has(name)) return { shape: 'assetRef' };
+  if (name && documents.has(name)) return { shape: 'assetRef', document: name };
 
   const chain = name ? [name, ...baseChainOf(resolved, checker)] : [];
   const family = name ? familyOf(name, chain) : undefined;
@@ -86,7 +93,7 @@ export function shapeOf(
   // An array authors as `[a, b, c]`; the element decides how each entry is written.
   const element = elementTypeOf(resolved, checker);
   if (element) {
-    const inner = shapeOf(element, checker, documents);
+    const inner = shapeOf(element, checker, documents, project);
     return {
       shape: 'array',
       elementShape: inner.shape,
@@ -98,12 +105,14 @@ export function shapeOf(
 
   // A union of literals — `Side`, `Blending`, `'static' | 'dynamic'` — is an enum. The member
   // names are the vocabulary, so a typo in the XML is caught here rather than by `tsc` later.
+  const constants = project ? constantNamesOf(resolved, type, project) : undefined;
+  if (constants) return { shape: 'enum', options: constants };
   const literals = literalMembersOf(resolved, checker);
   if (literals) return { shape: 'enum', options: literals };
 
   // A "one or many" union — `Material | Material[]` — reduces to the singular shape, marked
   // `list` so a bracketed value is read too.
-  const reduced = reduceUnion(resolved, checker, documents);
+  const reduced = reduceUnion(resolved, checker, documents, project);
   if (reduced) return reduced;
 
   // Anything that derives from Object3D is a reference to another node in the document, and so
@@ -119,9 +128,10 @@ export function propOf(
   checker: Checker,
   overrides: Partial<PropInfo> = {},
   documents: ReadonlySet<string> = BUILTIN_DOCUMENT_TYPES,
+  project?: Project,
 ): PropInfo {
   const type = checker.getTypeOfSymbol(symbol);
-  const { shape, elementShape, shapes, options, list, assetFamily } = shapeOf(type, checker, documents);
+  const { shape, elementShape, shapes, options, list, assetFamily, document } = shapeOf(type, checker, documents, project);
   return {
     name: symbol.name,
     type: type ? checker.typeToString(type) : 'unknown',
@@ -131,6 +141,7 @@ export function propOf(
     ...(options ? { options } : {}),
     ...(list ? { list } : {}),
     ...(assetFamily ? { assetFamily } : {}),
+    ...(document ? { document } : {}),
     // Everything three.js takes is optional; a required value would mean the emitter has to
     // supply one, and there is nothing sensible to supply.
     required: false,
@@ -163,6 +174,7 @@ function reduceUnion(
   type: Type,
   checker: Checker,
   documents: ReadonlySet<string>,
+  project?: Project,
 ): {
   shape: ValueShape;
   elementShape?: ValueShape;
@@ -178,7 +190,7 @@ function reduceUnion(
   for (const member of type.getTypes() ?? []) {
     const printed = checker.typeToString(member);
     if (printed === 'undefined' || printed === 'null') continue;
-    const inner = shapeOf(member, checker, documents);
+    const inner = shapeOf(member, checker, documents, project);
     // An array member contributes its element's shape, so `Material[] | Material` agrees.
     if (inner.shape === 'array') hasArrayMember = true;
     shapes.add(inner.shape === 'array' ? (inner.elementShape ?? 'unsupported') : inner.shape);
@@ -199,6 +211,36 @@ function reduceUnion(
   // Each alternative is authorable on its own, so the value stays authorable: which one a
   // document meant is decided by the text it wrote, at emit time.
   return { shape: 'union', shapes: [...shapes] };
+}
+
+/**
+ * The constants behind a union of them — `Side` is `typeof FrontSide | typeof BackSide | …`.
+ *
+ * TypeScript prints that union as `0 | 1 | 2`, and the numbers are no use to anyone: a document
+ * writes `side="DoubleSide"`, and the generated code imports that name. So the names are the
+ * vocabulary, and they are read where they are written — off the alias's own declaration.
+ *
+ * Without this a material's `blending` offered `0, 1, 2, 3, 4, 5, 6` and then refused `2`,
+ * because the emitter wanted a name and the message printed the numbers.
+ */
+function constantNamesOf(resolved: Type, original: Type, project: Project): string[] | undefined {
+  const alias = resolved.getAliasSymbol() ?? original.getAliasSymbol();
+  for (const handle of alias?.declarations ?? []) {
+    // A declaration is a handle in TypeScript 7 — the AST lives in the Go compiler and is
+    // fetched on demand, which is why this needs the project at all.
+    const declaration = handle.resolve(project);
+    if (!declaration || !ast.isTypeAliasDeclaration(declaration)) continue;
+    if (!ast.isUnionTypeNode(declaration.type)) continue;
+
+    const names: string[] = [];
+    for (const member of declaration.type.types) {
+      // `typeof FrontSide`, and nothing else: a union that mixes in anything is not this idiom.
+      if (!ast.isTypeQueryNode(member) || !ast.isIdentifier(member.exprName)) return undefined;
+      names.push(member.exprName.text);
+    }
+    if (names.length > 0) return names;
+  }
+  return undefined;
 }
 
 /**

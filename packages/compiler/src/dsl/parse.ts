@@ -79,7 +79,12 @@ export function parseDocument(xml: string, file?: string): ParseResult {
         ? `<${top.tag}> contains "${truncate(trimmed)}", which looks like a markdown code ` +
           'fence. Delete the line: a document holds XML and nothing else.'
         : `<${top.tag}> contains the text "${truncate(trimmed)}". Every value in a SceNoCo ` +
-          'document is an attribute; there is nothing that reads text between tags.',
+          'document is an attribute; there is nothing that reads text between tags.' +
+          // `<curve>0 1; 1 0</curve>` inside `<SizeOverLifetime>`: an attribute written as a child.
+          // Elements are type names and start upper-case, so a lower-case one is a field.
+          (/^[a-z]/.test(top.tag) && stack.length > 1
+            ? ` Write it on <${stack[stack.length - 2]!.tag}> as ${top.tag}="…".`
+            : ''),
       ...(file ? { file } : {}),
     });
   });

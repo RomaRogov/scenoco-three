@@ -13,8 +13,8 @@ declare module 'three' {
     /** @internal the runtime of the scene this object currently belongs to. */
     _runtime: SceneRuntime | null;
     /** @internal own active flag, as set by `setActive`. */
-    _active: boolean;
-    /** @internal cached `_active && parent._activeInHierarchy`, kept in step by `setActive`/`add`. */
+    _isActive: boolean;
+    /** @internal cached `_isActive && parent._activeInHierarchy`, kept in step by `setActive`/`add`. */
     _activeInHierarchy: boolean;
     /** @internal */
     _destroyed: boolean;
@@ -59,7 +59,7 @@ const EMPTY: readonly Component[] = Object.freeze([]);
 // Prototype-level defaults: an object that never touches the engine pays nothing for it.
 proto._components = null;
 proto._runtime = null;
-proto._active = true;
+proto._isActive = true;
 proto._activeInHierarchy = false;
 proto._destroyed = false;
 proto._pendingDestroy = false;
@@ -85,7 +85,7 @@ Object.defineProperties(proto, {
   },
   activeSelf: {
     get(this: Object3D) {
-      return this._active;
+      return this._isActive;
     },
     configurable: true,
   },
@@ -174,7 +174,7 @@ Object.defineProperty(proto, 'eulerAngles', {
 
 /** Recompute `_activeInHierarchy` for a subtree, collecting the objects whose value flipped. */
 export function markHierarchy(object: Object3D, parentActive: boolean, changed: Object3D[]): void {
-  const next = object._active && parentActive;
+  const next = object._isActive && parentActive;
   if (object._activeInHierarchy !== next) {
     object._activeInHierarchy = next;
     changed.push(object);
@@ -190,8 +190,8 @@ export function parentActivity(object: Object3D): boolean {
 }
 
 proto.setActive = function (this: Object3D, value: boolean): Object3D {
-  if (this._active === value || this._destroyed) return this;
-  this._active = value;
+  if (this._isActive === value || this._destroyed) return this;
+  this._isActive = value;
   // Rendering follows activation. To hide something that keeps updating, use `.visible`.
   this.visible = value;
 

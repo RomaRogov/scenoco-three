@@ -66,6 +66,11 @@ export interface PrefabPlacement {
   /** A `Vector3`, or a number for uniform scale. */
   scale?: Vector3 | number;
   visible?: boolean;
+  /**
+   * `false` spawns it inactive: placed and in the scene, not woken until `setActive(true)` — the
+   * same `active` a node takes in a document.
+   */
+  active?: boolean;
 }
 
 /**
@@ -93,11 +98,15 @@ export type SystemInit<T extends System> = AuthorableFields<T, System>;
  * component, except that a system's runs after every component's.
  */
 export interface SystemLifecycle {
-  /** Called once, when the system is added to a scene. Build the world here. */
+  /**
+   * Called once, when the system is added to a scene — before any component's `start`, so set the
+   * state they read here. Build the world here too.
+   */
   awake?(): void;
   /**
-   * Called once, after every component in the scene has had `awake` and `start`. Where a system
-   * may read the scene: by now it is complete, where in `awake` it is still being built.
+   * Called once, after every component in the scene has had `awake` and `start` — too late for
+   * state they read in theirs. Where a system may read the scene: by now it is complete, where in
+   * `awake` it is still being built.
    */
   start?(): void;
   /** Fixed-timestep tick, after every component's `fixedUpdate`. Step physics here. */
@@ -153,7 +162,10 @@ export interface ComponentLifecycle {
   lateUpdate?(deltaTime: number): void;
   /** Called every time the component transitions from active to inactive. */
   onDisable?(): void;
-  /** Called once when the component or its object is destroyed, or the scene is unloaded. */
+  /**
+   * Called once on destroy or unload — after `awake`, not necessarily after `start`. What `start`
+   * builds may not exist yet.
+   */
   onDestroy?(): void;
 }
 

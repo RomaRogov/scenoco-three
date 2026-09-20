@@ -62,10 +62,25 @@ export interface ModuleManifest {
   editor?: string;
 }
 
+/**
+ * The one dependency whose missing block means nothing: the runtime is not a module and never
+ * contributes a tag — core knowing nothing about tag packages is the architecture, not an omission.
+ */
+const RUNTIME = '@scenoco-three/core';
+
 export interface ModuleManifests {
   modules: readonly ModuleManifest[];
   /** Declared dependencies whose `package.json` could not be read — probably not installed. */
   missing: readonly string[];
+  /**
+   * Installed **runtime** dependencies that declare no `"scenoco"` block.
+   *
+   * Not an error — most packages are not modules, and `three` is one of these. It is the answer to
+   * a question that otherwise has none: a package is here, its tags are not, and "no such tag" is
+   * true without being the reason. Runtime only, because a build tool in `devDependencies` was
+   * never going to contribute a tag and naming it would be noise.
+   */
+  plain: readonly string[];
   /**
    * The project's own `"scenoco"` block, when it has one.
    *
@@ -85,17 +100,19 @@ export interface ModuleManifests {
  */
 export function readModuleManifests(root: string): ModuleManifests {
   const manifest = resolve(root, 'package.json');
-  if (!existsSync(manifest)) return { modules: [], missing: [] };
+  if (!existsSync(manifest)) return { modules: [], missing: [], plain: [] };
   let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
   try {
     pkg = JSON.parse(readFileSync(manifest, 'utf8')) as typeof pkg;
   } catch {
-    return { modules: [], missing: [] }; // an unreadable manifest is not a reason to refuse to compile
+    return { modules: [], missing: [], plain: [] }; // an unreadable manifest is not a reason to refuse to compile
   }
 
-  const names = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})])].sort();
+  const runtime = new Set(Object.keys(pkg.dependencies ?? {}));
+  const names = [...new Set([...runtime, ...Object.keys(pkg.devDependencies ?? {})])].sort();
   const modules: ModuleManifest[] = [];
   const missing: string[] = [];
+  const plain: string[] = [];
 
   for (const name of names) {
     const dir = packageDirOf(name, root);
@@ -110,12 +127,15 @@ export function readModuleManifests(root: string): ModuleManifests {
       missing.push(name);
       continue;
     }
-    if (!declared.scenoco || typeof declared.scenoco !== 'object') continue; // not a module
+    if (!declared.scenoco || typeof declared.scenoco !== 'object') {
+      if (runtime.has(name) && name !== RUNTIME) plain.push(name);
+      continue;
+    }
     modules.push(readOne(name, dir, declared.version, declared.scenoco as Record<string, unknown>));
   }
 
   claim(modules);
-  return { modules, missing, ...(own(root, manifest) ?? {}) };
+  return { modules, missing, plain, ...(own(root, manifest) ?? {}) };
 }
 
 /** The project's own declarations, read from the manifest already parsed above. */

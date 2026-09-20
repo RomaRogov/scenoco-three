@@ -34,9 +34,15 @@ export interface LiveScene {
    * built from, or an enum constant — for an edit to put on the live object.
    */
   resolve: Resolve;
+  /**
+   * Build one attached object from scratch — a material a person has just added to a node. The
+   * same call the document's own `<MeshStandardMaterial>` goes through, so the two are alike.
+   */
+  construct: Construct;
 }
 
 export type Resolve = (name: string, shape: ValueShape, text: string) => Promise<unknown>;
+export type Construct = (tag: TagInfo) => Promise<object>;
 
 const PLACEMENT = new Set(['id', 'name', 'position', 'eulerAngles', 'scale', 'visible', 'active', 'dontDestroyOnLoad']);
 const SCENE_ONLY = new Set(['camera', 'render', 'dontDestroyOnLoad', 'disposeOnUnload']);
@@ -77,7 +83,15 @@ export async function buildLive(
   }
   const resolve: Resolve = (name, shape, text) =>
     builder.valueOf({ name, type: '', shape, list: true, required: false }, text, path, new Map());
-  return { SceneClass: LiveSceneClass, problems, resolve };
+  // An element with nothing written on it — what a person gets the moment they add one.
+  const construct: Construct = (tag) =>
+    builder.buildObject(
+      tag,
+      { tag: tag.name, attributes: new Map(), children: [], parent: null, line: 0, column: 0 },
+      path,
+      new Map(),
+    );
+  return { SceneClass: LiveSceneClass, problems, resolve, construct };
 }
 
 class Builder {
@@ -160,7 +174,7 @@ class Builder {
     const block = element.children.find((child) => child.tag === 'Components');
     for (const component of block?.children ?? []) {
       const info = this.model.components.find((c) => c.name === component.tag);
-      if (info?.preview) await this.previews.mount(node, info, component.attributes);
+      if (info?.preview) await this.previews.mount(node, info, component.attributes, component.children);
     }
   }
 
@@ -204,7 +218,7 @@ class Builder {
   }
 
   /** One element as the object it constructs — an asset document's root, or an attached child. */
-  private async buildObject(
+  async buildObject(
     tag: TagInfo,
     element: SncElement,
     file: string,

@@ -12,7 +12,17 @@
  */
 
 /**
- * How a capture is rendered — everything except *where the camera is*.
+ * The window a call runs the game in when it names no size.
+ *
+ * A call's frame is the page's own size, not a picture scaled from it: the game resizes to it, so
+ * a point read off a shot is the point to `click`. Pictures scaled from a canvas of another size
+ * once sent clicks 20% low, and an agent reported that buttons do not work.
+ */
+export const FRAME = { width: 800, height: 500 } as const;
+
+/**
+ * The window a call runs in, and how its captures are rendered — everything except *where the
+ * camera is*.
  *
  * Framing belongs to the individual shot and changes between them; this is the output format,
  * and it is the same for every capture in one command. So it sits on the command rather than on
@@ -36,7 +46,7 @@ export type ObserverCommand =
   | {
       id: string;
       type: 'preview';
-      cameraPos: string;
+      cameraPos?: string;
       lookAt?: string;
       fov?: number;
       frame: PreviewFrame;
@@ -85,10 +95,11 @@ export type SimStep =
   /**
    * Capture a PNG. `cameraPos` and `lookAt` are positions in the document's own vector grammar
    * (`"y: 6; z: 12"`), and `fov` is the vertical field of view in degrees. Nothing is derived:
-   * three numbers a caller states, and the same three give the same picture. Size and UI come
-   * from the batch's `frame` — see {@link PreviewFrame} for why they are not repeated per step.
+   * three numbers a caller states, and the same three give the same picture. Size comes from the
+   * batch's `frame` — see {@link PreviewFrame}; UI too, unless the step says `ui` itself, which a
+   * caller reaching for "this shot with the HUD" writes there.
    */
-  | { do: 'preview'; cameraPos: string; lookAt?: string; fov?: number }
+  | { do: 'preview'; cameraPos?: string; lookAt?: string; fov?: number; ui?: boolean }
   /** Sample state at an `id` the document declares — a node and its components. */
   | { do: 'telemetry'; id: string }
   /** JavaScript run as the body of an async function against the live scene; its return value comes back. */

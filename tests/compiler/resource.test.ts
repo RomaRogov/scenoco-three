@@ -97,7 +97,7 @@ describe('material documents', () => {
     const { diagnostics } = emit(`<MeshBasicMaterial color="${written}" />`, 'material');
     expect(diagnostics[0]?.code).toBe('bad-color');
     expect(diagnostics[0]?.message).toBe(
-      `color="${written}" is ${kind}. In a document write color="${hex}".`,
+      `color="${written}" is ${kind}; a document writes #rrggbb. Write color="${hex}".`,
     );
   });
 
@@ -131,6 +131,13 @@ describe('material documents', () => {
   it('rejects a non-numeric number', () => {
     const { diagnostics } = emit('<MeshStandardMaterial roughness="quite" />', 'material');
     expect(diagnostics[0]?.code).toBe('bad-number');
+  });
+
+  it('names the materials that do take an attribute this one lacks', () => {
+    const { diagnostics } = emit('<MeshBasicMaterial emissive="#ff8800" />', 'material');
+    expect(diagnostics[0]?.code).toBe('unknown-attribute');
+    expect(diagnostics[0]?.message).toContain('It is an attribute of');
+    expect(diagnostics[0]?.message).toContain('<MeshStandardMaterial>');
   });
 
   it('rejects children — a material document is one element', () => {

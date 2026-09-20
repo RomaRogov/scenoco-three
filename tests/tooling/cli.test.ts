@@ -451,3 +451,176 @@ describe('scenoco help', () => {
     expect(err.join('\n')).toContain('bundle');
   });
 });
+
+/**
+ * Which compiler answered.
+ *
+ * A project can resolve a different copy than the reader assumes — an older one installed beside
+ * it answers with an older vocabulary, and every message then reads as the toolchain contradicting
+ * itself. One line on the way out is the whole cure.
+ */
+describe('the compiler says who it is', () => {
+  it('on --version', async () => {
+    expect(await runCli(['--version'])).toBe(0);
+    expect(out.join('\n')).toMatch(/@scenoco-three\/compiler \d+\.\d+\.\d+ · \//);
+  });
+
+  it('under the problems it just reported, and not on a clean run', async () => {
+    fixture.writeXml('assets/scenes/main.scene.xml', '<Scene><Nope /></Scene>');
+    expect(await runCli(['check', '--root', fixture.dir])).toBe(1);
+    expect(err.join('\n')).toContain('@scenoco-three/compiler');
+
+    fixture.writeXml('assets/scenes/main.scene.xml', '<Scene />');
+    out = [];
+    err = [];
+    expect(await runCli(['check', '--root', fixture.dir])).toBe(0);
+    expect(`${out.join('\n')}${err.join('\n')}`).not.toContain('@scenoco-three/compiler');
+  });
+});
+
+/**
+ * What kinds of document a project has is a question with no other answer: its own files show what
+ * it *holds*, not what it may hold. A run that could not find it here went looking for the table
+ * in `node_modules`.
+ */
+describe('describe lists the kinds of document', () => {
+  it('with the extension, where new ones go, and who declared it', async () => {
+    expect(await runCli(['describe', '--root', fixture.dir])).toBe(0);
+    const page = out.join('\n');
+    expect(page).toContain('kinds of document');
+    expect(page).toMatch(/scene\s+\*\.scene\.xml/);
+    // A kind a package brought, named with the package that brought it.
+    expect(page).toMatch(/particle\s+\*\.particle\.xml.*@scenoco-three\/particles/);
+  });
+});
+
+/**
+ * A config document's own elements, askable by name.
+ *
+ * `describe ParticleSystem` offers `effect  path | <ParticleEffect>`, and asking about that name
+ * answered "nothing here is called ParticleEffect" — a name the tooling advertises and then denies.
+ * The reader went to `node_modules` for the grammar, which is the one place the operating notes
+ * tell it not to look.
+ */
+describe('describe answers for the elements of a document kind', () => {
+  it('names the root element under the kinds, so there is something to ask about', async () => {
+    expect(await cli('describe')).toBe(0);
+    expect(out.join('\n')).toContain('<ParticleEffect>');
+  });
+
+  it('the root: its attributes, what it may hold, and both spellings', async () => {
+    expect(await cli('describe', 'ParticleEffect')).toBe(0);
+    const page = out.join('\n');
+    expect(page).toContain('.particle.xml');
+    // Read off the package's own declarations, JSDoc and all.
+    expect(page).toMatch(/duration\s+number\s+Length of one emission cycle/);
+    expect(page).toContain('it may hold: <Emission>');
+    // The two tiers, in the two lines that spell them.
+    expect(page).toContain('<ParticleSystem effect=');
+    expect(page).toContain('<ParticleSystem><ParticleEffect');
+  });
+
+  it('a nested element, with the element it is written inside', async () => {
+    expect(await cli('describe', 'Burst')).toBe(0);
+    expect(out.join('\n')).toContain('inside <Emission>, any number of times');
+  });
+
+  it('a document of that kind, as the tree it is', async () => {
+    await cli('new', 'particle', 'spark');
+    out = [];
+    expect(await cli('describe', 'assets/vfx/spark.particle.xml')).toBe(0);
+    const page = out.join('\n');
+    // Printing the root alone reported a file full of modules as `<ParticleEffect … />`.
+    expect(page).toContain('<Emission rateOverTime="0">');
+    expect(page).toContain('<Burst time="0" count="24" />');
+    expect(page).toContain('</ParticleEffect>');
+  });
+});
+
+/**
+ * The type column is what to *write*, not the compiler's word for it.
+ *
+ * `assetRef` and `nodeRef` are internal names; printed raw they name nothing a reader can type.
+ * And `path | <PrefabType>` offered an element form that only a config document has — a prefab is
+ * a file and nothing else.
+ */
+describe('describe spells a value the way a document writes it', () => {
+  it('a path, an id with its class, and an attachment with both its forms', async () => {
+    fixture.write(
+      'slots.ts',
+      `import { Component, type PrefabType } from '@scenoco-three/core';
+import type { Object3D } from 'three';
+
+export class Slots extends Component {
+  crate!: PrefabType;
+  target!: Object3D;
+}
+`,
+    );
+    expect(await cli('describe', 'Slots', 'Mesh')).toBe(0);
+    const page = out.join('\n');
+    expect(page).toContain('crate  path to a PrefabType');
+    expect(page).not.toContain('<PrefabType>');
+    expect(page).toContain('target  #id of an Object3D');
+    // A geometry has the two tiers a config document has: the shared file, or its own element.
+    expect(page).toContain('geometry  path | a geometry element');
+    // …and the element form spelled once, or the phrase sends a reader looking for it.
+    expect(page).toContain('<Mesh><BoxGeometry … /><MeshBasicMaterial … /></Mesh>');
+    expect(page).not.toContain('assetRef');
+  });
+});
+
+/**
+ * A long three.js class, cut where it can afford to be.
+ *
+ * The page has to stay short — a material has seventy-odd settings. Sorted alphabetically in one
+ * list, the cut after forty fell on `roughness`, `metalness` and `opacity`, and the tail said only
+ * "and 35 more". By owner, the class's own settings are printed in full and what it inherits is
+ * named by the three.js class that declares it — askable in its turn.
+ */
+describe('describe cuts a long class at its base, and names the base', () => {
+  it('prints a material’s own settings in full and names what it inherits from Material', async () => {
+    expect(await cli('describe', 'MeshStandardMaterial')).toBe(0);
+    const page = out.join('\n');
+    expect(page).toMatch(/^ {2}roughness {2}number/m);
+    expect(page).toMatch(/^ {2}metalness {2}number/m);
+    expect(page).toMatch(/inherited from Material — three\.js's own names: .*\bopacity\b/);
+    // An unwritable constructor slot is the emitter's business, not a line to read.
+    expect(page).not.toContain('unsupported');
+    expect(page).not.toMatch(/… and \d+ more\.$/m);
+  });
+
+  it('answers for the base itself, with the types the name-only line leaves out', async () => {
+    expect(await cli('describe', 'Material')).toBe(0);
+    expect(out.join('\n')).toMatch(/^ {2}side {2}FrontSide \| BackSide \| DoubleSide/m);
+  });
+});
+
+/**
+ * The observer opens a document, not the app: a whole game built in `game.scene.xml` and checked
+ * there shipped while `main.ts` still loaded the starter's scene. `check` says so, as a note.
+ */
+describe('a scene nothing loads', () => {
+  it('is named by check, and one the app imports is not', async () => {
+    fixture.writeXml('assets/scenes/lonely.scene.xml', '<Scene />');
+    fixture.writeXml('assets/scenes/loaded.scene.xml', '<Scene />');
+    fixture.writeXml('assets/scenes/next.scene.xml', '<Scene />');
+    // Reached two imports down from the entry, and a level that loads the next one.
+    fixture.write('main.ts', `// lonely.scene.gen is only mentioned here.\nimport './boot.js';\n`);
+    fixture.write(
+      'boot.ts',
+      `import { LoadedScene } from '../assets/scenes/loaded.scene.gen.js';\nvoid LoadedScene;\nvoid import('../assets/scenes/next.scene.gen.js');\n`,
+    );
+    const said: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => void said.push(String(line)));
+    try {
+      expect(await cli('check')).toBe(0);
+    } finally {
+      log.mockRestore();
+    }
+    const notes = said.filter((line) => line.startsWith('note:'));
+    expect(notes.some((line) => line.includes('assets/scenes/lonely.scene.xml is loaded by nothing'))).toBe(true);
+    expect(notes.some((line) => line.includes('loaded.scene.xml'))).toBe(false);
+    expect(notes.some((line) => line.includes('next.scene.xml'))).toBe(false);
+  }, 120_000);
+});

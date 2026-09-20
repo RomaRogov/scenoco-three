@@ -130,6 +130,30 @@ describe('particle documents', () => {
     expect(diagnostics[0]?.message).toContain('<Emission>');
   });
 
+  it('drops the alpha from a list colour rather than naming an opacity it does not have', () => {
+    // `Write colors="#ff6600" opacity="0"` once sent a model to an attribute <ColorOverLifetime>
+    // has no such thing as, and the next build failed on it.
+    const { diagnostics } = emit('<ParticleEffect><ColorOverLifetime colors="[#ff660000]" /></ParticleEffect>');
+    expect(diagnostics[0]?.message).not.toContain('opacity=');
+    expect(diagnostics[0]?.message).toContain('Write #ff6600.');
+  });
+
+  it('fixes a list entry as the entry, keeping the list', () => {
+    const { diagnostics } = emit('<ParticleEffect><ColorOverLifetime colors="[red, #ffffff]" /></ParticleEffect>');
+    expect(diagnostics[0]?.message).toContain('Write #ff0000.');
+    expect(diagnostics[0]?.message).not.toContain('write colors="#ff0000"');
+  });
+
+  it('shows a required list in its own spelling', () => {
+    const { diagnostics } = emit('<ParticleEffect><SizeOverLifetime /></ParticleEffect>');
+    expect(diagnostics[0]?.message).toContain('write it: curve="[1, 0.5, 0]"');
+  });
+
+  it('answers an attribute written as a child element with the attribute', () => {
+    const { diagnostics } = emit('<ParticleEffect><SizeOverLifetime curve="[1, 0]"><Curve /></SizeOverLifetime></ParticleEffect>');
+    expect(diagnostics[0]?.message).toContain('write curve="…" on <SizeOverLifetime>');
+  });
+
   it('reports an element written twice where one value goes', () => {
     const { diagnostics } = emit('<ParticleEffect><Shape radius="1" /><Shape radius="2" /></ParticleEffect>');
     expect(codes(diagnostics)).toContain('duplicate-element');
@@ -139,6 +163,24 @@ describe('particle documents', () => {
     const { diagnostics } = emit('<ParticleEffect startLifetim="2" />');
     expect(diagnostics[0]?.code).toBe('unknown-attribute');
     expect(diagnostics[0]?.message).toContain('Did you mean "startLifetime"?');
+  });
+
+  it('reports a field the type requires, rather than leaving it to tsc on generated code', () => {
+    const { diagnostics } = emit('<ParticleEffect><Emission><Burst count="20" /></Emission></ParticleEffect>');
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe('missing-attribute');
+    expect(diagnostics[0]?.message).toContain('<Burst> requires "time"');
+  });
+
+  it('hands a list written without brackets back with them', () => {
+    const { diagnostics } = emit('<ParticleEffect><ColorOverLifetime colors="#ff0000, #00ff00" /></ParticleEffect>');
+    expect(diagnostics[0]?.message).toContain('Write colors="[#ff0000, #00ff00]"');
+  });
+
+  it('offers no bracketed rewrite that would fail again, and says what an entry is instead', () => {
+    const { diagnostics } = emit('<ParticleEffect><SizeOverLifetime curve="0 1, 1 0" /></ParticleEffect>');
+    expect(diagnostics[0]?.message).not.toContain('Write curve=');
+    expect(diagnostics[0]?.message).toContain('each entry a number, as curve="[1, 0.5, 0]"');
   });
 
   it('reports a value of the wrong type', () => {

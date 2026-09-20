@@ -1,8 +1,10 @@
 import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, Pause, Play, Plus, Square, Trash2, X } from 'lucide-react';
 import type { Object3D } from 'three';
-import type { PropInfo } from '@scenoco-three/compiler';
-import type { Attachment, SceneDocument } from '../document.js';
+import type { DocumentShape, PropInfo } from '@scenoco-three/compiler';
+import type { Attachment, ComponentEntry, SceneDocument } from '../document.js';
+import type { ConfigNode } from '../configTree.js';
+import { ElementForm } from './ConfigSheet.js';
 import { shownValue, widgetFor, type Scalar } from '../values.js';
 import { getDeps, useUI } from './store.js';
 import { cx } from './cx.js';
@@ -10,6 +12,11 @@ import { BoolRow, EulerRow, LockRow, NumberRow, ReadRow, TextRow, VecRow } from 
 import { PropRow, Section, PREFAB_REASON } from './rows.js';
 import { HeadBtn } from './HeadBtn.js';
 import styles from './ui.module.css';
+
+const UNKNOWN_COMPONENT = 'Not in this project’s model — its attributes are shown as written. Run `scenoco build` to read its fields.';
+
+/** An attribute of a class the model does not know, as plain text. */
+const asText = (name: string): PropInfo => ({ name, type: 'string', shape: 'string', required: false });
 
 /**
  * The inspector.
@@ -26,14 +33,6 @@ import styles from './ui.module.css';
  * `ProjectModel`, read from the project's own TypeScript: field names, types, defaults, doc
  * comments. Nothing is restated anywhere, so nothing can drift.
  */
-/** A slot an element fills. Naming a file here as well would be two materials for one mesh. */
-const ATTACHED_REASON = (tag: string) => `Written as a <${tag}> inside this node.`;
-const UNKNOWN_COMPONENT = 'Not in this project’s model — its attributes are shown as written. Run `scenoco build` to read its fields.';
-
-/** An attribute of a class the model does not know, as plain text. */
-const asText = (name: string): PropInfo => ({ name, type: 'string', shape: 'string', required: false });
-
-
 export function InspectorSheet(): React.JSX.Element | null {
   const open = useUI((s) => s.inspectorOpen);
   useUI((s) => s.rev); // re-read live values on refresh
@@ -75,38 +74,27 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
   const tag = doc?.tagOf(node);
   const tagName = doc?.tagNameOf(node) ?? node.type;
 
-  // A slot written as an element is not writable as an attribute: the compiler reports a node
-  // given both, so the row says where the value lives instead of offering a second one.
+  // What the node is built *from*: the constructor slots that take an object.
   const attachments = doc?.attachmentsOf(node) ?? [];
   const attachedBySlot = new Map(attachments.map((a) => [a.slot, a]));
+  const slots = doc?.slotsOf(node) ?? [];
 
-  const renderNodeProp = (prop: PropInfo): React.JSX.Element => {
-    const attached = attachedBySlot.get(prop.name);
-    if (attached) {
-      return (
-        <LockRow
-          key={prop.name}
-          label={prop.name}
-          value={`<${attached.tag.name}>`}
-          reason={ATTACHED_REASON(attached.tag.name)}
-          description={prop.description}
-        />
-      );
-    }
-    return (
-      <PropRow
-        key={prop.name}
-        prop={prop}
-        written={doc?.nodeAttr(node, prop.name)}
-        editable={mine}
-        commit={(v, c) => doc?.setNodeValue(node, prop, v, c)}
-        clear={() => doc?.clearNodeAttr(node, prop.name)}
-      />
-    );
-  };
-  const tagProps = split([...(tag?.parameters ?? []), ...(tag?.properties ?? [])], (p) =>
-    doc?.nodeAttr(node, p.name) !== undefined,
+  const renderNodeProp = (prop: PropInfo): React.JSX.Element => (
+    <PropRow
+      key={prop.name}
+      prop={prop}
+      written={doc?.nodeAttr(node, prop.name)}
+      editable={mine}
+      commit={(v, c) => doc?.setNodeValue(node, prop, v, c)}
+      clear={() => doc?.clearNodeAttr(node, prop.name)}
+    />
   );
+  // Slots show whether or not the document writes them: they are what the node *is*, and folding
+  // an empty `material` in with thirty other properties is what made it impossible to find.
+  const rest = [...(tag?.parameters ?? []), ...(tag?.properties ?? [])].filter(
+    (p) => !slots.some((s) => s.name === p.name),
+  );
+  const tagProps = split(rest, (p) => doc?.nodeAttr(node, p.name) !== undefined);
 
   // Placement, which every node takes. Written from the live object, so a gizmo drag and a typed
   // number are the same edit — in the document's units, which for rotation means degrees.
@@ -170,9 +158,17 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
           );
           // A class the model does not know still has its attributes: shown as the text they are.
           const declared = entry.info?.fields ?? [...entry.attributes.keys()].map(asText);
-          const fields = split(declared, (p) => entry.attributes.has(p.name));
+          // A field holding a config is a slot like a mesh's material, not one more attribute.
+          const configs = doc?.configsOf(entry) ?? [];
+          const fields = split(
+            declared.filter((p) => !configs.some((c) => c.prop.name === p.name)),
+            (p) => entry.attributes.has(p.name),
+          );
           return (
             <>
+              {configs.map((config) => (
+                <ConfigSlot key={config.prop.name} entry={entry} config={config} />
+              ))}
               {fields.written.map(render)}
               {fields.rest.length > 0 ? (
                 <Section title={`${fields.rest.length} more on ${entry.tag}`} startClosed>
@@ -183,18 +179,6 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
           );
         })()}
       </Section>,
-    );
-  }
-  // What this node is built from, under the node itself: an attached object is not in the tree,
-  // because it never became one.
-  for (const [i, attachment] of attachments.entries()) {
-    sections.push(
-      <AttachmentSection
-        key={`attached-${i}`}
-        attachment={attachment}
-        editable={mine}
-        doc={doc}
-      />,
     );
   }
   if (doc?.canEditComponents(node)) sections.push(<AddRow key="add-comp" node={node} />);
@@ -239,8 +223,17 @@ function InspectorBody({ node }: { node: Object3D }): React.JSX.Element {
           What the document *writes* stays in front; the rest folds away. `Mesh` alone declares
           some thirty settable properties and a package that augments `Object3D` adds its own to
           every tag, so showing all of them inline buries the three that were authored. */}
-      {tagProps.written.length > 0 || tagProps.rest.length > 0 ? (
+      {slots.length > 0 || tagProps.written.length > 0 || tagProps.rest.length > 0 ? (
         <Section title={`<${tagName}>`}>
+          {slots.map((slot) => (
+            <SlotRow
+              key={slot.name}
+              node={node}
+              prop={slot}
+              attachment={attachedBySlot.get(slot.name)}
+              editable={mine}
+            />
+          ))}
           {tagProps.written.map(renderNodeProp)}
           {tagProps.rest.length > 0 ? (
             <Section title={`${tagProps.rest.length} more on <${tagName}>`} startClosed>
@@ -328,7 +321,7 @@ function fmtVec(values: number[]): string {
 function AddRow({ node }: { node: Object3D }): React.JSX.Element {
   const openAdd = useUI((s) => s.openAdd);
   return (
-    <button type="button" className={styles.addRow} onClick={() => openAdd(node)}>
+    <button type="button" className={styles.addRow} onClick={() => openAdd({ kind: 'component', node })}>
       <Plus />
       Add component
     </button>
@@ -403,31 +396,119 @@ function split<T>(items: readonly T[], written: (item: T) => boolean): { written
   return { written: items.filter(written), rest: items.filter((i) => !written(i)) };
 }
 
-/** One attached object's own attributes — the inline material a mesh draws with. */
-function AttachmentSection({
+/**
+ * A component's config slot: a path naming a shared file, or the config written inside it — the
+ * three states a mesh's material has. What opens up is the form that document gets on its own:
+ * one shape, read from the package's type, drawn once.
+ */
+function ConfigSlot({
+  entry,
+  config,
+}: {
+  entry: ComponentEntry;
+  config: { prop: PropInfo; shape: DocumentShape; node: ConfigNode | null };
+}): React.JSX.Element {
+  const { getDoc } = getDeps();
+  const doc = getDoc();
+  const { prop, shape, node } = config;
+
+  if (!node) {
+    const written = doc?.componentProp(entry, prop.name);
+    return (
+      <>
+        <PropRow
+          prop={prop}
+          written={written}
+          editable
+          commit={(v, c) => doc?.setComponentValue(entry, prop, v, c)}
+          clear={() => doc?.clearComponentProp(entry, prop.name)}
+        />
+        {written === undefined ? (
+          <button type="button" className={styles.addRow} onClick={() => doc?.addConfig(entry, shape)}>
+            <Plus />
+            {`Give this ${entry.tag} its own ${shape.name}`}
+          </button>
+        ) : null}
+      </>
+    );
+  }
+  return (
+    <ElementForm
+      config={doc!.configHost(entry)}
+      node={node}
+      title={`${prop.name} — ${shape.name}`}
+      onRemove={() => doc?.configHost(entry).remove(node)}
+    />
+  );
+}
+
+/**
+ * One slot a node is built from — `geometry`, `material` — in whichever of its three states it is.
+ *
+ * The tiers every engine has: a path names one object every node writing it shares, an element
+ * gives *this* node its own, nothing means three's default. So the row is a path field with a way
+ * to make it this node's own, or the object opened up and editable with a way to take it out. It
+ * lives inside the tag's section, because `material` is a thing a `<Mesh>` has.
+ */
+function SlotRow({
+  node,
+  prop,
   attachment,
   editable,
-  doc,
 }: {
-  attachment: Attachment;
+  node: Object3D;
+  prop: PropInfo;
+  attachment: Attachment | undefined;
   editable: boolean;
-  doc: SceneDocument | undefined;
 }): React.JSX.Element {
-  const render = (prop: PropInfo): React.JSX.Element => (
+  const { getDoc } = getDeps();
+  const doc = getDoc();
+  const openAdd = useUI((s) => s.openAdd);
+
+  if (!attachment) {
+    const written = doc?.nodeAttr(node, prop.name);
+    return (
+      <>
+        <PropRow
+          prop={prop}
+          written={written}
+          editable={editable}
+          commit={(v, c) => doc?.setNodeValue(node, prop, v, c)}
+          clear={() => doc?.clearNodeAttr(node, prop.name)}
+        />
+        {editable && written === undefined && prop.assetFamily ? (
+          <button
+            type="button"
+            className={styles.addRow}
+            onClick={() => openAdd({ kind: 'slot', node, slot: prop.name, family: prop.assetFamily! })}
+          >
+            <Plus />
+            {`Give this node its own ${prop.name}`}
+          </button>
+        ) : null}
+      </>
+    );
+  }
+
+  const render = (p: PropInfo): React.JSX.Element => (
     <PropRow
-      key={prop.name}
-      prop={prop}
-      written={attachment.attributes.get(prop.name)}
+      key={p.name}
+      prop={p}
+      written={attachment.attributes.get(p.name)}
       editable={editable}
-      commit={(v, c) => doc?.setAttachmentValue(attachment, prop, v, c)}
-      clear={() => doc?.setAttachmentValue(attachment, prop, null)}
+      commit={(v, c) => doc?.setAttachmentValue(attachment, p, v, c)}
+      clear={() => doc?.setAttachmentValue(attachment, p, null)}
     />
   );
   const props = split([...attachment.tag.parameters, ...attachment.tag.properties], (p) =>
     attachment.attributes.get(p.name) !== undefined,
   );
   return (
-    <Section title={`<${attachment.tag.name}>`} description={`This node's own ${attachment.slot}.`}>
+    <Section
+      title={`${prop.name} — <${attachment.tag.name}>`}
+      description={prop.description}
+      actions={editable ? <MemberActions onDelete={() => void doc?.removeAttachment(attachment)} /> : undefined}
+    >
       {props.written.map(render)}
       {props.rest.length > 0 ? (
         <Section title={`${props.rest.length} more on <${attachment.tag.name}>`} startClosed>

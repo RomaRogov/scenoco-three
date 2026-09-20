@@ -1,6 +1,6 @@
 import { Group, Mesh, Object3D, PointLight } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Component, SceneManager } from '@scenoco-three/core';
+import { Component, SceneManager, System } from '@scenoco-three/core';
 import { Clock, resetEngine, sceneOf } from './helpers.js';
 
 afterEach(resetEngine);
@@ -24,9 +24,30 @@ describe('components on a node', () => {
     expect(loose.getComponent(Health)).toBe(health);
     expect(loose.hasComponent(Health)).toBe(true);
     expect(loose.scene).toBe(null);
+    // A component's `scene` is a `Scene`: read where there is none, it says so rather than null.
+    expect(() => health.scene).toThrow('in no scene');
     // `awake` waits for a scene; the field is still the authored one.
     expect(health.max).toBe(250);
     expect(health.current).toBe(0);
+  });
+
+  it('says a component is looked up by class when handed its name', () => {
+    const loose = new Group();
+    loose.addComponent(Health);
+    expect(() => loose.getComponent('Health' as never)).toThrow('looked up by its class — getComponent(Health) — not by "Health"');
+  });
+
+  it('says a System is reached with requireSystem, not searched for on nodes', () => {
+    class Game extends System {}
+    expect(() => new Group().getComponent(Game as never)).toThrow('Game is a System, not a component');
+  });
+
+  it('names a field initializer that reads object3D, instead of failing on null', () => {
+    class Trail extends Component {
+      private last = this.object3D.position.clone();
+      get lastX() { return this.last.x; }
+    }
+    expect(() => new Group().addComponent(Trail)).toThrow('Trail.object3D was read before the component is on a node');
   });
 
   it('searches children and parents', async () => {
@@ -109,19 +130,18 @@ describe('components on a node', () => {
     expect(copied?.current).toBe(42);
   });
 
-  it('gives a clone its own plain data, and shares what it cannot copy', () => {
+  it('gives a clone its own plain data, and its own of whatever is not data', () => {
     class Tally extends Component {
       counts = new Map<string, number>([['hits', 1]]);
       tags = new Set(['a']);
       config = { speed: 2 };
-      /** Nothing here can duplicate a closure, so both components end up with this one. */
       onTick: (() => void) | null = null;
+      /** No data can hold a closure: the clone keeps the one its own initializer built. */
       readonly handle = { fn: () => 0 };
     }
 
     const source = new Group();
     source.addComponent(Tally);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const copied = source.clone().getComponent(Tally)!;
     const original = source.getComponent(Tally)!;
@@ -134,10 +154,8 @@ describe('components on a node', () => {
     expect(original.tags.has('b')).toBe(false);
     expect(original.config.speed).toBe(2);
 
-    // What it cannot copy is shared — and says so rather than doing it quietly.
-    expect(copied.handle).toBe(original.handle);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Tally.handle'));
-    warn.mockRestore();
+    // What is not data is never shared: the two would change together, invisibly.
+    expect(copied.handle).not.toBe(original.handle);
   });
 
   it('drops a component from queries as soon as it is destroyed', async () => {

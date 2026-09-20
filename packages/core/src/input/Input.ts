@@ -1,6 +1,6 @@
 import { Vector2 } from 'three';
 import { MouseButton, type KeyCode } from './KeyCode.js';
-import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type Axis, type AxisBinding, type Button } from './axes.js';
+import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type AxisName, type AxisBinding, type ButtonName } from './axes.js';
 
 /**
  * Keyboard, mouse and wheel state, sampled per frame. Mirrors Unity's `Input`.
@@ -25,12 +25,12 @@ class InputClass {
   private readonly buttonsPressed = new Set<MouseButton>();
   private readonly buttonsReleased = new Set<MouseButton>();
 
-  private readonly smoothed = new Map<Axis, number>();
-  private readonly overrides = new Map<Axis, number>();
-  private readonly buttonOverrides = new Map<Button, boolean>();
-  private readonly buttonsDownNamed = new Set<Button>();
-  private readonly buttonsUpNamed = new Set<Button>();
-  private readonly buttonsWereDown = new Set<Button>();
+  private readonly smoothed = new Map<AxisName, number>();
+  private readonly overrides = new Map<AxisName, number>();
+  private readonly buttonOverrides = new Map<ButtonName, boolean>();
+  private readonly buttonsDownNamed = new Set<ButtonName>();
+  private readonly buttonsUpNamed = new Set<ButtonName>();
+  private readonly buttonsWereDown = new Set<ButtonName>();
 
   private element: HTMLElement | null = null;
   private readonly lastMouse = new Vector2();
@@ -72,7 +72,7 @@ class InputClass {
    * The mouse axes report this frame's movement instead, and an axis under {@link setAxis}
    * answers with that value unsmoothed.
    */
-  getAxis(axis: Axis): number {
+  getAxis(axis: AxisName): number {
     const override = this.overrides.get(axis);
     if (override !== undefined) return override;
     if (axis === 'Mouse X') return this.mouseDelta.x * MOUSE_SENSITIVITY;
@@ -82,7 +82,7 @@ class InputClass {
   }
 
   /** The same axis without the easing: -1, 0 or 1 for a keyboard entry — Unity's `GetAxisRaw`. */
-  getAxisRaw(axis: Axis): number {
+  getAxisRaw(axis: AxisName): number {
     const override = this.overrides.get(axis);
     if (override !== undefined) return override;
     if (axis === 'Mouse X' || axis === 'Mouse Y' || axis === 'Mouse ScrollWheel') {
@@ -92,19 +92,19 @@ class InputClass {
   }
 
   /** True while a named button is held — Unity's `GetButton`. `getButton('Jump')`. */
-  getButton(button: Button): boolean {
+  getButton(button: ButtonName): boolean {
     const override = this.buttonOverrides.get(button);
     if (override !== undefined) return override;
     return this.rawAxis(button) > 0;
   }
 
   /** True only on the frame it went down — Unity's `GetButtonDown`. */
-  getButtonDown(button: Button): boolean {
+  getButtonDown(button: ButtonName): boolean {
     return this.buttonsDownNamed.has(button);
   }
 
   /** True only on the frame it came up — Unity's `GetButtonUp`. */
-  getButtonUp(button: Button): boolean {
+  getButtonUp(button: ButtonName): boolean {
     return this.buttonsUpNamed.has(button);
   }
 
@@ -113,24 +113,24 @@ class InputClass {
    * replay. It holds until released with `null`, and the keys for that axis are ignored while
    * it is set.
    */
-  setAxis(axis: Axis, value: number | null): void {
+  setAxis(axis: AxisName, value: number | null): void {
     if (value === null) this.overrides.delete(axis);
     else this.overrides.set(axis, value);
   }
 
   /** Drive a named button the same way. `getButtonDown` still fires once per press. */
-  setButton(button: Button, down: boolean | null): void {
+  setButton(button: ButtonName, down: boolean | null): void {
     if (down === null) this.buttonOverrides.delete(button);
     else this.buttonOverrides.set(button, down);
   }
 
   /** Which axes and buttons are currently being driven from outside. */
-  get overriddenAxes(): Axis[] {
+  get overriddenAxes(): AxisName[] {
     return [...this.overrides.keys()];
   }
 
   /** The instantaneous -1/0/1 of a keyboard entry, before smoothing and before any override. */
-  private rawAxis(axis: Axis): number {
+  private rawAxis(axis: AxisName): number {
     // Through the interface rather than the literal: the entries differ in which keys they
     // carry, and a union of those shapes has no `.negative` to read.
     const binding: AxisBinding | undefined = AXES[axis as keyof typeof AXES];
@@ -149,7 +149,7 @@ class InputClass {
    * @internal
    */
   advance(deltaTime: number): void {
-    for (const [name, binding] of Object.entries(AXES) as Array<[Axis, AxisBinding]>) {
+    for (const [name, binding] of Object.entries(AXES) as Array<[AxisName, AxisBinding]>) {
       const target = this.rawAxis(name);
       const current = this.smoothed.get(name) ?? 0;
       // Unity's `snap`: pushing the other way starts from the middle rather than skidding

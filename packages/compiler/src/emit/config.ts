@@ -1,7 +1,7 @@
 import type { ConfigShape } from '../scan/interfaces.js';
 import { hint, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
-import { emitValue, type EmitContext } from '../dsl/value.js';
+import { emitValue, exampleEntries, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
 import { TsModule, camelCase } from './module.js';
 
@@ -49,15 +49,34 @@ export function emitConfigDocument(
     require: (m, n) => module.require(m, n),
     nodeRef: () => undefined,
     assetRef: (href) => assets.reference(href),
+    nearAsset: (href) => assets.near(href),
+    assetType: (href) => assets.typeOf(href),
   };
 
   const local = module.declare(camelCase(name));
   const typeName = module.requireType(options.module, shape.name);
 
+  const prefix = `export const ${local}: ${typeName} = `;
   module.line(`/** \`${source}\` */`);
-  write(module, `export const ${local}: ${typeName} = `, emitObject(root, shape, module, context), ';');
+  module.line(`${prefix}${text(emitObject(root, shape, module, context), '', prefix.length + 1)};`);
 
   return { ...(module.diagnostics.length === 0 ? { code: module.render() } : {}), diagnostics: module.diagnostics };
+}
+
+/**
+ * The same value, written inside the element that uses it rather than in a file of its own.
+ *
+ * Standing alone or nested changes nothing about what an element says, so both go through the
+ * same walk and the same writer. `room` is what the surrounding line already spends.
+ */
+export function emitConfigValue(
+  element: SncElement,
+  shape: ConfigShape,
+  module: TsModule,
+  context: EmitContext,
+  room = 0,
+): string {
+  return text(emitObject(element, shape, module, context), '', room);
 }
 
 /** A value on its way to the generated file: one expression, an object, or a list of either. */
@@ -73,6 +92,19 @@ function emitObject(element: SncElement, shape: ConfigShape, module: TsModule, c
   const attributes = new Map<string, string>();
   readAttributes(element, shape, attributes, module, context);
   for (const [key, code] of attributes) entries.set(key, { code });
+  for (const field of shape.fields) {
+    if (field.required && !element.attributes.has(field.name)) {
+      module.report(
+        at(
+          element,
+          'missing-attribute',
+          // A list's spelling is the one thing "…" does not show: `curve="[1, 0.5, 0]"`.
+          `<${element.tag}> requires "${field.name}" — it has no default, so write it: ` +
+            `${field.name}="${field.shape === 'array' ? `[${exampleEntries(field)}]` : '…'}".`,
+        ),
+      );
+    }
+  }
 
   const lists = new Map<string, Value[]>();
   for (const child of element.children) {
@@ -102,6 +134,9 @@ function emitObject(element: SncElement, shape: ConfigShape, module: TsModule, c
 }
 
 function unknownElement(tag: string, owner: string, shape: ConfigShape): string {
+  // `<Curve>` inside `<SizeOverLifetime>`, whose `curve` is an attribute: a value written as a child.
+  const field = shape.fields.find((f) => f.name.toLowerCase() === tag.toLowerCase());
+  if (field) return `<${tag}> is the attribute ${field.name} of <${owner}> — write ${field.name}="…" on <${owner}>.`;
   const offered = [...shape.groups.values(), ...shape.lists.values()].map((s) => s.name);
   const suggestion = nearestName(tag, offered);
   if (suggestion) return `<${tag}> is not part of <${owner}>. Did you mean <${suggestion}>?`;
@@ -135,47 +170,30 @@ function fieldFor(
 }
 
 /**
- * Render a value, indented as the module is.
+ * Render a value as an expression, wrapping only where it has to.
  *
  * A small leaf stays on its line — `{ count: 10, time: 0 }` is one thing to read, and spreading
- * it over four lines buries the document's actual structure in punctuation. Anything longer, or
- * with something nested inside it, opens up.
+ * it over four lines buries the document's structure in punctuation. Anything longer opens up.
+ * `indent` is where wrapped lines start; `room` is what the surrounding line already spends, so
+ * the choice is made against the line as it will be written.
  */
-function write(module: TsModule, prefix: string, value: Value, suffix: string): void {
-  if ('code' in value) {
-    module.line(`${prefix}${value.code}${suffix}`);
-    return;
-  }
+function text(value: Value, indent: string, room: number): string {
+  if ('code' in value) return value.code;
+
   const inline = flat(value);
-  if (inline !== undefined && prefix.length + inline.length + suffix.length <= 92) {
-    module.line(`${prefix}${inline}${suffix}`);
-    return;
-  }
+  if (inline !== undefined && indent.length + room + inline.length <= 92) return inline;
+
+  const inner = `${indent}  `;
   if ('object' in value) {
-    if (value.object.length === 0) {
-      module.line(`${prefix}{}${suffix}`);
-      return;
-    }
-    module.block(
-      `${prefix}{`,
-      () => {
-        for (const [key, entry] of value.object) write(module, `${key}: `, entry, ',');
-      },
-      `}${suffix}`,
+    if (value.object.length === 0) return '{}';
+    const entries = value.object.map(
+      ([key, entry]) => `${inner}${key}: ${text(entry, inner, key.length + 3)},`,
     );
-    return;
+    return `{\n${entries.join('\n')}\n${indent}}`;
   }
-  if (value.list.length === 0) {
-    module.line(`${prefix}[]${suffix}`);
-    return;
-  }
-  module.block(
-    `${prefix}[`,
-    () => {
-      for (const entry of value.list) write(module, '', entry, ',');
-    },
-    `]${suffix}`,
-  );
+  if (value.list.length === 0) return '[]';
+  const entries = value.list.map((entry) => `${inner}${text(entry, inner, 1)},`);
+  return `[\n${entries.join('\n')}\n${indent}]`;
 }
 
 /** Read every attribute of an element against a shape's fields. */
@@ -201,7 +219,8 @@ function readAttributes(
       );
       continue;
     }
-    const emitted = emitValue(field, text, element, context);
+    const sibling = (name: string) => shape.fields.find((f) => f.name === name);
+    const emitted = emitValue(field, text, element, { ...context, attribute: sibling });
     module.reportAll(emitted.diagnostics);
     if (emitted.code) out.set(attribute, emitted.code);
   }

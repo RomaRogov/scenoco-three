@@ -138,3 +138,21 @@ describe('prefabs are structural', () => {
     expect(crate.scale.x).toBe(0.5);
   });
 });
+
+describe('instantiate', () => {
+  it('keeps to three overloads, so tsc names the real mistake', async () => {
+    // Past three, tsc reports only the last overload's complaint: an `overrides` key a node copy
+    // does not take came back as "not assignable to Component", twice in a row for one model.
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(new URL('../../packages/core/src/runtime/augment/prefabs.ts', import.meta.url), 'utf8');
+    const declared = source.slice(0, source.indexOf('const proto')).match(/^\s{4}instantiate[<(]/gm) ?? [];
+    expect(declared).toHaveLength(3);
+
+    const scene = new Scene();
+    const copy = scene.instantiate(new Mesh());
+    const typed: Mesh = copy;
+    // @ts-expect-error — a node copy takes placement only.
+    scene.instantiate(new Mesh(), { overrides: {} });
+    expect(typed).toBeInstanceOf(Mesh);
+  });
+});

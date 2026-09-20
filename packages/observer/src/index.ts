@@ -6,7 +6,7 @@
  * outline, screenshot, telemetry, play/pause/stop, simulate. `simulate`'s `eval` step is the
  * one thing with hands, and its hands reach the running scene only.
  */
-export { startProjectServer, type ServerOptions, type ProjectServer } from './server.js';
+export { depCacheDir, startProjectServer, type ServerOptions, type ProjectServer } from './server.js';
 export { openScenePage, type BrowserOptions, type ScenePage } from './browser.js';
 export { createMcpServer, startMcpHttp, startMcpStdio } from './mcp.js';
 export type { ObserverCommand, ObserverResult, PreviewFrame, SimStep } from './protocol.js';

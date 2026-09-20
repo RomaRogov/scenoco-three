@@ -5,9 +5,8 @@ import { Brick } from './Brick.js';
 /**
  * A wall of bricks, laid out from a map.
  *
- * A level used to be one `<Prefab>` element per brick — thirty near-identical lines whose only
- * differences were two numbers, with the readable version of the same thing sitting above them
- * in a comment. This is that comment, promoted to the data it always was:
+ * One `<Prefab>` element per brick would be thirty near-identical lines differing in two numbers.
+ * The map is the readable version of the same thing, and it is the data:
  *
  * ```xml
  * <Group position="y: 13.9">

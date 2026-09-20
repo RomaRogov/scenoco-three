@@ -23,8 +23,8 @@ import {
   SceneManager,
   System,
   Time,
-  type Axis,
-  type Button,
+  type AxisName,
+  type ButtonName,
   type PrefabType,
   type SceneType,
 } from '@scenoco-three/core';
@@ -136,7 +136,15 @@ export class ObserverSession {
     if (!SceneClass && !PrefabClass) throw new Error(`${url} exports no scene or prefab class`);
 
     this.sceneClass = SceneClass ?? stageFor(PrefabClass!);
-    await SceneManager.load(this.sceneClass);
+    try {
+      await SceneManager.load(this.sceneClass);
+    } catch (error) {
+      // A load that threw left nothing behind, and a remembered class made every later call wait
+      // five seconds and report the scene "still loading". Say it failed, and that nothing is open.
+      this.sceneClass = null;
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`the scene failed to load: ${reason} — nothing is open; fix it and \`open\` again`);
+    }
     this.resize(); // the scene's camera only exists now, and it is the one play mode renders through
 
     // One draw to make the scene's render settings current — which is what asks for the post
@@ -347,6 +355,23 @@ export class ObserverSession {
    *
    * The observer's own camera is not the engine's business, so it is handled here.
    */
+  /**
+   * Run at the size of a call's frame. The observer sized the page to it before asking, so the
+   * game itself is that size — its camera's aspect, its UI's layout, where a click lands — and a
+   * shot is the canvas as it stands. A frame is a window size, not a picture size: a 390×844 call
+   * is the game on a phone, not a phone-shaped crop of the desktop game.
+   */
+  fit(frame: PreviewFrame): void {
+    if (innerWidth !== frame.width || innerHeight !== frame.height) {
+      throw new Error(`internal: the page is ${innerWidth}×${innerHeight}, not the ${frame.width}×${frame.height} asked for`);
+    }
+    const buffer = this.renderer.domElement;
+    if (buffer.width === frame.width && buffer.height === frame.height) return;
+    this.resize();
+    // A UI lays out against the size it last saw, so it catches up before anything is read or shot.
+    for (const system of this.scene?.systems ?? []) system.layout?.(0);
+  }
+
   resize(): void {
     this.engine.resize();
     const { clientWidth: w, clientHeight: h } = this.canvas;
@@ -401,41 +426,38 @@ export class ObserverSession {
    * A capture camera rather than the observer's own: a shot must not move what anyone watching
    * keyboard is looking at, and two shots of the same run have to be comparable.
    */
-  preview(frame: PreviewFrame, at: string, lookAt?: string, fov?: number): string {
+  preview(frame: PreviewFrame, at: string | undefined, lookAt?: string, fov?: number): string {
     const scene = this.scene;
     if (!scene) throw new Error('no scene is open');
     if (!this.scene) throw new Error('no scene is open');
 
-    const usingScene = frame.ui && this.scene.mainCamera;
+    // No viewpoint: exactly what the player sees — the game camera where the game left it, HUD
+    // and all. Every other shot is aimed by the caller, so a game camera pointed at nothing went
+    // unseen through three whole builds; this is the shot that shows it.
+    if (at !== undefined && at.trim() === '') {
+      throw new Error('cameraPos is empty — leave it out for exactly what the player sees, or give a point: "y: 6; z: 12"');
+    }
+    const asPlayer = at === undefined;
+    if (asPlayer && !this.scene.mainCamera) {
+      throw new Error('the scene has no camera to look through — give cameraPos to aim a shot');
+    }
+    const usingScene = (frame.ui || asPlayer) && this.scene.mainCamera;
+    const { clientWidth: width, clientHeight: height } = this.canvas;
     const camera = usingScene
       ? (this.scene.mainCamera as PerspectiveCamera)
-      : new PerspectiveCamera(50, frame.width / frame.height, 0.1, 2000);
+      : new PerspectiveCamera(50, width / Math.max(height, 1), 0.1, 2000);
 
     const previous = {
       position: camera.position.clone(),
       quaternion: camera.quaternion.clone(),
-      aspect: camera.aspect,
       fov: camera.fov,
     };
-    const eye = anchoredPoint(scene, at);
-    if (!eye) throw new Error(`cameraPos="${at}" is not a point — write "y: 6; z: 12", or "#player y: 6; z: 8"`);
-    const target = (lookAt ? anchoredPoint(scene, lookAt) : undefined) ?? new Vector3();
-    camera.position.copy(eye);
-    camera.lookAt(target);
-    // Always, including the scene's own camera: it is framed for the observer's viewport, and
-    // rendering it into a differently-shaped buffer stretches everything in the shot.
-    const aspect = frame.width / frame.height;
-    camera.aspect = aspect;
-    // A `<Canvas>` is a plane parented to the game camera, placed and scaled to fill exactly that
-    // camera's frustum at *its* field of view. Relensing the camera for the shot leaves the plane
-    // where it was, so the HUD comes back cropped or missing — a picture of a broken HUD that is
-    // not broken, which is the worst thing a capture can return. The two cannot both be honoured,
-    // so say which one to drop rather than answering with the wrong one.
-    if (usingScene && fov !== undefined && fov !== camera.fov) {
-      throw new Error(
-        `ui: true shows what the player sees, through the game camera's own lens (fov ${camera.fov}). ` +
-          `Drop fov to keep the UI, or drop ui to frame the world with fov ${fov}.`,
-      );
+    if (!asPlayer) {
+      const eye = anchoredPoint(scene, at!);
+      if (!eye) throw new Error(`cameraPos="${at}" is not a point — write "y: 6; z: 12", or "#player y: 6; z: 8"`);
+      const target = (lookAt ? anchoredPoint(scene, lookAt) : undefined) ?? new Vector3();
+      camera.position.copy(eye);
+      camera.lookAt(target);
     }
     // How wide the lens is, optionally — a vertical field of view in degrees, which is what a
     // perspective camera has always had. Nothing here derives it: every earlier attempt to work
@@ -444,23 +466,29 @@ export class ObserverSession {
     if (fov !== undefined) camera.fov = fov;
     camera.updateProjectionMatrix();
 
-    // Buffer *and* effect chain move together, or the post passes run at the wrong scale. The
-    // canvas is read while it is still that size, then everything goes back.
-    const { width, height } = this.renderer.domElement;
-    this.engine.setFrameSize(frame.width, frame.height);
+    // Bring presentation up to the state as it is *now*. A UI lays out once per tick, so a step
+    // that changed something since — an `eval` that showed the end panel — was captured as the
+    // frame before it: the panel reported active and the picture showed nothing. Layout simulates
+    // nothing, so it is safe at any moment.
+    //
+    // It is also what makes `ui` and `fov` go together. A `<Canvas>` is a plane on the game camera,
+    // sized to fill that camera's frustum at its field of view, and it re-reads the fov when it
+    // lays out: laid out after the relens, it fills the new frustum rather than the old one.
+    for (const system of scene.systems) system.layout?.(0);
+    // The canvas is the frame — see `fit` — so the shot is the canvas as it stands.
     this.engine.renderScene(this.scene, camera);
     const dataUrl = this.canvas.toDataURL('image/png');
-    this.engine.setFrameSize(width, height);
 
     // Put the camera back: a capture is an observation, and an observation that moves the thing
     // it observed is not one.
     camera.position.copy(previous.position);
     camera.quaternion.copy(previous.quaternion);
-    camera.aspect = previous.aspect;
     // `fov` too, now that a capture may set it: with `ui` on, this is the scene's own camera,
     // and a shot that quietly relensed it would be the observation changing the thing observed.
     camera.fov = previous.fov;
     camera.updateProjectionMatrix();
+    // And the UI back onto the camera's own lens, so the game goes on with the HUD it had.
+    if (usingScene && fov !== undefined) for (const system of scene.systems) system.layout?.(0);
     return dataUrl;
   }
 
@@ -634,26 +662,53 @@ export class ObserverSession {
   async evaluate(code: string): Promise<unknown> {
     const scene = this.scene;
     if (!scene) throw new Error('no scene is open');
-    const findAll = (typeName: string): Component[] => {
+    // A component by its class or its class's name — the classes are in scope too, and
+    // `system(Game)` once answered null for a class it would have found by "Game". `id` narrows the
+    // search to one node and what is under it: `find(Button, "start")` is the Button on #start.
+    const matches = (value: object, type: string | Function): boolean =>
+      typeof type === 'function' ? value instanceof type : value.constructor.name === type;
+    const findAll = (type: string | Function, id?: string): Component[] => {
       const found: Component[] = [];
-      scene.traverse((node) => {
+      const root = id === undefined ? scene : scene.byId(id);
+      if (!root) throw new Error(`no node has id "${id}"`);
+      root.traverse((node) => {
         for (const component of node.components) {
-          if (component.constructor.name === typeName) found.push(component);
+          if (matches(component, type)) found.push(component);
         }
       });
       return found;
     };
-    const find = (typeName: string): Component | null => findAll(typeName)[0] ?? null;
-    const system = (typeName: string): System | null =>
-      scene.systems.find((candidate) => candidate.constructor.name === typeName) ?? null;
+    const find = (type: string | Function, id?: string): Component | null => findAll(type, id)[0] ?? null;
+    const system = (type: string | Function): System | null =>
+      scene.systems.find((candidate) => matches(candidate, type)) ?? null;
     const byId = (path: string): Object3D | Component | null => scene.byId(path);
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
       ...args: string[]
     ) => (...args: unknown[]) => Promise<unknown>;
-    const body = new AsyncFunction(
-      'scene', 'byId', 'find', 'findAll', 'system', 'Time', 'Input', 'SceneManager', 'THREE', code,
-    );
-    return plain(await body(scene, byId, find, findAll, system, Time, Input, SceneManager, THREE));
+    const given: Record<string, unknown> = { scene, byId, find, findAll, system, Time, Input, SceneManager, THREE };
+    // And every component and system class the scene is running, by its own name, so a snippet
+    // is written as game code is — `byId('start', Button)`, `getComponent(Core)` — rather than in
+    // a dialect of its own.
+    const classes = { ...classesIn(scene) };
+    for (const name of Object.keys(given)) delete classes[name];
+    const scope = { ...classes, ...given };
+    // The snippet runs one function in, so its own `const Core = …` shadows a class given here
+    // rather than failing as "Identifier 'Core' has already been declared".
+    const body = new AsyncFunction(...Object.keys(scope), `return (async () => {\n${code}\n})();`);
+    try {
+      return plain(await body(...Object.values(scope)));
+    } catch (error) {
+      // A class only inside a prefab is not here until one is spawned, and "Core is not defined"
+      // says nothing about where classes come from — or that its name always works.
+      const missing = error instanceof ReferenceError ? /^(\w+) is not defined/.exec(error.message)?.[1] : undefined;
+      if (missing && error instanceof Error) {
+        error.message +=
+          ` — eval has the classes the scene is running: ${Object.keys(classes).join(', ') || 'none yet'}.` +
+          ` One that lives only inside a prefab arrives with the first spawn; by name it always works:` +
+          ` find("${missing}"), findAll("${missing}").`;
+      }
+      throw error;
+    }
   }
 
   /** Run a batch of steps in order, collecting whatever each one produced. */
@@ -705,6 +760,10 @@ export class ObserverSession {
           Input.setButton(buttonNamed(step.button), null);
           break;
         case 'click':
+          // A mouse arrives before it presses. What was under the pointer is decided on a move,
+          // so a click at a new point with no move before it pressed whatever the pointer last
+          // hovered — a button clicked from across the screen never heard it.
+          this.pointer('pointermove', step.x, step.y);
           this.pointer('pointerdown', step.x, step.y, step.button);
           this.pointer('pointerup', step.x, step.y, step.button);
           break;
@@ -714,7 +773,8 @@ export class ObserverSession {
         case 'preview':
           out.push({
             kind: 'image',
-            value: this.preview(frame, step.cameraPos, step.lookAt, step.fov),
+            // `ui` on the step answers for that shot; the batch's is the default.
+            value: this.preview(step.ui === undefined ? frame : { ...frame, ui: step.ui }, step.cameraPos, step.lookAt, step.fov),
           });
           break;
         case 'telemetry':
@@ -772,6 +832,10 @@ export class ObserverSession {
     window.dispatchEvent(new KeyboardEvent(type, { code, key: name, bubbles: true }));
   }
 
+  /**
+   * A pointer event at `x, y` in canvas pixels — which are the pixels of every shot, since the
+   * canvas is the frame (see `fit`).
+   */
   private pointer(type: string, x?: number, y?: number, button?: 'left' | 'right' | 'middle'): void {
     const rect = this.canvas.getBoundingClientRect();
     this.canvas.dispatchEvent(
@@ -871,13 +935,13 @@ export function anchoredPoint(scene: Scene, text: string): Vector3 | undefined {
  * exists, because a step that silently drives nothing is a batch that reads as "the game ignores
  * input" when the truth is a typo.
  */
-function axisNamed(name: string): Axis {
-  if ((AXIS_NAMES as readonly string[]).includes(name)) return name as Axis;
+function axisNamed(name: string): AxisName {
+  if ((AXIS_NAMES as readonly string[]).includes(name)) return name as AxisName;
   throw new Error(`axis="${name}" is not an input axis. There is: ${AXIS_NAMES.join(', ')}`);
 }
 
-function buttonNamed(name: string): Button {
-  if ((BUTTON_NAMES as readonly string[]).includes(name)) return name as Button;
+function buttonNamed(name: string): ButtonName {
+  if ((BUTTON_NAMES as readonly string[]).includes(name)) return name as ButtonName;
   throw new Error(`button="${name}" is not an input button. There is: ${BUTTON_NAMES.join(', ')}`);
 }
 
@@ -1008,4 +1072,24 @@ function key(): DirectionalLight {
   const light = new DirectionalLight(0xffffff, 2);
   light.position.set(3, 5, 4);
   return light;
+}
+
+/**
+ * The component and system classes a live scene is running, by class name — the names a snippet
+ * reaches for. A name two classes share is left out rather than guessed between.
+ */
+function classesIn(scene: Scene): Record<string, Function> {
+  const byName = new Map<string, Function | null>();
+  const note = (type: Function): void => {
+    const name = type.name;
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) return;
+    const known = byName.get(name);
+    if (known === undefined) byName.set(name, type);
+    else if (known !== type) byName.set(name, null);
+  };
+  scene.traverse((node) => {
+    for (const component of node.components) note(component.constructor);
+  });
+  for (const system of scene.systems) note(system.constructor);
+  return Object.fromEntries([...byName].filter((entry): entry is [string, Function] => entry[1] !== null));
 }

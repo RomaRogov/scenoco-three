@@ -1,6 +1,6 @@
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Scene, Vector3 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Component, SceneManager } from '@scenoco-three/core';
+import { Component, Event, SceneManager } from '@scenoco-three/core';
 import { Clock, resetEngine, sceneOf } from './helpers.js';
 
 afterEach(resetEngine);
@@ -130,8 +130,14 @@ describe('prefabs', () => {
     expect(scene.byId('crate2', Crate)!.scale.x).toBe(3);
     expect(scene.byId('crate1')).not.toBe(scene.byId('crate2'));
     expect(scene.byId('nothing')).toBeNull();
-    // Typed by the class you pass: the wrong class is null, not a cast that lies.
-    expect(scene.byId('crate1', Rotator)).toBeNull();
+    // Three's numeric `object.id` is not a document id; say so rather than fail inside.
+    expect(() => scene.byId(92 as never)).toThrow("byId takes the id a document or instantiate() gave");
+    // Typed by the class you pass: a component class is that node's component, as a `#id` slot
+    // is; a class it does not carry is null, not a cast that lies.
+    expect(scene.byId('crate1', Rotator)).toBe(scene.byId('crate1')!.getComponent(Rotator));
+    class Absent extends Component {}
+    expect(scene.byId('crate1', Absent)).toBeNull();
+    expect(scene.byId('crate1', Group)).toBeNull();
   });
 
   it('reaches a prefab\'s own ids through the instance', async () => {
@@ -185,9 +191,97 @@ describe('prefabs', () => {
     expect(old.isDestroyed).toBe(true);
   });
 
+  it('answers to its id from inside configure, where the instance is set up', async () => {
+    // `instantiate(P, { id }, (n) => …)` then `byId(id)` in the same breath: the id is the scene's
+    // from the moment it is given, not only after the node is added.
+    let seen: Object3D | null = null;
+    let instance!: Crate;
+    await SceneManager.load(sceneOf((scene) => {
+      instance = scene.instantiate(Crate, { id: 'crate9' }, () => {
+        seen = scene.byId('crate9');
+      });
+    }));
+    expect(seen).toBe(instance);
+  });
+
   it('refuses an init key the prefab does not declare', () => {
     const parent: Object3D = new Group();
     // @ts-expect-error — `colour` is not a field of Crate.
     parent.instantiate(Crate, { colour: 'red' });
+  });
+});
+
+/**
+ * `instantiate(node)` — Unity's `Instantiate(original)`: a copy of something already in the scene,
+ * components and all, which is what a model reaches for when it keeps a template in the scene.
+ */
+describe('instantiating a node that already exists', () => {
+  class Target extends Component {}
+  const wakes: Component[] = [];
+  class Seeker extends Component {
+    speed = 1;
+    offset = new Vector3();
+    target: Target | null = null;
+    eye: Object3D | null = null;
+    elsewhere: Object3D | null = null;
+    readonly found = new Event<[]>();
+    private readonly seen = new Set<string>();
+    override awake() { wakes.push(this); this.seen.add('awake'); }
+    get seenCount() { return this.seen.size; }
+  }
+
+  async function template() {
+    let root!: Group;
+    let beacon!: Object3D;
+    const scene = await SceneManager.load(sceneOf((s) => {
+      beacon = new Group();
+      s.add(beacon);
+      root = new Group();
+      const eye = new Mesh(geometry, material);
+      root.add(eye);
+      s.add(root);
+      const target = eye.addComponent(Target);
+      root.addComponent(Seeker, { speed: 4, offset: new Vector3(1, 2, 3), target, eye, elsewhere: beacon });
+    }));
+    return { scene, root, beacon };
+  }
+
+  it('copies the subtree and its components, pointing inside references at the copy', async () => {
+    const { scene, root, beacon } = await template();
+    const copy = scene.instantiate(root, { position: new Vector3(5, 0, 0) });
+    const original = root.getComponent(Seeker)!;
+    const seeker = copy.getComponent(Seeker)!;
+
+    expect(seeker).not.toBe(original);
+    expect(seeker.speed).toBe(4);
+    expect(seeker.offset).toEqual(new Vector3(1, 2, 3));
+    expect(seeker.offset).not.toBe(original.offset);
+    expect(seeker.eye).toBe(copy.children[0]);
+    expect(seeker.target).toBe(copy.children[0]!.getComponent(Target));
+    expect(seeker.elsewhere).toBe(beacon); // outside the copied subtree: kept
+    expect(seeker.found).not.toBe(original.found);
+    expect(wakes.filter((c) => c === seeker)).toHaveLength(1); // woke once, after the values were in
+    expect(seeker.seenCount).toBe(1); // its own Set, not the original's
+    expect(copy.position.x).toBe(5);
+    expect(copy.parent).toBe(scene);
+  });
+
+  it('copies a whole node from one of its components, and returns that component’s copy', async () => {
+    const { scene, root } = await template();
+    const seeker = scene.instantiate(root.getComponent(Seeker)!);
+    expect(seeker).toBeInstanceOf(Seeker);
+    expect(seeker.object3D).not.toBe(root);
+    expect(seeker.object3D.children).toHaveLength(1);
+  });
+
+  it('gives an inactive template an inactive copy, as Unity does', async () => {
+    const { scene, root } = await template();
+    root.setActive(false);
+    root.getComponent(Seeker)!.enabled = false;
+    const copy = scene.instantiate(root);
+    expect(copy.activeSelf).toBe(false);
+    expect(copy.getComponent(Seeker)!.enabled).toBe(false);
+    copy.setActive(true);
+    expect(copy.activeInHierarchy).toBe(true);
   });
 });

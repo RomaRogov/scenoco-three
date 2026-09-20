@@ -78,8 +78,8 @@ export function teardownComponent(component: Component, runtime: SceneRuntime | 
   component._pendingDestroy = true;
 
   component.stopAllCoroutines();
-  if (component._active) {
-    component._active = false;
+  if (component._isActive) {
+    component._isActive = false;
     callOnDisable(component);
   }
   callOnDestroy(component);
@@ -180,7 +180,7 @@ export class SceneRuntime {
     const found: Component[] = [];
     root.traverse((object) => {
       object._runtime = this;
-      object._activeInHierarchy = object._active && (object.parent?._activeInHierarchy ?? true);
+      object._activeInHierarchy = object._isActive && (object.parent?._activeInHierarchy ?? true);
       // A prefab that never went through `instantiate` never built itself, and an empty node
       // that renders nothing is a miserable thing to debug visually.
       if (object.onLoad && !object._built) {
@@ -254,7 +254,7 @@ export class SceneRuntime {
 
   /**
    * Queue a component for destruction at the end of the frame. It stops ticking at once;
-   * `_active` is left alone so `teardownComponent` still knows to fire `onDisable`.
+   * `_isActive` is left alone so `teardownComponent` still knows to fire `onDisable`.
    */
   remove(component: Component): void {
     if (component._state === ComponentState.Destroyed || component._pendingDestroy) return;
@@ -366,8 +366,8 @@ export class SceneRuntime {
     }
 
     const shouldBeActive = live && component._enabled && component._state !== ComponentState.Created;
-    if (shouldBeActive === component._active) return;
-    component._active = shouldBeActive;
+    if (shouldBeActive === component._isActive) return;
+    component._isActive = shouldBeActive;
 
     if (shouldBeActive) {
       callOnEnable(component);
@@ -408,7 +408,7 @@ export class SceneRuntime {
       }
       const batch = this.pendingStart.splice(0, this.pendingStart.length);
       for (const component of batch) {
-        if (!component._active || component._pendingDestroy) continue;
+        if (!component._isActive || component._pendingDestroy) continue;
         if (component._state !== ComponentState.Awake) continue;
         component._state = ComponentState.Started;
         callStart(component);
@@ -481,7 +481,7 @@ export class SceneRuntime {
     const count = this.coroutineHosts.length;
     for (let i = 0; i < count; i++) {
       const host = this.coroutineHosts[i];
-      if (!host || !host._active || host._pendingDestroy) continue;
+      if (!host || !host._isActive || host._pendingDestroy) continue;
       const coroutines = host._coroutines;
       if (!coroutines || coroutines.length === 0) continue;
       for (let j = 0; j < coroutines.length; j++) {
@@ -585,7 +585,7 @@ const MAX_CASCADE = 16;
 /** A component ticks only once it is active, started, and not on its way out. */
 function canTick(component: Component): boolean {
   return (
-    component._active &&
+    component._isActive &&
     !component._pendingDestroy &&
     // `Started` gates every tick, not just `update`: without it a component created during
     // the update pass would receive `lateUpdate` before its own `start`.

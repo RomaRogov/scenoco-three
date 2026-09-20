@@ -4,8 +4,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { AXIS_NAMES, BUTTON_NAMES, type Axis, type Button } from '@scenoco-three/core';
-import type { ObserverCommand, ObserverResult, SimStep } from './protocol.js';
+
+/**
+ * A simulate step that refuses a key it does not have, rather than dropping it. `ui` written on a
+ * `preview` step was once stripped in silence, and a model concluded from a dozen HUD-less shots
+ * that text does not render.
+ */
+const strictStep = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+import { AXIS_NAMES, BUTTON_NAMES, type AxisName, type ButtonName } from '@scenoco-three/core';
+import { FRAME, type ObserverCommand, type ObserverResult, type SimStep } from './protocol.js';
 import type { ScenePage } from './browser.js';
 
 /** `Omit` over each member of a union, rather than over what the members share. */
@@ -57,8 +64,16 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
   // Every field has a default, so a first call needs nothing but a viewpoint. `ui` was required
   // once, and the first thing every agent did was fail on "expected boolean, received undefined".
   const frameSchema = {
-    width: z.number().int().positive().default(800).describe('Captured image width in pixels'),
-    height: z.number().int().positive().default(500).describe('Captured image height in pixels'),
+    width: z
+      .number()
+      .int()
+      .positive()
+      .default(FRAME.width)
+      .describe(
+        'Width of the window the game runs in for this call, in pixels — every shot is this size, and ' +
+          '`click` takes its pixels. Set width and height to try an aspect: 390×844 is the game on a phone',
+      ),
+    height: z.number().int().positive().default(FRAME.height).describe('Height of that window, in pixels'),
     ui: z
       .boolean()
       .default(false)
@@ -70,7 +85,13 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
     'optional offset, "#player" / "#player y: 6; z: 8", meaning that node\'s world position plus the offset';
 
   const viewpoint = {
-    cameraPos: z.string().describe(`Where to look from: ${POINT}`),
+    cameraPos: z
+      .string()
+      .optional()
+      .describe(
+        `Where to look from: ${POINT}. Omit it for exactly what the player sees — the game camera ` +
+          'as the game has it, HUD included: the one shot that shows a camera aimed at nothing',
+      ),
     lookAt: z.string().optional().describe(`What to look at: ${POINT}. Defaults to the origin`),
     fov: z
       .number()
@@ -78,8 +99,8 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
       .optional()
       .describe(
         'Vertical field of view in degrees — smaller is more zoomed in. Try 20 to look closely ' +
-          'and 90 to take in a whole arena. Omit to keep the camera’s own. Not with `ui`: a UI ' +
-          'capture is what the player sees, through the game camera’s lens.',
+          'and 90 to take in a whole arena. Omit to keep the camera’s own. With `ui` the HUD is laid ' +
+          'out again for the lens, so it stays whole.',
       ),
   };
 
@@ -181,14 +202,20 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
         steps: z
           .array(
             z.discriminatedUnion('do', [
-              z.object({ do: z.literal('play') }).describe('Start the scene running in real time'),
-              z.object({ do: z.literal('pause') }).describe('Hold the scene where it is'),
-              z.object({ do: z.literal('stop') }).describe('Reset the scene to its authored state'),
-              z
-                .object({
+              strictStep({ do: z.literal('play') }).describe('Start the scene running in real time'),
+              strictStep({ do: z.literal('pause') }).describe('Hold the scene where it is'),
+              strictStep({ do: z.literal('stop') }).describe('Reset the scene to its authored state'),
+              strictStep({
                   do: z.literal('step'),
                   frames: z.number().int().positive().optional().describe('Ticks to advance (default 1)'),
-                  dt: z.number().positive().optional().describe('Seconds per tick (default 1/60)'),
+                  dt: z
+                    .number()
+                    .positive()
+                    .optional()
+                    .describe(
+                      'Seconds per tick (default 1/60). Like any frame, capped at Time.maximumDeltaTime ' +
+                        '(1/6 s): to skip ahead, ask for more frames, not a longer one',
+                    ),
                 })
                 .describe(
                   'Advance the scene by exact frames. After `pause` this is fully deterministic, ' +
@@ -196,15 +223,14 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
                     'passes as well.',
                 ),
               ...(['press', 'keyDown', 'keyUp'] as const).map((verb) =>
-                z.object({
+                strictStep({
                   do: z.literal(verb),
                   key: z.string().describe('A KeyCode member name — "W", "Space", "LeftArrow"'),
                 }),
               ),
-              z
-                .object({
+              strictStep({
                   do: z.literal('axis'),
-                  axis: z.enum(AXIS_NAMES as [Axis, ...Axis[]]).describe('A Unity input axis'),
+                  axis: z.enum(AXIS_NAMES as [AxisName, ...AxisName[]]).describe('A Unity input axis'),
                   value: z
                     .number()
                     .nullable()
@@ -216,29 +242,37 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
                     'the only way to reach code written for a joystick.',
                 ),
               ...(['button', 'buttonDown', 'buttonUp'] as const).map((verb) =>
-                z.object({
+                strictStep({
                   do: z.literal(verb),
-                  button: z.enum(BUTTON_NAMES as [Button, ...Button[]]).describe('A Unity input button'),
+                  button: z.enum(BUTTON_NAMES as [ButtonName, ...ButtonName[]]).describe('A Unity input button'),
                 }),
               ),
-              z.object({
+              strictStep({
                 do: z.literal('click'),
-                x: z.number().optional().describe('Canvas-relative pixels from the left'),
-                y: z.number().optional().describe('Canvas-relative pixels from the top'),
+                x: z
+                  .number()
+                  .optional()
+                  .describe(`Pixels from the left, as in this call's shots — ${FRAME.width} across unless width is set`),
+                y: z
+                  .number()
+                  .optional()
+                  .describe(`Pixels from the top, as in this call's shots — ${FRAME.height} down unless height is set`),
                 button: z.enum(['left', 'right', 'middle']).optional(),
               }),
-              z.object({
+              strictStep({
                 do: z.literal('move'),
                 x: z.number().optional(),
                 y: z.number().optional(),
                 dx: z.number().optional(),
                 dy: z.number().optional(),
               }),
-              z
-                .object({ do: z.literal('preview'), ...viewpoint })
-                .describe('Capture a PNG. Size and UI come from this call, not the step.'),
-              z
-                .object({
+              strictStep({
+                  do: z.literal('preview'),
+                  ...viewpoint,
+                  ui: z.boolean().optional().describe('Include the UI in this shot; the call’s `ui` otherwise'),
+                })
+                .describe('Capture a PNG. Size comes from this call; UI from the call, or from this step.'),
+              strictStep({
                   do: z.literal('telemetry'),
                   id: z
                     .string()
@@ -248,15 +282,13 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
                     ),
                 })
                 .describe('Sample a node and its components, or a component, by id'),
-              z
-                .object({
+              strictStep({
                   do: z.literal('outline'),
                   id: z.string().optional().describe('Start at this node instead of the scene root'),
                   depth: z.number().int().positive().optional().describe('Levels to show (default 4)'),
                 })
                 .describe('The scene, or the subtree under `id`, as text — what changed, exactly'),
-              z
-                .object({
+              strictStep({
                   do: z.literal('eval'),
                   code: z
                     .string()
@@ -264,11 +296,13 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
                 })
                 .describe(
                   'Set up or read a situation in JavaScript. In scope: `scene`, `byId(path)`, ' +
-                    '`find(TypeName)` and `findAll(TypeName)` (components, by class name), ' +
-                    '`system(TypeName)`, `Time`, `Input`, `SceneManager`, `THREE`. Whatever you ' +
+                    'every component and system class the scene runs, by its name, ' +
+                    '`find(Type, id?)` and `findAll(Type, id?)` (components by class or class name, ' +
+                    'under the node `id` when given — `find(Button, "start")`), ' +
+                    '`system(Type)`, `Time`, `Input`, `SceneManager`, `THREE`. Whatever you ' +
                     '`return` comes back as JSON. e.g. `byId("player").position.set(0, 1, 5)` — ' +
-                    '`return findAll("Slime").map(s => s.object3D.position.toArray())` — ' +
-                    '`return system("GameState").score`. It touches only the running scene, ' +
+                    '`return findAll(Slime).map(s => s.object3D.position.toArray())` — ' +
+                    '`return system(GameState).score`. It touches only the running scene, ' +
                     'never a file, and `stop` discards all of it.',
                 ),
             ]),

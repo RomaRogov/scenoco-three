@@ -266,16 +266,18 @@ class SceneManagerClass {
 /**
  * Check that this scene is one core augmented, and say what it means when it is not.
  *
- * The augmentation patches the prototypes of *one* `three`. A project that resolves two copies
- * builds its scenes from the other one, and every symptom after this point — `load is not a
- * function`, a scene that ticks nothing — points anywhere but at the cause.
+ * The augmentation patches the prototypes of *one* `three`, from modules that export nothing. Two
+ * things leave a scene without it: a second copy of three, or a bundler that dropped those modules
+ * as unused. Every symptom after this point — `load is not a function`, a scene that ticks
+ * nothing — points anywhere but at either, so both are named.
  */
 function requireAugmented(scene: Scene): void {
   if (typeof scene.load === 'function') return;
   throw new Error(
-    `[scenoco] ${scene.constructor.name} was built from a different copy of three.js than the ` +
-      'one @scenoco-three/core augmented, so it has none of the engine on it. Check for a ' +
-      'duplicate `three` in node_modules — core declares it as a peer dependency for this reason.',
+    `[scenoco] ${scene.constructor.name} has none of the engine on it: @scenoco-three/core's ` +
+      'additions to three.js never reached it. Either the project resolves a second `three` ' +
+      '(core declares it as a peer dependency for this reason), or a bundler dropped core as ' +
+      'free of side effects — its package.json must say `"sideEffects": true`.',
   );
 }
 

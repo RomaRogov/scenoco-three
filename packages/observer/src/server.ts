@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +35,19 @@ export interface ProjectServer {
 }
 
 const appRoot = fileURLToPath(new URL('../app', import.meta.url));
+
+/**
+ * Where the dependency bundles for one project live.
+ *
+ * Per project, because Vite keys its cache to *its* root and this server's root is the observer's
+ * own page — the same directory whatever project is being served. One cache for all of them meant
+ * the bundle optimized for the last project was handed to the next, which then answered 504 for a
+ * dependency it needed and nothing ever re-bundled it.
+ */
+export function depCacheDir(root: string): string {
+  const name = createHash('sha1').update(resolve(root)).digest('hex').slice(0, 12);
+  return join(appRoot, '..', 'node_modules', '.vite', `project-${name}`);
+}
 
 /**
  * The dev server behind the observer's page.
@@ -89,6 +103,8 @@ export async function startProjectServer(options: ServerOptions = {}): Promise<P
     },
     // One `three` across the page and the project, or `instanceof` quietly fails.
     resolve: { dedupe: ['three'] },
+    // One cache per project — see `depCacheDir`.
+    cacheDir: depCacheDir(root),
     optimizeDeps: {
       // Crawl the project's generated modules too, so every tag package a document imports is
       // optimized before the page loads. Discovered late, Vite re-optimizes and reloads, and the

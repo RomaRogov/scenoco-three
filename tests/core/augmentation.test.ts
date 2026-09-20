@@ -55,11 +55,11 @@ describe('the Object3D augmentation', () => {
 
   it('adds the surface the engine is written against', () => {
     expect(added(before.object3D, after.object3D)).toEqual([
-      '_active',
       '_activeInHierarchy',
       '_built',
       '_components',
       '_destroyed',
+      '_isActive',
       '_pendingDestroy',
       '_runtime',
       'activeInHierarchy',

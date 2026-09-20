@@ -1,6 +1,7 @@
 import { Plus, Trash2, X } from 'lucide-react';
-import type { DocumentShape } from '@scenoco-three/compiler';
-import type { ConfigDocument, ConfigNode } from '../config.js';
+import type { DocumentShape, PropInfo } from '@scenoco-three/compiler';
+import type { ConfigDocument } from '../config.js';
+import type { ConfigHost, ConfigNode } from '../configTree.js';
 import type { Scalar } from '../values.js';
 import { getDeps, useUI } from './store.js';
 import { cx } from './cx.js';
@@ -64,7 +65,7 @@ function Body({ config }: { config: ConfigDocument }): React.JSX.Element {
   }
   return (
     <div className={styles.inspector}>
-      <Element config={config} node={root} title={root.name} />
+      <ElementForm config={config} node={root} title={root.name} />
     </div>
   );
 }
@@ -75,19 +76,19 @@ function Body({ config }: { config: ConfigDocument }): React.JSX.Element {
  * A group field takes one child, so it is offered once and removable; a list field takes as many
  * as the document writes, so each is its own section and one more can always be added.
  */
-function Element({
+export function ElementForm({
   config,
   node,
   title,
   onRemove,
 }: {
-  config: ConfigDocument;
+  config: ConfigHost;
   node: ConfigNode;
   title: string;
   onRemove?: () => void;
 }): React.JSX.Element {
-  const written = node.shape.fields.filter((f) => config.value(node, f) !== undefined);
-  const rest = node.shape.fields.filter((f) => config.value(node, f) === undefined);
+  const written = node.shape.fields.filter((f: PropInfo) => config.value(node, f) !== undefined);
+  const rest = node.shape.fields.filter((f: PropInfo) => config.value(node, f) === undefined);
 
   return (
     <Section
@@ -111,10 +112,10 @@ function Element({
           clear={() => config.setValue(node, prop, null)}
         />
       ))}
-      {Object.entries(node.shape.groups).map(([field, shape]) => (
+      {Object.entries(node.shape.groups).map(([field, shape]: [string, DocumentShape]) => (
         <Group key={field} config={config} node={node} shape={shape} repeatable={false} />
       ))}
-      {Object.entries(node.shape.lists).map(([field, shape]) => (
+      {Object.entries(node.shape.lists).map(([field, shape]: [string, DocumentShape]) => (
         <Group key={field} config={config} node={node} shape={shape} repeatable />
       ))}
     </Section>
@@ -128,7 +129,7 @@ function Group({
   shape,
   repeatable,
 }: {
-  config: ConfigDocument;
+  config: ConfigHost;
   node: ConfigNode;
   shape: DocumentShape;
   repeatable: boolean;
@@ -137,7 +138,7 @@ function Group({
   return (
     <>
       {children.map((child, index) => (
-        <Element
+        <ElementForm
           key={`${shape.name}:${child.at ? `${child.at.line}:${child.at.column}` : `+${index}`}`}
           config={config}
           node={child}

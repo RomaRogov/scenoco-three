@@ -51,11 +51,11 @@ export const MOUSE_AXES = ['Mouse X', 'Mouse Y', 'Mouse ScrollWheel'] as const;
 export const MOUSE_SENSITIVITY = 0.1;
 
 /** Every name {@link InputClass.getAxis} accepts. */
-export type Axis = keyof typeof AXES | (typeof MOUSE_AXES)[number];
+export type AxisName = keyof typeof AXES | (typeof MOUSE_AXES)[number];
 
 /** Every name {@link InputClass.getButton} accepts — pressed rather than pushed in a direction. */
-export type Button = Extract<Axis, 'Fire1' | 'Fire2' | 'Fire3' | 'Jump' | 'Submit' | 'Cancel'>;
+export type ButtonName = Extract<AxisName, 'Fire1' | 'Fire2' | 'Fire3' | 'Jump' | 'Submit' | 'Cancel'>;
 
 /** The names, for a diagnostic or a tool that lists them. */
-export const AXIS_NAMES: readonly Axis[] = [...Object.keys(AXES), ...MOUSE_AXES] as Axis[];
-export const BUTTON_NAMES: readonly Button[] = ['Fire1', 'Fire2', 'Fire3', 'Jump', 'Submit', 'Cancel'];
+export const AXIS_NAMES: readonly AxisName[] = [...Object.keys(AXES), ...MOUSE_AXES] as AxisName[];
+export const BUTTON_NAMES: readonly ButtonName[] = ['Fire1', 'Fire2', 'Fire3', 'Jump', 'Submit', 'Cancel'];

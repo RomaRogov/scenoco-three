@@ -140,6 +140,7 @@ export class Counter extends Component {
   </Mesh>
   <Prefab src="cube.prefab.xml" id="a" position="x: -2" />
   <Prefab src="cube.prefab.xml" id="b" position="x: 2" />
+  <Prefab src="cube.prefab.xml" id="c" active="false" />
   <Mesh id="faller" geometry="../geometry/cube.asset.xml" material="../materials/plain.asset.xml"
         position="y: 10">
     <Components>
@@ -224,6 +225,15 @@ describe('generated code', () => {
 
     await SceneManager.unloadAll();
   }, 60_000);
+
+  it('spawns a prefab written active="false" inactive, and its generated call typechecks', async () => {
+    // The spawn's `active` once reached `instantiate` as a key its placement did not have, and
+    // tsc rejected the generated file.
+    const scene = await SceneManager.load(await loadScene());
+    const spawned = scene.byId('c')!;
+    expect(spawned.activeSelf).toBe(false);
+    expect(scene.byId('a')!.activeSelf).toBe(true);
+  });
 
   it('wires component references to the real objects', async () => {
     const Counter = await loadComponent<Component & { target: Mesh; watched: Mesh[] }>(

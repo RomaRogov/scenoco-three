@@ -101,7 +101,10 @@ async function open(path: string): Promise<void> {
   } else {
     frame_(session.frameAll());
   }
-  doc = new SceneDocument(info.path, info.text, info.elements, model, info.resolve);
+  doc = new SceneDocument(info.path, info.text, info.elements, model, {
+    resolve: info.resolve,
+    construct: info.construct,
+  });
   doc.onChange(() => ui?.refresh());
   // What a component draws is a function of what the document says about it, so an edit to either
   // makes it stale. Coalesced to a frame: a scrubbed number is hundreds of edits, and rebuilding
@@ -123,7 +126,9 @@ async function open(path: string): Promise<void> {
         dirty.clear();
         for (const target of nodes) {
           for (const entry of doc?.componentsOf(target) ?? []) {
-            if (entry.info?.preview) void mounted.mount(target, entry.info, entry.attributes);
+            if (entry.info?.preview) {
+              void mounted.mount(target, entry.info, entry.attributes, doc?.configElementsOf(entry) ?? []);
+            }
           }
         }
       });

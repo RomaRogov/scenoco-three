@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { getDeps, useUI } from './store.js';
+import { getDeps, useUI, type AddTarget } from './store.js';
 import { cx } from './cx.js';
 import styles from './ui.module.css';
 
@@ -11,11 +11,11 @@ interface Candidate {
 }
 
 /**
- * The "add component" picker: a centred modal with a case-insensitive filter over name and
- * description.
+ * The picker: a centred modal with a case-insensitive filter over name and description, for
+ * adding a component to a node or filling one of the slots it is built from.
  *
- * What it offers is every component class the project declares, read from `ProjectModel` — which
- * is read from the source, so a class is its own registration.
+ * What it offers comes from `ProjectModel`, which is read from the source — so a class is its own
+ * registration.
  */
 export function AddMemberPopup(): React.JSX.Element | null {
   const adding = useUI((s) => s.adding);
@@ -32,7 +32,7 @@ export function AddMemberPopup(): React.JSX.Element | null {
     }
   }, [adding]);
 
-  const candidates = useMemo(() => (adding ? offerings() : []), [adding]);
+  const candidates = useMemo(() => (adding ? offerings(adding) : []), [adding]);
   if (!adding) return null;
 
   const needle = query.trim().toLowerCase();
@@ -42,12 +42,15 @@ export function AddMemberPopup(): React.JSX.Element | null {
 
   const { getDoc } = getDeps();
   const add = (tag: string): void => {
-    getDoc()?.addComponent(adding, tag);
+    const doc = getDoc();
+    // Building an attachment is asynchronous, so the inspector is told again once it is there.
+    if (adding.kind === 'slot') void doc?.addAttachment(adding.node, tag).then(() => useUI.getState().bump());
+    else doc?.addComponent(adding.node, tag);
     closeAdd();
     useUI.getState().bump(); // re-read the inspector against the new member
   };
 
-  const label = 'Add component';
+  const label = adding.kind === 'slot' ? `Add ${adding.slot}` : 'Add component';
   return (
     // Clicking the backdrop dismisses; clicks inside must not bubble to it.
     <div className={styles.modalBackdrop} onClick={closeAdd}>
@@ -93,18 +96,20 @@ export function AddMemberPopup(): React.JSX.Element | null {
   );
 }
 
-/** What this node may still receive, straight from the registry. */
 /**
- * Every component the project declares.
+ * What this node may still receive, read from the model: every component class the project
+ * declares, or every tag of the family the slot accepts.
  *
- * A component with a `requiresNode` — `class Flicker extends Component<PointLight>` — is only
- * offered on a node it can actually work on. Almost none declare one: like a MonoBehaviour on a
- * GameObject, a component goes on anything, and the constraint exists for the rare one that
- * reads a host-specific member.
+ * The family test is the one the compiler makes when it decides which slot a written element
+ * fills, so the picker cannot offer something the build would refuse.
  */
-function offerings(): Candidate[] {
+function offerings(target: AddTarget): Candidate[] {
   const model = getDeps().getModel();
-  return (model?.components ?? [])
+  const found =
+    target.kind === 'slot'
+      ? (model?.tags ?? []).filter((t) => t.family === target.family)
+      : (model?.components ?? []);
+  return found
     .map((c) => ({ tag: c.name, description: c.description ?? '' }))
     .sort((a, b) => a.tag.localeCompare(b.tag));
 }

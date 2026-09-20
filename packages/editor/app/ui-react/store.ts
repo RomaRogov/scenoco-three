@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Object3D } from 'three';
+import type { TagFamily } from '@scenoco-three/compiler';
 import type { EditorDeps } from './types.js';
 
 /**
@@ -11,14 +12,23 @@ import type { EditorDeps } from './types.js';
  * live engine/document values subscribe to it so an external change, an edit, or a
  * playback transition re-renders them without threading the data through props.
  */
+
+/**
+ * What the picker is being opened to fill: behaviour hung on the node, or one of the objects the
+ * node is *built from*. It offers every component class, or every tag of the slot's family.
+ */
+export type AddTarget =
+  | { kind: 'component'; node: Object3D }
+  | { kind: 'slot'; node: Object3D; slot: string; family: TagFamily };
+
 interface UIState {
   selected: Object3D | null;
   nodesOpen: boolean;
   inspectorOpen: boolean;
   /** Portrait forces the two sheets to be mutually exclusive (phones); landscape allows both. */
   portrait: boolean;
-  /** The node the "add component" picker is open for, if any. */
-  adding: Object3D | null;
+  /** What the picker is open for, if it is. */
+  adding: AddTarget | null;
   rev: number;
   select: (node: Object3D | null) => void;
   openNodes: () => void;
@@ -26,7 +36,7 @@ interface UIState {
   openInspector: () => void;
   closeInspector: () => void;
   setPortrait: (portrait: boolean) => void;
-  openAdd: (node: Object3D) => void;
+  openAdd: (target: AddTarget) => void;
   closeAdd: () => void;
   bump: () => void;
 }
@@ -69,7 +79,7 @@ export const useUI = create<UIState>((set, get) => ({
   openInspector: () => set((s) => ({ inspectorOpen: true, nodesOpen: s.portrait ? false : s.nodesOpen })),
   closeInspector: () => set({ inspectorOpen: false }),
 
-  openAdd: (node) => set({ adding: node }),
+  openAdd: (target) => set({ adding: target }),
   closeAdd: () => set({ adding: null }),
 
   // On rotating to portrait with both open, drop the node list (keep the inspector focused).

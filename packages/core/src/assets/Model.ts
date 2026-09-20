@@ -69,6 +69,14 @@ export function sharedModel(url: string): Model {
 }
 
 let cloneSkinned: ((source: Object3D) => Object3D) | undefined;
+
+/**
+ * @internal a deep copy of a node tree. A skinned mesh only comes from a model, so once a model
+ * has loaded the skeleton-aware clone is at hand and rebinds it; before that, three's own does.
+ */
+export function cloneTree(source: Object3D): Object3D {
+  return cloneSkinned ? cloneSkinned(source) : source.clone(true);
+}
 const cache = new Map<string, Model>();
 
 /** @internal drop the URL cache. For tests and HMR; `disposeAssets` frees the models. */

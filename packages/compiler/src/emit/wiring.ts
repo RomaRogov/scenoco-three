@@ -1,10 +1,11 @@
-import type { ComponentInfo, TagInfo } from '../model.js';
+import type { ComponentInfo, SerializedField, TagInfo } from '../model.js';
 import { hint, nearestName } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { emitValue } from '../dsl/value.js';
+import { emitConfigValue } from './config.js';
 import { isCamera } from './scene.js';
 import { moduleFor, type EmitScope } from './scope.js';
-import { sanitizeIdentifier } from './module.js';
+import { camelCase, sanitizeIdentifier } from './module.js';
 
 // --- components ------------------------------------------------------------------------
 
@@ -16,12 +17,25 @@ import { sanitizeIdentifier } from './module.js';
  */
 export function emitComponentsFor(scope: EmitScope, element: SncElement, self: string, out: string[]): void {
   // First pass over the subtree: give every component with an id a name to be referenced by,
-  // so a component can hold another component the same way it holds a node.
+  // so a component can hold another component the same way it holds a node. (The document's own
+  // ids were claimed before the systems were emitted; this covers a subtree emitted on its own.)
   claimComponentIds(scope, element, self);
-  walkComponents(scope, element, self, out);
+  // References land after every component exists. Passed at `addComponent`, a slot naming a
+  // component further down the document was filled with a field not yet assigned — it compiled,
+  // and `start()` met `undefined`. Still before any `awake`: the scene is being built.
+  const late: string[] = [];
+  walkComponents(scope, element, self, out, late);
+  out.push(...late);
 }
 
-function claimComponentIds(scope: EmitScope, element: SncElement, self: string): void {
+/**
+ * Register every `<Component id="…">` in the document before anything reads an `#id`.
+ *
+ * Systems are emitted before the components are, and a system slot naming a component's id —
+ * `startButton="#startBtn"` on a `<Button id="startBtn">` — was answered "no node in this
+ * document declares it" while the component was right there.
+ */
+export function claimComponentIds(scope: EmitScope, element: SncElement, self: string): void {
   for (const child of element.children) {
     if (child.tag === 'Systems') continue;
     if (child.tag === 'Components') {
@@ -57,11 +71,11 @@ function claimComponentIds(scope: EmitScope, element: SncElement, self: string):
   }
 }
 
-function walkComponents(scope: EmitScope, element: SncElement, self: string, out: string[]): void {
+function walkComponents(scope: EmitScope, element: SncElement, self: string, out: string[], late: string[]): void {
   for (const child of element.children) {
     if (child.tag === 'Systems') continue;
     if (child.tag === 'Components') {
-      for (const componentElement of child.children) emitComponent(scope, componentElement, self, out);
+      for (const componentElement of child.children) emitComponent(scope, componentElement, self, out, late);
       continue;
     }
     const placed = scope.placedFor(child);
@@ -70,12 +84,12 @@ function walkComponents(scope: EmitScope, element: SncElement, self: string, out
       for (const block of child.children) {
         if (block.tag !== 'Components') continue;
         for (const componentElement of block.children) {
-          emitComponent(scope, componentElement, placed.reference, out);
+          emitComponent(scope, componentElement, placed.reference, out, late);
         }
       }
       continue;
     }
-    if (placed) walkComponents(scope, child, placed.reference, out);
+    if (placed) walkComponents(scope, child, placed.reference, out, late);
   }
 }
 
@@ -88,46 +102,49 @@ export function emitSystems(scope: EmitScope, root: SncElement, create: string[]
   // Anywhere but the scene root, the block would be read by nobody. An ignored block is the
   // worst outcome here: the document looks right and the world is missing.
   reportMisplacedSystems(scope, root);
-  reportMisplacedCanvas(scope, root);
+  reportMisplacedOnCamera(scope, root);
 }
 
 /**
- * A `<Canvas>` that is not under a camera, which lays out nothing.
+ * A tag that has to hang off the scene's camera — its class says `@parent camera` — somewhere else.
  *
  * The same failure as a misplaced `<Systems>` block and the same reason to catch it here: the
- * document reads correctly, the compiler is happy, and the screen is empty. A screen-space
- * canvas is sized from a camera's frustum, so it has to hang off one — and the runtime says so
- * to the console, which is exactly where nobody is looking.
+ * document reads correctly, the compiler is happy, and the screen is empty. A screen-space UI root
+ * is sized from a camera's frustum, so on no camera it lays out nothing, and on a camera nobody
+ * looks through it is never seen. Which tags those are is the package's to say, not this file's.
  */
-function reportMisplacedCanvas(scope: EmitScope, root: SncElement): void {
-  const canvas = scope.options.model.tags.find(
-    (tag) => tag.name === 'Canvas' && tag.module !== 'three',
+function reportMisplacedOnCamera(scope: EmitScope, root: SncElement): void {
+  const onCamera = new Map(
+    scope.options.model.tags.filter((tag) => tag.parent === 'camera').map((tag) => [tag.name, tag]),
   );
-  if (!canvas) return;
+  if (onCamera.size === 0) return;
 
-  // The camera to name in the message: the one the scene will render through, else any camera in
-  // the document. Naming the id is the difference between "move it" and the text to write.
-  const cameras = [...scope.byElement.values()].filter(isCamera);
-  const named = cameras.find((placed) => placed.element.attributes.get('id'));
-  const where = named
-    ? ` Move it inside <${named.element.tag} id="${named.element.attributes.get('id')!}">.`
-    : '';
+  // The camera the scene is drawn through, when the document names it — `<Scene camera="#camera">`
+  // — else any camera with an id. Naming the id is the difference between "move it" and the text
+  // to write.
+  const seenThrough = root.tag === 'Scene' ? root.attributes.get('camera')?.replace(/^#/, '') : undefined;
+  const named = [...scope.byElement.values()].filter(isCamera).find((placed) => placed.element.attributes.get('id'));
+  const target = seenThrough ?? named?.element.attributes.get('id');
 
   const visit = (element: SncElement): void => {
     for (const child of element.children) {
-      if (child.tag === canvas.name) {
-        const parent = scope.byElement.get(element);
-        if (!parent || !isCamera(parent)) {
-          scope.report(
-            child,
-            'misplaced-canvas',
-            `<${canvas.name}> lays out in screen pixels in front of a camera, so it has to be a ` +
-              `child of the camera node — it cannot hang off <${element.tag}>.${where}`,
-          );
-        }
+      const tag = onCamera.get(child.tag);
+      if (!tag) {
+        visit(child);
         continue;
       }
-      visit(child);
+      const parent = scope.byElement.get(element);
+      const id = element.attributes.get('id');
+      const onCameraAtAll = parent !== undefined && isCamera(parent);
+      if (onCameraAtAll && (!seenThrough || id === seenThrough)) continue;
+      const where = onCameraAtAll
+        ? `is on <${element.tag}${id ? ` id="${id}"` : ''}>, but the scene is seen through camera="#${seenThrough}", so it is never on screen.`
+        : `has to be a child of a camera, and it hangs off <${element.tag}>.`;
+      scope.report(
+        child,
+        'misplaced-canvas',
+        `<${tag.name}> ${where}${target ? ` Move it inside #${target}.` : ''}${tag.tip ? ` ${tag.tip}` : ''}`,
+      );
     }
   };
   visit(root);
@@ -156,6 +173,11 @@ function reportMisplacedSystems(scope: EmitScope, root: SncElement): void {
 
 function emitSystem(scope: EmitScope, element: SncElement, create: string[], wire: string[]): void {
   const system = scope.options.model.systems.find((c) => c.name === element.tag);
+  const elsewhere = system ? undefined : scope.misplaced(element.tag, 'system');
+  if (elsewhere) {
+    scope.report(element, 'unknown-system', elsewhere);
+    return;
+  }
   if (!system) {
     const advice = hint({
       near: nearestName(element.tag, scope.options.model.systems.map((c) => c.name)),
@@ -171,8 +193,9 @@ function emitSystem(scope: EmitScope, element: SncElement, create: string[], wir
     return;
   }
   const local = scope.module.require(moduleFor(system), system.name);
-  const { entries, deferred } = readFields(scope, element, system, `system <${system.name}>`, true);
+  const { entries, deferred, prelude } = readFields(scope, element, system, `system <${system.name}>`, 'all');
   const init = entries.length > 0 ? `, { ${entries.join(', ')} }` : '';
+  create.push(...prelude);
 
   if (deferred.length === 0) {
     create.push(`this.addSystem(${local}${init});`);
@@ -198,20 +221,29 @@ export function nonSerializedMessage(what: string, info: ComponentInfo, attribut
 }
 
 /**
- * Read an element's attributes against a class's serialized fields.
+ * Read an element's attributes and children against a class's serialized fields.
  *
  * Shared by components and systems because the two are authored identically — public fields,
  * derived types, no decorators — and a second copy of this would be the place they drifted.
+ *
+ * `prelude` is what has to stand above the `addComponent` line: a config written inside the
+ * element becomes a named `const`, as an inline material does.
  */
 function readFields(
   scope: EmitScope,
   element: SncElement,
   info: ComponentInfo,
   what: string,
-  deferNodeRefs = false,
-): { entries: string[]; deferred: Array<{ name: string; code: string }> } {
+  /**
+   * Which references wait until the tree is complete: every one for a system, which is added
+   * before the nodes exist, and for a component only those that reach another *component* —
+   * nodes are all built before any component is added, components are added in document order.
+   */
+  deferNodeRefs: false | 'all' | 'components' = false,
+): { entries: string[]; deferred: Array<{ name: string; code: string }>; prelude: string[] } {
   const entries: string[] = [];
   const deferred: Array<{ name: string; code: string }> = [];
+  const prelude: string[] = [];
   const seen = new Set<string>();
 
   for (const [attribute, text] of element.attributes) {
@@ -237,11 +269,41 @@ function readFields(
       continue;
     }
     seen.add(attribute);
-    const emitted = emitValue(field, text, element, scope.context);
+    const sibling = (name: string) => info.fields.find((f) => f.name === name);
+    const emitted = emitValue(field, text, element, { ...scope.context, attribute: sibling });
     scope.module.reportAll(emitted.diagnostics);
     if (!emitted.code) continue;
-    if (deferNodeRefs && referencesNode(field)) deferred.push({ name: attribute, code: emitted.code });
+    const defer =
+      deferNodeRefs === 'all'
+        ? referencesNode(field)
+        : deferNodeRefs === 'components' && referencesNode(field) && reachesComponent(scope, emitted.code);
+    if (defer) deferred.push({ name: attribute, code: emitted.code });
     else entries.push(`${attribute}: ${emitted.code}`);
+  }
+
+  // A child fills the field whose *type* it is named after — the effect a `<ParticleSystem>`
+  // plays, written here rather than pointed at. The rule an inline material follows on a `<Mesh>`.
+  for (const child of element.children) {
+    const field = info.fields.find((f) => f.document === child.tag);
+    if (!field) {
+      scope.report(child, 'unknown-element', unknownChild(child, what, info), child.tag);
+      continue;
+    }
+    if (seen.has(field.name)) {
+      scope.report(
+        child,
+        'duplicate-value',
+        `${what} writes both ${field.name}= and a <${child.tag}> child. It takes one ` +
+          `${child.tag}: name a file to share one, or write the element to give this ` +
+          `${info.name} its own.`,
+      );
+      continue;
+    }
+    seen.add(field.name);
+    const code = emitConfig(scope, child, field, what);
+    if (!code) continue;
+    prelude.push(code.line);
+    entries.push(code.local === field.name ? field.name : `${field.name}: ${code.local}`);
   }
 
   // A field with no initializer is one the class cannot supply for itself, so leaving it out
@@ -256,18 +318,76 @@ function readFields(
       );
     }
   }
-  return { entries, deferred };
+  return { entries, deferred, prelude };
 }
 
-export function emitComponent(scope: EmitScope, element: SncElement, host: string, out: string[]): void {
+/**
+ * A child of a component that fills nothing.
+ *
+ * Worth its own message because of what it used to do: nothing. Attributes were all this pass
+ * read, so a child written here was dropped without a word.
+ */
+function unknownChild(child: SncElement, what: string, info: ComponentInfo): string {
+  const offered = info.fields.flatMap((f) => (f.document ? [f.document] : []));
+  const advice = hint({ near: nearestName(child.tag, offered), as: 'tag', ask: child.tag });
+  if (advice.text) return `<${child.tag}> is not part of ${what}.${advice.text}`;
+  if (offered.length === 0) {
+    return `${what} holds no elements, only attributes, so <${child.tag}> has nowhere to go.`;
+  }
+  return `<${child.tag}> is not part of ${what}. It holds ${offered.map((n) => `<${n}>`).join(', ')}.`;
+}
+
+/**
+ * One config written inside a component, as a named `const` above it.
+ *
+ * Named rather than inlined for the reason an attached material is: ten lines inside an argument
+ * list are unreadable. The annotation is the point — `tsc` checks the document's words against
+ * the package's type, in the generated file.
+ */
+function emitConfig(
+  scope: EmitScope,
+  element: SncElement,
+  field: SerializedField,
+  what: string,
+): { local: string; line: string } | undefined {
+  const config = scope.options.configs?.get(element.tag);
+  if (!config) {
+    scope.report(
+      element,
+      'missing-package',
+      `${what} takes a <${element.tag}>, but this project has not read that type. ` +
+        'Install the package that declares it and run `scenoco build`.',
+    );
+    return undefined;
+  }
+  const local = scope.module.declare(camelCase(field.name));
+  const typeName = scope.module.requireType(config.module, config.shape.name);
+  const prefix = `const ${local}: ${typeName} = `;
+  const value = emitConfigValue(element, config.shape, scope.module, scope.context, prefix.length + 1);
+  return { local, line: `${prefix}${value};` };
+}
+
+export function emitComponent(
+  scope: EmitScope,
+  element: SncElement,
+  host: string,
+  out: string[],
+  /** Where references go, to run once every component exists. Absent, they are passed inline. */
+  late?: string[],
+): void {
   const component = scope.options.model.components.find((c) => c.name === element.tag);
+  const elsewhere = component ? undefined : scope.misplaced(element.tag, 'component');
+  if (elsewhere) {
+    scope.report(element, 'unknown-component', elsewhere);
+    return;
+  }
   if (!component) {
     const names = scope.options.model.components.map((c) => c.name);
     const advice = hint({ near: nearestName(element.tag, names), as: 'tag', ask: element.tag });
     scope.report(
       element,
       'unknown-component',
-      `<${element.tag}> is not a component in this project.${advice.text}`,
+      `<${element.tag}> is not a component in this project.${advice.text}${scope.moduleHint()}`,
       advice.ask,
     );
     return;
@@ -275,12 +395,17 @@ export function emitComponent(scope: EmitScope, element: SncElement, host: strin
   checkHost(scope, element, component, host);
 
   const local = scope.module.require(moduleFor(component), component.name);
-  const { entries } = readFields(scope, element, component, `<${component.name}>`);
+  const { entries, deferred, prelude } = readFields(scope, element, component, `<${component.name}>`, late ? 'components' : false);
 
   const init = entries.length > 0 ? `, { ${entries.join(', ')} }` : '';
   const id = element.attributes.get('id');
-  const target = id ? `this.${sanitizeIdentifier(id)} = ` : '';
-  out.push(`${target}${host}.addComponent(${local}${init});`);
+  out.push(...prelude);
+  if (id) out.push(`this.${sanitizeIdentifier(id)} = ${host}.addComponent(${local}${init});`);
+  else if (deferred.length === 0) out.push(`${host}.addComponent(${local}${init});`);
+  // A handle to assign the references to once the rest exist.
+  const handle = id ? `this.${sanitizeIdentifier(id)}` : deferred.length ? scope.module.declare(camelCaseOf(component.name)) : '';
+  if (!id && deferred.length) out.push(`const ${handle} = ${host}.addComponent(${local}${init});`);
+  for (const { name, code } of deferred) late!.push(`${handle}.${name} = ${code};`);
 }
 
 /** `class Flicker extends Component<PointLight>` may only go on a `PointLight`. */
@@ -298,6 +423,14 @@ function checkHost(scope: EmitScope, element: SncElement, component: ComponentIn
   );
 }
 
+
+/** Whether an emitted reference names a component — by its own id, or off the node carrying it. */
+function reachesComponent(scope: EmitScope, code: string): boolean {
+  if (code.includes('.getComponent(')) return true;
+  return [...scope.componentsById.values()].some(({ reference }) =>
+    new RegExp(`${reference.replace(/[.$]/g, '\\$&')}(?![\\w$])`).test(code),
+  );
+}
 
 /**
  * Whether this field holds one node or a list of them — the values a document can only supply

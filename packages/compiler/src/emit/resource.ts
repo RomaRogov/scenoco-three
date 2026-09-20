@@ -66,6 +66,9 @@ export function emitResource(
     require: (m, n) => module.require(m, n),
     nodeRef: () => undefined,
     assetRef: (href) => assets.reference(href),
+    nearAsset: (href) => assets.near(href),
+    assetType: (href) => assets.typeOf(href),
+    tags: model.tags,
   };
   const { call, assignments } = buildConstruction(tag, root, module, context);
 
@@ -109,10 +112,10 @@ export function buildConstruction(
     if (skip.has(attribute) || attribute.includes(':')) continue;
     const prop = byName.get(attribute);
     if (!prop) {
-      module.report(unknownAttribute(element, attribute, tag));
+      module.report(unknownAttribute(element, attribute, tag, context.tags));
       continue;
     }
-    const emitted = emitValue(prop, text, element, context);
+    const emitted = emitValue(prop, text, element, { ...context, attribute: (name) => byName.get(name) });
     module.reportAll(emitted.diagnostics);
     if (!emitted.code) continue;
 
@@ -178,7 +181,12 @@ function unknownTag(element: SncElement, model: ProjectModel, family?: string): 
   };
 }
 
-function unknownAttribute(element: SncElement, attribute: string, tag: TagInfo): SncDiagnostic {
+function unknownAttribute(
+  element: SncElement,
+  attribute: string,
+  tag: TagInfo,
+  vocabulary: readonly TagInfo[] = [],
+): SncDiagnostic {
   // Placement is consumed by its own pass, so it is absent from the tag's parameters and
   // properties — which meant `positon` on a <Mesh> got no "did you mean", the one misspelling
   // most likely to be made. The near-miss search has to see everything the element legally
@@ -198,8 +206,23 @@ function unknownAttribute(element: SncElement, attribute: string, tag: TagInfo):
     column: element.column,
     code: 'unknown-attribute',
     message:
-      `<${tag.name}> has no attribute "${attribute}".${attrAdvice.text}`,
+      `<${tag.name}> has no attribute "${attribute}".${attrAdvice.text}${elsewhere(attribute, tag, vocabulary)}`,
     ask: attrAdvice.ask,
     ...(element.file ? { file: element.file } : {}),
   };
 }
+
+/**
+ * The tags of the same family that do take `attribute`, when the near-miss search found nothing:
+ * the name was right, the class was not — `emissive` on <MeshBasicMaterial>, which has no lighting.
+ */
+function elsewhere(attribute: string, tag: TagInfo, vocabulary: readonly TagInfo[]): string {
+  const having = vocabulary
+    .filter((t) => t.family === tag.family && t.name !== tag.name)
+    .filter((t) => [...t.parameters, ...t.properties].some((p) => p.name === attribute))
+    .map((t) => `<${t.name}>`);
+  if (having.length === 0) return '';
+  const shown = having.slice(0, 4).join(', ');
+  return ` It is an attribute of ${shown}${having.length > 4 ? ` and ${having.length - 4} more` : ''}.`;
+}
+

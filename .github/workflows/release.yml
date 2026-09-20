@@ -23,10 +23,15 @@ jobs:
 
       # Same two rules as CI: a committed lockfile so an upstream publish cannot change what
       # ships, and build first because the packages typecheck against each other's declarations.
+      - run: node scripts/check-lockfile.mjs
       - run: npm ci --legacy-peer-deps
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+      # Last gate before publishing: the tarballs themselves, installed and used outside the
+      # workspace. A release that passes every test above can still ship a package that does not
+      # install — core@0.5.0 did.
+      - run: npm run smoke:pack
 
       # Dependency order: everything peers on core; vite and observer sit on the compiler. The
       # editor depends on neither, so its position is free.

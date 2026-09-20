@@ -11,7 +11,7 @@
  * screen while an agent works; `headed: true` shows the window for whoever wants to watch.
  */
 import { chromium, type Browser, type Page } from 'playwright-core';
-import type { ObserverCommand, ObserverResult } from './protocol.js';
+import { FRAME, type ObserverCommand, type ObserverResult } from './protocol.js';
 
 export interface BrowserOptions {
   /** Show the window. */
@@ -38,6 +38,13 @@ export interface ScenePage {
   close(): Promise<void>;
 }
 
+/**
+ * What a page says when its modules were replaced underneath it: the dependency optimizer ran
+ * after this page loaded, and every URL it still holds is gone. Not the project's fault, and
+ * cured by loading the page again.
+ */
+export const STALE_MODULE = /Failed to fetch dynamically imported module|Outdated Optimize Dep|error loading dynamically imported module/i;
+
 /** Launch the browser, open `url`, and wait until the page is ready to answer. */
 export async function openScenePage(url: string, options: BrowserOptions = {}): Promise<ScenePage> {
   let browser: Browser;
@@ -55,7 +62,9 @@ export async function openScenePage(url: string, options: BrowserOptions = {}): 
         (error instanceof Error ? error.message : String(error)),
     );
   }
-  const page: Page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  // One CSS pixel to one device pixel, so a shot's pixels are the canvas's and a click's.
+  const page: Page = await browser.newPage({ viewport: { ...FRAME }, deviceScaleFactor: 1 });
+  let viewport: { width: number; height: number } = { ...FRAME };
 
   // What the page says about itself.
   //
@@ -90,22 +99,46 @@ export async function openScenePage(url: string, options: BrowserOptions = {}): 
       (c) => (window as unknown as { scenoco: { call(c: unknown): Promise<unknown> } }).scenoco.call(c),
       command,
     );
+  /**
+   * Ask the page, and survive the two ways a dev server can pull the rug out.
+   *
+   * Vite re-bundles a dependency the moment it first sees one, which either destroys the
+   * execution context mid-call or leaves the page holding URLs that have just been replaced —
+   * the second shows up as a module it cannot fetch. Both mean *ask again*, and the second needs
+   * a reload to get the new URLs. Once each: a failure that survives a fresh page is the
+   * project's, and retrying it forever would only hide it.
+   *
+   * The reload is for `open` alone, because only opening fetches the project's modules. Anything
+   * else that fails to fetch one — an `import()` inside an agent's own `eval` — is that code's
+   * error, and a reload there threw away the open scene and answered "no scene is open" instead.
+   */
+  const call = async (command: ObserverCommand, reloaded = false): Promise<ObserverResult> => {
+    // A call's frame is the window the game runs in for that call: the page takes its size, and
+    // the game — camera, UI, input — sees a real resize, as it would on a phone or a wide screen.
+    if ('frame' in command && (command.frame.width !== viewport.width || command.frame.height !== viewport.height)) {
+      viewport = { width: command.frame.width, height: command.frame.height };
+      await page.setViewportSize(viewport);
+    }
+    let reply: unknown;
+    try {
+      reply = await evaluate(command);
+    } catch (error) {
+      if (!/Execution context was destroyed|navigation/i.test(String(error))) throw error;
+      await ready();
+      reply = await evaluate(command);
+    }
+    const answer = reply as { ok: true; result: ObserverResult } | { ok: false; error: string };
+    if (answer.ok) return answer.result;
+    if (!reloaded && command.type === 'open' && STALE_MODULE.test(answer.error)) {
+      await page.reload({ waitUntil: 'commit' });
+      await ready();
+      return call(command, true);
+    }
+    throw new Error(answer.error);
+  };
+
   return {
-    async call(command) {
-      let reply: unknown;
-      try {
-        reply = await evaluate(command);
-      } catch (error) {
-        // The page reloaded under the call — Vite does that once, the first time it optimizes a
-        // dependency it had not seen. The page is the same page afterwards; ask again.
-        if (!/Execution context was destroyed|navigation/i.test(String(error))) throw error;
-        await ready();
-        reply = await evaluate(command);
-      }
-      const answer = reply as { ok: true; result: ObserverResult } | { ok: false; error: string };
-      if (!answer.ok) throw new Error(answer.error);
-      return answer.result;
-    },
+    call: (command) => call(command),
     consoleSince: (after) => log.filter((entry) => entry.seq > after),
     get consoleSeq() {
       return seq;

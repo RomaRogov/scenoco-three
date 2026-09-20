@@ -1,6 +1,6 @@
 import { Object3D, Vector3 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Component, SceneManager, System, Time } from '@scenoco-three/core';
+import { Component, Event, SceneManager, System, Time } from '@scenoco-three/core';
 import { Clock, resetEngine, sceneOf } from './helpers.js';
 
 afterEach(resetEngine);
@@ -101,6 +101,42 @@ describe('systems', () => {
     expect(() => scene.addSystem(Tracer)).toThrow(/already has a Tracer/);
   });
 
+  it('has set its own state in awake before any component’s start reads it', async () => {
+    // The order the docs promise, because two builds in a row set a round's state in the
+    // system's `start` — after every component's — and a HUD read `lives` as 0 on its first frame.
+    let read = -1;
+    class Round extends System {
+      startingLives = 3;
+      private left = 0;
+      get lives(): number { return this.left; }
+      override awake() { this.left = this.startingLives; }
+    }
+    class Hud extends Component {
+      override start() { read = this.requireSystem(Round).lives; }
+    }
+    // The system added after the node, the way a document's <Systems> come after its nodes.
+    await SceneManager.load(sceneOf((s) => {
+      s.createObject('hud').addComponent(Hud);
+      s.addSystem(Round);
+    }));
+    new Clock().frames(1);
+    expect(read).toBe(3);
+  });
+
+  it('calls a component’s onDestroy after awake even when start never ran', async () => {
+    // Unity's contract too. A scene unloaded before its first frame tears everything down, so
+    // what `start` builds may not exist in `onDestroy` — the docs say so, and this holds them to it.
+    const seen: string[] = [];
+    class Probe extends Component {
+      override awake() { seen.push('awake'); }
+      override start() { seen.push('start'); }
+      override onDestroy() { seen.push('onDestroy'); }
+    }
+    await SceneManager.load(sceneOf((s) => void s.createObject('p').addComponent(Probe)));
+    await SceneManager.unloadAll();
+    expect(seen).toEqual(['awake', 'onDestroy']);
+  });
+
   it('requireSystem creates one on first ask and returns it after', async () => {
     const scene = await SceneManager.load(sceneOf(() => {}));
     const first = scene.requireSystem(Tracer, { label: 'first' });
@@ -153,6 +189,20 @@ describe('systems', () => {
     expect(order).toContain('system:onDestroy');
     expect(system.isDestroyed).toBe(true);
     expect(scene.getSystem(Tracer)).toBe(null);
+  });
+
+  it('listens to an event for as long as it lives, as a component does', async () => {
+    const collected = new Event<[number]>();
+    const heard: number[] = [];
+    class Score extends System {
+      override awake() { this.listen(collected, (n) => heard.push(n)); }
+    }
+    const scene = await SceneManager.load(sceneOf((s) => s.addSystem(Score)));
+    collected.emit(1);
+    scene.getSystem(Score)!.destroy();
+    new Clock().frame();
+    collected.emit(2);
+    expect(heard).toEqual([1]);
   });
 
   it('tears components down before the systems they unregister from', async () => {

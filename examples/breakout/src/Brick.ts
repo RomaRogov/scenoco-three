@@ -7,9 +7,7 @@ import { GameState } from './GameState.js';
  *
  * The three tiers are one prefab. `hits` is the only thing a level says about a brick —
  * `<Override target="#brick" hits="2" />` — and the look follows from it: the prefab names all
- * three materials once, and the brick picks the one its toughness earns. Before overrides
- * existed this needed three near-identical prefab documents, because a spawn could say nothing
- * but where to put the thing.
+ * three materials once, and the brick picks the one its toughness earns.
  *
  * It never touches the score. The brick knows what it is worth in *hits*; what a hit is worth
  * in points is a rule of the run, and that lives on `Progress`.

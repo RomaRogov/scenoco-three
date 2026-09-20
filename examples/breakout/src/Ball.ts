@@ -29,10 +29,8 @@ export class Ball extends Component<Mesh> {
   /**
    * How fast the ball travels, in units per second — constant, whatever it bounces off.
    *
-   * It belongs to the ball and now lives on the ball. It used to sit on the level's rules
-   * object, because the ball is inside a prefab every level shares and a spawn could not change
-   * anything inside one; tuning it per level meant three copies of the arena. A level writes
-   * `<Override target="#ball" speed="18" />` instead.
+   * It belongs to the ball, so it lives on the ball — even though the ball is inside a prefab
+   * every level shares. A level that wants it faster writes `<Override target="#ball" speed="18" />`.
    */
   speed = 15;
 

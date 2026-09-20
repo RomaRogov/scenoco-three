@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TextureLoader, type Object3D } from 'three';
-import type { ComponentInfo, DocumentKindInfo, DocumentShape, PropInfo, SncElement } from '@scenoco-three/compiler';
+import type { ComponentInfo, DocumentKindInfo, DocumentShape, PropInfo } from '@scenoco-three/compiler';
+import type { ConfigElement } from '../configTree.js';
 // The browser entry, deliberately: importing a *value* from the package root pulls the Node
 // compiler — and TypeScript itself — into the page's bundle.
 import { parseDocument, PREVIEW_THREE } from '@scenoco-three/compiler/browser';
@@ -88,7 +89,13 @@ export class Previews {
    * component had no preview at all: the transport beside it, which asks whether there is one,
    * vanished the moment Stop was pressed and did not come back.
    */
-  async mount(node: Object3D, info: ComponentInfo, attributes: ReadonlyMap<string, string>): Promise<void> {
+  async mount(
+    node: Object3D,
+    info: ComponentInfo,
+    attributes: ReadonlyMap<string, string>,
+    /** The elements written inside the component — a config it holds rather than points at. */
+    elements: readonly ConfigElement[] = [],
+  ): Promise<void> {
     const key = keyOf(node, info);
     const previous = this.mounted.get(key);
     const wasPlaying = previous?.playing ?? false;
@@ -107,7 +114,7 @@ export class Previews {
 
     let result: PreviewResult | null = null;
     try {
-      result = build(await this.propsOf(info, attributes));
+      result = build(await this.propsOf(info, attributes, elements));
     } catch (error) {
       this.note(`${info.name}'s preview threw: ${reason(error)}`);
       return replace(null);
@@ -120,7 +127,7 @@ export class Previews {
     node.add(object);
     // A rebuild keeps what was running running: a scrubbed number must not stop the effect it is
     // being scrubbed against. A stop is the exception, and says so by clearing `playing` first.
-    replace({ node, info, object, update, attributes, playing: wasPlaying && update !== undefined });
+    replace({ node, info, object, update, attributes, elements, playing: wasPlaying && update !== undefined });
   }
 
   /** Whether this component's preview moves, and whether it is moving — for the transport. */
@@ -144,7 +151,7 @@ export class Previews {
     const found = this.mounted.get(`${node.uuid}:${component}`);
     if (!found) return;
     found.playing = false;
-    void this.mount(node, found.info, found.attributes);
+    void this.mount(node, found.info, found.attributes, found.elements);
   }
 
   /** Drive every running preview. Called once per editor frame. */
@@ -179,9 +186,17 @@ export class Previews {
   private async propsOf(
     info: ComponentInfo,
     attributes: ReadonlyMap<string, string>,
+    elements: readonly ConfigElement[] = [],
   ): Promise<Record<string, unknown>> {
     const props: Record<string, unknown> = {};
     for (const field of info.fields) {
+      // A config written inside the component is already the value — same shape, nothing to fetch.
+      const inside = field.document ? elements.find((e) => e.tag === field.document) : undefined;
+      if (inside) {
+        const shape = this.kinds.find((k) => k.shape?.name === field.document)?.shape;
+        if (shape) props[field.name] = await this.valueOf(inside, shape, this.from);
+        continue;
+      }
       const written = attributes.get(field.name) ?? field.default?.replace(/^['"]|['"]$/g, '');
       if (written === undefined) continue;
       const value =
@@ -227,7 +242,7 @@ export class Previews {
    * by the type of the field it fills, its attributes are that type's fields. Nothing here is
    * specific to any kind of document.
    */
-  private async valueOf(element: SncElement, shape: DocumentShape, path: string): Promise<Record<string, unknown>> {
+  private async valueOf(element: ConfigElement, shape: DocumentShape, path: string): Promise<Record<string, unknown>> {
     const out: Record<string, unknown> = {};
     for (const field of shape.fields) {
       const written = element.attributes.get(field.name);
@@ -306,6 +321,7 @@ interface Mounted {
   playing: boolean;
   /** What it was built from, so a stop can build the same thing again. */
   attributes: ReadonlyMap<string, string>;
+  elements: readonly ConfigElement[];
 }
 
 const keyOf = (node: Object3D, info: ComponentInfo): string => `${node.uuid}:${info.name}`;

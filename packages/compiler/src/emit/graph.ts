@@ -4,7 +4,7 @@ import { TsModule } from './module.js';
 import { buildConstruction } from './resource.js';
 import { EmitScope, identifier, type GraphOptions } from './scope.js';
 import { emitNode, applyPlacement, partitionChildren } from './nodes.js';
-import { emitComponentsFor, emitSystems } from './wiring.js';
+import { claimComponentIds, emitComponentsFor, emitSystems } from './wiring.js';
 import { applySceneSettings, emitMainCamera } from './scene.js';
 import { STRUCTURAL } from './placement.js';
 
@@ -84,6 +84,8 @@ function emitScene(scope: EmitScope, root: SncElement, name: string): string {
   // creating a default one. What cannot be moved is the assignment of those references — a
   // node cannot be handed over before it exists — so a system reads them in `start()`,
   // which is exactly what `start()` is for.
+  // Every component id first: a system may name one, and nothing has emitted a component yet.
+  claimComponentIds(scope, root, 'this');
   const systems: string[] = [];
   const systemWiring: string[] = [];
   emitSystems(scope, root, systems, systemWiring);
@@ -106,11 +108,6 @@ function emitScene(scope: EmitScope, root: SncElement, name: string): string {
       for (const line of systems) scope.module.line(line);
       if (systems.length > 0 && build.length > 0) scope.module.line();
       for (const line of build) scope.module.line(line);
-      if (systemWiring.length > 0) {
-        scope.module.line();
-        scope.module.line('// A system\'s node references, now that the tree exists. Read them in start().');
-        for (const line of systemWiring) scope.module.line(line);
-      }
       if (settings.length > 0) {
         scope.module.line();
         for (const line of settings) scope.module.line(line);
@@ -119,6 +116,14 @@ function emitScene(scope: EmitScope, root: SncElement, name: string): string {
         scope.module.line();
         scope.module.line('// Components last, so every `#id` above is already a real object.');
         for (const line of wiring) scope.module.line(line);
+      }
+      if (systemWiring.length > 0) {
+        scope.module.line();
+        // After the components too: a system slot typed as a component — `startButton!: Button` —
+        // is `node.getComponent(Button)`, which is null until that component is on the node. It
+        // read null here, silently, and the system met `undefined` in `start()`.
+        scope.module.line("// A system's references, now that the tree and its components exist.");
+        for (const line of systemWiring) scope.module.line(line);
       }
     });
   });

@@ -10,7 +10,7 @@ import { indexDocument, MODEL_FILE } from '@scenoco-three/compiler/browser';
 import type { SceneType } from '@scenoco-three/core';
 import { Scene } from 'three';
 import type { Edit, RawElement } from './document.js';
-import { buildLive, type Registry, type Resolve } from './live/build.js';
+import { buildLive, type Construct, type Registry, type Resolve } from './live/build.js';
 import { Previews } from './live/preview.js';
 import { applyEdits } from './live/edits.js';
 import { FolderSource, UrlSource, type Source } from './live/source.js';
@@ -31,6 +31,8 @@ export interface Opened {
   /** What the live build could not honour. Never fatal: the rest still shows. */
   problems: string[];
   resolve: Resolve;
+  /** Builds an object a person adds to a node, so it is there before the next rebuild. */
+  construct?: Construct;
   /** The project's model when a build left one beside it; otherwise the tag packages' own. */
   model: ProjectModel;
   /** What draws this document's components, for the few that can be drawn. */
@@ -137,7 +139,17 @@ export class Host {
             'Run `scenoco build` in the project to read its own.',
           ...live.problems,
         ];
-    return { path, text, elements, scene: live.SceneClass, problems, resolve: live.resolve, model, ...(previews ? { previews } : {}) };
+    return {
+      path,
+      text,
+      elements,
+      scene: live.SceneClass,
+      problems,
+      resolve: live.resolve,
+      construct: live.construct,
+      model,
+      ...(previews ? { previews } : {}),
+    };
   }
 
   async save(path: string, edits: readonly Edit[]): Promise<Saved> {

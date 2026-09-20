@@ -151,6 +151,20 @@
 .secCaret svg { width: 13px; height: 13px; }
 .secBody { padding: 1px 0 2px; }
 
+/* A section inside a section belongs to it: a step in, and a rail from its heading
+   to its last row. Small steps, because a row is a label and a field on one line and
+   every pixel of indent comes out of the field — four levels are reachable, so the
+   rail does the work the indent cannot afford to. */
+.secBody .section {
+  margin-left: 6px;
+  padding-left: 9px;
+  /* Brighter than `--line`, which separates: this one joins, and an invisible rail joins nothing. */
+  border-left: 1px solid rgba(111, 147, 184, 0.5);
+}
+/* Quieter the deeper it goes: a nested heading is part of the one above, not a peer. */
+.secBody .secHead { color: #83c4de; }
+.secBody .secBody .secHead { color: #74a8c0; }
+
 /* Per-component/attachment toolbar (move up / move down / delete). Pushed to the
    right of the section header; the buttons stop propagation so a click doesn't
    also fold the section. */

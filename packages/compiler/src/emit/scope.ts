@@ -1,9 +1,17 @@
 import type { ComponentInfo, ProjectModel, TagInfo } from '../model.js';
+import type { ConfigShape } from '../scan/interfaces.js';
 import { hint, nearestName, type SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
 import { quote, type EmitContext } from '../dsl/value.js';
 import { AssetScope, type ResolveAsset } from './assets.js';
 import { TsModule, sanitizeIdentifier } from './module.js';
+
+/** One config type a package declares: its vocabulary, and where the type itself is imported from. */
+export interface ConfigType {
+  shape: ConfigShape;
+  /** The package specifier that exports it — `@scenoco-three/particles`. */
+  module: string;
+}
 
 export interface GraphOptions {
   /** `scene` roots at `<Scene>`; `prefab` roots at the node the prefab produces. */
@@ -15,6 +23,17 @@ export interface GraphOptions {
   model: ProjectModel;
   /** Resolve an `href` written in this document to a generated module or a raw file. */
   resolveAsset: ResolveAsset;
+  /**
+   * The config types this project's packages declare, by type name — what a document may write
+   * *inside* an element rather than point at. Absent when the shapes were never read, and an
+   * element that would have filled one then reports that rather than compiling to nothing.
+   */
+  configs?: ReadonlyMap<string, ConfigType>;
+  /**
+   * Installed packages this compiler reads no vocabulary from, because they declare no `"scenoco"`
+   * block. Named once beside the first thing they might explain — see {@link EmitScope.moduleHint}.
+   */
+  plainPackages?: readonly string[];
   /**
    * Stamp every node with the document and line it came from, for the editor.
    *
@@ -60,6 +79,8 @@ export class EmitScope {
   readonly assets: AssetScope;
 
   private locals = 0;
+  /** The "these are not modules" note is worth saying once per document, not once per element. */
+  private hinted = false;
 
   constructor(module: TsModule, options: GraphOptions) {
     this.module = module;
@@ -67,9 +88,46 @@ export class EmitScope {
     this.assets = new AssetScope(module, options.resolveAsset);
     this.context = {
       require: (m, n) => module.require(m, n),
-      nodeRef: (id) => this.byId.get(id)?.reference ?? this.componentsById.get(id)?.reference,
+      nodeRef: (id, expected) => this.resolveRef(id, expected),
       assetRef: (href) => this.assets.reference(href),
+      nearAsset: (href) => this.assets.near(href),
+      assetType: (href) => this.assets.typeOf(href),
+      tags: options.model.tags,
     };
+  }
+
+  /**
+   * What `#id` means in a slot. A node, or a component with that id — and, when the slot is typed
+   * as a component and the id names a node, the component that node carries: Unity's inspector
+   * does the same when an object is dropped on a component field. Before this, the node itself
+   * went into the slot and `tsc` complained about the generated file, not the document.
+   */
+  private resolveRef(id: string, expected?: string): { code: string } | { problem: string } | undefined {
+    const placed = this.byId.get(id);
+    if (!placed) {
+      const component = this.componentsById.get(id);
+      return component ? { code: component.reference } : undefined;
+    }
+    const model = this.options.model;
+    const wanted = expected ? [...model.components, ...model.effects].find((c) => c.name === expected) : undefined;
+    if (!wanted) return { code: placed.reference };
+    // The node *is* one — a UI element is a node and is scanned as a component too.
+    const nodeClass = placed.tag?.name ?? placed.typeName;
+    if (nodeClass === wanted.name || placed.tag?.bases.includes(wanted.name)) return { code: placed.reference };
+    // A spawn's components live in its prefab, which this document cannot see; `tsc` has the type.
+    const spawned = placed.element.tag === 'Prefab';
+    const carried = placed.element.children
+      .filter((child) => child.tag === 'Components')
+      .some((block) => block.children.some((c) => c.tag === wanted.name));
+    if (!spawned && !carried) {
+      return {
+        problem:
+          `names a <${nodeClass}> that carries no <${wanted.name}>, and the slot takes a ${wanted.name}. ` +
+          `Add <${wanted.name} /> to its <Components>, or point at a node that has one.`,
+      };
+    }
+    const local = this.module.require(moduleFor(wanted), wanted.name);
+    return { code: `${placed.reference}.getComponent(${local})!` };
   }
 
   /** Give an element a name in the generated code, keyed by its `id` when it has one. */
@@ -96,12 +154,45 @@ export class EmitScope {
     return placed.reference.startsWith('this.') ? placed.reference : `const ${placed.reference}`;
   }
 
+  /**
+   * What a name is and where it goes, when it was written where another kind goes —
+   * `<SphereCollider>` in the tree, `<Game>` in a node's `<Components>`, a component in
+   * `<Systems>`. One answer for every place, read off what the project declares.
+   */
+  misplaced(name: string, wanted: 'node' | 'component' | 'system'): string | undefined {
+    const model = this.options.model;
+    const is = model.components.some((c) => c.name === name)
+      ? 'component'
+      : model.systems.some((s) => s.name === name)
+        ? 'system'
+        : model.tags.some((t) => t.name === name && t.family === 'node')
+          ? 'node'
+          : undefined;
+    if (!is || is === wanted) return undefined;
+    const where = {
+      component: `in a node's <Components>, as <Mesh …><Components><${name} /></Components></Mesh>`,
+      system: "in the scene's <Systems>",
+      node: 'in the tree, as an element of its own',
+    }[is];
+    return `<${name}> is a ${is}, not a ${wanted}: it goes ${where}.`;
+  }
+
   tagFor(element: SncElement, family: TagInfo['family']): TagInfo | undefined {
     const tag = this.options.model.tags.find((t) => t.name === element.tag);
     if (tag && tag.family === family) return tag;
     const candidates = this.options.model.tags.filter((t) => t.family === family).map((t) => t.name);
+    const elsewhere = family === 'node' ? this.misplaced(element.tag, 'node') : undefined;
+    if (elsewhere) {
+      this.report(element, 'unknown-tag', elsewhere);
+      return undefined;
+    }
     const advice = hint({ near: nearestName(element.tag, candidates), as: 'tag', ask: element.tag });
-    this.report(element, 'unknown-tag', `<${element.tag}> is not a ${family} tag.${advice.text}`, advice.ask);
+    this.report(
+      element,
+      'unknown-tag',
+      `<${element.tag}> is not a ${family} tag.${advice.text}${this.moduleHint()}`,
+      advice.ask,
+    );
     return undefined;
   }
 
@@ -135,6 +226,22 @@ export class EmitScope {
 
   report(element: SncElement, code: string, message: string, ask?: string): void {
     this.module.report(diagnostic(element, code, message, ask));
+  }
+
+  /**
+   * Why a name this project clearly ships might still be unknown here.
+   *
+   * A package is read for tags only when it declares itself a module. One that does not is
+   * installed, importable and typechecks — and contributes no vocabulary, so the honest message is
+   * not "there is no such tag" but "nothing reads that package". Said once, then dropped.
+   */
+  moduleHint(): string {
+    const plain = this.options.plainPackages ?? [];
+    if (this.hinted || plain.length === 0) return '';
+    this.hinted = true;
+    const names = plain.map((name) => `"${name}"`).join(', ');
+    const is = plain.length > 1 ? 'are dependencies' : 'is a dependency';
+    return ` (${names} ${is} of this project declaring no "scenoco" block, so no tags or components are read from ${plain.length > 1 ? 'them' : 'it'}.)`;
   }
 }
 

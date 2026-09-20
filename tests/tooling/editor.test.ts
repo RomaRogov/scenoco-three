@@ -252,7 +252,7 @@ describe('an edit and the live object', () => {
       DOCUMENT,
       elements,
       { components: [], systems: [], effects: [], tags: [] },
-      async (_name, _shape, text) => (text === 'blue.asset.xml' ? other : shared),
+      { resolve: async (_name, _shape, text) => (text === 'blue.asset.xml' ? other : shared) },
     );
     const material: PropInfo = { name: 'material', type: 'Material', shape: 'assetRef', required: false };
 
@@ -628,7 +628,11 @@ describe('an attached object', () => {
           ],
         },
       ],
-    });
+    },
+    // What the live builder does: construct the tag with nothing written on it. Removing an
+    // attachment asks it for a bare `<Mesh>` and takes what three put in the slot.
+    { construct: async (tag) => (tag.name === 'Mesh' ? new Mesh(new BoxGeometry()) : new THREE.MeshStandardMaterial()) },
+    );
     return { doc, mesh, material };
   }
 
@@ -737,6 +741,88 @@ describe('an attached object', () => {
     });
     expect(doc.attachmentsOf(group)).toEqual([]);
   });
+
+  /**
+   * Adding one, which is the half that was missing: the document could hold an inline material and
+   * there was no way to write one but by hand.
+   */
+  it('can be added to an empty slot, and shows before the file says it', async () => {
+    const source = `<Scene>
+  <Mesh id="ball" />
+</Scene>
+`;
+    const elements = indexDocument(source).map((e) => ({
+      tag: e.tag,
+      line: e.line,
+      column: e.column,
+      start: e.start,
+      end: e.end,
+      attributes: e.attributes,
+    }));
+    const mesh = new Mesh(new BoxGeometry());
+    const built = new THREE.MeshStandardMaterial();
+    const element = elements.find((e) => e.tag === 'Mesh')!;
+    mesh.userData.scenoco = { file: 'scene.xml', line: element.line, column: element.column };
+    const doc = new SceneDocument(
+      'scene.xml',
+      source,
+      elements,
+      {
+        components: [],
+        systems: [],
+        effects: [],
+        tags: [
+          {
+            name: 'Mesh',
+            family: 'node',
+            module: 'three',
+            bases: ['Object3D'],
+            parameters: [
+              { name: 'material', type: 'Material', shape: 'assetRef', assetFamily: 'material', required: false },
+            ],
+            properties: [],
+          },
+          {
+            name: 'MeshStandardMaterial',
+            family: 'material',
+            module: 'three',
+            bases: ['Material'],
+            parameters: [],
+            properties: [{ name: 'color', type: 'Color', shape: 'color', required: false }],
+          },
+        ],
+      },
+      { construct: async () => built },
+    );
+
+    expect(doc.slotsOf(mesh).map((s) => s.name)).toEqual(['material']);
+    const before = mesh.material;
+    await doc.addAttachment(mesh, 'MeshStandardMaterial');
+
+    // In the slot at once, and in the file as one insert.
+    expect(mesh.material).toBe(built);
+    expect(doc.edits()).toEqual([
+      { op: 'insertChild', at: { line: element.line, column: element.column }, xml: '<MeshStandardMaterial />', index: 0 },
+    ]);
+
+    // Editable before it is saved: the attribute goes into the insert that will write it.
+    const color: PropInfo = { name: 'color', type: 'Color', shape: 'color', required: false };
+    doc.setAttachmentValue(doc.attachmentsOf(mesh)[0]!, color, 0xff0055);
+    expect(doc.edits()[0]).toMatchObject({ xml: '<MeshStandardMaterial color="#ff0055" />' });
+
+    doc.undoLast();
+    doc.undoLast();
+    expect(doc.edits()).toEqual([]);
+    expect(mesh.material).toBe(before);
+  });
+
+  /** Taking a written one out puts back what three itself would have built. */
+  it('falls back to three’s own default when removed', async () => {
+    const { doc, mesh } = open();
+    await doc.removeAttachment(doc.attachmentsOf(mesh)[0]!);
+    expect(doc.attachmentsOf(mesh)).toEqual([]);
+    expect((mesh.material as THREE.Material).type).toBe('MeshBasicMaterial');
+  });
 });
 
 /**
@@ -826,5 +912,137 @@ describe('a config document', () => {
     const doc = new ConfigDocument('fire.particle.xml', '<Emitter />\n', KIND);
     expect(doc.root).toBeNull();
     expect(doc.problem).toContain('<ParticleEffect>');
+  });
+});
+
+/**
+ * The same config, written inside the component that plays it.
+ *
+ * A field typed by a document kind has two forms — a path naming a file every emitter shares, and
+ * an element giving this one its own — and the second is edited by the form the `.particle.xml`
+ * gets, over the same shape, through the scene's own undo log.
+ */
+describe('a config inside a component', () => {
+  const number = (name: string): PropInfo => ({ name, type: 'number', shape: 'number', required: false });
+  const SHAPE = {
+    name: 'ParticleEffect',
+    fields: [number('duration'), number('startSize')],
+    groups: { emission: { name: 'Emission', fields: [number('rateOverTime')], groups: {}, lists: {} } },
+    lists: {},
+  };
+  const MODEL = {
+    components: [
+      {
+        name: 'ParticleSystem',
+        file: 'particles.ts',
+        line: 1,
+        fields: [
+          { name: 'effect', type: 'ParticleEffect', shape: 'assetRef' as const, document: 'ParticleEffect', required: true, explicit: false },
+        ],
+      },
+    ],
+    systems: [],
+    effects: [],
+    tags: [{ name: 'Group', family: 'node' as const, module: 'three', bases: ['Object3D'], parameters: [], properties: [] }],
+    documents: [
+      {
+        kind: 'particle',
+        extension: '.particle.xml',
+        dir: 'assets/vfx',
+        description: 'A particle effect',
+        module: '@acme/vfx',
+        shape: SHAPE,
+      },
+    ],
+  };
+
+  const SOURCE = `<Scene>
+  <Group id="glow">
+    <Components>
+      <ParticleSystem>
+        <ParticleEffect duration="3">
+          <Emission rateOverTime="20" />
+        </ParticleEffect>
+      </ParticleSystem>
+    </Components>
+  </Group>
+</Scene>
+`;
+
+  function open(source = SOURCE) {
+    const elements = indexDocument(source).map((e) => ({
+      tag: e.tag,
+      line: e.line,
+      column: e.column,
+      start: e.start,
+      end: e.end,
+      attributes: e.attributes,
+    }));
+    const group = new THREE.Group();
+    const element = elements.find((e) => e.tag === 'Group')!;
+    group.userData.scenoco = { file: 'scene.xml', line: element.line, column: element.column };
+    const doc = new SceneDocument('scene.xml', source, elements, MODEL);
+    return { doc, group, entry: doc.componentsOf(group)[0]! };
+  }
+
+  it('is found against the shape the package declared, as the element the field is named by', () => {
+    const { doc, entry } = open();
+    const [config] = doc.configsOf(entry);
+    expect(config?.prop.name).toBe('effect');
+    expect(config?.shape.name).toBe('ParticleEffect');
+    expect(config?.node?.attributes.get('duration')).toBe('3');
+  });
+
+  it('edits through the scene’s own log, and tells whatever draws the node', () => {
+    const { doc, group, entry } = open();
+    const touched: string[] = [];
+    doc.onComponentEdit = (node) => touched.push(node.uuid);
+    const host = doc.configHost(entry);
+    const config = doc.configsOf(entry)[0]!;
+
+    host.setValue(config.node!, number('startSize'), 2.5);
+    expect(applyEdits(SOURCE, doc.edits()).text).toContain('<ParticleEffect duration="3" startSize="2.5">');
+    expect(touched).toEqual([group.uuid]);
+
+    doc.undoLast();
+    expect(doc.edits()).toEqual([]);
+  });
+
+  it('reaches a preview as a value, with what has been added but not saved', () => {
+    const { doc, entry } = open();
+    const host = doc.configHost(entry);
+    const config = doc.configsOf(entry)[0]!;
+    const emission = host.childrenOf(config.node!, SHAPE.groups.emission)[0]!;
+    host.setValue(emission, number('rateOverTime'), 90);
+
+    // What the preview is handed: the element, current, with no file to read.
+    const [effect] = doc.configElementsOf(entry);
+    expect(effect?.tag).toBe('ParticleEffect');
+    expect(effect?.children.map((c) => c.tag)).toEqual(['Emission']);
+    expect(effect?.children[0]?.attributes.get('rateOverTime')).toBe('90');
+  });
+
+  it('is offered where the component writes nothing, and added as one insert', () => {
+    const empty = `<Scene>
+  <Group id="glow">
+    <Components>
+      <ParticleSystem />
+    </Components>
+  </Group>
+</Scene>
+`;
+    const { doc, entry } = open(empty);
+    expect(doc.configsOf(entry)[0]?.node).toBeNull();
+
+    doc.addConfig(entry, SHAPE);
+    expect(doc.configsOf(entry)[0]?.node).not.toBeNull();
+
+    // Editable before the save, and written as one element with everything inside it.
+    const host = doc.configHost(entry);
+    host.setValue(doc.configsOf(entry)[0]!.node!, number('duration'), 4);
+    host.add(doc.configsOf(entry)[0]!.node!, SHAPE.groups.emission);
+    const text = applyEdits(empty, doc.edits()).text;
+    expect(text).toContain('<ParticleEffect duration="4">');
+    expect(text).toContain('<Emission />');
   });
 });

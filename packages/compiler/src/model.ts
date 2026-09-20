@@ -39,10 +39,22 @@ export type ValueShape =
 /** One authorable value: a component field, a constructor parameter, a material property. */
 export interface PropInfo {
   name: string;
+  /**
+   * The three.js (or package) class that declares it, when that is a base rather than the tag
+   * itself — `opacity` on a `MeshStandardMaterial` is `Material`'s. Lets a reader tell a class's
+   * own settings from the fifty it inherits, by the names three.js's own docs use.
+   */
+  owner?: string;
   /** The type as TypeScript prints it, for diagnostics and the inspector. */
   type: string;
   /** How to emit a value for it. */
   shape: ValueShape;
+  /**
+   * The written type names nothing the checker can find — `Object3D` imported from a module that
+   * does not export it. Such a field reads as unsupported, and saying only that sends the author
+   * after the wrong fix; the import is what is wrong.
+   */
+  unresolved?: boolean;
   /** Element shape when `shape` is `array`. */
   elementShape?: ValueShape;
   /** The alternatives when `shape` is `union`, in no particular order. */
@@ -54,12 +66,21 @@ export interface PropInfo {
    * Read from the type, so a generic slot like `Mesh.material` still says what it accepts.
    */
   assetFamily?: TagFamily;
+  /**
+   * For an `assetRef` holding a **document** — `effect!: ParticleEffect` — the name of that type.
+   *
+   * It is what the element form of the same value is called, since an element is named by the type
+   * it fills. Without the name there is nothing to match a written element against.
+   */
+  document?: string;
   /** For `enum`: the legal identifier names, so a typo is caught before `tsc` sees it. */
   options?: string[];
   /** The initializer as written (`10`, `'#fff'`), when the source has one. */
   default?: string;
   /** First line of the doc comment. */
   description?: string;
+  /** The declaration's `@tip`: what its package adds when a value written for it does not compile. */
+  tip?: string;
   /** False for a parameter or property that may be omitted. */
   required: boolean;
 }
@@ -79,6 +100,14 @@ export interface ClassProblem {
 }
 
 /** A component class found in the workspace. */
+/** One typed event a component raises. */
+export interface ComponentEvent {
+  name: string;
+  /** What a listener is handed — `won: boolean` — empty for none. */
+  args: string;
+  description?: string;
+}
+
 export interface ComponentInfo {
   /** Class name. This is the name a scene file addresses it by — there is no separate tag. */
   name: string;
@@ -107,6 +136,11 @@ export interface ComponentInfo {
    * writing one is reported as exactly that, rather than as an attribute that does not exist.
    */
   nonSerialized?: string[];
+  /**
+   * Its typed events — `readonly onClick = new Event()` — own and inherited. Not attributes, so
+   * not fields; listed because another component subscribes to them by name.
+   */
+  events?: ComponentEvent[];
   /** Mistakes in the class itself, which the emitters pass through as build diagnostics. */
   problems?: ClassProblem[];
   /**
@@ -155,6 +189,13 @@ export interface TagInfo {
   module: string;
   /** Doc comment on the class, when it has one. */
   description?: string;
+  /** The class's `@tip`: what its package adds when the element is written in the wrong place. */
+  tip?: string;
+  /**
+   * The class's `@parent`, where it has to hang: `camera` is a child of the camera the scene is
+   * drawn through — a screen-space UI root, sized from that camera's frustum.
+   */
+  parent?: 'camera';
   /**
    * Constructor parameters, in order. Emitted positionally, so a document that sets the
    * third one but not the second still produces a correct call.

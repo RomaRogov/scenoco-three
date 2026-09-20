@@ -45,6 +45,7 @@
  * - **`Panel`** — a rectangle that holds and lays out others. On its own, world-space UI.
  * - **`Text`** — a run of text. `color`, `fontSize`, `fontWeight` and `textAlign` are inherited.
  * - **`Image`** — a picture; `src` names an image file like a material's `map`.
+ * - **`Button`** — a component that makes the element it sits on clickable, with an `onClick` event.
  * - **`UIRenderer`** — the system that lays them out. Optional: the first element creates one.
  *
  * Each is a real `THREE.Mesh`, so they are ordinary scene nodes: they nest, they carry
@@ -52,6 +53,7 @@
  */
 export { Canvas, Panel, Text, Image } from './elements.js';
 export { UIRenderer } from './UIRenderer.js';
+export { Button } from './Button.js';
 export type { Align, Anchor, FontWeight, Layout, RectState, TextAlign } from './rect.js';
 /**
  * What an element's authored values mean, as uikit properties.

@@ -1,4 +1,5 @@
 import type { Scene } from 'three';
+import type { Event } from './Event.js';
 import type { ConstructableSystem, SystemInit, SystemLifecycle, SystemType } from './types.js';
 
 /**
@@ -20,6 +21,8 @@ export abstract class System {
   _pendingDestroy = false;
   /** @internal */
   _destroyed = false;
+  /** @internal what `listen` registered, dropped after `onDestroy`. */
+  _subscriptions: (() => void)[] | null = null;
 
   /** The scene this system serves. Valid from `awake` onwards, not during construction. */
   get scene(): Scene {
@@ -41,6 +44,15 @@ export abstract class System {
       );
     }
     return scene.requireSystem(type, init);
+  }
+
+  /**
+   * Subscribe to an {@link Event} for as long as this system lives — `Component.listen`, for the
+   * service a game's components report to.
+   */
+  listen<TArgs extends unknown[]>(event: Event<TArgs>, listener: (...args: NoInfer<TArgs>) => void): void {
+    event.on(listener);
+    (this._subscriptions ??= []).push(() => event.off(listener));
   }
 
   /** True once `onDestroy` has run. Spelled the same as `Component.isDestroyed`. */

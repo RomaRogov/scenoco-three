@@ -236,7 +236,7 @@ export class Spawner extends Component {
     // The id is how anything reaches *this* crate later — \`scene.byId('crate3', Mesh)\` in code,
     // \`telemetry\` on \`crate3\` in the editor. Every id is unique, hence the counter.
     const at = this.object3D.position.clone().setY(0.25);
-    this.scene?.instantiate(this.crate, { id: \`crate\${this.count}\`, position: at }, (crate) => {
+    this.scene.instantiate(this.crate, { id: \`crate\${this.count}\`, position: at }, (crate) => {
       const spinner = crate.getComponent(Spinner);
       if (spinner) spinner.speed *= this.count;
     });
@@ -348,6 +348,8 @@ export class Spinner extends Component {
 <Scene camera="#camera" background="#0b1120">
   <!-- The camera follows the player. target="#player" fills a field typed Object3D; a wrong id
        is a build error, not a blank screen. -->
+  <!-- A camera looks down its own -z until something turns it: here Follow aims it at #player.
+       Without Follow, turn it yourself — eulerAngles="x: -90" looks straight down from above. -->
   <PerspectiveCamera id="camera" fov="45" near="0.1" far="200" position="y: 4; z: 8">
     <Components>
       <Follow target="#player" offset="y: 4; z: 8" />
@@ -399,10 +401,19 @@ because it is read off the source.
 | **Component** | MonoBehaviour: behaviour on one node | \`class Mover extends Component\` in \`src/\`, then \`<Mover speed="6" />\` inside a node's \`<Components>\` |
 | **System** | your GameManager, without the singleton: rules, score, a physics world | \`class Run extends System\`, then \`<Run />\` under \`<Systems>\`; reach it with \`this.requireSystem(Run)\` |
 | **Prefab** | a document whose root element is the node it makes | \`crate.prefab.xml\`; spawn it with \`node.instantiate(this.crate, { position })\` |
-| **Scene** | a \`.scene.xml\` | an element is a three.js class or one of your components; an attribute is its public property |
+| **Scene** | a \`.scene.xml\` | an element is a three.js class or one of your components; an attribute is its public property. \`src/main.ts\` loads one — a new scene runs only once that (or another scene) loads it |
 
 Nothing is registered. A class that extends \`Component\` is a tag, and its public fields are its
 attributes. That is the whole registration.
+
+Physics, in-canvas UI, particles, audio and post-processing are **separate packages** —
+\`@scenoco-three/box2d\`, \`rapier\`, \`collision\`, \`ui\`, \`particles\`, \`audio\`, \`postfx\`. Depend on one
+and import it in \`src/tags.ts\`, and its tags join the vocabulary; depend on none and none of it
+ships. Their tags follow the same two rules as yours: a node is an element in the tree
+(\`<Canvas>\`, \`<Panel>\`), a component goes in a node's \`<Components>\` (\`<Button />\`,
+\`<ParticleSystem>\`), and \`describe\` names which each one is. One may bring a whole kind of
+document with it — \`particles\` makes \`.particle.xml\` a thing this project has. \`scenoco describe\`
+always lists what is actually wired up.
 
 ## Six rules
 
@@ -429,14 +440,14 @@ attributes. That is the whole registration.
    \`window.addEventListener\`: input is sampled once a frame so the editor can drive it.
 5. **Time is the \`dt\` handed to \`update\`.** A timer is a countdown field. Never \`setTimeout\`: it
    fires into destroyed objects and cannot be paused or stepped.
-6. **No constructors.** Your own state goes in \`awake()\`; reaching other components goes in
-   \`start()\`, when everything has awoken.
+6. **No constructors.** Your own state goes in \`awake()\` — a system's too, since components read
+   it in their \`start()\`; reaching other components goes in \`start()\`, when everything has awoken.
 
 ## Hooks
 
 \`awake\` · \`start\` · \`update(dt)\` · \`fixedUpdate(dt)\` · \`lateUpdate(dt)\` · \`onEnable\` · \`onDisable\` ·
 \`onDestroy\`. With \`@scenoco-three/collision\` or \`rapier\` imported in \`src/tags.ts\`, also
-\`onTriggerEnter(other)\` / \`onCollisionEnter(other)\`, where \`other\` is the node: \`other.getComponent(Player)\`.
+\`onTriggerEnter(other)\` / \`onCollisionEnter(other)\` — called on the components of the node that carries the collider, with \`other\` the node that carries the other one: \`other.getComponent(Player)\`.
 
 ## About to write… → write instead
 
@@ -448,7 +459,10 @@ attributes. That is the whole registration.
 | \`setTimeout(fn, 500)\` | \`this.left -= dt\` in \`update\`; \`startCoroutine\` for a sequence |
 | \`emit('died')\`, \`dispatchEvent\` | \`readonly died = new Event<[Enemy]>()\`; \`this.listen(enemy.died, fn)\` |
 | \`mesh.visible = false\` to take it out of play | \`mesh.destroy()\`, or \`mesh.setActive(false)\` to bring it back later. \`visible\` only stops it being drawn — it keeps updating, and on a UI element it keeps its place in the layout |
+| \`mesh.material.color.set(…)\` to tint one mesh | clone it once, in \`awake\` of a \`Component<Mesh>\`: \`this.object3D.material = (this.object3D.material as MeshStandardMaterial).clone()\`. In three.js a material is one object shared by every mesh drawn with it, so without the clone the tint reaches all of them |
 | \`new Mesh(geometry, material)\` inside a component | a prefab document, and \`instantiate\` |
+| \`template.clone()\` of a node in the scene | \`this.scene.instantiate(template, { position })\` — Unity's \`Instantiate\`: its components come too, each with its own values. An inactive template gives an inactive copy; \`setActive(true)\` it |
+| \`import { Object3D, Mesh, Vector3 } from '@scenoco-three/core'\` | \`from 'three'\`. Core exports what it adds — \`Component\`, \`System\`, \`Event\`, \`Input\`, \`Time\`, \`KeyCode\` — and three.js's own classes come from \`three\`, with core's additions already on them |
 | \`<Cube>\` | \`<Mesh geometry="../geometry/cube.asset.xml" material="…" />\` |
 
 ## Commands

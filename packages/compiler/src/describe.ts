@@ -1,7 +1,9 @@
 import { PLACEMENT } from './emit/placement.js';
+import { isFamilyRoot } from './scan/families.js';
 import { nearestName } from './dsl/diagnostics.js';
 import { parseDocument, type SncElement } from './dsl/parse.js';
-import type { AssetFile } from './assets.js';
+import type { AssetFile, AssetKind } from './assets.js';
+import type { ConfigShape } from './scan/interfaces.js';
 import type { ComponentInfo, ProjectModel, PropInfo, TagInfo } from './model.js';
 
 /**
@@ -37,6 +39,61 @@ export interface DescribeInput {
    * it where it says everything else about itself.
    */
   notes?: Readonly<Record<string, string>>;
+  /**
+   * The kinds of document this project has — the builtins plus whatever its packages declare.
+   *
+   * Which extensions the compiler accepts is a question with no other answer: the project's own
+   * files show what it *has*, not what it may have, and an agent that cannot find it here goes
+   * looking in `node_modules` for the table.
+   */
+  kinds?: readonly AssetKind[];
+  /**
+   * The elements a config document is made of, by element name — {@link configIndex}.
+   *
+   * A `.particle.xml` is `<ParticleEffect>` holding `<Emission>` holding `<Burst>`, and not one of
+   * those names is a class, so the tag scan walks past all of them. Without this, `describe
+   * ParticleEffect` answered "nothing here is called that" — one line after `describe
+   * ParticleSystem` had offered `effect  path | <ParticleEffect>`. A name the tooling advertises
+   * and then denies sends the reader to `node_modules`, and that is measured, not supposed.
+   */
+  configs?: ReadonlyMap<string, ConfigEntry>;
+}
+
+/** One element of a config document, and where it is written. */
+export interface ConfigEntry {
+  shape: ConfigShape;
+  /** The root type of the document kind it belongs to — which says what file it lives in. */
+  document: string;
+  /** The element that holds it. Absent on the root. */
+  parent?: string;
+  /** The holder may write it any number of times — `bursts?: Burst[]`. */
+  repeated?: boolean;
+}
+
+/**
+ * Flatten document shapes into the names a document actually writes.
+ *
+ * `build` returns one shape per kind, nested; an author writes the nested names as elements, so
+ * every level has to be askable by itself. Keyed by element name because that is what a reader
+ * has in hand when they ask.
+ */
+export function configIndex(shapes: Iterable<ConfigShape | undefined>): Map<string, ConfigEntry> {
+  const index = new Map<string, ConfigEntry>();
+  const walk = (shape: ConfigShape, document: string, parent?: string, repeated?: boolean): void => {
+    // Two holders of one type, or a type that holds itself: the first spelling wins and the walk
+    // ends, which is enough to answer "what does this element take".
+    if (index.has(shape.name)) return;
+    index.set(shape.name, {
+      shape,
+      document,
+      ...(parent ? { parent } : {}),
+      ...(repeated ? { repeated: true } : {}),
+    });
+    for (const child of shape.groups.values()) walk(child, document, shape.name);
+    for (const child of shape.lists.values()) walk(child, document, shape.name, true);
+  };
+  for (const shape of shapes) if (shape) walk(shape, shape.name);
+  return index;
 }
 
 export function describe(input: DescribeInput, wanted?: string): string {
@@ -46,6 +103,9 @@ export function describe(input: DescribeInput, wanted?: string): string {
     ['system', model.systems],
     ['effect', model.effects],
   ];
+
+  // Which document types have a second, written-in-place form. Only a config kind does.
+  const configNames = new Set(input.configs?.keys() ?? []);
 
   if (!wanted) return overview(input, model, kinds);
 
@@ -62,7 +122,9 @@ export function describe(input: DescribeInput, wanted?: string): string {
   // line, and went to node_modules for the attribute names.
   const asTag = model.tags.find((t) => t.name === wanted);
   const asComponent = kinds.flatMap(([, list]) => list).find((c) => c.name === wanted);
-  if (asTag && asComponent && asComponent.fields.length === 0) return describeTag(asTag, input.notes);
+  if (asTag && asComponent && asComponent.fields.length === 0) {
+    return describeTag(asTag, input.notes, configNames, model.tags);
+  }
 
   for (const [kind, list] of kinds) {
     const found = list.find((c) => c.name === wanted);
@@ -70,13 +132,37 @@ export function describe(input: DescribeInput, wanted?: string): string {
       return [
         `<${found.name}>  — ${kind}${found.module ? `, from ${found.module}` : ''}`,
         ...(found.description ? [found.description.split('\n')[0]!] : []),
-        ...found.fields.map(field),
+        ...found.fields.map((f) => field(f, configNames)),
+        // Not attributes, and still half of what a component is for: what others listen to.
+        ...(found.events ?? []).map(
+          (e) => `  ${e.name}  event (${e.args})${e.description ? `   ${e.description}` : ''}`,
+        ),
+        ...(found.events?.length
+          ? [`  listen with this.listen(${camel(found.name)}.${found.events[0]!.name}, (…) => …)`]
+          : []),
       ].join('\n');
     }
   }
 
+  // An element of a config document — `<ParticleEffect>`, `<Emission>`, `<Burst>`. Asked before
+  // the tag lookup, because in a project that has particles `Shape` means the one with a radius,
+  // not three's curve class. When a class of that name exists too, both are printed.
+  const config = input.configs?.get(wanted);
   const tag = model.tags.find((t) => t.name === wanted);
-  if (tag) return describeTag(tag, input.notes);
+  if (config) {
+    const answers = [
+      describeConfig(input, config, kinds, configNames),
+      tag ? describeTag(tag, input.notes, configNames, model.tags) : '',
+    ];
+    return answers.filter(Boolean).join(`\n\n${'─'.repeat(78)}\n\n`);
+  }
+  // `Object3D` is a tag and every node's API at once. What a node can *do* — `addComponent`,
+  // `setActive`, `instantiate` — comes first, then what `<Object3D>` takes.
+  if (tag && tag.family === 'node' && isFamilyRoot(tag.name)) {
+    const api = input.api?.(wanted);
+    return [api, describeTag(tag, input.notes, configNames, model.tags)].filter(Boolean).join('\n\n');
+  }
+  if (tag) return describeTag(tag, input.notes, configNames, model.tags);
 
   const shape = describeShape(input, wanted);
   if (shape) return shape;
@@ -88,10 +174,18 @@ export function describe(input: DescribeInput, wanted?: string): string {
   // The primer says what a thing is; the declarations say what it has. Both, when both exist —
   // an agent given only the primer went to node_modules for the rest.
   const api = input.api?.(wanted);
-  if (runtime || api) return [runtime, api].filter(Boolean).join('\n\n');
+  // A base class no document writes — `Material`, `Object3D` — by the attributes it gives the
+  // tags that derive from it. After the API, never instead of it: `describe Object3D` is first of
+  // all what a node can *do*.
+  const base = describeBase(model, wanted, configNames);
+  if (runtime || api || base) return [runtime, api, base].filter(Boolean).join('\n\n');
 
   // The compiler's own near-miss check, so this answers a typo the way a diagnostic does.
-  const names = [...kinds.flatMap(([, l]) => l.map((c) => c.name)), ...model.tags.map((t) => t.name)];
+  const names = [
+    ...kinds.flatMap(([, l]) => l.map((c) => c.name)),
+    ...model.tags.map((t) => t.name),
+    ...(input.configs?.keys() ?? []),
+  ];
   const near = nearestName(wanted, names);
   return `nothing here is called "${wanted}".${near ? ` Did you mean "${near}"?` : ''}`;
 }
@@ -165,16 +259,37 @@ function project(input: DescribeInput, kinds: Array<[string, ComponentInfo[]]>):
     for (const a of documents) lines.push(`    ${a.relativePath}`);
   }
 
-  // Everything else a document references by path. Listed, not quoted: a geometry or a material
-  // is one three.js class with its arguments — the same rule as a scene element — so saying the
-  // rule once and naming the files says as much as reproducing ten of them, and `describe <path>`
-  // has the numbers when a particular one matters.
+  if (input.kinds?.length) {
+    lines.push('', '  kinds of document — `scenoco new <kind> <name>` writes a starter:');
+    const width = Math.max(...input.kinds.map((k) => k.kind.length));
+    const span = Math.max(...input.kinds.map((k) => k.extension.length)) + 1;
+    const home = Math.max(...input.kinds.map((k) => k.dir.length)) + 1;
+    for (const kind of input.kinds) {
+      const from = kind.package ? ` — from ${kind.package.name}` : '';
+      lines.push(
+        `    ${kind.kind.padEnd(width)}  ${`*${kind.extension}`.padEnd(span)}  ` +
+          `${`${kind.dir}/`.padEnd(home)}  ${kind.description}${from}`,
+      );
+    }
+    // A package's kind is an element tree, and its root is the one name that opens the rest.
+    // Left unsaid, the list above reads as "files exist" and the grammar stays unaskable.
+    const roots = input.kinds.filter((k) => k.type).map((k) => `<${k.type!}>`);
+    if (roots.length) {
+      const ask = roots.length > 1 ? 'name one' : 'name it';
+      lines.push(`    ${roots.join(' · ')} — ${ask} for the elements and attributes it takes.`);
+    }
+  }
+
+  // Everything else a document references by path. Listed, not quoted: saying the rule once and
+  // naming the files says as much as reproducing ten of them, and `describe <path>` has the
+  // numbers when a particular one matters.
   const resources = input.assets.filter((a) => a.kind !== 'scene' && a.kind !== 'prefab');
   if (resources.length) {
     lines.push(
       '',
-      '  shapes, materials and the rest — one three.js class with its arguments, exactly like a',
-      '  scene element. Name one from a <Mesh> by its path; `describe <path>` for its numbers:',
+      '  referenced by path — a shape or a material is one three.js class with its arguments,',
+      '  exactly like a scene element; a package\'s own kind is that package\'s type.',
+      '  Name one from an attribute by its path; `describe <path>` for its numbers:',
     );
     const byDirectory = new Map<string, string[]>();
     for (const a of resources) {
@@ -312,16 +427,18 @@ const RUNTIME: Record<string, string> = {
     '',
     '  export class Run extends System {',
     '    duration = 30;                         // a setting: <Run duration="30" />',
-    '    remaining = 0;',
+    '    private left = 0;                      // state: private, read through a getter',
+    '    get remaining(): number { return this.left; }',
     '    readonly ended = new Event<[boolean]>();',
-    '    override start(): void { this.remaining = this.duration; }',
-    '    override update(dt: number): void { this.remaining -= dt; if (this.remaining <= 0) this.ended.emit(true); }',
+    '    override awake(): void { this.left = this.duration; }',
+    '    override update(dt: number): void { this.left -= dt; if (this.left <= 0) this.ended.emit(true); }',
     '  }',
     '',
     'Declare it under <Scene> as <Systems><Run duration="30" /></Systems>, or let the first',
     '`this.requireSystem(Run)` create it. One per class per scene; every component reaches it with',
-    'requireSystem. Same hooks as a component, run after every component in each phase. Read the',
-    'scene in start(), not awake() — awake runs while the document is still being built.',
+    'requireSystem. Same hooks as a component, run after every component in each phase — so its own',
+    'state goes in awake(), before any component\'s start() reads it, and reading the scene goes in',
+    'start(), once the document is complete.',
   ].join('\n'),
 
   Input: [
@@ -500,13 +617,14 @@ function describeDocument(input: DescribeInput, href: string): string {
   };
   walk(parsed.root, false);
 
-  // A scene or a prefab is asked about for its ids. Everything else — a geometry, a material — is
-  // one element, and what you want to know is what it *is*: `<BoxGeometry width="1" …>` says that
-  // a cube is one unit on a side better than any sentence about it would.
+  // A scene or a prefab is asked about for its ids. Everything else — a geometry, a material, an
+  // effect — is one element tree, and what you want to know is what it *says*: `<BoxGeometry
+  // width="1" …>` tells you a cube is one unit on a side better than any sentence would. The tree,
+  // not the root: a `.particle.xml` keeps its emission and its curves in children, and printing
+  // the root alone reported a file full of them as `<ParticleEffect … />`, self-closed.
   const root = parsed.root;
   if (asset.kind !== 'scene' && asset.kind !== 'prefab') {
-    const attributes = [...root.attributes].map(([name, value]) => `${name}="${value}"`).join(' ');
-    return `${asset.relativePath}\n  <${root.tag}${attributes ? ` ${attributes}` : ''} />`;
+    return `${asset.relativePath}\n${elementXml(root, '  ')}`;
   }
 
   return [
@@ -517,18 +635,137 @@ function describeDocument(input: DescribeInput, href: string): string {
   ].join('\n');
 }
 
-function describeTag(tag: TagInfo, notes?: Readonly<Record<string, string>>): string {
+/**
+ * A base class no document writes — `Material`, `Object3D`'s cousins — by what it gives the tags
+ * that derive from it.
+ *
+ * A tag lists what it inherits by name only, so the reader needs somewhere to ask for the types:
+ * `side` takes three constants and nothing in a list of names says which. Without this, `describe
+ * Material` answered "nothing here is called Material" about the one class every material is.
+ */
+function describeBase(model: ProjectModel, wanted: string, inline: ReadonlySet<string>): string | null {
+  const props = new Map<string, PropInfo>();
+  const heirs: string[] = [];
+  for (const tag of model.tags) {
+    const given = tag.properties.filter((prop) => prop.owner === wanted);
+    if (!given.length) continue;
+    heirs.push(tag.name);
+    for (const prop of given) if (!props.has(prop.name)) props.set(prop.name, prop);
+  }
+  if (!props.size) return null;
+  const module = model.tags.find((t) => t.name === heirs[0])?.module;
+  return [
+    `${wanted}  — a base class${module ? ` in ${module}` : ''}, not written itself. What it gives ` +
+      `${heirs.length === 1 ? heirs[0] : `${heirs.length} tags, ${heirs.slice(0, 3).join(', ')} among them`}:`,
+    ...[...props.values()].sort((a, b) => a.name.localeCompare(b.name)).map((prop) => field(prop, inline)),
+  ].join('\n');
+}
+
+/** An element and everything under it, as the document wrote it. */
+function elementXml(element: SncElement, indent: string): string {
+  const attributes = [...element.attributes].map(([name, value]) => ` ${name}="${value}"`).join('');
+  if (element.children.length === 0) return `${indent}<${element.tag}${attributes} />`;
+  return [
+    `${indent}<${element.tag}${attributes}>`,
+    ...element.children.map((child) => elementXml(child, `${indent}  `)),
+    `${indent}</${element.tag}>`,
+  ].join('\n');
+}
+
+/**
+ * One element of a config document: its attributes, the elements it may hold, and — on the root —
+ * the two ways a document writes it.
+ *
+ * The two spellings are the point. A shared file and an element written in place are different
+ * things, not two styles: the file is one value everything that names it uses, the element is this
+ * node's own. Given only the file form, a build put a trail that belongs to one craft into a shared
+ * `.particle.xml` — the tiers were never legible from the tooling, so it wrote the one it had seen.
+ */
+function describeConfig(
+  input: DescribeInput,
+  entry: ConfigEntry,
+  kinds: Array<[string, ComponentInfo[]]>,
+  inline: ReadonlySet<string>,
+): string {
+  const { shape } = entry;
+  const kind = input.kinds?.find((k) => k.type === entry.document);
+  const children = [...shape.groups.values(), ...shape.lists.values()].map((c) => `<${c.name}>`);
+  const where = entry.parent
+    ? `inside <${entry.parent}>${entry.repeated ? ', any number of times' : ''}`
+    : `the root of a ${kind?.extension ?? 'config'} document`;
+
+  // Which component holds one of these, and under what attribute — the exact two lines to write.
+  // Read off the fields rather than named here, so a package that adds a kind gets this for free.
+  const holders = kinds.flatMap(([, list]) => list);
+  const holder = holders.find((c) => c.fields.some((f) => f.document === entry.document));
+  const slot = holder?.fields.find((f) => f.document === entry.document)?.name;
+
+  return [
+    `<${shape.name}>  — ${where}${kind?.package ? `, from ${kind.package.name}` : ''}`,
+    ...(shape.description ? [shape.description.split('\n')[0]!] : []),
+    ...shape.fields.map((f) => field(f, inline)),
+    ...(children.length ? [`  it may hold: ${children.join(' · ')}   (name one to see what it takes)`] : []),
+    ...(entry.parent || !holder || !slot
+      ? []
+      : [
+          '',
+          'Two spellings, and they are two different things:',
+          `  <${holder.name} ${slot}="${kind?.dir ?? 'assets'}/…${kind?.extension ?? ''}" />`,
+          '      one file, and every node that names it shares that one value.',
+          `  <${holder.name}><${shape.name} … /></${holder.name}>`,
+          '      written in place, so this node has its own.',
+        ]),
+  ].join('\n');
+}
+
+function describeTag(
+  tag: TagInfo,
+  notes?: Readonly<Record<string, string>>,
+  inline?: ReadonlySet<string>,
+  vocabulary: readonly TagInfo[] = [],
+): string {
   // Constructor parameters and settable properties are one list to whoever writes the document:
   // both are attributes, and which half a value lands in is the emitter's problem, not theirs.
-  const all = [...tag.parameters, ...tag.properties];
-  const shown = all.slice(0, 40).map(field);
+  // A slot nothing can write — a material's `parameters` object — is the emitter's alone.
+  const all = [...tag.parameters, ...tag.properties].filter((prop) => prop.shape !== 'unsupported');
+  // The class's own settings in full, and what it inherits by name only, grouped under the class
+  // that declares it. Alphabetical in one list, a material's first forty were `alphaHash` to
+  // `forceSinglePass` and the cut fell on `roughness`, `metalness` and `opacity`. By owner, the
+  // cut can only fall on a base — named, so the rest are three.js's own names for its own class.
+  const own = all.filter((prop) => !prop.owner);
+  // Nearest base first, the way the class reads; and nothing the placement line below says again.
+  const placed = tag.family === 'node' ? new Set(Object.keys(PLACEMENT)) : new Set<string>();
+  const inherited = new Map<string, string[]>();
+  for (const owner of tag.bases) {
+    const names = all.filter((prop) => prop.owner === owner && !placed.has(prop.name)).map((p) => p.name);
+    if (names.length) inherited.set(owner, names);
+  }
+  const whose = tag.module === 'three' ? " — three.js's own names" : '';
+  // `path | a geometry element` names a form, and a form nobody has seen spelled sent a reader to
+  // grep the compiler's README for the phrase. One line, spelled with a real class of each family.
+  const families = [...new Set(own.flatMap((prop) => (prop.assetFamily ? [prop.assetFamily] : [])))];
+  // The class of each family that belongs with this tag — a `<Mesh>` gets a `MeshBasicMaterial`.
+  const example = families
+    .map((family) => {
+      const names = vocabulary.filter((t) => t.family === family).map((t) => t.name).sort();
+      return names.find((name) => name.startsWith(tag.name)) ?? names[0];
+    })
+    .filter(Boolean)
+    .map((name) => `<${name} … />`);
+  const spelled = example.length
+    ? [`  instead of a path, written inside is this node's own:  <${tag.name}>${example.join('')}</${tag.name}>`]
+    : [];
+  const shown = own.slice(0, 40).map((prop) => field(prop, inline));
   const note = tag.module !== 'three' ? notes?.[tag.name] : undefined;
   return [
     `<${tag.name}>  — ${tag.family}, from ${tag.module}`,
     ...(tag.description ? [tag.description.split('\n')[0]!] : []),
     ...(note ? ['', note, ''] : []),
     ...shown,
-    ...(all.length > shown.length ? [`… and ${all.length - shown.length} more.`] : []),
+    ...(own.length > shown.length ? [`… and ${own.length - shown.length} more of its own.`] : []),
+    ...spelled,
+    ...[...inherited].map(([owner, names]) => `  inherited from ${owner}${whose}: ${names.join(' · ')}`),
+    ...(inherited.size ? [`  (describe ${[...inherited.keys()].join(' ')} for their types)`] : []),
     // The attributes no class declares and every node takes. They are also the ones a document
     // uses most, so leaving them out made this answer quietly misleading.
     ...(tag.family === 'node'
@@ -537,12 +774,48 @@ function describeTag(tag: TagInfo, notes?: Readonly<Record<string, string>>): st
   ].join('\n');
 }
 
-/** One attribute, as a document would write it: name, type, default, and what it is for. */
-function field(prop: PropInfo): string {
-  const type = prop.shape === 'enum' ? options(prop.options ?? []) : prop.shape;
+/**
+ * One attribute, as a document would write it: name, type, default, and what it is for.
+ *
+ * The type column is the *spelling*, not the compiler's word for it. `assetRef` and `nodeRef` are
+ * internal names for "a path" and "an id"; printed raw they told a reader nothing they could type.
+ */
+function field(prop: PropInfo, inline?: ReadonlySet<string>): string {
+  // A field holding a document has two forms and the shape names neither: a path to a file every
+  // user shares, or the element itself, written inside, giving this one its own. The second form
+  // exists only for a config document — a prefab is a file and nothing else, so offering
+  // `<PrefabType>` there advertised an element no document may contain.
+  const type =
+    prop.shape === 'enum'
+      ? options(prop.options ?? [])
+      : prop.document
+        ? inline?.has(prop.document)
+          ? `path | <${prop.document}>`
+          : `path to ${an(prop.document)}`
+        : prop.shape === 'assetRef'
+          ? // A geometry or a material has the same two tiers as a config document: the file
+            // everything shares, or the element written inside this node, which is its own.
+            prop.assetFamily
+            ? `path | a ${prop.assetFamily} element`
+            : 'path'
+          : prop.shape === 'nodeRef'
+            ? // The id of a node in the same document, and the class it has to be: a slot typed
+              // `Text` takes `#scoreText` and the compiler checks both halves of that.
+              `#id of ${an(prop.type.replace(/<.*$/, ''))}`
+            : prop.shape;
   const value =
     prop.default !== undefined ? ` = ${prop.default}` : prop.required ? '  (required)' : '';
   return `  ${prop.name}  ${type}${value}${prop.description ? `   ${prop.description}` : ''}`;
+}
+
+/** `ParticleSystem` → `particleSystem`: what a slot holding one is usually called. */
+function camel(name: string): string {
+  return name[0]!.toLowerCase() + name.slice(1);
+}
+
+/** "a Text", "an AudioClip" — the column is prose, and a wrong article reads as a typo. */
+function an(name: string): string {
+  return `${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}`;
 }
 
 /**

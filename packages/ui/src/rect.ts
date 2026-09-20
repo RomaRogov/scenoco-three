@@ -70,9 +70,20 @@ declare module '@pmndrs/uikit' {
     x: number;
     /** Distance in from the anchored edge, in pixels. At a centre anchor, an offset from centre. */
     y: number;
-    /** Width in pixels. Leave it off on a stretched axis — the stretch is the width. */
+    /**
+     * Width in pixels. Leave it off on a stretched axis — the stretch is the width — or to size
+     * the element by what it holds.
+     *
+     * @tip A size is pixels, never a percentage or "auto": to fill the parent, anchor it
+     * (anchor="stretch", "stretchTop", …); to fit what it holds, leave width off.
+     */
     width?: number;
-    /** Height in pixels. Leave it off on a stretched axis. */
+    /**
+     * Height in pixels. Leave it off on a stretched axis, or to size the element by what it holds.
+     *
+     * @tip A size is pixels, never a percentage or "auto": to fill the parent, anchor it
+     * (anchor="stretch", "stretchLeft", …); to fit what it holds, leave height off.
+     */
     height?: number;
 
     // --- children ---------------------------------------------------------------------------
@@ -84,7 +95,10 @@ declare module '@pmndrs/uikit' {
     alignY: Align;
     /** Space between children, in pixels. */
     gap: number;
-    /** Space inside the element's own edges, in pixels. */
+    /**
+     * Space inside the element's own edges, in pixels, for the children its `layout` places. An
+     * anchored child is pinned to the edge itself — its own `x`/`y` are its margin.
+     */
     padding: number;
 
     // --- appearance -------------------------------------------------------------------------
@@ -156,6 +170,24 @@ export interface RectState {
   src?: Texture;
 }
 
+/**
+ * What layout worked out for one element, as against what was authored on it. It belongs to the
+ * element that was laid out, so a copy of the element starts without it.
+ */
+export interface LayoutState {
+  /**
+   * The size layout gave a centred axis that has none written, so it can be centred by its
+   * content — see `centreBySize`.
+   */
+  measured?: [number, number];
+  /**
+   * The active state uikit was last given. `setActive` assigns `visible` before it updates the
+   * hierarchy, so a write can carry the state being left; what was written is the only thing to
+   * compare against.
+   */
+  applied?: boolean;
+}
+
 function freshState(): RectState {
   return {
     visible: true,
@@ -174,6 +206,14 @@ function freshState(): RectState {
 }
 
 const states = new WeakMap<object, RectState>();
+const layouts = new WeakMap<object, LayoutState>();
+
+/** @internal what layout worked out for an element, created on first touch. */
+export function layoutStateOf(element: object): LayoutState {
+  let state = layouts.get(element);
+  if (!state) layouts.set(element, (state = {}));
+  return state;
+}
 
 /** @internal the authored values for an element, created on first touch. */
 export function rectStateOf(element: object): RectState {
@@ -191,7 +231,8 @@ export function rectStateOf(element: object): RectState {
  */
 export function applyRect(element: UikitComponent): void {
   const state = rectStateOf(element);
-  const props = toUikitProperties(state);
+  const layout = layoutStateOf(element);
+  const props = toUikitProperties(state, layout.measured);
   // The two flags every node has, in uikit's spelling.
   //
   // `active` is `display: 'none'`: out of the layout entirely, so the elements around it close
@@ -202,6 +243,7 @@ export function applyRect(element: UikitComponent): void {
   // 'none'` left over from an inactive moment would stick for ever once the element came back.
   const active = (element as unknown as { activeInHierarchy?: boolean }).activeInHierarchy !== false;
   props.display = active ? 'flex' : 'none';
+  layout.applied = active;
   props.visibility = state.visible ? 'visible' : 'hidden';
   asUikit(() => (element as unknown as { setProperties(p: Record<string, unknown>): void }).setProperties(props));
 }
@@ -296,7 +338,11 @@ const ALIGN: Record<Align, string> = {
 };
 
 /** Turn the authored values into the uikit property object. */
-export function toUikitProperties(state: RectState): Record<string, unknown> {
+export function toUikitProperties(
+  state: RectState,
+  /** What layout measured of an element sized by its content — see `centreBySize`. */
+  measured?: readonly [number, number],
+): Record<string, unknown> {
   const row = state.layout === 'horizontal';
   const props: Record<string, unknown> = {
     flexDirection: row ? 'row' : 'column',
@@ -334,8 +380,8 @@ export function toUikitProperties(state: RectState): Record<string, unknown> {
 
   // Anchored: out of the parent's flow, pinned by insets.
   props.positionType = 'absolute';
-  inset(props, ax, state.x, 'Left', 'Right');
-  inset(props, ay, state.y, 'Top', 'Bottom');
+  inset(props, ax, state.x, 'Left', 'Right', state.width ?? measured?.[0]);
+  inset(props, ay, state.y, 'Top', 'Bottom', state.height ?? measured?.[1]);
   if (ax !== 'stretch' && state.width !== undefined) props.width = state.width;
   if (ay !== 'stretch' && state.height !== undefined) props.height = state.height;
   return props;
@@ -344,9 +390,14 @@ export function toUikitProperties(state: RectState): Record<string, unknown> {
 /**
  * Pin one axis.
  *
- * Centring uses `auto` margins between two insets, which is how CSS centres an absolutely
- * positioned box without knowing its size — and it keeps the offset meaningful: the box centres
- * within `[near, far]`, so doubling the near inset shifts the centre by exactly the offset.
+ * A centred axis is the one CSS would do with `auto` margins between two insets — and yoga, which
+ * lays uikit out, ignores auto margins on an absolutely positioned box: every `center`, `top` and
+ * `left` landed in the top-left corner. So it is Unity's arithmetic instead: the anchor at 50% of
+ * the parent, pulled back by half the element's own size, plus the offset.
+ *
+ * With no size written, the element is sized by its content, and the half comes from the size
+ * layout gave it — `centreBySize` feeds that back, so a dialog of a title and a button centres
+ * without anyone measuring it.
  */
 function inset(
   props: Record<string, unknown>,
@@ -354,6 +405,7 @@ function inset(
   offset: number,
   near: 'Left' | 'Top',
   far: 'Right' | 'Bottom',
+  size: number | undefined,
 ): void {
   if (mode === 'left' || mode === 'top') {
     props[`position${near}`] = offset;
@@ -368,11 +420,34 @@ function inset(
     props[`position${far}`] = offset;
     return;
   }
-  // Centred, with the offset folded into the near or far inset.
-  props[`position${near}`] = offset >= 0 ? offset * 2 : 0;
-  props[`position${far}`] = offset >= 0 ? 0 : offset * -2;
-  props[`margin${near}`] = 'auto';
-  props[`margin${far}`] = 'auto';
+  props[`position${near}`] = '50%';
+  props[`margin${near}`] = offset - (size ?? 0) / 2;
+}
+
+/**
+ * Whether an element is centred on an axis it has no written size for — the ones whose size
+ * layout has to tell us before they can be centred.
+ */
+export function centredBySize(state: RectState): boolean {
+  const [ax, ay] = state.anchor ? ANCHORS[state.anchor] : [undefined, undefined];
+  return (ax === 'center' && state.width === undefined) || (ay === 'middle' && state.height === undefined);
+}
+
+/**
+ * Record the size layout gave a content-sized, centred element; true when that moved it, so the
+ * caller lays out once more and nothing is drawn off-centre for a frame.
+ */
+export function centreBySize(element: UikitComponent): boolean {
+  const state = rectStateOf(element);
+  if (!centredBySize(state)) return false;
+  const size = (element as unknown as { size: { peek(): [number, number] | undefined } }).size.peek();
+  if (!size) return false;
+  const layout = layoutStateOf(element);
+  const [w, h] = layout.measured ?? [NaN, NaN];
+  if (Math.abs(w - size[0]) < 0.5 && Math.abs(h - size[1]) < 0.5) return false;
+  layout.measured = [size[0], size[1]];
+  applyRect(element);
+  return true;
 }
 
 /**

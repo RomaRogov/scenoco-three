@@ -44,16 +44,14 @@
     <!-- The paddle glows on its own, wherever it is.
 
          What decides whether something blooms is its emissive colour **in linear space** times
-         `emissiveIntensity`, against the `<Bloom threshold>`. #0d9488 at 1.1 came to 0.33 with
-         the threshold at 1, so the paddle never glowed by itself — it only lit up when it drove
-         through the warm light that used to sit at the centre of the field. A brighter teal at
-         1.3 comes to 0.86: over the threshold, so it glows at both ends of its travel, and under
-         white, so the surface keeps its colour instead of clipping. -->
+         `emissiveIntensity`, against the `<Bloom threshold>`. A dark teal like #0d9488 at 1.1
+         comes to 0.33 against a threshold of 1 and never blooms by itself. This teal at 1.3 comes
+         to 0.86: over the threshold, so it glows at both ends of its travel, and under white, so
+         the surface keeps its colour instead of clipping. -->
     <MeshStandardMaterial color="#5eead4" emissive="#2dd4bf" emissiveIntensity="1.3"
                           roughness="0.2" metalness="0.5" />
-    <!-- The paddle's own glow, and a child of the paddle so it travels with it. It used to sit
-         in the level document at x=0, which meant the paddle only lit up in the middle of the
-         field: the light was static and the paddle drove in and out of its pool. A light is a
+    <!-- The paddle's own glow, and a child of the paddle so it travels with it. Placed in the
+         level instead, it would be a static pool the paddle drives in and out of. A light is a
          node, so the tree is where that is said. -->
     <PointLight color="#fbbf24" intensity="4" distance="11" decay="2" position="y: 0.9; z: 1.2" />
     <Components>

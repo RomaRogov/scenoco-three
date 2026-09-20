@@ -23,6 +23,11 @@ jobs:
         with:
           node-version: 22
 
+      # Before installing: a lockfile rewritten on one OS can drop the other OSes' native builds,
+      # and `npm ci` then installs no TypeScript compiler here. This names the missing entries.
+      - name: Lockfile names every platform build
+        run: node scripts/check-lockfile.mjs
+
       # `ci`, not `install`: the lockfile is committed so a package published upstream cannot
       # change what a build resolves. `--legacy-peer-deps` matches how the lockfile is generated;
       # vitest 4 declares optional browser peers that npm's resolver cannot satisfy.
@@ -39,3 +44,26 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # The packages as npm hands them out, installed in a fresh project outside the workspace and
+  # walked through init, check, a production build run in Chrome, and the observer. Every other
+  # check here imports the sources; this is the one that sees what a user installs.
+  packed:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci --legacy-peer-deps
+      - run: npm run build
+
+      # Google Chrome is preinstalled on GitHub's ubuntu and macOS images; the smoke drives it.
+      - name: Install the packed packages and use them
+        run: npm run smoke:pack

@@ -1,6 +1,6 @@
-import type { Checker, Project, Symbol as TsSymbol } from 'typescript/unstable/sync';
+import { TypeFlags, type Checker, type Project, type Symbol as TsSymbol } from 'typescript/unstable/sync';
 import * as ast from 'typescript/unstable/ast';
-import type { ClassProblem, ComponentInfo, SerializedField } from '../model.js';
+import type { ClassProblem, ComponentEvent, ComponentInfo, SerializedField } from '../model.js';
 import {
   baseSymbolsOf,
   declarationIdOf,
@@ -13,6 +13,7 @@ import {
   derivesFrom,
   type BaseTest,
   docOf,
+  docTagOf,
   lineOf,
   resolveAlias,
   textOf,
@@ -234,7 +235,7 @@ function describe(
 ): ComponentInfo {
   const base = baseClauseType(node);
   const declaredBase = base && ast.isIdentifier(base) ? base.text : undefined;
-  const { fields, nonSerialized, problems: markers } = collectFields(node, sourceFile, checker, project, baseName, documents);
+  const { fields, nonSerialized, events, problems: markers } = collectFields(node, sourceFile, checker, project, baseName, documents);
   const problems = [...markers, ...misspelledMembers(node, sourceFile, baseName, checker, project)];
   return {
     name: node.name!.text,
@@ -250,6 +251,7 @@ function describe(
       : {}),
     fields,
     ...(nonSerialized.length > 0 ? { nonSerialized } : {}),
+    ...(events.length > 0 ? { events } : {}),
     ...(problems.length > 0 ? { problems } : {}),
   };
 }
@@ -341,8 +343,9 @@ function collectFields(
   project: Project,
   stopAt: string,
   documents?: ReadonlySet<string>,
-): { fields: SerializedField[]; nonSerialized: string[]; problems: ClassProblem[] } {
+): { fields: SerializedField[]; nonSerialized: string[]; events: ComponentEvent[]; problems: ClassProblem[] } {
   const fields: SerializedField[] = [];
+  const events: ComponentEvent[] = [];
   const seen = new Set<string>();
   const hidden = new Set<string>();
   const problems: ClassProblem[] = [];
@@ -360,6 +363,11 @@ function collectFields(
       if (declaration && declarationFile) visit(declaration, declarationFile, depth + 1);
     }
     for (const member of current.members) {
+      const event = eventOf(member, file);
+      if (event) {
+        if (!events.some((e) => e.name === event.name)) events.push(event);
+        continue;
+      }
       // A marker's misuse is reported on the class that wrote it, not on every subclass.
       const described = describeField(member, file, checker, depth === 0 ? problems : [], documents);
       if (described === 'nonSerialized') {
@@ -386,7 +394,39 @@ function collectFields(
   };
 
   visit(node, sourceFile, 0);
-  return { fields, nonSerialized: [...hidden], problems };
+  return { fields, nonSerialized: [...hidden], events, problems };
+}
+
+/**
+ * `readonly onClick = new Event<[button: Button]>()` — an event another component listens to.
+ *
+ * Read off the initializer, because that is the idiom the framework teaches and the only place
+ * the event's arguments are written down in one piece.
+ */
+function eventOf(member: ast.ClassElement, sourceFile: ast.SourceFile): ComponentEvent | undefined {
+  if (!ast.isPropertyDeclaration(member) || !ast.isIdentifier(member.name)) return undefined;
+  const modifiers = member.modifiers ?? [];
+  if (!modifiers.some((m) => m.kind === ast.SyntaxKind.ReadonlyKeyword)) return undefined;
+  const hiddenKinds = [ast.SyntaxKind.PrivateKeyword, ast.SyntaxKind.ProtectedKeyword, ast.SyntaxKind.StaticKeyword];
+  if (modifiers.some((m) => hiddenKinds.includes(m.kind))) return undefined;
+  // `= new Event<…>()` in source; `: Event<…>` in a package's declarations, where no
+  // initializer survives.
+  const init = member.initializer;
+  const created = init && ast.isNewExpression(init) && ast.isIdentifier(init.expression) && init.expression.text === 'Event';
+  const annotated =
+    member.type && ast.isTypeReferenceNode(member.type) && ast.isIdentifier(member.type.typeName) &&
+    member.type.typeName.text === 'Event';
+  if (!created && !annotated) return undefined;
+  const argument = created
+    ? (init as ast.NewExpression).typeArguments?.[0]
+    : (member.type as ast.TypeReferenceNode).typeArguments?.[0];
+  const written = argument ? textOf(sourceFile, argument) ?? '' : '';
+  const description = docOf(sourceFile, member);
+  return {
+    name: member.name.text,
+    args: written.replace(/^\[|\]$/g, '').trim(),
+    ...(description ? { description } : {}),
+  };
 }
 
 /** `PointLight` from `class Flicker extends Component<PointLight>`, if it declared one. */
@@ -450,7 +490,7 @@ function describeField(
   if (modifiers.some((m) => m.kind === ast.SyntaxKind.ReadonlyKeyword)) return undefined;
 
   const type = checker.getTypeAtLocation(member);
-  const { shape, elementShape, options } = shapeOf(type, checker, documents);
+  const { shape, elementShape, options, document } = shapeOf(type, checker, documents);
 
   return {
     name: (member.name as ast.Identifier).text,
@@ -460,10 +500,17 @@ function describeField(
     // field (`origin = new Vector3(0, 1, 0)` → `Vector3`), where there is no annotation to read.
     type: textOf(sourceFile, member.type) ?? (type ? checker.typeToString(type) : 'unknown'),
     shape,
+    // Written as a name, read by the checker as `any`: the name reaches nothing.
+    ...(member.type && textOf(sourceFile, member.type) !== 'any' && type && (type.flags & TypeFlags.Any) !== 0
+      ? { unresolved: true }
+      : {}),
     ...(elementShape ? { elementShape } : {}),
     ...(options ? { options } : {}),
+    // The document type it holds, when it holds one: the element name of the inline form.
+    ...(document ? { document } : {}),
     ...(member.initializer ? { default: textOf(sourceFile, member.initializer) } : {}),
     ...(docOf(sourceFile, member) ? { description: docOf(sourceFile, member) } : {}),
+    ...(docTagOf(sourceFile, member, 'tip') ? { tip: docTagOf(sourceFile, member, 'tip') } : {}),
     // Required means "nothing but the document can supply this", so it only applies to a field
     // the document *can* write. `paddle!: Mesh` is required — the `!` says "assigned
     // elsewhere", and for a node reference that elsewhere is the authored value. `world!:

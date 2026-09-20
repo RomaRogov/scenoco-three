@@ -37,6 +37,30 @@ proto.destroyImmediate = function (this: Object3D): void {
 // `attach`, `clear`, `copy` and `removeFromParent` all funnel through `add` and `remove`, so
 // patching the pair keeps the component registry correct with nothing registered by hand.
 
+/** Every node and component one copy made, original → copy. */
+export interface Copies {
+  nodes: Map<Object3D, Object3D>;
+  components: Map<Component, Component>;
+}
+
+let recording: Copies | null = null;
+
+/**
+ * @internal run a copy and record what it made from what — how `instantiate` finds, in a copied
+ * tree, the copy of each node and component it has to point references at. Recorded by `copy`
+ * itself, so it holds whatever a class's own `clone` chose to copy and nothing it skipped.
+ */
+export function recordCopies<T>(copy: () => T): { result: T; copies: Copies } {
+  const outer = recording;
+  const copies: Copies = { nodes: new Map(), components: new Map() };
+  recording = copies;
+  try {
+    return { result: copy(), copies };
+  } finally {
+    recording = outer;
+  }
+}
+
 const originalAdd = proto.add;
 const originalRemove = proto.remove;
 const originalCopy = proto.copy;
@@ -46,15 +70,18 @@ const originalCopy = proto.copy;
 // back-reference to its object and would flatten its `Vector3` fields if it did not.
 proto.copy = function (this: Object3D, source: Object3D, recursive = true): Object3D {
   originalCopy.call(this, source, recursive);
+  recording?.nodes.set(source, this);
 
-  const sourceComponents = source._components;
-  if (sourceComponents) {
-    for (const component of sourceComponents) {
-      if (component._pendingDestroy) continue;
-      const constructor = component.constructor as ConstructableComponent;
-      this.addComponent(new constructor().copy(component as never));
-    }
+  for (const component of source._components ?? []) {
+    if (component._pendingDestroy) continue;
+    const constructor = component.constructor as ConstructableComponent;
+    const copy = new constructor().copy(component as never);
+    copy._enabled = component._enabled;
+    this.addComponent(copy);
+    recording?.components.set(component, copy);
   }
+  // A copy of an inactive object is inactive, as a Unity `Instantiate` of one is.
+  if (!source._isActive) this.setActive(false);
 
   // A clone already holds its contents, so it must not be reported as unbuilt.
   this._built = source._built;

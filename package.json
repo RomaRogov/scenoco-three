@@ -34,6 +34,7 @@
     "typecheck:core": "npm --prefix packages/core run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke:pack": "node scripts/pack-smoke.mjs",
     "build:compiler": "npm --prefix packages/compiler run build",
     "build:box2d": "npm --prefix packages/box2d run build",
     "build:rapier": "npm --prefix packages/rapier run build",
@@ -44,7 +45,8 @@
     "build:vite": "npm --prefix packages/vite run build",
     "build:observer": "npm --prefix packages/observer run build",
     "build:editor": "npm --prefix packages/editor run build",
-    "build:postfx": "npm --prefix packages/postfx run build"
+    "build:postfx": "npm --prefix packages/postfx run build",
+    "check:lockfile": "node scripts/check-lockfile.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

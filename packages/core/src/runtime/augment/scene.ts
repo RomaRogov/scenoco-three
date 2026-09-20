@@ -1,5 +1,5 @@
 import { Scene, Object3D, type Camera } from 'three';
-import type { Component } from '../Component.js';
+import { Component } from '../Component.js';
 import { System } from '../System.js';
 import { SceneRuntime, ownField } from '../SceneRuntime.js';
 import { disposeSceneResources } from '../dispose.js';
@@ -106,14 +106,16 @@ declare module 'three' {
     createObject(name?: string, parent?: Object3D): Object3D;
 
     /**
-     * The node or component an id names, or `null` — how to reach *a specific thing*, where
+     * The node an id names, or `null` — how to reach *a specific thing*, where
      * `findObjectOfType` reaches *a kind of thing*.
      *
      * An id comes from a spawn (`instantiate(Slime, { id: 'slime3' })`) or from whatever built
      * the scene. Ids inside a spawned prefab are reached through it with `/`, as
-     * `byId('slime3/body')`. Pass the class to get it typed, and `null` for a mismatch.
+     * `byId('slime3/body')`. Without a class the answer is always a node — for an id a component
+     * carries, the node it sits on. With one it is typed: `byId('start', Button)` is the Button
+     * on #start, `byId('title', Panel)` the Panel itself, and `null` when there is none.
      */
-    byId(path: string): Object3D | Component | null;
+    byId(path: string): Object3D | null;
     byId<T>(path: string, type: abstract new (...args: never[]) => T): T | null;
   }
 }
@@ -142,7 +144,7 @@ Object.defineProperty(proto, '_runtime', {
       runtime = new SceneRuntime(this);
       runtimes.set(this, runtime);
       // The scene root is always live; everything below inherits from it.
-      this._activeInHierarchy = this._active;
+      this._activeInHierarchy = this._isActive;
     }
     return runtime;
   },
@@ -230,7 +232,7 @@ proto.load = async function (this: Scene): Promise<Scene> {
   this._loaded = true;
   // Touch the runtime so the scene is live before `onLoad` starts adding objects.
   void this._runtime;
-  this._activeInHierarchy = this._active;
+  this._activeInHierarchy = this._isActive;
 
   await this.onLoad?.();
   // Everything `onLoad` added is awake by now, so `onLoaded` can wire across the whole scene.
@@ -277,6 +279,13 @@ proto.byId = function (
   path: string,
   type?: abstract new (...args: never[]) => unknown,
 ): unknown {
+  if (typeof path !== 'string') {
+    // `byId(92)` — a three.js object's numeric `id`, which is not a document id — failed inside
+    // as "path.split is not a function", naming nothing.
+    throw new TypeError(
+      `[scenoco] byId takes the id a document or instantiate() gave, as a string — byId('core3') — not ${JSON.stringify(path)}.`,
+    );
+  }
   const [head = '', ...rest] = path.split('/');
   let current: Object3D | Component | null = this._runtime.ids.get(head) ?? ownField(this, head);
   for (const segment of rest) {
@@ -284,8 +293,13 @@ proto.byId = function (
     current = ownField(current, segment);
   }
   if (!current) return null;
-  if (type && !(current instanceof type)) return null;
-  return current;
+  const node = current instanceof Component ? current.object3D : current;
+  if (!type) return node;
+  if (current instanceof type) return current;
+  if (node instanceof type) return node;
+  // A component class asked of a node — or of another component on it — is that node's one.
+  if (type.prototype instanceof Component) return node.getComponent(type as unknown as ComponentType<Component>);
+  return null;
 } as Scene['byId'];
 
 proto.createObject = function (this: Scene, name = 'Object', parent?: Object3D): Object3D {

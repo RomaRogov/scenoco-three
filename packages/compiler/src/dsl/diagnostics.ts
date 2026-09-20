@@ -41,6 +41,16 @@ export function nearestName(input: string, candidates: readonly string[]): strin
       best = c;
     }
   }
+  // A real option with something added to it — `stretchCenter` is `stretch` plus a word — is that
+  // option, not whichever sibling is fewest edits away (`stretchLeft`). Unless a one-letter typo is
+  // closer still.
+  if (bestDist > 1) {
+    const lower = input.toLowerCase();
+    const prefix = candidates
+      .filter((c) => c.length >= 4 && c.length < input.length && lower.startsWith(c.toLowerCase()))
+      .sort((a, b) => b.length - a.length)[0];
+    if (prefix) return prefix;
+  }
   // Only suggest when the typo is plausibly a typo, not an unrelated word.
   const threshold = Math.max(2, Math.floor(input.length / 3));
   return best !== undefined && bestDist <= threshold ? best : undefined;

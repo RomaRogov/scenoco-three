@@ -6,6 +6,7 @@ import { formatDiagnostic, type SncDiagnostic } from './dsl/diagnostics.js';
 import { parseDocument, type SncElement } from './dsl/parse.js';
 import { emitConfigDocument } from './emit/config.js';
 import { emitGraph } from './emit/graph.js';
+import type { ConfigType } from './emit/scope.js';
 import { emitRender } from './emit/render.js';
 import { emitTexture } from './emit/texture.js';
 import type {
@@ -89,6 +90,9 @@ export function build(options: BuildOptions): BuildResult {
   // A project that depends on a module means to use it; asking for the list again on the command
   // line only creates a way for the two to disagree.
   const modules = options.modules ?? ['three', ...installed.modules.map((module) => module.name)];
+  // Installed, not read: a runtime dependency with no `"scenoco"` block contributes no vocabulary,
+  // which is why a tag it obviously ships still comes back unknown.
+  const plainPackages = installed.plain.filter((name) => !modules.includes(name));
   const { documents: assets, unclaimed } = findAssets(root, kinds);
   const byKind = new Map(kinds.map((kind) => [kind.kind, kind]));
 
@@ -127,6 +131,14 @@ export function build(options: BuildOptions): BuildResult {
     );
   }
   model ??= scanProject(tsconfig, { cwd: root, modules });
+
+  // The same shapes, keyed the way a *document* names one: by the type, which is the element.
+  // A kind is how a file is found; a type is what an element inside another document is called.
+  const configs = new Map<string, ConfigType>();
+  for (const kind of kinds) {
+    const shape = kind.type ? shapes.get(kind.kind) : undefined;
+    if (shape) configs.set(shape.name, { shape, module: moduleOf(kind) });
+  }
 
   const exports = new Map<string, AssetImport>(); // absolute xml path → what it exports
   const files = new Map<string, string>();
@@ -178,7 +190,7 @@ export function build(options: BuildOptions): BuildResult {
 
   // Named up front, so a prefab can reference a geometry declared anywhere and a scene can
   // reference any prefab — the file order only decides what is *emitted* first.
-  for (const asset of assets) exports.set(asset.path, exportOf(asset));
+  for (const asset of assets) exports.set(asset.path, exportOf(asset, byKind.get(asset.kind)));
 
   // Parsed before anything is emitted, because whether a document has to *wait* depends on what
   // the documents it spawns need, and that is not a question the file order can answer.
@@ -220,24 +232,29 @@ export function build(options: BuildOptions): BuildResult {
     const root = parsed.get(asset.path);
     if (!root) continue;
 
-    const resolveAsset: ResolveAsset = (href) => {
-      const target = resolve(dirname(asset.path), href);
-      const exported = exports.get(target);
-      if (exported) {
-        const surface = surfaces.get(target);
-        return {
-          ...exported,
-          module: importSpecifier(asset.outputPath, target),
-          ...(waiting.has(target) ? { waits: true } : {}),
-          ...(surface ? { surface } : {}),
-        };
-      }
-      return fileFor(asset.path, href);
-    };
+    const resolveAsset: ResolveAsset = Object.assign(
+      (href: string) => {
+        const target = resolve(dirname(asset.path), href);
+        const exported = exports.get(target);
+        if (exported) {
+          const surface = surfaces.get(target);
+          return {
+            ...exported,
+            module: importSpecifier(asset.outputPath, target),
+            ...(waiting.has(target) ? { waits: true } : {}),
+            ...(surface ? { surface } : {}),
+          };
+        }
+        return fileFor(asset.path, href);
+      },
+      { near: (href: string) => nearDocument(href, asset.path, exports.keys()) },
+    );
 
     const emitted = emitOne(asset, byKind.get(asset.kind)!, root, {
       model,
       shapes,
+      configs,
+      plainPackages,
       resolveAsset,
       ...(options.provenance ? { provenance: true } : {}),
     });
@@ -275,6 +292,20 @@ export function build(options: BuildOptions): BuildResult {
  * A dependency that is declared but not installed is the overwhelmingly likely cause — a fresh
  * clone, a pruned install — and naming it turns a puzzle into one command.
  */
+/**
+ * The one document an `href` that resolves to nothing most likely meant, as the path to write
+ * from `from`: the same file spelled from the project root (`assets/geometry/x` inside
+ * `assets/prefabs/`), or without its `.asset.xml`. Undefined when no single document fits.
+ */
+function nearDocument(href: string, from: string, documents: Iterable<string>): string | undefined {
+  const tail = href.replace(/^(\.\.?\/)+|^\/+/, '').split('/').join(sep);
+  const bare = (path: string) => path.replace(/(\.[a-z]+)?\.xml$/, '');
+  const found = [...documents].filter((path) => path.endsWith(sep + tail) || bare(path).endsWith(sep + tail));
+  if (found.length !== 1) return undefined;
+  const path = relative(dirname(from), found[0]!).split(sep).join('/');
+  return path.startsWith('.') ? path : `./${path}`;
+}
+
 function blame(installed: ModuleManifests): string {
   if (installed.missing.length === 0) {
     return ' The package that declares this kind is either not installed or not a SceNoCo module.';
@@ -565,6 +596,10 @@ function emitOne(
   context: {
     model: ProjectModel;
     shapes: ReadonlyMap<string, ConfigShape | undefined>;
+    /** The config types by their own name, for a document that writes one inside an element. */
+    configs: ReadonlyMap<string, ConfigType>;
+    /** Installed packages this build reads nothing from — see `EmitScope.moduleHint`. */
+    plainPackages: readonly string[];
     resolveAsset: ResolveAsset;
     provenance?: boolean;
   },
@@ -634,6 +669,8 @@ function emitOne(
     name: exportedName(asset),
     source: asset.relativePath,
     model,
+    configs: context.configs,
+    plainPackages: context.plainPackages,
     resolveAsset,
   });
 }
@@ -644,13 +681,15 @@ function moduleOf(kind: AssetKind): string {
 }
 
 /** What one document exports, and under what name. */
-function exportOf(asset: AssetFile): AssetImport {
+function exportOf(asset: AssetFile, kind: AssetKind | undefined): AssetImport {
   // A texture, a geometry, a material, a particle effect — each is one shared value. A prefab or
   // a scene exports a class, because those two build something each time they are used.
+  const type = asset.kind === 'scene' ? 'SceneType' : asset.kind === 'prefab' ? 'PrefabType' : kind?.type;
   return {
     module: asset.outputPath,
     name: exportedName(asset),
     kind: asset.kind === 'scene' ? 'scene' : asset.kind === 'prefab' ? 'prefab' : 'value',
+    ...(type ? { type } : {}),
   };
 }
 

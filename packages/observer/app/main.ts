@@ -40,12 +40,14 @@ async function run(command: ObserverCommand): Promise<ObserverResult> {
       await session.stop();
       return { kind: 'ok' };
     case 'preview':
+      session.fit(command.frame);
       return { kind: 'image', dataUrl: session.preview(command.frame, command.cameraPos, command.lookAt, command.fov) };
     case 'telemetry':
       return { kind: 'json', data: session.telemetry(command.targetId) };
     case 'outline':
       return { kind: 'text', text: session.outline(command.targetId, command.depth) };
     case 'simulate':
+      session.fit(command.frame);
       return {
         kind: 'multi',
         results: (await session.simulate(command.steps, command.frame)).map((r) =>

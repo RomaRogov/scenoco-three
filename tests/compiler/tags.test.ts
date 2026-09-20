@@ -55,6 +55,11 @@ describe('tag scan', () => {
     expect(camera.bases).toContain('Object3D');
   });
 
+  it('takes a bare Object3D as a node, beside Group, as three.js scenes do', () => {
+    expect(tags.get('Object3D')?.family).toBe('node');
+    expect(tags.get('Group')?.family).toBe('node');
+  });
+
   it('reads a light’s colour parameter as a colour', () => {
     const light = tags.get('DirectionalLight')!;
     expect(light.parameters.map((p) => p.name)).toEqual(['color', 'intensity']);
@@ -63,7 +68,6 @@ describe('tag scan', () => {
   });
 
   it('leaves out abstract bases and non-class exports', () => {
-    expect(tags.has('Object3D')).toBe(false);
     expect(tags.has('Material')).toBe(false);
     expect(tags.has('BufferGeometry')).toBe(false);
     // Constants share the module and are not tags.

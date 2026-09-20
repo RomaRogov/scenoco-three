@@ -1,5 +1,6 @@
-import type { Checker, Type } from 'typescript/unstable/sync';
+import { SymbolFlags, type Project, type Type } from 'typescript/unstable/sync';
 import type { PropInfo } from '../model.js';
+import { docOfSymbol, docTagOfSymbol } from './ast-utils.js';
 import { propOf, shapeOf } from './shape.js';
 import type { Workspace } from './workspace.js';
 
@@ -58,7 +59,7 @@ export function scanConfigShape(
     if (!exported) continue;
     const type = checker.getDeclaredTypeOfSymbol(exported);
     if (!type) continue;
-    return describe(typeName, type, checker, 0, documents);
+    return describe(typeName, type, workspace, 0, documents);
   }
   return undefined;
 }
@@ -69,43 +70,59 @@ const MAX_DEPTH = 3;
 function describe(
   name: string,
   type: Type,
-  checker: Checker,
+  workspace: Workspace,
   depth: number,
   documents?: ReadonlySet<string>,
 ): ConfigShape {
-  const shape: ConfigShape = { name, fields: [], groups: new Map(), lists: new Map() };
+  const { checker, project } = workspace;
+  // The same JSDoc the IDE shows on hover, on the element and on every attribute. Without it a
+  // config printed as a bare list of names and types, which is a table of contents, not an answer.
+  const doc = symbolOf(type) && docOfSymbol(symbolOf(type)!, project);
+  const shape: ConfigShape = {
+    name,
+    ...(doc ? { description: doc } : {}),
+    fields: [],
+    groups: new Map(),
+    lists: new Map(),
+  };
   if (depth > MAX_DEPTH) return shape;
 
   for (const symbol of checker.getPropertiesOfType(type)) {
     const propertyType = checker.getTypeOfSymbol(symbol);
     if (!propertyType) continue;
     const resolved = checker.getNonNullableType(propertyType) ?? propertyType;
-    const classified = shapeOf(propertyType, checker, documents);
+    const classified = shapeOf(propertyType, checker, documents, project);
+    const described = docOfSymbol(symbol, project);
+    // `time: number` against `rateOverTime?: number`. Unlike a class field's initializer, the
+    // question mark survives into a declaration file, so a package read as `.d.ts` says the same.
+    const required = (symbol.flags & SymbolFlags.Optional) === 0;
+    const tip = docTagOfSymbol(symbol, project, 'tip');
+    const doc: Partial<PropInfo> = { required, ...(described ? { description: described } : {}), ...(tip ? { tip } : {}) };
 
     if (classified.shape !== 'unsupported' && classified.shape !== 'array') {
-      shape.fields.push(propOf(symbol, checker, {}, documents));
+      shape.fields.push(propOf(symbol, checker, doc, documents, project));
       continue;
     }
 
     // `bursts?: Burst[]` — one element repeated, rather than one attribute.
     if (checker.isArrayType(resolved) && resolved.isTypeReference()) {
       const element = checker.getTypeArguments(resolved)[0];
-      const elementShape = element ? shapeOf(element, checker, documents) : undefined;
+      const elementShape = element ? shapeOf(element, checker, documents, project) : undefined;
       if (element && elementShape?.shape === 'unsupported') {
-        nest(shape, symbol.name, element, checker, depth, shape.lists, documents);
+        nest(shape, symbol.name, element, workspace, depth, shape.lists, documents);
         continue;
       }
-      shape.fields.push(propOf(symbol, checker, {}, documents));
+      shape.fields.push(propOf(symbol, checker, doc, documents, project));
       continue;
     }
 
     // A plain nested object: a module in Unity's sense.
     if (checker.getPropertiesOfType(resolved).length > 0) {
-      nest(shape, symbol.name, resolved, checker, depth, shape.groups, documents);
+      nest(shape, symbol.name, resolved, workspace, depth, shape.groups, documents);
       continue;
     }
 
-    shape.fields.push(propOf(symbol, checker, {}, documents));
+    shape.fields.push(propOf(symbol, checker, doc, documents, project));
   }
 
   shape.fields.sort((a, b) => a.name.localeCompare(b.name));
@@ -117,7 +134,7 @@ function nest(
   owner: ConfigShape,
   field: string,
   type: Type,
-  checker: Checker,
+  workspace: Workspace,
   depth: number,
   into: Map<string, ConfigShape>,
   documents?: ReadonlySet<string>,
@@ -140,7 +157,12 @@ function nest(
     );
     return;
   }
-  into.set(field, describe(name, type, checker, depth + 1, documents));
+  into.set(field, describe(name, type, workspace, depth + 1, documents));
+}
+
+/** The symbol a type was declared by — an alias first, so `type X = {…}` documents itself. */
+function symbolOf(type: Type) {
+  return type.getAliasSymbol() ?? type.getSymbol();
 }
 
 /**

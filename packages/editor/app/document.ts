@@ -1,9 +1,30 @@
 import type { Object3D, Vector3 } from 'three';
 import { provenanceOf, type Provenance } from '@scenoco-three/core';
-import type { ComponentInfo, ElementAt, ProjectModel, PropInfo, TagInfo, ValueShape } from '@scenoco-three/compiler';
-import { indexDocument, setAttribute } from '@scenoco-three/compiler/browser';
+import type {
+  ComponentInfo,
+  DocumentShape,
+  ElementAt,
+  ProjectModel,
+  PropInfo,
+  SerializedField,
+  TagInfo,
+  ValueShape,
+} from '@scenoco-three/compiler';
 import { EditLog } from './editLog.js';
-import type { Resolve } from './live/build.js';
+import {
+  PendingElement,
+  elementXml,
+  PendingStore,
+  elementOf,
+  keyOfAt,
+  keyOfNode,
+  pendingNode,
+  writtenNode,
+  type ConfigElement,
+  type ConfigHost,
+  type ConfigNode,
+} from './configTree.js';
+import type { Construct, Resolve } from './live/build.js';
 import { formatValue, parseValue, type Scalar } from './values.js';
 
 /** A pending change, in the shape the server splices. */
@@ -27,8 +48,26 @@ export interface Attachment {
   /** The node whose slot holds it, and where in that slot when the slot is a list. */
   owner: Object3D;
   ordinal: number;
-  at: ElementAt;
+  /** Where it stands in the file as opened, or null for one added since. */
+  at: ElementAt | null;
   attributes: ReadonlyMap<string, string>;
+  /** Added since the file was opened: its text is the insert that will write it. */
+  added?: AddedAttachment;
+}
+
+/**
+ * An object added to a node's slot and not yet saved — the attachment counterpart of {@link Added},
+ * there for the same reason: what a person sees has to include what they have just done.
+ */
+interface AddedAttachment {
+  tag: TagInfo;
+  slot: string;
+  attributes: Map<string, string>;
+  /** The object built for it, which is already in the node's slot. */
+  live: object;
+  /** What the slot held before — what an undo puts back. */
+  before: unknown;
+  edit: Extract<Edit, { op: 'insertChild' }>;
 }
 
 /**
@@ -54,6 +93,8 @@ export interface ComponentEntry {
 interface Added {
   tag: string;
   attributes: Map<string, string>;
+  /** Configs written inside it since — an effect given to a `<ParticleSystem>` added a moment ago. */
+  children: PendingElement[];
   block: PendingBlock;
 }
 
@@ -90,7 +131,7 @@ interface ElementView {
  * through the server and a rebuild takes long enough to feel wrong under a gizmo drag, and an
  * inspector that only updated after a save would be unusable.
  */
-export class SceneDocument {
+export class SceneDocument implements ConfigHost {
   /** Project-relative path — and the `file` every editable node is stamped with. */
   readonly path: string;
 
@@ -110,18 +151,33 @@ export class SceneDocument {
 
   /** Turns the text of a reference into what it names; without one, a reference edit waits for a rebuild. */
   private readonly resolve: Resolve | undefined;
+  /** Builds an attached object that has just been added; without one, it shows on the next rebuild. */
+  private readonly construct: Construct | undefined;
   /** The latest write to each live field, so a reference that resolves late cannot undo a newer one. */
   private readonly writes = new WeakMap<object, Map<string, number>>();
   /** Components added since opening, by the node they were added to (`line:column`). */
   private readonly added = new Map<string, PendingBlock>();
+  /** Geometry and material added since opening, by the same key. */
+  private readonly addedAttachments = new Map<string, AddedAttachment[]>();
   /** Components of the file as opened that a pending edit removes (`line:column`). */
   private readonly removed = new Set<string>();
+  /** Config elements added since opening — an effect written inside a `<ParticleSystem>`. */
+  private readonly addedConfigs = new PendingStore(this.log);
+  /** Every attribute as the file had it on open, so a change back to it is not a change. */
+  private readonly opened = new Map<string, Map<string, string>>();
 
-  constructor(path: string, text: string, elements: readonly RawElement[], model: ProjectModel, resolve?: Resolve) {
+  constructor(
+    path: string,
+    text: string,
+    elements: readonly RawElement[],
+    model: ProjectModel,
+    live?: { resolve?: Resolve; construct?: Construct },
+  ) {
     this.path = path;
     this.text = text;
     this.model = model;
-    this.resolve = resolve;
+    this.resolve = live?.resolve;
+    this.construct = live?.construct;
     this.adopt(elements);
   }
 
@@ -215,7 +271,8 @@ export class SceneDocument {
 
     const found: Attachment[] = [];
     const filled = new Map<string, number>();
-    for (const element of this.childrenOf(parent)) {
+    for (const element of this.elementsIn(parent)) {
+      if (this.removed.has(keyOfAt(element.at))) continue;
       const tag = this.model.tags.find((t) => t.name === element.tag);
       if (!tag || tag.family === 'node') continue;
       const slot = parentTag.parameters.find((p) => p.assetFamily === tag.family);
@@ -230,7 +287,126 @@ export class SceneDocument {
       if (typeof live !== 'object' || live === null) continue;
       found.push({ tag, slot: slot.name, live, owner: node, ordinal, at: element.at, attributes: element.attributes });
     }
+    // Then what has been added since, which the file does not say yet.
+    for (const added of this.addedAttachments.get(keyOfAt(parent.at)) ?? []) {
+      found.push({
+        tag: added.tag,
+        slot: added.slot,
+        live: added.live,
+        owner: node,
+        ordinal: 0,
+        at: null,
+        attributes: added.attributes,
+        added,
+      });
+    }
     return found;
+  }
+
+  /**
+   * The slots this node is built from: the constructor parameters that take an object.
+   *
+   * `Mesh` has two, `geometry` and `material`; a light has none. Read from three's own signature,
+   * which is the same question the compiler asks when it decides where a child element goes.
+   */
+  slotsOf(node: Object3D): PropInfo[] {
+    return (this.tagOf(node)?.parameters ?? []).filter((p) => p.assetFamily !== undefined);
+  }
+
+  /**
+   * Give this node its own geometry or material, where it had none.
+   *
+   * Only where it had none: "one more" would be authoring a list, which the document can express
+   * and a form has no good way to. Undo puts back exactly what the slot held.
+   */
+  async addAttachment(node: Object3D, tagName: string): Promise<void> {
+    const at = this.mine(node);
+    const tag = this.model.tags.find((t) => t.name === tagName);
+    if (!at || !tag || !this.construct) return;
+    const slot = (this.tagOf(node)?.parameters ?? []).find((p) => p.assetFamily === tag.family);
+    if (!slot) return;
+
+    // Built before the commit, so undo needs to wait for nothing.
+    const live = await this.construct(tag);
+    const added: AddedAttachment = {
+      tag,
+      slot: slot.name,
+      attributes: new Map(),
+      live,
+      before: (node as unknown as Record<string, unknown>)[slot.name],
+      // First child: what a node is made of reads before what hangs under it.
+      edit: { op: 'insertChild', at, xml: `<${tag.name} />`, index: 0 },
+    };
+    const key = keyOfAt(at);
+    this.log.commit(
+      `add <${tag.name}>`,
+      () => {
+        this.addedAttachments.set(key, [...(this.addedAttachments.get(key) ?? []), added]);
+        (node as unknown as Record<string, unknown>)[slot.name] = live;
+        this.log.queue(added.edit);
+      },
+      () => {
+        const rest = (this.addedAttachments.get(key) ?? []).filter((a) => a !== added);
+        if (rest.length === 0) this.addedAttachments.delete(key);
+        else this.addedAttachments.set(key, rest);
+        (node as unknown as Record<string, unknown>)[slot.name] = added.before;
+        this.log.unqueue(added.edit);
+      },
+      false,
+    );
+  }
+
+  /** Take one out again, and put back whatever the slot held before it. */
+  async removeAttachment(attachment: Attachment): Promise<void> {
+    if (attachment.added) {
+      const added = attachment.added;
+      const key = [...this.addedAttachments].find(([, list]) => list.includes(added))?.[0];
+      if (key === undefined) return;
+      const index = this.addedAttachments.get(key)!.indexOf(added);
+      this.log.commit(
+        `remove <${added.tag.name}>`,
+        () => {
+          this.addedAttachments.set(key, this.addedAttachments.get(key)!.filter((a) => a !== added));
+          (attachment.owner as unknown as Record<string, unknown>)[added.slot] = added.before;
+          this.log.unqueue(added.edit);
+        },
+        () => {
+          const list = [...this.addedAttachments.get(key)!];
+          list.splice(index, 0, added);
+          this.addedAttachments.set(key, list);
+          (attachment.owner as unknown as Record<string, unknown>)[added.slot] = added.live;
+          this.log.queue(added.edit);
+        },
+        false,
+      );
+      return;
+    }
+
+    const at = attachment.at;
+    if (!at) return;
+    // What the node would hold had the element never been there — three's own answer, read off a
+    // throwaway of the same tag rather than from a table of defaults here.
+    const parentTag = this.tagOf(attachment.owner);
+    const fallback =
+      parentTag && this.construct
+        ? ((await this.construct(parentTag)) as Record<string, unknown>)[attachment.slot]
+        : undefined;
+    const previous = attachment.live;
+    const edit: Edit = { op: 'removeElement', at };
+    this.log.commit(
+      `remove <${attachment.tag.name}>`,
+      () => {
+        this.removed.add(keyOfAt(at));
+        this.log.queue(edit);
+        if (fallback !== undefined) fillSlot(attachment, fallback as object);
+      },
+      () => {
+        this.removed.delete(keyOfAt(at));
+        this.log.unqueue(edit);
+        fillSlot(attachment, previous);
+      },
+      false,
+    );
   }
 
   attachmentValue(attachment: Attachment, prop: PropInfo): Scalar | undefined {
@@ -245,6 +421,15 @@ export class SceneDocument {
   ): void {
     const text = value === null ? null : formatValue(prop.shape, value);
     const before = attachment.attributes.get(prop.name) ?? null;
+    // Where the attribute goes: into the file as opened, or into the insert that has not run yet.
+    const write = (written: string | null): void => {
+      if (attachment.at) return this.writeAttribute(attachment.at, prop.name, written);
+      const { added } = attachment;
+      if (!added) return;
+      if (written === null) added.attributes.delete(prop.name);
+      else added.attributes.set(prop.name, written);
+      added.edit.xml = elementXml(added.tag.name, added.attributes);
+    };
     const params = (attachment.live as { parameters?: Record<string, unknown> }).parameters;
     if (params && attachment.tag.parameters.some((p) => p.name === prop.name)) {
       // A geometry *is* its constructor: three reads `radius` once, keeps the vertices, and
@@ -260,11 +445,11 @@ export class SceneDocument {
       this.log.commit(
         `${prop.name} on <${attachment.tag.name}>`,
         () => {
-          this.writeAttribute(attachment.at, prop.name, text);
+          write(text);
           fillSlot(attachment, next);
         },
         () => {
-          this.writeAttribute(attachment.at, prop.name, before);
+          write(before);
           fillSlot(attachment, previous);
         },
         opts?.coalesce === true,
@@ -275,11 +460,11 @@ export class SceneDocument {
     this.log.commit(
       `${prop.name} on <${attachment.tag.name}>`,
       () => {
-        this.writeAttribute(attachment.at, prop.name, text);
+        write(text);
         this.applyLive(attachment.live, prop.name, text, prop.shape, live);
       },
       () => {
-        this.writeAttribute(attachment.at, prop.name, before);
+        write(before);
         this.applyLive(attachment.live, prop.name, before, prop.shape, live);
       },
       opts?.coalesce === true,
@@ -296,18 +481,183 @@ export class SceneDocument {
     if (!this.canEditComponents(node)) return [];
     const info = (tag: string) => this.model.components.find((c) => c.name === tag);
     const block = this.componentsBlockOf(node);
-    const written: ComponentEntry[] = (block ? this.childrenOf(block) : [])
-      .filter((e) => !this.removed.has(keyOf(e.at)))
+    const written: ComponentEntry[] = (block ? this.elementsIn(block) : [])
+      .filter((e) => !this.removed.has(keyOfAt(e.at)))
       .map((e) => ({ node, tag: e.tag, info: info(e.tag), attributes: e.attributes, source: { at: e.at } }));
-    const added = this.added.get(keyOf(this.mine(node)!))?.members ?? [];
+    const added = this.added.get(keyOfAt(this.mine(node)!))?.members ?? [];
     return [
       ...written,
       ...added.map((a) => ({ node, tag: a.tag, info: info(a.tag), attributes: a.attributes, source: { added: a } })),
     ];
   }
 
+  // --- a config written inside a component --------------------------------------------------
+
+  /**
+   * The configs a component may hold, and what it writes for each.
+   *
+   * A field typed by a document kind is either a path naming a shared file or an element giving
+   * this component its own. This finds the second, against the shape the `.particle.xml` form is
+   * drawn from — the same one.
+   */
+  configsOf(entry: ComponentEntry): Array<{ prop: SerializedField; shape: DocumentShape; node: ConfigNode | null }> {
+    const out: Array<{ prop: SerializedField; shape: DocumentShape; node: ConfigNode | null }> = [];
+    for (const prop of entry.info?.fields ?? []) {
+      if (!prop.document) continue;
+      const shape = (this.model.documents ?? []).find((k) => k.shape?.name === prop.document)?.shape;
+      if (!shape) continue;
+      out.push({ prop, shape, node: this.configNodeOf(entry, shape) });
+    }
+    return out;
+  }
+
+  /**
+   * The configs a component writes, as trees — what its preview is built from. A preview takes a
+   * value rather than a file, so an edit to one written here shows on the next frame.
+   */
+  configElementsOf(entry: ComponentEntry): readonly ConfigElement[] {
+    if ('added' in entry.source) return entry.source.added.children.map(elementOf);
+    const view = this.viewAt(entry.source.at);
+    return view ? this.treeOf(view).children : [];
+  }
+
+  /**
+   * One element of the index with everything under it, pending elements at any depth included: an
+   * effect just given a `<ColorOverLifetime>` has to look like one the file already said that about.
+   */
+  private treeOf(view: ElementView): ConfigElement {
+    const written = this.elementsIn(view)
+      .filter((child) => !this.removed.has(keyOfAt(child.at)))
+      .map((child) => this.treeOf(child));
+    const pending = this.addedConfigs.allChildrenOf(keyOfAt(view.at)).map(elementOf);
+    return { tag: view.tag, attributes: view.attributes, children: [...written, ...pending] };
+  }
+
+  /** Give this component its own config, where it had none. */
+  addConfig(entry: ComponentEntry, shape: DocumentShape): void {
+    if ('at' in entry.source) return this.addedConfigs.addTo(entry.source.at, shape);
+    const { added } = entry.source;
+    const element = new PendingElement(shape);
+    this.addedConfigs.adopt(element, () => rewriteBlock(added.block));
+    this.log.commit(
+      `add <${shape.name}>`,
+      () => {
+        added.children.push(element);
+        rewriteBlock(added.block);
+      },
+      () => {
+        added.children.splice(added.children.indexOf(element), 1);
+        rewriteBlock(added.block);
+      },
+      false,
+    );
+  }
+
+  // --- the config form, for a config a component holds ---------------------------------------
+
+  childrenOf(node: ConfigNode, shape: DocumentShape): ConfigNode[] {
+    const view = node.pending ? undefined : this.viewAt(node.at);
+    const written = node.pending
+      ? node.pending.children.filter((child) => child.name === shape.name).map(pendingNode)
+      : (view ? this.elementsIn(view) : [])
+          .filter((child) => child.tag === shape.name && !this.removed.has(keyOfAt(child.at)))
+          .map((child) => writtenNode(child, child.at, shape));
+    return [...written, ...this.addedConfigs.childrenOf(keyOfNode(node), shape.name).map(pendingNode)];
+  }
+
+  value(node: ConfigNode, prop: PropInfo): string | undefined {
+    // The element index is written through on every edit, so what it holds is already current.
+    return node.attributes.get(prop.name);
+  }
+
+  setValue(node: ConfigNode, prop: PropInfo, value: Scalar | null, opts?: { coalesce?: boolean }): void {
+    const text = value === null ? null : formatValue(prop.shape, value);
+    if (node.pending) this.addedConfigs.setAttribute(node.pending, prop.name, text, opts?.coalesce ?? false);
+    else {
+      const at = node.at!;
+      const before = node.attributes.get(prop.name) ?? null;
+      this.log.commit(
+        `${node.name}.${prop.name}`,
+        () => this.writeAttribute(at, prop.name, text),
+        () => this.writeAttribute(at, prop.name, before),
+        opts?.coalesce ?? false,
+      );
+    }
+  }
+
+  add(parent: ConfigNode, shape: DocumentShape): void {
+    if (parent.pending) this.addedConfigs.addWithin(parent.pending, shape);
+    else this.addedConfigs.addTo(parent.at!, shape);
+  }
+
+  remove(node: ConfigNode): void {
+    if (node.pending) this.addedConfigs.remove(node.pending);
+    else {
+      const at = node.at!;
+      const edit: Edit = { op: 'removeElement', at };
+      this.log.commit(
+        `remove <${node.name}>`,
+        () => {
+          this.removed.add(keyOfAt(at));
+          this.log.queue(edit);
+        },
+        () => {
+          this.removed.delete(keyOfAt(at));
+          this.log.unqueue(edit);
+        },
+        false,
+      );
+    }
+  }
+
+  /** The element a component writes for one config field, written or pending. */
+  private configNodeOf(entry: ComponentEntry, shape: DocumentShape): ConfigNode | null {
+    if ('added' in entry.source) {
+      const found = entry.source.added.children.find((child) => child.name === shape.name);
+      return found ? pendingNode(found) : null;
+    }
+    const view = this.viewAt(entry.source.at);
+    const written = view
+      ? this.elementsIn(view).find((child) => child.tag === shape.name && !this.removed.has(keyOfAt(child.at)))
+      : undefined;
+    if (written) return writtenNode(written, written.at, shape);
+    const pending = this.addedConfigs.childrenOf(keyOfAt(entry.source.at), shape.name)[0];
+    return pending ? pendingNode(pending) : null;
+  }
+
+  private viewAt(at: ElementAt | null): ElementView | undefined {
+    if (!at) return undefined;
+    return this.elements.find((e) => e.at.line === at.line && e.at.column === at.column);
+  }
+
+  /**
+   * The form's view of one component's config: the same edits, and the node they belong to.
+   *
+   * A scrubbed number has to reach whatever draws the node, and only the caller knows which node
+   * the form it is drawing hangs under.
+   */
+  configHost(entry: ComponentEntry): ConfigHost {
+    const notify = (): void => this.onComponentEdit?.(entry.node);
+    return {
+      childrenOf: (node, shape) => this.childrenOf(node, shape),
+      value: (node, prop) => this.value(node, prop),
+      setValue: (node, prop, value, opts) => {
+        this.setValue(node, prop, value, opts);
+        notify();
+      },
+      add: (node, shape) => {
+        this.add(node, shape);
+        notify();
+      },
+      remove: (node) => {
+        this.remove(node);
+        notify();
+      },
+    };
+  }
+
   /** The elements directly inside one — not those inside a node nested in it. */
-  private childrenOf(parent: ElementView): ElementView[] {
+  private elementsIn(parent: ElementView): ElementView[] {
     const inside = this.elements.filter((e) => e !== parent && e.start > parent.start && e.end <= parent.end);
     return inside.filter(
       (element) => !inside.some((other) => other !== element && other.start < element.start && element.end <= other.end),
@@ -467,14 +817,14 @@ export class SceneDocument {
   addComponent(node: Object3D, type: string): void {
     const at = this.mine(node);
     if (!at || !this.canEditComponents(node)) return;
-    const key = keyOf(at);
+    const key = keyOfAt(at);
     const existing = this.componentsBlockOf(node);
     const block: PendingBlock = this.added.get(key) ?? {
       members: [],
       wrap: !existing,
       edit: { op: 'insertChild', at: existing?.at ?? at, xml: '' },
     };
-    const member: Added = { tag: type, attributes: new Map(), block };
+    const member: Added = { tag: type, attributes: new Map(), children: [], block };
     this.log.commit(
       `add <${type}>`,
       () => this.attach(key, member, block.members.length),
@@ -502,11 +852,11 @@ export class SceneDocument {
       `remove <${entry.tag}>`,
       () => {
         this.log.queue(edit);
-        this.removed.add(keyOf(source.at));
+        this.removed.add(keyOfAt(source.at));
       },
       () => {
         this.log.unqueue(edit);
-        this.removed.delete(keyOf(source.at));
+        this.removed.delete(keyOfAt(source.at));
       },
       false,
     );
@@ -534,7 +884,7 @@ export class SceneDocument {
   /** The node's own `<Components>` — a direct child, wherever it sits among the node's other children. */
   private componentsBlockOf(node: Object3D): ElementView | undefined {
     const owner = this.elementOf(node);
-    return owner ? this.childrenOf(owner).find((e) => e.tag === 'Components') : undefined;
+    return owner ? this.elementsIn(owner).find((e) => e.tag === 'Components') : undefined;
   }
 
   // --- the edit log ------------------------------------------------------------------------
@@ -583,7 +933,17 @@ export class SceneDocument {
 
   /** Queue the splice, and keep this document's own view of the element in step with it. */
   private writeAttribute(at: ElementAt, name: string, value: string | null): void {
-    this.log.replaceAttribute({ op: 'setAttribute', at, name, value });
+    // Back to what the file says is not an edit: without this, undoing the last change left a
+    // splice queued that rewrote the attribute with its own value and Save wrote a diff of nothing.
+    const opened = this.opened.get(keyOfAt(at))?.get(name) ?? null;
+    const queued = this.log.edits.find(
+      (e) => e.op === 'setAttribute' && e.at.line === at.line && e.at.column === at.column && e.name === name,
+    );
+    if (value === opened) {
+      if (queued) this.log.unqueue(queued);
+    } else {
+      this.log.replaceAttribute({ op: 'setAttribute', at, name, value });
+    }
 
     const element = this.elements.find((e) => e.at.line === at.line && e.at.column === at.column);
     if (!element) return;
@@ -621,6 +981,8 @@ export class SceneDocument {
     this.text = text;
     this.log.clear();
     this.added.clear();
+    this.addedAttachments.clear();
+    this.addedConfigs.clear();
     this.removed.clear();
     this.adopt(elements);
     this.log.emit();
@@ -646,6 +1008,8 @@ export class SceneDocument {
       end: e.end,
       attributes: new Map(Object.entries(e.attributes)),
     }));
+    this.opened.clear();
+    for (const element of this.elements) this.opened.set(keyOfAt(element.at), new Map(element.attributes));
   }
 }
 
@@ -696,19 +1060,13 @@ function snapshot(target: object, name: string, shape?: ValueShape): unknown {
   return cloneable && typeof cloneable.clone === 'function' ? cloneable.clone() : value;
 }
 
-function keyOf(at: ElementAt): string {
-  return `${at.line}:${at.column}`;
-}
-
-/**
- * Write a pending block's insert from its members, through the compiler's own attribute splice so
- * a value is escaped exactly as a save of an existing element would escape it.
- */
+/** Write a pending block's insert from its members, each with whatever was written inside it. */
 function rewriteBlock(block: PendingBlock): void {
   const elements = block.members.map((member) => {
-    let xml = `<${member.tag} />`;
-    for (const [name, value] of member.attributes) xml = setAttribute(xml, indexDocument(xml)[0]!, name, value).text;
-    return xml;
+    const xml = elementXml(member.tag, member.attributes);
+    if (member.children.length === 0) return xml;
+    const inner = member.children.map((child) => child.xml('  ')).join('\n');
+    return `${xml.replace(/\s*\/>$/, '>')}\n${inner}\n</${member.tag}>`;
   });
   block.edit.xml = block.wrap
     ? `<Components>\n${elements.map((e) => `  ${e}`).join('\n')}\n</Components>`

@@ -14,6 +14,12 @@ export interface AssetImport {
    */
   kind: 'value' | 'prefab' | 'scene';
   /**
+   * The type a field holding it is declared as — `PrefabType`, `SceneType`, a package's
+   * `ParticleEffect` — so a path to one kind of document in a field of another is caught at the
+   * attribute. Absent for a geometry, a material or a texture, which are matched by family.
+   */
+  type?: string;
+  /**
    * Prefabs only: this prefab publishes a `static assets`, because it — or something it spawns —
    * is built from a file. Whoever spawns it has to wait for that list.
    */
@@ -63,7 +69,11 @@ export interface FileImport {
 export type ResolvedAsset = AssetImport | FileImport;
 
 /** How a document resolves a path — supplied by the build driver, which knows the file tree. */
-export type ResolveAsset = (href: string) => ResolvedAsset | undefined;
+export interface ResolveAsset {
+  (href: string): ResolvedAsset | undefined;
+  /** The path, relative to the document, of the one document an unresolved `href` most likely meant. */
+  near?(href: string): string | undefined;
+}
 
 /**
  * Turn a resolved reference into the expression that reaches it, and record what that costs the
@@ -119,6 +129,17 @@ export class AssetScope {
     this.files.set(found.href, local);
     if (found.await) this.awaited.push(local);
     return local;
+  }
+
+  /** The path an unresolved `href` probably meant — see {@link ResolveAsset.near}. */
+  near(href: string): string | undefined {
+    return this.resolve.near?.(href);
+  }
+
+  /** The type a document at `href` is held as, when it is a document — see {@link AssetImport.type}. */
+  typeOf(href: string): string | undefined {
+    const found = this.resolve(href);
+    return found && found.kind !== 'file' ? found.type : undefined;
   }
 
   /** What this document resolved a path to, without emitting anything. */

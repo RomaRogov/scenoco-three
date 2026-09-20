@@ -19,6 +19,11 @@ export function familyOf(name: string, chain: readonly string[]): TagFamily | un
   return FAMILIES.find(([base]) => base === name || chain.includes(base))?.[1];
 }
 
+/** The class a family is named from — `Object3D` for nodes — which is every member's API too. */
+export function isFamilyRoot(name: string): boolean {
+  return FAMILIES.some(([base]) => base === name);
+}
+
 /** A family whose values are objects a node is built *from*, rather than members of the tree. */
 export function isAttachable(family: TagFamily): boolean {
   return family !== 'node';

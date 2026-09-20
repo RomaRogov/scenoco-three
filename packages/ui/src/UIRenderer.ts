@@ -1,7 +1,7 @@
 import type { Camera, PerspectiveCamera, WebGLRenderer } from 'three';
 import { forwardHtmlEvents } from '@pmndrs/pointer-events';
 import { Component as UikitComponent, Fullscreen, reversePainterSortStable } from '@pmndrs/uikit';
-import { applyRect, asUikit } from './rect.js';
+import { applyRect, asUikit, centreBySize, layoutStateOf } from './rect.js';
 import { Engine, System } from '@scenoco-three/core';
 
 /**
@@ -29,8 +29,6 @@ import { Engine, System } from '@scenoco-three/core';
 export class UIRenderer extends System {
   /** Every element that asked to be drawn, root or not. */
   private readonly elements = new Set<UikitComponent>();
-  /** The active state each element was last laid out with, so a change is noticed once. */
-  private readonly shown = new WeakMap<UikitComponent, boolean>();
   private events: { update(): void; destroy(): void } | undefined;
   private configured: WebGLRenderer | undefined;
   /** Layout failures already reported, so a bad value logs once rather than at 60Hz. */
@@ -49,10 +47,26 @@ export class UIRenderer extends System {
     if (renderer) this.configure(renderer);
     this.events?.update();
 
+    // Activation is the one authored value nothing writes back through a setter: a component
+    // calls `setActive` on the node, and only this looks at it again. All of it first, then the
+    // layout: done element by element, a root — built before its children, so met first — laid
+    // out before its children's changes were read, and every `setActive` showed a frame late.
+    for (const element of this.elements) this.syncActivation(element);
+
+    // A content-sized, centred element is placed by a size layout has only just computed, so a
+    // pass that changed one lays out again — a few at most, as wrapped text settles.
+    this.layOut(renderer, deltaTime);
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false;
+      for (const element of this.elements) moved = centreBySize(element) || moved;
+      if (!moved) break;
+      this.layOut(renderer, 0);
+    }
+  }
+
+  /** One layout pass over every UI root. */
+  private layOut(renderer: WebGLRenderer | undefined, deltaTime: number): void {
     for (const element of this.elements) {
-      // Activation is the one authored value nothing writes back through a setter: a component
-      // calls `setActive` on the node, and only this loop ever looks at it again.
-      this.syncActivation(element);
       // uikit lays a whole tree out from its root, so only roots are updated; a nested element
       // asked to join anyway, which is what keeps the document from having to say which is which.
       if (element.parent instanceof UikitComponent) continue;
@@ -93,11 +107,10 @@ export class UIRenderer extends System {
     });
   }
 
-  /** Re-lay-out an element whose `setActive` state changed, so `display` follows it. */
+  /** Re-lay-out an element whose active state differs from what uikit was last given. */
   private syncActivation(element: UikitComponent): void {
     const active = (element as unknown as { activeInHierarchy: boolean }).activeInHierarchy;
-    if (this.shown.get(element) === active) return;
-    this.shown.set(element, active);
+    if (layoutStateOf(element).applied === active) return;
     applyRect(element);
   }
 
@@ -108,13 +121,27 @@ export class UIRenderer extends System {
 
     renderer.localClippingEnabled = true;
     renderer.setTransparentSort(reversePainterSortStable);
-    this.events = forwardHtmlEvents(
-      renderer.domElement,
+    const canvas = renderer.domElement;
+    const forwarded = forwardHtmlEvents(
+      canvas,
       // pointer-events wants a perspective or orthographic camera; a scene's main camera is one
       // in practice, and its declared type is only wider.
       () => this.scene.mainCamera as PerspectiveCamera,
       this.scene,
     );
+    // pointer-events decides what is under the pointer on a move, and a press goes to that. Under
+    // a still mouse the game moves on — the button it clicked hides, another appears in its
+    // place — and a press there went to whatever was under it last, hidden or not. A move at the
+    // point of every press, delivered ahead of it, has the press aimed at what is there now.
+    const aim = (event: PointerEvent): void => void canvas.dispatchEvent(new PointerEvent('pointermove', event));
+    canvas.addEventListener('pointerdown', aim, { capture: true });
+    this.events = {
+      update: () => forwarded.update(),
+      destroy: () => {
+        canvas.removeEventListener('pointerdown', aim, { capture: true });
+        forwarded.destroy();
+      },
+    };
   }
 
   private report(message: string): void {

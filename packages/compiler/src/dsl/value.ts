@@ -1,6 +1,7 @@
 import { Color } from 'three';
+import type { TagInfo } from '../model.js';
 import type { PropInfo, ValueShape } from '../model.js';
-import { nearestName, type SncDiagnostic } from './diagnostics.js';
+import { hint, nearestName, type SncDiagnostic } from './diagnostics.js';
 import type { SncElement } from './parse.js';
 
 /**
@@ -10,10 +11,33 @@ import type { SncElement } from './parse.js';
 export interface EmitContext {
   /** Record that the module needs `name` from `module`, and return the local name to use. */
   require(module: string, name: string): string;
-  /** The expression that reaches the node with this `id`, or undefined if there is none. */
-  nodeRef(id: string): string | undefined;
+  /**
+   * The expression that reaches the node with this `id`, or undefined if there is none. Given the
+   * type the slot expects, a component type reaches the component *on* that node — dropping an
+   * object on a component field, as in Unity's inspector — and `problem` says why it cannot.
+   */
+  nodeRef(id: string, expected?: string): { code: string } | { problem: string } | undefined;
   /** The expression for another asset document, given its path relative to this one. */
   assetRef(path: string): string | undefined;
+  /**
+   * Every tag in the project, where the caller has it — so an attribute a tag lacks can be
+   * answered with the tags that do have it: `emissive` is not on <MeshBasicMaterial>, but is on
+   * <MeshStandardMaterial>.
+   */
+  tags?: readonly TagInfo[];
+  /**
+   * Another attribute of the element being read, by name — so a rewrite that adds one offers it
+   * only where it exists and takes that value: `#ff660000` is `opacity="0"` on a material, and on
+   * a light, which has none, just the colour. Absent, a rewrite adds nothing.
+   */
+  attribute?(name: string): PropInfo | undefined;
+  /**
+   * The path a document probably meant by an `href` that resolves to nothing — the same file
+   * written from the project root, or without its `.asset.xml` — relative to this document.
+   */
+  nearAsset?(href: string): string | undefined;
+  /** The type a document at `href` is held as — see `AssetImport.type` — when it is a document. */
+  assetType?(href: string): string | undefined;
 }
 
 export interface Emitted {
@@ -36,9 +60,16 @@ export function emitValue(
   element: SncElement,
   context: EmitContext,
 ): Emitted {
-  const at = (code: string, message: string): Emitted => ({
-    diagnostics: [{ line: element.line, column: element.column, code, message, ...(element.file ? { file: element.file } : {}) }],
-  });
+  const at: Fail = (code, message, rewrites = [], otherwise = '') => {
+    // An exact rewrite is offered only when it compiles. Every one that did not was worse than
+    // none: it cost a build to find out, and read as the tool contradicting itself.
+    const offered = rewrites.find((rewrite) => compiles(prop, rewrite, element, context));
+    // And whatever the declaration's own package says about this value, in its `@tip`.
+    const text = (offered ? `${message} Write ${spelled(prop, offered)}.` : `${message}${otherwise}`) + (prop.tip ? ` ${prop.tip}` : '');
+    return {
+      diagnostics: [{ line: element.line, column: element.column, code, message: text, ...(element.file ? { file: element.file } : {}) }],
+    };
+  };
 
   // A slot declared `X | X[]` takes either, and the brackets say which.
   if (prop.list && prop.shape !== 'array' && text.trim().startsWith('[')) {
@@ -56,9 +87,7 @@ export function emitValue(
       const hex = asHex(text);
       if (hex) return { code: hex, diagnostics: [] };
       const value = Number(text.trim());
-      if (!Number.isFinite(value)) {
-        return at('bad-number', `${prop.name}="${text}" is not a number.`);
-      }
+      if (!Number.isFinite(value)) return at('bad-number', `${prop.name}="${text}" is not a number.`);
       return { code: String(value), diagnostics: [] };
     }
 
@@ -89,14 +118,25 @@ export function emitValue(
 
     case 'nodeRef': {
       const id = text.trim().replace(/^#/, '');
-      const reference = context.nodeRef(id);
-      if (!reference) {
+      // Only a plain class name narrows the slot: `Button`, not `Mesh<…>` or a list's element.
+      const expected = /^[A-Za-z_$][\w$]*$/.test(prop.type) ? prop.type : undefined;
+      // A path where a node goes: `coreTemplate="../prefabs/core.prefab.xml"` on an `Object3D` slot.
+      if (!text.trim().startsWith('#') && /[/.]/.test(text)) {
+        return at(
+          'wrong-slot',
+          `${prop.name}="${text}" is a path, and ${prop.name} is typed ${prop.type} — a node in this ` +
+            `document, written '#id'. To spawn a prefab from a path, type the field PrefabType.`,
+        );
+      }
+      const found = context.nodeRef(id, expected);
+      if (!found) {
         return at(
           'unknown-id',
           `${prop.name}="${text}" points at id "${id}", which no node in this document declares.`,
         );
       }
-      return { code: reference, diagnostics: [] };
+      if ('problem' in found) return at('wrong-slot', `${prop.name}="${text}" ${found.problem}`);
+      return { code: found.code, diagnostics: [] };
     }
 
     case 'assetRef': {
@@ -107,9 +147,27 @@ export function emitValue(
             'Set several from a component instead.',
         );
       }
+      // A document of another kind than the field holds: `burstEffect!: PrefabType` given a
+      // `.particle.xml` compiled, and `tsc` then failed on the generated file, naming nothing.
+      const held = prop.document ? context.assetType?.(text.trim()) : undefined;
+      if (held && held !== prop.document) {
+        return at(
+          'wrong-asset',
+          `${prop.name}="${text}" is a ${held} document, and ${prop.name} is typed ${prop.document}. ` +
+            `Type the field ${held} to hold this one, or point it at a ${prop.document === 'PrefabType' ? '.prefab.xml' : prop.document === 'SceneType' ? '.scene.xml' : `${prop.document} document`}.`,
+        );
+      }
       const reference = context.assetRef(text.trim());
       if (!reference) {
-        return at('unknown-asset', `${prop.name}="${text}" does not resolve to an asset in this project.`);
+        // Written from the wrong place, most often — the project-root spelling, from inside
+        // `assets/prefabs/`. Paths are relative to the document, so the fix is one exact path.
+        const near = context.nearAsset?.(text.trim());
+        return at(
+          'unknown-asset',
+          `${prop.name}="${text}" does not resolve to an asset in this project.` +
+            (near ? ' Paths are relative to this document.' : ''),
+          near ? [{ value: near }] : [],
+        );
       }
       return { code: reference, diagnostics: [] };
     }
@@ -121,6 +179,39 @@ export function emitValue(
       return emitUnion(prop, text, element, context, at);
 
     case 'unsupported':
+      if (prop.unresolved) {
+        // Nearly always a three.js class imported from the framework's own package. Name the one
+        // module that has it, rather than leave "check its import" to a guess.
+        const from = context.tags?.find((tag) => tag.name === prop.type)?.module;
+        return at(
+          'unsupported-type',
+          `${prop.name} is typed ${prop.type}, and ${prop.type} does not resolve in that file — ` +
+            (from
+              ? `it comes from '${from}': import { ${prop.type} } from '${from}'.`
+              : 'check its import: the module it names does not export it.'),
+        );
+      }
+      // `scoreText!: Text` with nothing imported: TypeScript finds the browser's own `Text` — a DOM
+      // node — so the name resolves, just not to the tag. Same answer as an unresolved one.
+      // Only a node tag: a node class would have been read as a node reference, so reaching here
+      // means the name found something else.
+      const tag = context.tags?.find((t) => t.name === prop.type && t.family === 'node');
+      if (tag) {
+        return at(
+          'unsupported-type',
+          `${prop.name} is typed ${prop.type}, but that ${prop.type} is not the <${prop.type}> tag — with no import ` +
+            `the name reaches another class of that name, such as the browser's. Import the tag's: ` +
+            `import { ${prop.type} } from '${tag.module}'.`,
+        );
+      }
+      if (prop.type === 'any' || prop.type === 'unknown') {
+        return at(
+          'unsupported-type',
+          `${prop.name} is typed ${prop.type}, which says nothing about what it holds. Type it as what ` +
+            "it holds: the class of the node (Mesh) or of the component it points at, written '#id'; or " +
+            "PrefabType for a prefab to spawn, written as its path — crate=\"../prefabs/crate.prefab.xml\".",
+        );
+      }
       return at(
         'unsupported-type',
         `${prop.name} is typed ${prop.type}, which cannot be written as an attribute. ` +
@@ -129,7 +220,38 @@ export function emitValue(
   }
 }
 
-type Fail = (code: string, message: string) => Emitted;
+/**
+ * An exact rewrite a diagnostic may hand back: the value to write instead, and any attribute it
+ * adds beside it — `color="#ff6600" opacity="0.5"`.
+ */
+interface Rewrite {
+  value: string;
+  also?: ReadonlyArray<readonly [attribute: string, value: string]>;
+}
+
+/**
+ * Report a value that does not compile. `rewrites` are tried in order and the first that compiles
+ * is offered as `Write …`; when none does, `otherwise` says what the value has to be instead.
+ */
+type Fail = (code: string, message: string, rewrites?: readonly Rewrite[], otherwise?: string) => Emitted;
+
+/**
+ * Whether a rewrite would build: the value read again as the same attribute, and every attribute
+ * it adds read as that attribute of this element. A list entry has no attributes of its own.
+ */
+function compiles(prop: PropInfo, rewrite: Rewrite, element: SncElement, context: EmitContext): boolean {
+  if (emitValue(prop, rewrite.value, element, context).diagnostics.length > 0) return false;
+  return (rewrite.also ?? []).every(([name, value]) => {
+    if (isEntry(prop)) return false;
+    const other = context.attribute?.(name);
+    return other !== undefined && emitValue(other, value, element, context).diagnostics.length === 0;
+  });
+}
+
+/** One entry of a list attribute, rather than an attribute of its own. */
+function isEntry(prop: PropInfo): boolean {
+  return prop.elementShape !== undefined && prop.shape !== 'array';
+}
 
 /**
  * `#rrggbb` or `#rgb` — always emitted as a real `THREE.Color`.
@@ -161,33 +283,33 @@ function emitColor(prop: PropInfo, text: string, context: EmitContext, at: Fail)
 
   const other = otherFormat(value);
   if (other) {
-    return at('bad-color', `${prop.name}="${text}" is ${other.kind}. In a document write ${prop.name}="${other.hex}".`);
+    return at('bad-color', `${prop.name}="${text}" is ${other.kind}; a document writes #rrggbb.`, [{ value: other.hex }]);
   }
 
   // `#rrggbbaa` and `#rgba`: valid CSS, and the one near miss three.js does not parse — it warns
   // to the console and leaves the colour untouched, which is a bug that renders. A colour here is
   // a `THREE.Color`, and a `THREE.Color` is r, g and b: the alpha has to go somewhere of its own,
-  // so the fix names the property that takes it rather than only the half that is wrong.
+  // so the fix names the attribute that takes it — `backgroundOpacity` beside `background`, else
+  // `opacity` — where this element has one, and only the colour where it has none.
   const alpha = /^#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})$/.exec(value);
   if (alpha) {
     const rgb = value.length === 5 ? value.slice(0, 4) : value.slice(0, 7);
-    const opacityProp = prop.name === 'background' ? 'backgroundOpacity' : 'opacity';
+    const opacity = [`${prop.name}Opacity`, 'opacity'].find((name) => context.attribute?.(name));
+    const withOpacity = opacity && !isEntry(prop) ? [{ value: rgb, also: [[opacity, String(alphaOf(value))]] as const }] : [];
     return at(
       'bad-color',
       `${prop.name}="${text}" carries an alpha channel, and a colour has no room for one — ` +
-        `THREE.Color is r, g, b. Write ${prop.name}="${rgb}" ${opacityProp}="${alphaOf(value)}".`,
+        `THREE.Color is r, g, b${withOpacity.length ? '' : ', and nothing here takes an opacity'}.`,
+      [...withOpacity, { value: rgb }],
     );
   }
 
   // Not any format three.js understands. If it reads like a misspelt colour name, the nearest
   // one — and its hex, since that is what has to be written — is the whole fix.
   const near = /^[a-zA-Z]+$/.test(value) ? nearestName(value.toLowerCase(), COLOR_NAMES) : undefined;
-  return at(
-    'bad-color',
-    near
-      ? `${prop.name}="${text}" is not a colour. The nearest CSS name is "${near}"; write ${prop.name}="${hexOfName(near)}".`
-      : `${prop.name}="${text}" must be a hex colour such as "#38bdf8".`,
-  );
+  return near
+    ? at('bad-color', `${prop.name}="${text}" is not a colour. The nearest CSS name is "${near}".`, [{ value: hexOfName(near) }])
+    : at('bad-color', `${prop.name}="${text}" must be a hex colour such as "#38bdf8".`);
 }
 
 /** The alpha of a `#rrggbbaa` or `#rgba` colour, as the 0..1 number the document has to write. */
@@ -261,11 +383,9 @@ function emitVector(
     const rewritten = asAxisForm(value, arity);
     return at(
       'bad-vector',
-      rewritten
-        ? `${prop.name}="${text}" needs its axes named. Write ${prop.name}="${rewritten}".`
-        : `${prop.name}="${text}" must be the axis form, e.g. ${prop.name}="${axes
-            .map((axis, index) => `${axis}: ${index}`)
-            .join('; ')}".`,
+      `${prop.name}="${text}" needs its axes named.`,
+      rewritten ? [{ value: rewritten }] : [],
+      ` Write the axis form, e.g. ${prop.name}="${axes.map((axis, index) => `${axis}: ${index}`).join('; ')}".`,
     );
   }
 
@@ -275,9 +395,13 @@ function emitVector(
     const axis = rawAxis?.trim() ?? '';
     const index = axes.indexOf(axis as (typeof AXES)[number]);
     if (index === -1) {
+      // `0.6; y: 1.2; z: 0.8` — one axis left unnamed. Give it the axis nobody named, and hand
+      // back the result, but only when that result is a whole, valid axis form.
+      const repaired = nameMissingAxes(value, axes);
       return at(
         'bad-vector',
         `${prop.name}="${text}" names axis "${axis}"; this value has ${axes.join(', ')}.`,
+        repaired ? [{ value: repaired }] : [],
       );
     }
     const number = Number(rawNumber?.trim());
@@ -296,7 +420,7 @@ const AXES = ['x', 'y', 'z', 'w'] as const;
 
 /** `"1 2 3"` → `"x: 1; y: 2; z: 3"`, or undefined when it is not a plain list of numbers. */
 function asAxisForm(value: string, arity: number): string | undefined {
-  const numbers = value.split(/[\s,]+/).filter(Boolean);
+  const numbers = value.split(/[\s,;]+/).filter(Boolean);
   if (numbers.length === 0 || numbers.length > arity) return undefined;
   if (numbers.some((n) => !Number.isFinite(Number(n)))) return undefined;
   return numbers.map((n, index) => `${AXES[index]}: ${n}`).join('; ');
@@ -320,15 +444,23 @@ function emitEnum(prop: PropInfo, text: string, context: EmitContext, at: Fail):
   if (index !== -1 && options[index]!.startsWith('"')) {
     return { code: quote(value), diagnostics: [] };
   }
-  // A numeric union: the value has to be a constant three.js exports, and the emitter imports
-  // it. There is no list of legal names in the type, so a wrong one is caught by `tsc` on the
-  // generated file rather than here — which still names the file, the line and the identifier.
-  if (/^[A-Z][A-Za-z0-9_]*$/.test(value)) {
+  // A union of three.js constants: the document names the constant and the emitter imports it.
+  // The names are known — read off the alias's declaration — so a near miss is answered here
+  // rather than by `tsc` in generated code.
+  const named = options.length > 0 && options.every((o) => /^[A-Z][A-Za-z0-9_]*$/.test(o));
+  if (named && options.includes(value)) {
     return { code: context.require('three', value), diagnostics: [] };
   }
+  if (!named && /^[A-Z][A-Za-z0-9_]*$/.test(value)) {
+    // Nothing recovered the names — the union is not the `typeof CONSTANT` idiom — so a
+    // capitalised word is taken at its word and `tsc` has the last one.
+    return { code: context.require('three', value), diagnostics: [] };
+  }
+  const near = nearestName(value, quoted);
   return at(
     'bad-enum',
-    `${prop.name}="${text}" is not one of ${quoted.join(', ') || 'the accepted constants'}.`,
+    `${prop.name}="${text}" is not one of ${quoted.join(', ') || 'the accepted constants'}.` +
+      (near ? ` Did you mean ${near}?` : ''),
   );
 }
 
@@ -342,7 +474,14 @@ function emitArray(
 ): Emitted {
   const value = text.trim();
   if (!value.startsWith('[') || !value.endsWith(']')) {
-    return at('bad-array', `${prop.name}="${text}" must be bracketed, e.g. "[#b1, #b2]".`);
+    // The list itself is often right and only the brackets are missing — but `curve="0 1, 1 0"`
+    // bracketed is still wrong, and then what one entry is says more than the brackets.
+    return at(
+      'bad-array',
+      `${prop.name}="${text}" must be bracketed.`,
+      [{ value: `[${value}]` }],
+      ` It is a list, each entry ${describeEntry(prop)}, as ${prop.name}="[${exampleEntries(prop)}]".`,
+    );
   }
   const inner = value.slice(1, -1).trim();
   if (inner === '') return { code: '[]', diagnostics: [] };
@@ -479,3 +618,50 @@ function describeShape(shape: ValueShape): string {
 export function quote(text: string): string {
   return `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')}'`;
 }
+
+/** What one entry of a list field is, in words. */
+function describeEntry(prop: PropInfo): string {
+  switch (prop.elementShape) {
+    case 'number': return 'a number';
+    case 'color': return 'a #rrggbb colour';
+    case 'vector3': return 'an x: …; y: …; z: … vector';
+    case 'nodeRef': return 'a #id';
+    case 'string': return 'a word';
+    default: return `a ${prop.elementShape ?? 'value'}`;
+  }
+}
+
+/** Two sample entries of a list field, in its own spelling. */
+export function exampleEntries(prop: PropInfo): string {
+  switch (prop.elementShape) {
+    case 'number': return '1, 0.5, 0';
+    case 'color': return '#ff8800, #ffffff';
+    case 'vector3': return 'x: 1; z: 2, x: -1; z: 2';
+    case 'nodeRef': return '#a, #b';
+    default: return '…, …';
+  }
+}
+
+/**
+ * A rewrite as it is written back: the whole attribute for a value of its own, the entry alone
+ * for one entry of a list — `colors="[red, blue]"` is fixed entry by entry, and handing back
+ * `colors="#ff0000"` would drop the rest of the list and the brackets with it.
+ */
+function spelled(prop: PropInfo, rewrite: Rewrite): string {
+  const own = isEntry(prop) ? rewrite.value : `${prop.name}="${rewrite.value}"`;
+  return [own, ...(rewrite.also ?? []).map(([name, value]) => `${name}="${value}"`)].join(' ');
+}
+
+/**
+ * `0.6; y: 1.2; z: 0.8` → `x: 0.6; y: 1.2; z: 0.8`: bare values take the axes nobody named, in
+ * order. Only the spelling — whether the result is a valid vector is the rewrite check's to say.
+ */
+function nameMissingAxes(value: string, axes: readonly string[]): string | undefined {
+  const chunks = value.split(';').map((chunk) => chunk.trim()).filter(Boolean);
+  const named = chunks.filter((chunk) => chunk.includes(':')).map((chunk) => chunk.split(':')[0]!.trim());
+  const free = axes.filter((axis) => !named.includes(axis));
+  let given = 0;
+  const written = chunks.map((chunk) => (chunk.includes(':') ? chunk : `${free[given++]}: ${chunk}`));
+  return given > 0 && given <= free.length ? written.join('; ') : undefined;
+}
+

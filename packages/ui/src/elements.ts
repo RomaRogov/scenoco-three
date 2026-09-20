@@ -1,5 +1,6 @@
-import type { Texture, WebGLRenderer } from 'three';
+import { Object3D, type Texture, type WebGLRenderer } from 'three';
 import {
+  Component as UikitComponent,
   Container,
   Fullscreen,
   Image as UikitImage,
@@ -15,6 +16,34 @@ import { applyRect, ownVisible, rectStateOf, whenInScene } from './rect.js';
  * lays a whole tree out from its root. Every element asks anyway and the system sorts it out,
  * which costs one call at load and saves the document from having to say which one is the root.
  */
+/**
+ * A copy of a UI element, for `clone()` and `instantiate`: the same class, what was authored on
+ * it, its components, and its elements below.
+ *
+ * uikit's own `clone` builds a bare uikit class and copies the transform only — no components, no
+ * authored size or text — and its `copy` refuses outright. So the node itself goes through
+ * three's `copy`, which core extends to carry components, one level at a time.
+ */
+function cloneElement<T extends UikitComponent>(source: T, recursive: boolean | undefined): T {
+  const copy = new (source.constructor as new () => T)();
+  Object3D.prototype.copy.call(copy, source, false);
+  const from = rectStateOf(source) as unknown as Record<string, unknown>;
+  const to = rectStateOf(copy) as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(from)) {
+    const own = value as { clone?: () => unknown; isTexture?: boolean } | undefined;
+    // A colour is a value and gets its own; a texture is an asset and is shared.
+    to[key] = own && typeof own.clone === 'function' && !own.isTexture ? own.clone() : value;
+  }
+  applyRect(copy);
+  if (recursive !== false) {
+    for (const child of source.children) {
+      // uikit's instanced meshes are the root's drawing machinery, rebuilt by the copy's own root.
+      if (child instanceof UikitComponent) copy.add(child.clone(true));
+    }
+  }
+  return copy;
+}
+
 function joinRenderer(element: Container | Fullscreen | UikitText | UikitImage): void {
   // An `<Image>` draws through a mesh of its own; everything else is painted by the root's
   // shared instanced panel, which is the distinction `ownVisible` needs.
@@ -32,8 +61,8 @@ function joinRenderer(element: Container | Fullscreen | UikitText | UikitImage):
  *
  * ```xml
  * <PerspectiveCamera id="cam" position="z: 10">
- *   <Canvas padding="24">
- *     <Panel anchor="stretchTop" height="64" background="#111827" layout="horizontal"
+ *   <Canvas>
+ *     <Panel anchor="stretchTop" x="24" y="24" height="64" background="#111827" layout="horizontal"
  *            alignY="center" gap="12" padding="16">
  *       <Text text="SCORE 0" id="score" fontSize="20" color="#ffffff" />
  *     </Panel>
@@ -47,6 +76,10 @@ function joinRenderer(element: Container | Fullscreen | UikitText | UikitImage):
  *
  * For UI that exists in the world — a health bar over a character, a screen on a wall — use a
  * `<Panel>` on its own instead and place it with the ordinary transform attributes.
+ *
+ * @parent camera
+ * @tip A Canvas fills the view of the camera it hangs off, in screen pixels: put it inside the
+ * camera the scene is seen through, <Scene camera="#cam"> … <PerspectiveCamera id="cam"><Canvas>.
  */
 export class Canvas extends Fullscreen {
   constructor() {
@@ -55,6 +88,10 @@ export class Canvas extends Fullscreen {
     // frame — see its `update`.
     super(undefined as unknown as WebGLRenderer);
     joinRenderer(this);
+  }
+
+  override clone(recursive?: boolean): this {
+    return cloneElement(this, recursive);
   }
 }
 
@@ -76,6 +113,10 @@ export class Panel extends Container {
   constructor() {
     super();
     joinRenderer(this);
+  }
+
+  override clone(recursive?: boolean): this {
+    return cloneElement(this, recursive);
   }
 }
 
@@ -100,6 +141,10 @@ export class Text extends UikitText {
   constructor() {
     super();
     joinRenderer(this);
+  }
+
+  override clone(recursive?: boolean): this {
+    return cloneElement(this, recursive);
   }
 
   /** What it says. */
@@ -127,6 +172,10 @@ export class Image extends UikitImage {
   constructor() {
     super();
     joinRenderer(this);
+  }
+
+  override clone(recursive?: boolean): this {
+    return cloneElement(this, recursive);
   }
 
   /** The picture to draw. */

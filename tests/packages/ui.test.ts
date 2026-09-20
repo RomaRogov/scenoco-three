@@ -1,7 +1,7 @@
 import { Group, type Object3D, PerspectiveCamera, Scene, Color } from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SceneManager, type SceneType } from '@scenoco-three/core';
-import { Canvas, Panel, Text, UIRenderer, toUikitProperties } from '@scenoco-three/ui';
+import { Button, Canvas, Panel, Text, UIRenderer, toUikitProperties, type Anchor } from '@scenoco-three/ui';
 import { Clock, resetEngine } from '../core/helpers.js';
 
 afterEach(resetEngine);
@@ -42,27 +42,69 @@ describe('placement', () => {
     expect(props.width).toBe(200);
   });
 
-  it('centres with auto margins between two insets', () => {
-    const panel = new Panel();
-    panel.anchor = 'center';
+  /**
+   * Where an anchored element actually lands, read off uikit's own layout rather than the
+   * properties handed to it. A mapping test passed for months while every centred anchor drew in
+   * the top-left corner: yoga ignores the auto margins the mapping produced.
+   */
+  const landing = async (anchor: Anchor, x = 0, y = 0): Promise<number[]> => {
+    let child!: Panel;
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const parent = new Panel();
+        parent.width = 400;
+        parent.height = 300;
+        s.add(parent);
+        child = new Panel();
+        child.anchor = anchor;
+        child.width = 100;
+        child.height = 50;
+        child.x = x;
+        child.y = y;
+        parent.add(child);
+      }),
+    );
+    scene.getSystem(UIRenderer)!.layout(0);
+    // Centre of the element relative to its parent's centre, y up.
+    const [cx, cy] = (child as unknown as { relativeCenter: { peek(): [number, number] } }).relativeCenter.peek();
+    return [cx + 0, cy + 0]; // -0 → 0: a centre is a centre
+  };
 
-    const props = uikitProps(panel);
-    expect(props.marginLeft).toBe('auto');
-    expect(props.marginRight).toBe('auto');
-    expect(props.marginTop).toBe('auto');
-    expect(props.marginBottom).toBe('auto');
+  it('lands every anchor where its name says, not in the top-left corner', async () => {
+    expect(await landing('center')).toEqual([0, 0]);
+    expect(await landing('top')).toEqual([0, 125]);
+    expect(await landing('left')).toEqual([-150, 0]);
+    expect(await landing('bottomRight')).toEqual([150, -125]);
   });
 
-  it('shifts a centred element by exactly the offset', () => {
-    const panel = new Panel();
-    panel.anchor = 'center';
-    panel.y = -40; // forty above centre
+  it('centres an element with no size written by the size of what it holds', async () => {
+    // A dialog is a title and a button; nobody measures it. With no height it filled the whole
+    // screen, and two builds in a row sized their panels by hand after a screenshot said so.
+    let dialog!: Panel;
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const parent = new Panel();
+        parent.width = 400;
+        parent.height = 300;
+        s.add(parent);
+        dialog = new Panel();
+        dialog.anchor = 'center';
+        parent.add(dialog);
+        const content = new Panel();
+        content.width = 120;
+        content.height = 40;
+        dialog.add(content);
+      }),
+    );
+    scene.getSystem(UIRenderer)!.layout(0);
+    const view = dialog as unknown as { size: { peek(): number[] }; relativeCenter: { peek(): number[] } };
+    expect(view.size.peek()).toEqual([120, 40]);
+    expect(view.relativeCenter.peek().map((v) => v + 0)).toEqual([0, 0]);
+  });
 
-    // The box centres within [top, height - bottom], so doubling one inset moves the centre by
-    // the offset — which is what keeps `y` meaning the same thing at every anchor.
-    const props = uikitProps(panel);
-    expect(props.positionTop).toBe(0);
-    expect(props.positionBottom).toBe(80);
+  it('shifts a centred element by exactly the offset', async () => {
+    // Forty below centre and thirty right: `y` grows down the screen at every anchor.
+    expect(await landing('center', 30, 40)).toEqual([30, -40]);
   });
 
   it('stretches an axis and takes x as its inset on both sides', () => {
@@ -301,6 +343,38 @@ describe('hiding an element', () => {
     expect(visibilityOf(panel)).toBe('visible');
   });
 
+  it('lays out a change of active state on the pass that sees it, not the one after', async () => {
+    // A root is built before its children, so it is met first; syncing each element as the loop
+    // reached it laid the root out before its children's `setActive` had been read, and every
+    // hidden or shown element moved a frame late — a same-batch capture missed the end panel.
+    let first!: Panel;
+    let second!: Panel;
+    const scene = await SceneManager.load(
+      sceneOf((s) => {
+        const column = new Panel();
+        column.width = 100;
+        column.height = 100;
+        s.add(column);
+        first = new Panel();
+        second = new Panel();
+        for (const cell of [first, second]) {
+          cell.width = 10;
+          cell.height = 10;
+          column.add(cell);
+        }
+      }),
+    );
+    const ui = scene.getSystem(UIRenderer)!;
+    const top = (element: Panel): number =>
+      (element as unknown as { relativeCenter: { peek(): [number, number] } }).relativeCenter.peek()[1];
+    ui.layout(0);
+    const below = top(second);
+
+    first.setActive(false);
+    ui.layout(0);
+    expect(top(second)).toBe(below + 10); // moved up into the space `first` left, in one pass
+  });
+
   it('follows the node’s active state', async () => {
     const scene = await SceneManager.load(
       sceneOf((s) => {
@@ -327,6 +401,15 @@ describe('hiding an element', () => {
     panel.setActive(true);
     ui.layout(1 / 60);
     expect(displayOf(panel)).toBe('flex');
+
+    // Shown and hidden again before a layout — a round that starts and is lost in one frame. The
+    // element had already been written as shown, so the frame's net "no change" left it drawn.
+    panel.setActive(false);
+    ui.layout(1 / 60);
+    panel.setActive(true);
+    panel.setActive(false);
+    ui.layout(1 / 60);
+    expect(displayOf(panel)).toBe('none');
   });
 });
 
@@ -378,5 +461,69 @@ describe('moving an element after the scene is running', () => {
     expect(props.positionLeft).toBeUndefined();
     expect(props.positionRight).toBe(12);
     expect(props.positionBottom).toBe(12);
+  });
+});
+
+/**
+ * A clickable element — Unity's `Button`, with its `onClick` as a typed event.
+ *
+ * The pointer already reached the scene; what was missing was a way to say "this is a button"
+ * without a string event name or hand-rolled hit testing against `Input.mousePosition`.
+ */
+describe('a button', () => {
+  const pressable = async (): Promise<{ panel: Panel; button: Button }> => {
+    let panel!: Panel;
+    await SceneManager.load(
+      sceneOf((s) => {
+        panel = new Panel();
+        s.add(panel);
+        panel.addComponent(Button);
+      }),
+    );
+    return { panel, button: panel.getComponent(Button)! };
+  };
+  // What uikit's pointer handling dispatches on the element the pointer went down and up on.
+  const click = (panel: Panel): void => void panel.dispatchEvent({ type: 'click' } as never);
+
+  it('raises onClick once per click', async () => {
+    const { panel, button } = await pressable();
+    let clicks = 0;
+    button.onClick.on(() => clicks++);
+    click(panel);
+    click(panel);
+    expect(clicks).toBe(2);
+  });
+
+  it('copies with its own click: instantiate(panel) answers on the copy, not the original', async () => {
+    const { panel, button } = await pressable();
+    panel.width = 120;
+    const label = new Text();
+    label.text = 'PLAY AGAIN';
+    panel.add(label);
+    const copy = panel.scene!.instantiate(panel);
+    const copied = copy.getComponent(Button)!;
+    let originals = 0;
+    let copies = 0;
+    button.onClick.on(() => originals++);
+    copied.onClick.on(() => copies++);
+    click(copy);
+    expect([originals, copies]).toEqual([0, 1]);
+    expect(copy).toBeInstanceOf(Panel);
+    expect(copy.width).toBe(120);
+    const copiedLabel = copy.children.find((child) => child instanceof Text) as Text | undefined;
+    expect(copiedLabel?.text).toBe('PLAY AGAIN');
+    expect(copiedLabel).not.toBe(label);
+  });
+
+  it('takes no clicks while not interactable, or while its element is inactive', async () => {
+    const { panel, button } = await pressable();
+    let clicks = 0;
+    button.onClick.on(() => clicks++);
+    button.interactable = false;
+    click(panel);
+    button.interactable = true;
+    panel.setActive(false);
+    click(panel);
+    expect(clicks).toBe(0);
   });
 });

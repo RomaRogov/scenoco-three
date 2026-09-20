@@ -136,11 +136,14 @@ attribute.
 | --- | --- |
 | `*.scene.xml` | The `<Scene>` root with its nodes and components |
 | `*.prefab.xml` | A reusable node, spawned with `<Prefab src="…">` or `instantiate()` |
-| `*.asset.xml` | One three.js geometry, referenced by meshes |
-| `*.asset.xml` | One three.js material, referenced by meshes |
+| `*.asset.xml` | One shared three.js object — a geometry, a material — named by its root tag |
 | `*.texture.xml` | An image plus its sampler settings |
 | `*.render.xml` | How a scene is drawn: tone mapping, shadows, post effects |
 | `*.particle.xml` | A particle effect — declared by `@scenoco-three/particles`, not by the compiler |
+
+The last row is not a special case: any package may declare a kind of document in its own
+`package.json`, and the compiler holds no vocabulary for it. `scenoco describe` lists the kinds a
+given project has.
 
 Each compiles to a `.gen.ts` beside it — a build artifact, so gitignore `*.gen.ts`. The full format
 reference, every value form and every diagnostic, is in
@@ -157,7 +160,7 @@ if (result.diagnostics.length) console.error(formatDiagnostics(result.diagnostic
 
 `build()` is the whole compiler; the CLI and the Vite plugin are thin views over it. Also exported
 for tools that need to *describe* a project rather than compile it: `scanProject`, `scanComponents`,
-`scanTags`, `parseDocument`, `describe`, `ASSET_KINDS`, `PLACEMENT`, and `formatDiagnostic`.
+`scanTags`, `parseDocument`, `describe`, `documentKinds`, `PLACEMENT`, and `formatDiagnostic`.
 
 ## License
 

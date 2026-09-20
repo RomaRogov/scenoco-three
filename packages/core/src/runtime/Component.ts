@@ -24,28 +24,39 @@ export const ComponentState = {
 
 export type ComponentState = (typeof ComponentState)[keyof typeof ComponentState];
 
-/** The per-value rules behind {@link Component.copy}. */
-function copyValue(value: unknown, owner: string, key: string): unknown {
+/** What {@link copyValue} answers for a value that is not data: the copy keeps its own. */
+const OWN = Symbol('own');
+
+/**
+ * The per-value rules behind {@link Component.copy}. Data is copied; a thing with an identity is
+ * either a reference — shared, or pointed at its copy by `instantiate` — or it is the instance's
+ * own, and the copy keeps what its own initializers built.
+ */
+function copyValue(value: unknown): unknown {
+  if (typeof value === 'function') return OWN;
   if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map((entry) => copyValue(entry, owner, key));
+  if (Array.isArray(value)) {
+    const entries = value.map(copyValue);
+    return entries.includes(OWN) ? OWN : entries;
+  }
 
   const candidate = value as { isObject3D?: boolean; dispose?: unknown; clone?: () => unknown };
-  // A reference to another object in the scene stays a reference.
-  if (candidate.isObject3D === true) return value;
-  // Anything disposable is a GPU resource: shared, never duplicated.
+  // A node, or a component on one: a reference to something in the scene.
+  if (candidate.isObject3D === true || value instanceof Component) return value;
+  // A geometry, a material, a texture — an asset, shared as a Unity asset is.
   if (typeof candidate.dispose === 'function') return value;
-  // Value objects get duplicated so the copy owns its own.
+  // A Vector3, a Color, an Euler: a value, and the copy gets its own.
   if (typeof candidate.clone === 'function') return candidate.clone();
-  // So does plain data — a `Map` of counters is this component's, not every clone's.
+  // Plain data — a literal, a collection, a date, a buffer.
   if (isPlainData(value)) {
     try {
       return structuredClone(value);
     } catch {
-      // A function or a DOM node somewhere inside it. Shared, and said out loud.
+      return OWN; // a function somewhere inside it
     }
   }
-  warnShared(owner, key, value);
-  return value;
+  // Anything else is an object with a life of its own — an `Event`, a class the component made.
+  return OWN;
 }
 
 /** Data with no identity of its own: a literal, a collection, a date, a buffer. */
@@ -58,26 +69,6 @@ function isPlainData(value: object): boolean {
     value instanceof Set ||
     value instanceof Date ||
     ArrayBuffer.isView(value)
-  );
-}
-
-/** Fields already reported, so a clone in a loop says it once. */
-const reportedShares = new Set<string>();
-
-/**
- * A value none of the rules can duplicate, so both components now hold the same one.
- *
- * Almost always a mistake, and an invisible one: the clone changes a field and the original
- * changes with it. A component that owns something unclonable should build it in `awake`.
- */
-function warnShared(owner: string, key: string, value: object): void {
-  const id = `${owner}.${key}`;
-  if (reportedShares.has(id)) return;
-  reportedShares.add(id);
-  console.warn(
-    `[scenoco] ${id} holds a ${value.constructor?.name ?? 'value'} that cannot be copied, so ` +
-      'every clone shares this one. Build it in awake() to give each instance its own, or ' +
-      'override copy().',
   );
 }
 
@@ -97,7 +88,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   /** @internal */
   _state: ComponentState = ComponentState.Created;
   /** @internal true while the component counts as running (enabled + object active + in a scene). */
-  _active = false;
+  _isActive = false;
   /** @internal */
   _enabled = true;
   /** @internal queued for destruction at the end of the frame. */
@@ -112,12 +103,32 @@ export abstract class Component<TObject extends Object3D = Object3D> {
    * Valid from `awake` onwards.
    */
   get object3D(): TObject {
+    // Read before the component was ever on a node: a field initializer or a constructor, which
+    // run inside `addComponent` before the node is set. It used to surface as "Cannot read
+    // properties of null (reading 'position')" out of the scene's load, naming nothing.
+    if (!this._object3D && this._state === ComponentState.Created) {
+      throw new Error(
+        `[scenoco] ${this.constructor.name}.object3D was read before the component is on a node — in a ` +
+          'field initializer or a constructor. There is no node until awake(): move that line into awake().',
+      );
+    }
     return this._object3D;
   }
 
-  /** The scene this component currently lives in, or `null` while detached. */
-  get scene(): Scene | null {
-    return this._object3D?.scene ?? null;
+  /**
+   * The scene this component lives in. Always there from `awake` on — a component only runs in a
+   * scene — so it is read without a null check. Read on a component whose node is in no scene, it
+   * throws and says so.
+   */
+  get scene(): Scene {
+    const scene = this._object3D?.scene;
+    if (!scene) {
+      throw new Error(
+        `[scenoco] ${this.constructor.name}.scene was read while its node is in no scene. A ` +
+          'component has one from awake on; before that, or on a node never added, it has none.',
+      );
+    }
+    return scene;
   }
 
   /**
@@ -139,7 +150,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
    * exactly when it receives ticks. Unity's `Behaviour.isActiveAndEnabled`.
    */
   get isActiveAndEnabled(): boolean {
-    return this._active && !this._pendingDestroy;
+    return this._isActive && !this._pendingDestroy;
   }
 
   /**
@@ -196,9 +207,9 @@ export abstract class Component<TObject extends Object3D = Object3D> {
 
   // --- systems -------------------------------------------------------------------------
 
-  /** Shorthand for `this.scene?.getSystem(type)`. Null when there is no such system, or no scene. */
+  /** Shorthand for `this.scene.getSystem(type)`. Null when there is no such system, or no scene. */
   getSystem<T extends System>(type: SystemType<T>): T | null {
-    return this.scene?.getSystem(type) ?? null;
+    return this._object3D?.scene?.getSystem(type) ?? null;
   }
 
   /**
@@ -208,7 +219,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
    * Throws on a detached node, which has no scene to hold the system.
    */
   requireSystem<T extends System>(type: ConstructableSystem<T>, init?: SystemInit<T>): T {
-    const scene = this.scene;
+    const scene = this._object3D?.scene;
     if (!scene) {
       throw new Error(
         `[scenoco] ${this.constructor.name}.requireSystem(${type.name}) needs a scene. ` +
@@ -273,18 +284,18 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   /**
    * Copy another instance's settings onto this one — how components survive `Object3D.clone`.
    *
-   * Every own field except the engine's internals, by the rules in {@link copyValue}: object
-   * references stay references, disposable resources are shared, value objects and plain data are
-   * duplicated. Anything left over is shared and warns. Override where that is wrong; a component
-   * that *owns* a resource should build it in `awake`.
+   * Every own field except the engine's internals, by the rules in {@link copyValue}: values and
+   * plain data are duplicated, nodes, components and assets stay references, and whatever else
+   * the source holds — an `Event`, a bound handler, an object it built — the copy keeps its own,
+   * as its initializers made it. Override where that is wrong.
    */
   copy(source: this): this {
+    const target = this as unknown as Record<string, unknown>;
     for (const key of Object.keys(source)) {
       // `_`-prefixed fields are the runtime's bookkeeping; a fresh component starts clean.
       if (key.startsWith('_')) continue;
-      const target = this as unknown as Record<string, unknown>;
-      const value = (source as unknown as Record<string, unknown>)[key];
-      target[key] = copyValue(value, source.constructor.name, key);
+      const value = copyValue((source as unknown as Record<string, unknown>)[key]);
+      if (value !== OWN) target[key] = value;
     }
     return this;
   }

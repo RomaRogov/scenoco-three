@@ -33,17 +33,31 @@ emitters want it.
 
 | | |
 | --- | --- |
-| `ParticleSystem` | The component that plays one effect. Referenced by `effect="…"`, controlled from code like any component. |
+| `ParticleSystem` | The component that plays one effect — named by `effect="…"` or written inside it, and controlled from code like any component. |
 | `ParticleRenderer` | The scene system that batches and steps them all. Registers itself. |
 
 Modules mirror Unity's, and this is all of them: `<Emission>`, `<Burst>`, `<Shape>`,
 `<Renderer>`, `<Noise>`, `<ColorOverLifetime>`, `<SizeOverLifetime>`, `<RotationOverLifetime>`.
 
-**There is no second way to spell an effect.** No inline form on the component, no separate parser,
-no schema file, and nothing about particles anywhere in the toolchain. This package's own
-`package.json` says a `.particle.xml` is a `ParticleEffect`; the compiler reads that type's
-declaration and the document follows from it — an attribute exists because a field does, and an
-element exists because a field holds a named type (`emission?: Emission` is `<Emission>`,
+An effect has the two forms every shared thing in the DSL has. A **path** names a `.particle.xml`
+that every emitter pointing at it shares; an **element** written inside the component gives that one
+emitter its own:
+
+```xml
+<ParticleSystem>
+  <ParticleEffect duration="3" startSize="0.4">
+    <Emission rateOverTime="20" />
+  </ParticleEffect>
+</ParticleSystem>
+```
+
+The text is identical either way, so the two are cut-and-paste in either direction. Write the file
+when more than one emitter wants the effect.
+
+**And there is no parser, no schema file, and nothing about particles anywhere in the toolchain.**
+This package's own `package.json` says a `.particle.xml` is a `ParticleEffect`; the compiler reads
+that type's declaration and the document follows from it — an attribute exists because a field does,
+and an element exists because a field holds a named type (`emission?: Emission` is `<Emission>`,
 `bursts?: Burst[]` is `<Burst>` written as often as you like). See [MODULES.md](../../MODULES.md).
 
 ## License

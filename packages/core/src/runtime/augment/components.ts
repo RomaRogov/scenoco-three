@@ -4,6 +4,7 @@
  */
 import { Object3D } from 'three';
 import { Component } from '../Component.js';
+import { System } from '../System.js';
 import { teardownComponent } from '../SceneRuntime.js';
 import type { ComponentInit, ComponentType, ConstructableComponent, OwnerOf } from '../types.js';
 
@@ -86,7 +87,27 @@ function isType<T extends Component>(component: Component, type: ComponentType<T
   return component instanceof type;
 }
 
+/** Refuse what can never be a component's class, before any node is searched — even an empty one. */
+function assertComponentType(type: unknown): void {
+  if (typeof type !== 'function') {
+    // The class it names, when the value is a name: `getComponent('Button')` → `getComponent(Button)`.
+    const named = typeof type === 'string' && /^[A-Za-z_$][\w$]*$/.test(type) ? type : 'Core';
+    throw new TypeError(
+      `[scenoco] a component is looked up by its class — getComponent(${named}) — not by ${JSON.stringify(type)}.`,
+    );
+  }
+  // A system is on no node, so looking for one there is always null — silently, behind an
+  // `as any` that tsc was right to refuse. Five builds went looking for their GameManager this way.
+  if ((type as { prototype?: unknown }).prototype instanceof System) {
+    throw new TypeError(
+      `[scenoco] ${(type as { name: string }).name} is a System, not a component: it is on no node. Reach it with ` +
+        `this.requireSystem(${(type as { name: string }).name}), or this.scene.getSystem(${(type as { name: string }).name}).`,
+    );
+  }
+}
+
 proto.getComponent = function <T extends Component>(this: Object3D, type: ComponentType<T>): T | null {
+  assertComponentType(type);
   const components = this._components;
   if (!components) return null;
   for (const component of components) {
@@ -96,6 +117,7 @@ proto.getComponent = function <T extends Component>(this: Object3D, type: Compon
 };
 
 proto.getComponents = function <T extends Component>(this: Object3D, type: ComponentType<T>): T[] {
+  assertComponentType(type);
   const found: T[] = [];
   const components = this._components;
   if (!components) return found;
@@ -111,7 +133,7 @@ function searchFirst<T extends Component>(
   type: ComponentType<T>,
   includeInactive: boolean,
 ): T | null {
-  if (!includeInactive && !object._active) return null;
+  if (!includeInactive && !object._isActive) return null;
   const own = object.getComponent(type);
   if (own) return own;
   for (const child of object.children) {
@@ -127,7 +149,7 @@ function searchAll<T extends Component>(
   includeInactive: boolean,
   out: T[],
 ): void {
-  if (!includeInactive && !object._active) return;
+  if (!includeInactive && !object._isActive) return;
   const components = object._components;
   if (components) {
     for (const component of components) {
@@ -163,7 +185,7 @@ proto.getComponentInParent = function <T extends Component>(
   let current: Object3D | null = this;
   while (current) {
     // One rule for every query: an inactive object is not searched unless asked for.
-    if (!includeInactive && !current._active) return null;
+    if (!includeInactive && !current._isActive) return null;
     const component = current.getComponent(type);
     if (component) return component;
     current = current.parent;
@@ -179,7 +201,7 @@ proto.getComponentsInParent = function <T extends Component>(
   const found: T[] = [];
   let current: Object3D | null = this;
   while (current) {
-    if (!includeInactive && !current._active) break;
+    if (!includeInactive && !current._isActive) break;
     found.push(...current.getComponents(type));
     current = current.parent;
   }

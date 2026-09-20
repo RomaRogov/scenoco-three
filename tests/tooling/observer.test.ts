@@ -4,6 +4,8 @@ import { BoxGeometry, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3 } f
 import { describe, expect, it, vi } from 'vitest';
 import { anchoredPoint, boxOfAuthored, pointOf } from '../../packages/observer/app/session.js';
 import { createMcpServer, startMcpHttp } from '../../packages/observer/src/mcp.js';
+import { depCacheDir } from '../../packages/observer/src/server.js';
+import { STALE_MODULE } from '../../packages/observer/src/browser.js';
 import { indexDocument } from '../../packages/compiler/src/index.js';
 
 
@@ -39,12 +41,56 @@ describe('the observer draws through the engine', () => {
     expect(step.slice(0, step.indexOf('\n  }'))).not.toContain('requestAnimationFrame(');
   });
 
-  it('refuses to relens a capture that includes the UI, rather than cropping it', () => {
-    // A <Canvas> is a plane parented to the game camera, placed to fill exactly that camera's
-    // frustum at *its* fov. Relensing for the shot left the plane where it was, so the HUD came
-    // back cropped or missing entirely — a picture of a broken HUD that is not broken.
-    expect(session).toContain('usingScene && fov !== undefined && fov !== camera.fov');
-    expect(session).toContain("Drop fov to keep the UI");
+  it('takes ui on a preview step, and refuses a step key it does not know rather than dropping it', () => {
+    // A model wrote `ui: true` on the step; it was stripped in silence, a dozen shots came back with
+    // no HUD, and the model reported that text does not render.
+    const mcp = readFileSync(fileURLToPath(new URL('../../packages/observer/src/mcp.ts', import.meta.url)), 'utf8');
+    expect(mcp).toContain('const strictStep = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();');
+    expect(mcp).not.toMatch(/discriminatedUnion\('do', \[[^]*?z\s*\.object\(/);
+    expect(session).toContain('step.ui === undefined ? frame : { ...frame, ui: step.ui }');
+  });
+
+  it('shows exactly what the player sees when a shot names no viewpoint', () => {
+    // Every shot used to be aimed by the caller, so a game camera pointed at the horizon went
+    // unseen through three builds that shipped a black screen.
+    expect(session).toContain('const asPlayer = at === undefined;');
+    // An empty one is refused with that answer, not taken to mean it.
+    expect(session).toContain('cameraPos is empty — leave it out for exactly what the player sees');
+    expect(session).toContain('const usingScene = (frame.ui || asPlayer) && this.scene.mainCamera;');
+  });
+
+  it('runs the game in the frame a call asks for, so a shot and a click share its pixels', () => {
+    // 800×600 shots scaled off an 800×500 canvas sent every click 20% low, and runs reported dead
+    // buttons. The frame is now the page's own size: the game resizes to it — camera, UI, input.
+    const browser = readFileSync(fileURLToPath(new URL('../../packages/observer/src/browser.ts', import.meta.url)), 'utf8');
+    expect(browser).toContain('await page.setViewportSize(viewport);');
+    expect(session).toContain('fit(frame: PreviewFrame): void {');
+    expect(session).not.toContain('setFrameSize');
+    expect(session).toContain('clientX: rect.left + (x ?? rect.width / 2),');
+  });
+
+  it('forgets a scene whose load threw, rather than waiting on it as still loading', () => {
+    expect(session).toContain('the scene failed to load: ${reason} — nothing is open');
+    expect(session).toContain('this.sceneClass = null;');
+  });
+
+  it('puts the scene’s own classes in scope for eval, so a snippet reads as game code', () => {
+    // With no class in scope, `getComponent(Button)` was a ReferenceError and `getComponent('Button')`
+    // core's refusal: four tries in a row went nowhere.
+    expect(session).toContain('const classes = { ...classesIn(scene) };');
+    expect(session).not.toContain('looked up by its class');
+  });
+
+  it('relenses a capture that includes the UI by laying the UI out again, and back after', () => {
+    // A <Canvas> is a plane parented to the game camera, sized to its frustum at *its* fov. It was
+    // refused once, because the plane stayed put and the HUD came back cropped; uikit re-reads the
+    // fov when it lays out, so a layout after the relens fits it — seen whole at fov 30 and 90.
+    expect(session).not.toContain('Drop fov to keep the UI');
+    const relens = session.indexOf('if (fov !== undefined) camera.fov = fov;');
+    const layout = session.indexOf('for (const system of scene.systems) system.layout?.(0);', relens);
+    expect(relens).toBeGreaterThan(-1);
+    expect(layout).toBeGreaterThan(relens);
+    expect(session).toContain('if (usingScene && fov !== undefined) for (const system of scene.systems) system.layout?.(0);');
   });
 
   it('does not call a drawing UI element hidden', () => {
@@ -70,6 +116,15 @@ describe('the observer draws through the engine', () => {
     const loop = session.slice(session.indexOf('async simulate('));
     expect(loop).toContain("if (step.do !== 'stop') await this.settled();");
     expect(session).toContain('async settled()');
+  });
+
+  it('lays the UI out before a capture, so a shot shows the state and not the frame before it', () => {
+    // A UI lays out once per tick. An `eval` that ended the round and a `preview` in the same
+    // batch captured the HUD as it was before the eval: `panelActive: true`, and no panel.
+    const capture = session.slice(session.indexOf('  preview(frame: PreviewFrame'));
+    const body = capture.slice(0, capture.indexOf('\n  }\n'));
+    expect(body.indexOf('system.layout?.(0)')).toBeGreaterThan(-1);
+    expect(body.indexOf('system.layout?.(0)')).toBeLessThan(body.indexOf('this.engine.renderScene('));
   });
 
   it('waits for the post chain before a scene is considered open', () => {
@@ -140,9 +195,10 @@ describe('the MCP transport across an observer restart', () => {
     }
   });
 
-  it('needs nothing but a viewpoint for a capture', async () => {
+  it('needs nothing at all for a capture — no viewpoint is the player’s own', async () => {
     // `ui`, `width` and `height` were required once, and the first call every agent made
     // failed on "expected boolean, received undefined at ui". A default each is the whole fix.
+    // `cameraPos` too, since a shot with none is the game camera as it stands.
     const port = 55973;
     const server = await serve(port);
     try {
@@ -153,7 +209,7 @@ describe('the MCP transport across an observer restart', () => {
       const raw = await listed.text();
       const body = JSON.parse(raw.includes('data: ') ? raw.split('data: ').pop()!.trim() : raw);
       const tools = body.result.tools as { name: string; inputSchema: { required?: string[] } }[];
-      expect(tools.find((t) => t.name === 'screenshot')!.inputSchema.required).toEqual(['cameraPos']);
+      expect(tools.find((t) => t.name === 'screenshot')!.inputSchema.required ?? []).toEqual([]);
       expect(tools.find((t) => t.name === 'simulate')!.inputSchema.required).toEqual(['steps']);
       // The verbs, as the client will see them. `eval` is the one with hands; it has to be there.
       const steps = tools.find((t) => t.name === 'simulate')!.inputSchema as unknown as {
@@ -254,5 +310,44 @@ describe('framing a capture', () => {
     expect(pointOf('fit')).toBeUndefined();
     expect(pointOf('')).toBeUndefined();
     expect(pointOf('nonsense')).toBeUndefined();
+  });
+});
+
+/**
+ * The observer serves every project through one Vite whose root is the observer's own page. That
+ * makes two things easy to get wrong, and a run got both: a dependency cache shared by projects
+ * that need different dependencies, and a page still holding URLs the optimizer has replaced.
+ *
+ * Neither can be exercised without a browser and six real projects, so what is pinned here is the
+ * property each fix rests on.
+ */
+describe('serving more than one project', () => {
+  it('files a project’s dependency bundles under that project', () => {
+    const a = depCacheDir('/tmp/one');
+    const b = depCacheDir('/tmp/two');
+    expect(a).not.toBe(b);
+    // Stable, so a second run reuses what the first optimized rather than paying for it again.
+    expect(depCacheDir('/tmp/one')).toBe(a);
+    // And relative or absolute is the same project.
+    expect(depCacheDir('/tmp/one/')).toBe(a);
+  });
+
+  it('reloads for a stale module only while opening, never under an open scene', () => {
+    // A failed `import()` in an agent's `eval` reads exactly like a replaced module. Reloading on
+    // it discarded the scene the agent was stepping through and answered "no scene is open".
+    const browser = readFileSync(fileURLToPath(new URL('../../packages/observer/src/browser.ts', import.meta.url)), 'utf8');
+    expect(browser).toContain("command.type === 'open' && STALE_MODULE.test(answer.error)");
+  });
+
+  it('recognises the page saying its modules were replaced underneath it', () => {
+    // Both texts are verbatim from the run that lost half an hour to them.
+    expect(
+      STALE_MODULE.test(
+        'Failed to fetch dynamically imported module: http://localhost:59850/@fs/x/main.scene.gen.ts?import&v=1',
+      ),
+    ).toBe(true);
+    expect(STALE_MODULE.test('504 (Outdated Optimize Dep)')).toBe(true);
+    // A real failure of the project is not one of these, and must not be retried away.
+    expect(STALE_MODULE.test('<Spinner> is not a component in this project.')).toBe(false);
   });
 });
