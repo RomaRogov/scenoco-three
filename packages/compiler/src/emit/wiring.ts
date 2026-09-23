@@ -41,10 +41,14 @@ export function claimComponentIds(scope: EmitScope, element: SncElement, self: s
     if (child.tag === 'Components') {
       for (const componentElement of child.children) {
         const id = componentElement.attributes.get('id');
-        if (!id) continue;
+        // Claimed once: a scene registers its component ids before the systems and again with
+        // the components, and the second pass must not report the same collision twice.
+        if (!id || scope.componentsById.get(id)?.element === componentElement) continue;
+        scope.claimId(componentElement, id);
         scope.componentsById.set(id, {
           reference: `this.${sanitizeIdentifier(id)}`,
           typeName: componentElement.tag,
+          element: componentElement,
         });
       }
       continue;
@@ -58,10 +62,12 @@ export function claimComponentIds(scope: EmitScope, element: SncElement, self: s
         if (block.tag !== 'Components') continue;
         for (const componentElement of block.children) {
           const id = componentElement.attributes.get('id');
-          if (!id) continue;
+          if (!id || scope.componentsById.get(id)?.element === componentElement) continue;
+          scope.claimId(componentElement, id);
           scope.componentsById.set(id, {
             reference: `this.${sanitizeIdentifier(id)}`,
             typeName: componentElement.tag,
+            element: componentElement,
           });
         }
       }
@@ -172,6 +178,8 @@ function reportMisplacedSystems(scope: EmitScope, root: SncElement): void {
 }
 
 function emitSystem(scope: EmitScope, element: SncElement, create: string[], wire: string[]): void {
+  scope.from(create, element);
+  scope.from(wire, element);
   const system = scope.options.model.systems.find((c) => c.name === element.tag);
   const elsewhere = system ? undefined : scope.misplaced(element.tag, 'system');
   if (elsewhere) {
@@ -192,6 +200,7 @@ function emitSystem(scope: EmitScope, element: SncElement, create: string[], wir
     );
     return;
   }
+  scope.checkExported(element, system);
   const local = scope.module.require(moduleFor(system), system.name);
   const { entries, deferred, prelude } = readFields(scope, element, system, `system <${system.name}>`, 'all');
   const init = entries.length > 0 ? `, { ${entries.join(', ')} }` : '';
@@ -207,6 +216,45 @@ function emitSystem(scope: EmitScope, element: SncElement, create: string[], wir
   const handle = scope.module.declare(camelCaseOf(system.name));
   create.push(`const ${handle} = this.addSystem(${local}${init});`);
   for (const { name, code } of deferred) wire.push(`${handle}.${name} = ${code};`);
+}
+
+/**
+ * Why a name a component *does* declare is still not something a document writes.
+ *
+ * "No such field" is wrong for all of these — the name is in the class, right where the reader
+ * put it — and it sends them to check a spelling that is correct. Each has its own fix, and the
+ * two lifecycle switches are not the component's fields at all: they belong to the node.
+ */
+function whyNotAnAttribute(info: ComponentInfo, attribute: string): ((what: string, name: string) => string) | undefined {
+  // The two lifecycle switches. Both exist, neither is a field of this class, and each is
+  // written somewhere else — one in code, one on the node.
+  if (attribute === 'enabled') {
+    return (what) =>
+      `enabled is a component's own switch, set from code: \`this.enabled = false\`. To start ` +
+      `a node switched off instead, write active="false" on the node carrying ${what}.`;
+  }
+  if (attribute === 'active') {
+    return (what) =>
+      `active belongs to the node, not to a component on it. Write it on the element that ` +
+      `carries ${what}: <Mesh active="false"><Components>${what}</Components></Mesh>.`;
+  }
+  const why = info.unauthored?.find((member) => member.name === attribute)?.why;
+  if (why === 'private') {
+    return (what, name) =>
+      `${what} declares "${name}", but it is private. Make it public, or keep it private and ` +
+      'mark it with a /** @serializeField */ tag.';
+  }
+  if (why === 'getter') {
+    return (what, name) =>
+      `${what} declares "${name}", but it is a getter: a document cannot set it, because it ` +
+      'reads state the component keeps for itself.';
+  }
+  if (why === 'readonly') {
+    return (what, name) =>
+      `${what} declares "${name}", but it is readonly — the component owns it, and generated ` +
+      'code could not assign it.';
+  }
+  return undefined;
 }
 
 /**
@@ -254,6 +302,11 @@ function readFields(
       continue;
     }
     if (!field) {
+      const declared = whyNotAnAttribute(info, attribute);
+      if (declared) {
+        scope.report(element, 'unauthored-field', declared(what, attribute));
+        continue;
+      }
       const advice = hint({
         near: nearestName(attribute, info.fields.map((f) => f.name)),
         as: 'attribute',
@@ -375,6 +428,17 @@ export function emitComponent(
   /** Where references go, to run once every component exists. Absent, they are passed inline. */
   late?: string[],
 ): void {
+  scope.from(out, element);
+  if (late) scope.from(late, element);
+  if (element.tag === 'Components' || element.tag === 'Systems') {
+    scope.report(
+      element,
+      'nested-block',
+      `<${element.tag}> is not something a node carries — it is the block that holds them. One ` +
+        `<Components> per node, with the components directly inside it.`,
+    );
+    return;
+  }
   const component = scope.options.model.components.find((c) => c.name === element.tag);
   const elsewhere = component ? undefined : scope.misplaced(element.tag, 'component');
   if (elsewhere) {
@@ -392,6 +456,7 @@ export function emitComponent(
     );
     return;
   }
+  scope.checkExported(element, component);
   checkHost(scope, element, component, host);
 
   const local = scope.module.require(moduleFor(component), component.name);

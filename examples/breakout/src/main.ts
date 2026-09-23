@@ -1,4 +1,4 @@
-import { Engine, Input, SceneManager } from '@scenoco-three/core';
+import { Engine, SceneManager } from '@scenoco-three/core';
 import { HudScene } from '../assets/scenes/hud.scene.gen.js';
 import { Level1Scene } from '../assets/scenes/level-1.scene.gen.js';
 
@@ -24,7 +24,6 @@ Object.assign(window as unknown as Record<string, unknown>, {
       for (let i = 0; i < frames; i++) {
         clock += dt * 1000;
         SceneManager.tick(clock);
-        Input.endFrame();
         engine.render();
       }
     },

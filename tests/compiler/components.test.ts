@@ -21,7 +21,6 @@ beforeAll(() => {
   fixture.write(
     'game.ts',
     `import { Component, Event } from '@scenoco-three/core';
-import { nonSerialized, serializeField } from '@scenoco-three/compiler/serialize';
 import { Mesh, Vector3 } from 'three';
 
 /** Moves the paddle along the bottom of the field. */
@@ -38,7 +37,8 @@ export class PaddleController extends Component<Mesh> {
   ball!: Mesh;
   /** Optional target. */
   target?: Mesh;
-  @serializeField private tuning = 0.5;
+  /** @serializeField */
+  private tuning = 0.5;
   readonly missed = new Event<[]>();
   private velocity = 0;
   #secret = 1;
@@ -59,14 +59,23 @@ export class GridLayout extends Component {
 export class Tracker extends Component {
   /** How far it looks. */
   range = 5;
-  /** State it keeps for itself. */
-  @nonSerialized hits = 0;
-  @serializeField @nonSerialized private both = 1;
-  @serializeField static shared = 0;
+  /**
+   * State it keeps for itself.
+   * @nonSerialized
+   */
+  hits = 0;
+  /**
+   * @serializeField
+   * @nonSerialized
+   */
+  private both = 1;
+  /** @serializeField */
+  static shared = 0;
 }
 
 export class QuietTracker extends Tracker {
-  @nonSerialized override range = 10;
+  /** @nonSerialized */
+  override range = 10;
 }
 
 /** Not a component at all. */
@@ -122,7 +131,7 @@ describe('scanComponents', () => {
   });
 
   it('reports a marker that cannot mean what it says, on the class that wrote it', () => {
-    // Nothing checks them when the code runs — the markers never reach it — so the build does.
+    // A tag is a comment: nothing can check it when the code runs, so the build does.
     expect(found.get('Tracker')!.problems?.map((p) => p.code)).toEqual(['conflicting-markers', 'static-serialize-field']);
     expect(found.get('QuietTracker')!.problems).toBeUndefined();
   });
@@ -140,7 +149,7 @@ describe('scanComponents', () => {
     expect(found.get('FastPaddle')?.extends).toBe('PaddleController');
   });
 
-  it('serializes public fields with no decorator at all', () => {
+  it('serializes public fields with no tag at all', () => {
     const fields = found.get('PaddleController')!.fields;
     const names = fields.map((f) => f.name);
     expect(names).toContain('speed');
@@ -165,14 +174,14 @@ describe('scanComponents', () => {
 
   it('skips private, `#private` and static fields unless @serializeField takes them', () => {
     const names = found.get('PaddleController')!.fields.map((f) => f.name);
-    expect(names).not.toContain('velocity'); // private, undecorated
-    expect(names).not.toContain('secret'); // #private — no decorator can reach it
+    expect(names).not.toContain('velocity'); // private, untagged
+    expect(names).not.toContain('secret'); // #private — no tag can reach it
     expect(names).not.toContain('shared'); // static
     expect(names).toContain('tuning'); // private, but @serializeField took it
     expect(found.get('PaddleController')!.fields.find((f) => f.name === 'tuning')?.explicit).toBe(true);
   });
 
-  it('derives how each field is authored from its type, not from a decorator', () => {
+  it('derives how each field is authored from its type, not from a tag', () => {
     const fields = found.get('PaddleController')!.fields;
     const by = (n: string) => fields.find((f) => f.name === n)!;
     expect(by('speed').shape).toBe('number');

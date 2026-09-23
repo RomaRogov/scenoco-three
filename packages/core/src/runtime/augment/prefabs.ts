@@ -11,8 +11,9 @@ declare module 'three' {
   interface Object3D {
     // --- prefabs --------------------------------------------------------------------------
     /**
-     * Create an instance of a prefab, configure it, and add it under this object. A prefab is
-     * any `Object3D` subclass that builds itself in `onLoad`, with no base class and no
+     * Create an instance of a prefab, configure it, and add it under this object.
+     *
+     * A prefab is any `Object3D` subclass that builds itself in `onLoad`, with no base class and no
      * wrapper node.
      *
      * Settings, then `onLoad`, then placement, then the scene graph — so every `awake` below
@@ -72,7 +73,7 @@ proto.instantiate = function <T extends Object3D>(
     const { root, components } = duplicate(node);
     const result = source instanceof Component ? components.get(source)! : root;
     if (init) place(root, init);
-    if (init?.id) this._runtime?.registerId(init.id, root);
+    if (init?.id) claimId(this, root, init.id);
     settle?.(result);
     this.add(root);
     return result;
@@ -81,7 +82,7 @@ proto.instantiate = function <T extends Object3D>(
   if (source instanceof Model) {
     const instance = source.instantiate();
     if (init) place(instance, init);
-    if (init?.id) this._runtime?.registerId(init.id, instance);
+    if (init?.id) claimId(this, instance, init.id);
     settle?.(instance);
     instance._built = true;
     this.add(instance);
@@ -111,7 +112,7 @@ proto.instantiate = function <T extends Object3D>(
   // Before `configure` runs, so the instance answers to its id from inside it — the scene's to
   // keep from here, and teardown forgets it with the node. Registered through the parent, which
   // is the one already in a scene.
-  if (init?.id) this._runtime?.registerId(init.id, prefab);
+  if (init?.id) claimId(this, prefab, init.id);
 
   // The prefab's contents exist and nothing has woken up, so a value written now is the one
   // every `awake` below sees. After the `add` it would be too late.
@@ -121,6 +122,20 @@ proto.instantiate = function <T extends Object3D>(
   prefab.onLoaded?.();
   return prefab;
 } as Object3D['instantiate'];
+
+/**
+ * Give the new node its id, now or as soon as there is a scene to give it to.
+ *
+ * A spawn is often made under a parent that is not in a scene yet — a prefab assembling its own
+ * contents, a subtree built before the one `add` that brings it in — and `registerId` had
+ * nowhere to write, so the id was dropped in silence: `scene.byId` came back null for a node
+ * that plainly carries the name, and the duplicate this documents as throwing never did.
+ */
+function claimId(parent: Object3D, node: Object3D, id: string): void {
+  const runtime = parent._runtime;
+  if (runtime) runtime.registerId(id, node);
+  else node._pendingId = id;
+}
 
 /** Everything in an init that is **not** placement: the prefab's own fields. */
 function assignSettings(node: Object3D, init: PrefabInit<Object3D> | PrefabPlacement): void {

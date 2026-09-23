@@ -96,8 +96,9 @@ declare module '@pmndrs/uikit' {
     /** Space between children, in pixels. */
     gap: number;
     /**
-     * Space inside the element's own edges, in pixels, for the children its `layout` places. An
-     * anchored child is pinned to the edge itself — its own `x`/`y` are its margin.
+     * Space inside the element's own edges, in pixels, for the children its `layout` places.
+     *
+     * An anchored child is pinned to the edge itself — its own `x`/`y` are its margin.
      */
     padding: number;
 
@@ -111,9 +112,10 @@ declare module '@pmndrs/uikit' {
     /** Border colour. */
     borderColor?: Color;
     /**
-     * `0`..`1` for the whole element. **Inherited**, so it fades this element's text and
-     * children with it — which is what you want for fading a panel in and out, and not what you
-     * want for a translucent bar behind readable text. That is `backgroundOpacity`.
+     * `0`..`1` for the whole element, its text and children included — for a translucent background
+     * alone, use `backgroundOpacity`.
+     *
+     * Right for fading a panel in and out, wrong for a bar behind readable text.
      */
     opacity: number;
     /**

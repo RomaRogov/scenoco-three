@@ -2,7 +2,7 @@
   "name": "scenoco-workspace",
   "private": true,
   "version": "0.6.0",
-  "description": "SceNoCo workspace (core + compiler + vite packages)",
+  "description": "SceNoCo workspace: core, compiler, the tag packages and the tools",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -21,14 +21,13 @@
     "packages/audio",
     "packages/ui",
     "packages/postfx",
-    "packages/vite",
     "packages/observer",
     "packages/editor"
   ],
   "scripts": {
     "examples:dev": "npm --prefix examples/breakout run dev",
     "examples:build": "npm --prefix examples/breakout run build",
-    "build": "npm run build:core && npm run build:compiler && npm run build:box2d && npm run build:rapier && npm run build:collision && npm run build:particles && npm run build:audio && npm run build:ui && npm run build:postfx && npm run build:vite && npm run build:observer && npm run build:editor",
+    "build": "npm run build:core && npm run build:compiler && npm run build:box2d && npm run build:rapier && npm run build:collision && npm run build:particles && npm run build:audio && npm run build:ui && npm run build:postfx && npm run build:observer && npm run build:editor",
     "build:core": "npm --prefix packages/core run build",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/compiler/tsconfig.json",
     "typecheck:core": "npm --prefix packages/core run typecheck",
@@ -42,7 +41,6 @@
     "build:particles": "npm --prefix packages/particles run build",
     "build:audio": "npm --prefix packages/audio run build",
     "build:ui": "npm --prefix packages/ui run build",
-    "build:vite": "npm --prefix packages/vite run build",
     "build:observer": "npm --prefix packages/observer run build",
     "build:editor": "npm --prefix packages/editor run build",
     "build:postfx": "npm --prefix packages/postfx run build",
@@ -53,7 +51,6 @@
     "@types/three": "^0.184.1",
     "three": "^0.184.0",
     "typescript": "^7.0.2",
-    "typescript-transform": "npm:typescript@^6.0.3",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   },

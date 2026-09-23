@@ -172,9 +172,11 @@ export class SceneRuntime {
   // --- registration --------------------------------------------------------------------
 
   /**
-   * Attach an object and its whole subtree to this runtime, then run whatever lifecycle
-   * hooks the new state calls for. Invoked by the patched `Object3D.add`. Idempotent, so it
-   * doubles as the "this subtree was reparented, recompute it" path.
+   * Attach an object and its whole subtree to this runtime, then run whatever lifecycle hooks the
+   * new state calls for.
+   *
+   * Invoked by the patched `Object3D.add`. Idempotent, so it doubles as the "this subtree was
+   * reparented, recompute it" path.
    */
   registerSubtree(root: Object3D): void {
     const found: Component[] = [];
@@ -189,6 +191,13 @@ export class SceneRuntime {
             'added without being built, so it is empty. Use parent.instantiate(ThePrefab) ' +
             'instead of new ThePrefab() + add().',
         );
+      }
+      // An id a spawn could not register because nothing was in a scene yet. Claimed here, which
+      // is also where a duplicate throws — from the `add` that brought the clash in.
+      if (object._pendingId !== null) {
+        const id = object._pendingId;
+        object._pendingId = null;
+        this.registerId(id, object);
       }
       const components = object._components;
       if (!components) return;
@@ -253,8 +262,10 @@ export class SceneRuntime {
   }
 
   /**
-   * Queue a component for destruction at the end of the frame. It stops ticking at once;
-   * `_isActive` is left alone so `teardownComponent` still knows to fire `onDisable`.
+   * Queue a component for destruction at the end of the frame.
+   *
+   * It stops ticking at once; `_isActive` is left alone so `teardownComponent` still knows to fire
+   * `onDisable`.
    */
   remove(component: Component): void {
     if (component._state === ComponentState.Destroyed || component._pendingDestroy) return;
@@ -349,20 +360,27 @@ export class SceneRuntime {
   // --- state machine -------------------------------------------------------------------
 
   /**
-   * Bring one component's lifecycle state in line with the world: `awake` the first time its
-   * object is live, then `onEnable`/`onDisable` on every transition. The only place those
-   * three fire from.
+   * Bring one component's lifecycle state in line with the world: `awake` the first time its object
+   * is live, then `onEnable`/`onDisable` on every transition.
+   *
+   * The only place those three fire from.
    */
   sync(component: Component): void {
-    if (component._state === ComponentState.Destroyed || component._pendingDestroy) return;
+    if (isGone(component)) return;
 
     const object = component._object3D;
-    const live = object != null && object._runtime === this && object._activeInHierarchy;
+    const isLive = (): boolean => object != null && object._runtime === this && object._activeInHierarchy;
+    let live = isLive();
 
     // `awake` fires as soon as the object is live, even for a disabled component.
     if (live && component._state === ComponentState.Created) {
       component._state = ComponentState.Awake;
       callAwake(component);
+      // Everything `awake` was asked about may have changed while it ran. A component that
+      // switched its own node off there kept ticking, and one that destroyed its node still got
+      // an `onEnable` and an `onDisable` on the way down.
+      if (isGone(component)) return;
+      live = isLive();
     }
 
     const shouldBeActive = live && component._enabled && component._state !== ComponentState.Created;
@@ -424,20 +442,30 @@ export class SceneRuntime {
   runFixedStep(): void {
     this.flushStarts();
     const dt = Time.fixedDeltaTime;
-    const list = this.fixedUpdaters;
-    const count = list.length;
-    for (let i = 0; i < count; i++) {
-      const component = list[i];
-      if (!component || !canTick(component)) continue;
-      try {
-        component.fixedUpdate(dt);
-      } catch (error) {
-        report(component, 'fixedUpdate', error);
+    // `Time.deltaTime` *is* the step for the length of one, as it is in Unity. Left at the
+    // frame's delta it silently made every `Time.deltaTime` written inside a `fixedUpdate` wrong
+    // — by a different amount on every machine, which is the shape of bug that reads as physics
+    // being flaky rather than as one line being wrong.
+    const frameDelta = Time.deltaTime;
+    Time.deltaTime = dt;
+    try {
+      const list = this.fixedUpdaters;
+      const count = list.length;
+      for (let i = 0; i < count; i++) {
+        const component = list[i];
+        if (!component || !canTick(component)) continue;
+        try {
+          component.fixedUpdate(dt);
+        } catch (error) {
+          report(component, 'fixedUpdate', error);
+        }
       }
+      // Systems last, so the physics world sees the frame's final intentions before it steps.
+      this.registry.fixedUpdate(dt);
+      this.tickCoroutines(true);
+    } finally {
+      Time.deltaTime = frameDelta;
     }
-    // Systems last, so the physics world sees the frame's final intentions before it steps.
-    this.registry.fixedUpdate(dt);
-    this.tickCoroutines(true);
   }
 
   /** Run `update` on every active component, then advance coroutines. */
@@ -477,6 +505,16 @@ export class SceneRuntime {
     this.registry.lateUpdate(dt);
   }
 
+  /** Run `layout` on every system: the frame's last pass, over the world as it will be drawn. */
+  runLayout(dt: number = Time.deltaTime): void {
+    this.registry.layout(dt);
+  }
+
+  /** Nodes detached this frame, checked once at the end of it — see `reportStrandedNodes`. */
+  private readonly detached: Object3D[] = [];
+  /** Said once per node: a pool detaching the same node every round is not sixty warnings. */
+  private readonly warnedDetached = new WeakSet<Object3D>();
+
   private tickCoroutines(fixedPhase: boolean): void {
     const count = this.coroutineHosts.length;
     for (let i = 0; i < count; i++) {
@@ -502,7 +540,40 @@ export class SceneRuntime {
   /** Run the destructions queued during the frame, then compact the buckets. */
   endFrame(): void {
     this.flushDestroyQueue();
+    this.reportStrandedNodes();
     if (this.dirty) this.compact();
+  }
+
+  /**
+   * A node taken out of the tree during this frame, and never put back.
+   *
+   * `remove()` and `removeFromParent()` detach — deliberately, because a node taken out and put
+   * back keeps its components and their state, which is how a pool works. What they do not do is
+   * end anything: `onDestroy` never runs and every `listen` the components made is still live,
+   * so a node dropped and forgotten goes on reacting to a game it is no longer part of. The
+   * symptom lands in whatever it was listening to, which is why this says it here instead.
+   */
+  private reportStrandedNodes(): void {
+    if (this.detached.length === 0) return;
+    const stranded = this.detached.filter(
+      (node) => node.parent === null && !node._destroyed && !node._pendingDestroy && node._components?.length,
+    );
+    this.detached.length = 0;
+    for (const node of stranded) {
+      if (this.warnedDetached.has(node)) continue;
+      this.warnedDetached.add(node);
+      const carries = node._components?.map((component) => component.constructor.name).join(', ') ?? '';
+      console.warn(
+        `[scenoco] "${node.name || node.type}" was removed from the tree but not destroyed, and it ` +
+          `still carries ${carries}. remove() only detaches: nothing runs onDestroy and every ` +
+          'listener stays subscribed. Use destroy(), or add it back.',
+      );
+    }
+  }
+
+  /** @internal a node just detached from the tree; checked at the end of the frame. */
+  noticeDetached(object: Object3D): void {
+    this.detached.push(object);
   }
 
   private flushDestroyQueue(): void {
@@ -583,6 +654,14 @@ export class SceneRuntime {
 const MAX_CASCADE = 16;
 
 /** A component ticks only once it is active, started, and not on its way out. */
+/**
+ * Destroyed, or queued to be. Read through a function on purpose: a hook the caller just ran may
+ * have changed either, and the caller's own narrowing cannot know that.
+ */
+function isGone(component: Component): boolean {
+  return component._state === ComponentState.Destroyed || component._pendingDestroy;
+}
+
 function canTick(component: Component): boolean {
   return (
     component._isActive &&

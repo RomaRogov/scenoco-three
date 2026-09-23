@@ -3,6 +3,7 @@ import type { TagInfo } from '../model.js';
 import type { PropInfo, ValueShape } from '../model.js';
 import { hint, nearestName, type SncDiagnostic } from './diagnostics.js';
 import type { SncElement } from './parse.js';
+import { defaultAxes } from './axes.js';
 
 /**
  * What an emitted expression needs from the module around it: a `three` import, an import of
@@ -159,6 +160,18 @@ export function emitValue(
       }
       const reference = context.assetRef(text.trim());
       if (!reference) {
+        // An `#id` names a *node* in this document. A shared thing — a geometry, a material, an
+        // effect — is not a node and has no id: it is a file, or it is written inside the element
+        // that uses it. Answered apart, because "does not resolve" is true of an id and explains
+        // none of that.
+        if (text.trim().startsWith('#')) {
+          return at(
+            'unknown-asset',
+            `${prop.name}="${text}" is an #id, which names a node in this document. ` +
+              `${prop.name} takes a path to a document — ${prop.name}="../materials/x.asset.xml" — ` +
+              'or the element itself, written inside this one.',
+          );
+        }
         // Written from the wrong place, most often — the project-root spelling, from inside
         // `assets/prefabs/`. Paths are relative to the document, so the fix is one exact path.
         const near = context.nearAsset?.(text.trim());
@@ -365,8 +378,10 @@ function asHex(text: string): string | undefined {
  * impossible to misread.
  *
  * A positional value is not merely rejected: the diagnostic hands back the exact axis form to
- * write instead, so a near miss is a one-line fix rather than a puzzle. Omitted axes stay at
- * zero.
+ * write instead, so a near miss is a one-line fix rather than a puzzle.
+ *
+ * An axis left out keeps its default — `scale="x: 2"` is `x: 2; y: 1; z: 1` — and is zero only
+ * where nothing declares one. A scale with a zero axis is a node nobody can see.
  */
 function emitVector(
   prop: PropInfo,
@@ -376,7 +391,7 @@ function emitVector(
   at: Fail,
 ): Emitted {
   const axes = AXES.slice(0, arity);
-  const parts = new Array<number>(arity).fill(0);
+  const parts = defaultAxes(prop.default, arity);
   const value = text.trim();
 
   if (!value.includes(':')) {

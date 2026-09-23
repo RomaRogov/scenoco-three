@@ -8,12 +8,12 @@ import {
   baseClauseType,
   baseTypeArgument,
   classDeclarationOf,
-  decoratorName,
   isAbstractClass,
   derivesFrom,
   type BaseTest,
   docOf,
   docTagOf,
+  hasDocTag,
   lineOf,
   resolveAlias,
   textOf,
@@ -96,12 +96,19 @@ function scanClasses(
         if (info.module && !existing.module) existing.module = info.module;
         return;
       }
-      throw new Error(
-        `[scenoco] <${info.name}> is declared twice: ${existing.file}:${existing.line} and ` +
-          `${info.file}:${info.line}. Two classes cannot both answer to one tag — rename one, ` +
-          'or drop a dependency. (A physics back-end and its drop-in alternative deliberately ' +
-          'share names, so a project picks one.)',
-      );
+      // Recorded against the class that lost, rather than thrown: a build that stops here says
+      // nothing about the other forty things wrong with the project, and this one is usually a
+      // dependency to drop — a decision made once, with the whole picture in front of you.
+      (existing.problems ??= []).push({
+        line: existing.line,
+        code: 'duplicate-class',
+        message:
+          `<${info.name}> is declared twice: here and at ${info.file}:${info.line}. Two classes ` +
+          'cannot both answer to one tag — rename one, or drop a dependency. (A physics back-end ' +
+          'and its drop-in alternative deliberately share names, so a project picks one.) This ' +
+          'one is what documents get.',
+      });
+      return;
     }
     claimed.set(info.name, info);
     found.push(info);
@@ -235,7 +242,7 @@ function describe(
 ): ComponentInfo {
   const base = baseClauseType(node);
   const declaredBase = base && ast.isIdentifier(base) ? base.text : undefined;
-  const { fields, nonSerialized, events, problems: markers } = collectFields(node, sourceFile, checker, project, baseName, documents);
+  const { fields, nonSerialized, unauthored, events, problems: markers } = collectFields(node, sourceFile, checker, project, baseName, documents);
   const problems = [...markers, ...misspelledMembers(node, sourceFile, baseName, checker, project)];
   return {
     name: node.name!.text,
@@ -243,6 +250,7 @@ function describe(
     line: lineOf(sourceFile, node),
     ...(docOf(sourceFile, node) ? { description: docOf(sourceFile, node) } : {}),
     ...(declaredBase && declaredBase !== baseName ? { extends: declaredBase } : {}),
+    ...(exportedAs(node) ? {} : { unexported: hasModifier(node, ast.SyntaxKind.DefaultKeyword) ? 'default' as const : 'local' as const }),
     // `Component<PointLight>` — the node type this component insists on. The compiler checks a
     // scene against it, so a mis-hosted component is a diagnostic at the XML line rather than
     // a type error inside generated code.
@@ -251,9 +259,19 @@ function describe(
       : {}),
     fields,
     ...(nonSerialized.length > 0 ? { nonSerialized } : {}),
+    ...(unauthored.length > 0 ? { unauthored } : {}),
     ...(events.length > 0 ? { events } : {}),
     ...(problems.length > 0 ? { problems } : {}),
   };
+}
+
+/** `export class X` — the one spelling generated code can import. `export default` is not it. */
+function exportedAs(node: ast.ClassDeclaration): boolean {
+  return hasModifier(node, ast.SyntaxKind.ExportKeyword) && !hasModifier(node, ast.SyntaxKind.DefaultKeyword);
+}
+
+function hasModifier(node: ast.ClassDeclaration, kind: ast.SyntaxKind): boolean {
+  return (node.modifiers ?? []).some((modifier) => modifier.kind === kind);
 }
 
 /**
@@ -343,11 +361,18 @@ function collectFields(
   project: Project,
   stopAt: string,
   documents?: ReadonlySet<string>,
-): { fields: SerializedField[]; nonSerialized: string[]; events: ComponentEvent[]; problems: ClassProblem[] } {
+): {
+  fields: SerializedField[];
+  nonSerialized: string[];
+  unauthored: Array<{ name: string; why: 'private' | 'getter' | 'readonly' }>;
+  events: ComponentEvent[];
+  problems: ClassProblem[];
+} {
   const fields: SerializedField[] = [];
   const events: ComponentEvent[] = [];
   const seen = new Set<string>();
   const hidden = new Set<string>();
+  const unauthored = new Map<string, 'private' | 'getter' | 'readonly'>();
   const problems: ClassProblem[] = [];
 
   const visit = (current: ast.ClassDeclaration, file: ast.SourceFile, depth: number): void => {
@@ -368,6 +393,10 @@ function collectFields(
         if (!events.some((e) => e.name === event.name)) events.push(event);
         continue;
       }
+      // Why a member that exists is still not an attribute, so writing it is not answered with
+      // "no such field" — the name is right there in the class.
+      const reason = whyUnauthored(member);
+      if (reason) unauthored.set(reason.name, reason.why);
       // A marker's misuse is reported on the class that wrote it, not on every subclass.
       const described = describeField(member, file, checker, depth === 0 ? problems : [], documents);
       if (described === 'nonSerialized') {
@@ -394,7 +423,40 @@ function collectFields(
   };
 
   visit(node, sourceFile, 0);
-  return { fields, nonSerialized: [...hidden], events, problems };
+  // A subclass that made a base's private field public is authoring it after all.
+  for (const field of fields) unauthored.delete(field.name);
+  return {
+    fields,
+    nonSerialized: [...hidden],
+    unauthored: [...unauthored].map(([name, why]) => ({ name, why })),
+    events,
+    problems,
+  };
+}
+
+/**
+ * Why a member a class declares is not something a document writes.
+ *
+ * Each of the three is a different fix — make it public, add a setter, drop the `readonly` — and
+ * none of them is "check the spelling", which is what the near-miss message would have said.
+ */
+function whyUnauthored(
+  member: ast.ClassElement,
+): { name: string; why: 'private' | 'getter' | 'readonly' } | undefined {
+  const isProperty = ast.isPropertyDeclaration(member);
+  const isGetter = ast.isGetAccessorDeclaration(member);
+  if (!isProperty && !isGetter) return undefined;
+  if (!ast.isIdentifier(member.name)) return undefined;
+  const name = member.name.text;
+  const modifiers = member.modifiers ?? [];
+  const has = (kind: ast.SyntaxKind): boolean => modifiers.some((m) => m.kind === kind);
+  if (has(ast.SyntaxKind.StaticKeyword)) return undefined;
+  if (isGetter) return { name, why: 'getter' };
+  if (has(ast.SyntaxKind.PrivateKeyword) || has(ast.SyntaxKind.ProtectedKeyword)) {
+    return { name, why: 'private' };
+  }
+  if (has(ast.SyntaxKind.ReadonlyKeyword)) return { name, why: 'readonly' };
+  return undefined;
 }
 
 /**
@@ -439,8 +501,14 @@ function nodeConstraint(node: ast.ClassDeclaration, sourceFile: ast.SourceFile):
  * Describe one class member as a serialized field, or skip it.
  *
  * **Public fields are serialized; private ones are not** — exactly as `public` and
- * `[SerializeField]` work in Unity. `@serialize` exists only to opt a private field in, or to
- * add a fact the type genuinely cannot carry.
+ * `[SerializeField]` work in Unity. The two markers exist only to opt a private field in, or to
+ * keep a public one out.
+ *
+ * They are JSDoc tags rather than decorators because nothing should reach the page: a decorator
+ * is syntax no browser parses, so it had to be stripped out again by a bundler plugin, and that
+ * plugin was the only reason the framework needed one. A tag is a comment — it is gone by the
+ * time anything runs, and the scan reads it from the same doc comment it already reads the
+ * description from.
  */
 function describeField(
   member: ast.ClassElement,
@@ -452,9 +520,8 @@ function describeField(
   if (!ast.isPropertyDeclaration(member) || ast.isComputedPropertyName(member.name)) return undefined;
 
   const modifiers = member.modifiers ?? [];
-  const decorators = modifiers.filter((m) => ast.isDecorator(m)) as ast.Decorator[];
-  const serializeDecorator = decorators.find((d) => decoratorName(d) === 'serializeField');
-  const nonSerializedDecorator = decorators.find((d) => decoratorName(d) === 'nonSerialized');
+  const serialized = hasDocTag(sourceFile, member, 'serializeField');
+  const hiddenFromDocuments = hasDocTag(sourceFile, member, 'nonSerialized');
   const isPrivate = modifiers.some(
     (m) => m.kind === ast.SyntaxKind.PrivateKeyword || m.kind === ast.SyntaxKind.ProtectedKeyword,
   );
@@ -466,7 +533,7 @@ function describeField(
   const misuse = (code: string, message: string): void => {
     problems.push({ line: lineOf(sourceFile, member), code, message });
   };
-  if (serializeDecorator && nonSerializedDecorator) {
+  if (serialized && hiddenFromDocuments) {
     misuse(
       'conflicting-markers',
       `"${name}" is marked both @serializeField and @nonSerialized. Keep the one you mean: ` +
@@ -474,7 +541,7 @@ function describeField(
     );
     return undefined;
   }
-  if (serializeDecorator && isStatic) {
+  if (serialized && isStatic) {
     misuse(
       'static-serialize-field',
       `@serializeField cannot serialize the static field "${name}" — a document writes one ` +
@@ -483,8 +550,8 @@ function describeField(
   }
   // `#field` is private in a way no decorator can reach — skip it outright.
   if (isStatic || ast.isPrivateIdentifier(member.name)) return undefined;
-  if (nonSerializedDecorator) return 'nonSerialized';
-  if (isPrivate && !serializeDecorator) return undefined;
+  if (hiddenFromDocuments) return 'nonSerialized';
+  if (isPrivate && !serialized) return undefined;
   // A `readonly` field is state the component owns, not a knob — `readonly destroyed = new
   // Event<…>()` is the common case, and assigning to it in generated code would not compile.
   if (modifiers.some((m) => m.kind === ast.SyntaxKind.ReadonlyKeyword)) return undefined;
@@ -529,6 +596,6 @@ function describeField(
       !sourceFile.isDeclarationFile &&
       member.initializer === undefined &&
       member.postfixToken?.kind !== ast.SyntaxKind.QuestionToken,
-    explicit: serializeDecorator !== undefined,
+    explicit: serialized,
   };
 }

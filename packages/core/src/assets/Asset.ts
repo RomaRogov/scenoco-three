@@ -34,11 +34,20 @@ export abstract class Asset<T> {
   /** Fetch and parse, or hand back what is there. Concurrent callers share one promise. */
   load(): Promise<T> {
     if (this.loaded !== undefined) return Promise.resolve(this.loaded);
-    this.pending ??= this.fetch().then((value) => {
-      this.loaded = value;
-      this.pending = undefined;
-      return value;
-    });
+    this.pending ??= this.fetch().then(
+      (value) => {
+        this.loaded = value;
+        this.pending = undefined;
+        return value;
+      },
+      (error: unknown) => {
+        // Forgotten on the way out, so a retry is a retry. Kept, the first failure — a dropped
+        // connection, a file not deployed yet — was the answer every later call got too, for
+        // the life of the page.
+        this.pending = undefined;
+        throw error;
+      },
+    );
     return this.pending;
   }
 

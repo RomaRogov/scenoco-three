@@ -21,8 +21,10 @@ export function provenanceOf(object: Object3D): Provenance | null {
 }
 
 /**
- * The nearest stamped node at or above `object`. A click lands on whatever mesh the ray hit,
- * which inside a loaded model is some nested part nobody wrote; walking up finds the one written.
+ * The nearest stamped node at or above `object`.
+ *
+ * A click lands on whatever mesh the ray hit, which inside a loaded model is some nested part
+ * nobody wrote; walking up finds the one written.
  */
 export function findProvenance(
   object: Object3D,

@@ -4,9 +4,10 @@ import { BoxGeometry, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3 } f
 import { describe, expect, it, vi } from 'vitest';
 import { anchoredPoint, boxOfAuthored, pointOf } from '../../packages/observer/app/session.js';
 import { createMcpServer, startMcpHttp } from '../../packages/observer/src/mcp.js';
-import { depCacheDir } from '../../packages/observer/src/server.js';
+import { depCacheDir, startProjectServer } from '../../packages/observer/src/server.js';
 import { STALE_MODULE } from '../../packages/observer/src/browser.js';
 import { indexDocument } from '../../packages/compiler/src/index.js';
+import { makeFixture } from '../compiler/fixture.js';
 
 
 /**
@@ -66,7 +67,8 @@ describe('the observer draws through the engine', () => {
     expect(browser).toContain('await page.setViewportSize(viewport);');
     expect(session).toContain('fit(frame: PreviewFrame): void {');
     expect(session).not.toContain('setFrameSize');
-    expect(session).toContain('clientX: rect.left + (x ?? rect.width / 2),');
+    // Unscaled: a click lands at the pixels of the shot it was read from.
+    expect(session).toContain('clientX: rect.left + point.x,');
   });
 
   it('forgets a scene whose load threw, rather than waiting on it as still loading', () => {
@@ -217,6 +219,9 @@ describe('the MCP transport across an observer restart', () => {
       };
       const verbs = JSON.stringify(steps.properties.steps.items.oneOf ?? steps.properties.steps.items.anyOf);
       for (const verb of ['"eval"', '"telemetry"', '"preview"', '"step"']) expect(verbs).toContain(verb);
+      // A drag is a held pointer that moves. Without a way to hold one, a game steered by
+      // dragging could only be checked by reaching around it through `eval`.
+      for (const verb of ['"click"', '"pointerDown"', '"pointerUp"', '"move"']) expect(verbs).toContain(verb);
     } finally {
       await server.close();
     }
@@ -350,4 +355,36 @@ describe('serving more than one project', () => {
     // A real failure of the project is not one of these, and must not be retried away.
     expect(STALE_MODULE.test('<Spinner> is not a component in this project.')).toBe(false);
   });
+});
+
+/**
+ * The server starts whatever the project's documents say.
+ *
+ * An MCP client spawns this at session start. A throw here took every observer tool with it for
+ * the whole session, with the reason on a stderr nobody reads — and the reason was one bad
+ * attribute, fixable in ten seconds by an agent that could see it. So the diagnostics become the
+ * answer every tool gives until a rebuild succeeds.
+ */
+describe('a project that does not compile', () => {
+  it('is a server that answers with the reason, not a server that failed to start', async () => {
+    const fixture = makeFixture('observer-broken');
+    try {
+      fixture.write('game.ts', `import { Component } from '@scenoco-three/core';\nexport class Mover extends Component {\n  speed = 1;\n}\n`);
+      fixture.writeXml('assets/scenes/main.scene.xml', `<Scene>\n  <Group><Components><Mover speed="fast" /></Components></Group>\n</Scene>\n`);
+
+      const server = await startProjectServer({ root: fixture.dir, quiet: true });
+      try {
+        expect(server.failure).toContain('speed="fast" is not a number');
+        // Every tool reads this before it runs, so the first call answers with it.
+        expect(server.changed).toBe(true);
+
+        fixture.writeXml('assets/scenes/main.scene.xml', `<Scene>\n  <Group><Components><Mover speed="6" /></Components></Group>\n</Scene>\n`);
+        await vi.waitFor(() => expect(server.failure).toBeNull(), { timeout: 15_000, interval: 100 });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      fixture.dispose();
+    }
+  }, 120_000);
 });

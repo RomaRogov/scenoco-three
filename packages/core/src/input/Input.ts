@@ -109,9 +109,9 @@ class InputClass {
   }
 
   /**
-   * Drive an axis from somewhere other than the keyboard — a virtual joystick, a gamepad, a
-   * replay. It holds until released with `null`, and the keys for that axis are ignored while
-   * it is set.
+   * Drive an axis from somewhere other than the keyboard — a virtual joystick, a gamepad, a replay.
+   *
+   * It holds until released with `null`, and the keys for that axis are ignored while it is set.
    */
   setAxis(axis: AxisName, value: number | null): void {
     if (value === null) this.overrides.delete(axis);
@@ -184,6 +184,9 @@ class InputClass {
     element.addEventListener('pointermove', this.onPointerMove);
     element.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointerup', this.onPointerUp);
+    // A cancelled pointer is a released one. The browser cancels a touch it takes over, and a
+    // button that never heard the release stayed held until the next tap.
+    window.addEventListener('pointercancel', this.onPointerUp);
     element.addEventListener('wheel', this.onWheel, { passive: true });
     element.addEventListener('contextmenu', this.onContextMenu);
   }
@@ -198,6 +201,7 @@ class InputClass {
     element.removeEventListener('pointermove', this.onPointerMove);
     element.removeEventListener('pointerdown', this.onPointerDown);
     window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
     element.removeEventListener('wheel', this.onWheel);
     element.removeEventListener('contextmenu', this.onContextMenu);
     this.element = null;
@@ -272,6 +276,20 @@ class InputClass {
     const button = event.button as MouseButton;
     this.buttonsHeld.add(button);
     this.buttonsPressed.add(button);
+    // A press is where a drag starts from. A finger has no hover — it lands on the glass with no
+    // move before it — so the last position known was wherever the *previous* touch lifted, and
+    // the first move of this one read as a jump across the screen: a steered thing leapt on
+    // every new touch. The delta starts here instead.
+    const bounds = this.element?.getBoundingClientRect();
+    if (bounds) {
+      const x = event.clientX - bounds.left;
+      const y = event.clientY - bounds.top;
+      this.lastMouse.set(x, y);
+      this.mousePosition.set(x, y);
+      this.pointer.set((x / bounds.width) * 2 - 1, -(y / bounds.height) * 2 + 1);
+      this.hasMouseSample = true;
+      this.mouseDelta.set(0, 0);
+    }
     this.element?.focus?.();
   };
 

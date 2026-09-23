@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUILTIN_KINDS, findAssets, type AssetKind } from './assets.js';
@@ -7,6 +7,7 @@ import { build } from './build.js';
 import { configIndex, describe } from './describe.js';
 import { describeApi } from './scan/api.js';
 import type { ConfigShape } from './scan/interfaces.js';
+import type { ProjectModel } from './model.js';
 import { Workspace } from './scan/workspace.js';
 import { scaffold } from './scaffold.js';
 import { formatDiagnostic, whatToLookUp } from './dsl/diagnostics.js';
@@ -26,8 +27,14 @@ export async function run(argv: readonly string[]): Promise<number> {
   switch (command) {
     case 'build':
       return compile(rest, { watch: false });
-    case 'watch':
-      return compile(rest, { watch: true });
+    case 'watch': {
+      // `scenoco watch -- vite`: everything after the separator is a command to run beside the
+      // watcher, so the dev loop is one process to start and one to stop.
+      const separator = rest.indexOf('--');
+      return separator === -1
+        ? compile(rest, { watch: true })
+        : compile(rest.slice(0, separator), { watch: true, child: rest.slice(separator + 1) });
+    }
     case 'check':
       return compile(rest, { watch: false, dryRun: true });
     case 'new':
@@ -136,7 +143,10 @@ function explain(args: readonly string[]): number {
 }
 
 /** Compile the project's documents. `check` does it without writing anything. */
-async function compile(args: readonly string[], options: { watch: boolean; dryRun?: boolean }): Promise<number> {
+async function compile(
+  args: readonly string[],
+  options: { watch: boolean; dryRun?: boolean; child?: readonly string[] },
+): Promise<number> {
   const flags = parseFlags(args);
 
   // The likeliest first run of all: `scenoco build` in the wrong directory. A document's whole
@@ -152,14 +162,43 @@ async function compile(args: readonly string[], options: { watch: boolean; dryRu
     return 1;
   }
 
-  const once = (): boolean => {
+  /**
+   * The last scan, reused while only documents change.
+   *
+   * The two halves are one cache: both are read from the same declarations in the same pass, so
+   * a rescan drops them together. Keeping the shapes while dropping the model would leave a
+   * package's edited config type reported as it was, which reads as the compiler refusing an
+   * attribute that is plainly declared.
+   *
+   * Only `watch` fills them — a one-shot build scans once anyway.
+   */
+  let model: ProjectModel | undefined;
+  let shapes: ReadonlyMap<string, ConfigShape | undefined> | undefined;
+
+  const once = (rescan = true): boolean => {
     const started = Date.now();
+    // Scanning the project's TypeScript is the expensive half, and a document cannot change what
+    // its own vocabulary is — so an edit to a `.xml` reuses the scan and only an edit to a `.ts`
+    // pays for a new one.
+    if (rescan) {
+      model = undefined;
+      shapes = undefined;
+    }
     const result = build({
       root: flags.root,
       ...(flags.tsconfig ? { tsconfig: flags.tsconfig } : {}),
       ...(flags.modules ? { modules: flags.modules } : {}),
       ...(options.dryRun ? { dryRun: true } : {}),
+      // `build` and `check` exist to find problems, so both typecheck what they compiled. A
+      // question — `describe` — does not, and does not pay for it.
+      typecheck: true,
+      ...(model ? { model } : {}),
+      ...(shapes ? { shapes } : {}),
     });
+    if (options.watch) {
+      model = result.model;
+      shapes = result.shapes;
+    }
     for (const diagnostic of result.diagnostics) console.error(formatDiagnostic(diagnostic));
     if (result.diagnostics.length > 0) {
       console.error(`\n${result.diagnostics.length} problem(s).`);
@@ -189,19 +228,64 @@ async function compile(args: readonly string[], options: { watch: boolean; dryRu
   if (!options.watch) return once() ? 0 : 1;
 
   once();
-  // Imported here rather than at the top: watching is the only thing that needs it, and `build`
+  // Imported here rather than at the top: watching is the only thing that needs them, and `build`
   // and `check` are what run in CI.
   const { watch: watchFiles } = await import('node:fs');
+
+  // Started even when the build above failed. Whoever ran `npm run dev` in the background must
+  // not be handed a dead process for a typo: the diagnostics are above, the server is up, and the
+  // next save fixes it in place.
+  //
+  // Not awaited: the promise settles when the child *exits*, which is the exit code this command
+  // returns at the bottom. Awaiting it here left the watcher unbuilt and every later save silent.
+  const child = options.child?.length ? spawnChild(options.child) : undefined;
+
   console.log(`scenoco: watching ${flags.root}`);
   let queued: NodeJS.Timeout | undefined;
+  let rescan = false;
   watchFiles(flags.root, { recursive: true }, (_event, file) => {
     // A generated file changing is this process's own writing coming back.
     if (!file || file.endsWith('.gen.ts') || file.includes('node_modules')) return;
     if (!file.endsWith('.xml') && !file.endsWith('.ts')) return;
+    rescan ||= file.endsWith('.ts');
     clearTimeout(queued);
-    queued = setTimeout(once, 40);
+    queued = setTimeout(() => {
+      once(rescan);
+      rescan = false;
+    }, 40);
   });
-  return new Promise<number>(() => {}); // runs until interrupted
+  // Runs until interrupted — or, with a child, until the child is done and its code is ours.
+  return child ?? new Promise<number>(() => {});
+}
+
+/**
+ * Run a command beside the watcher — `scenoco watch -- vite`.
+ *
+ * One process to start and one to stop, which is the only reason this exists: two terminals for
+ * one dev loop is a step nobody remembers, and a bundler started separately outlives the watcher
+ * that feeds it. Its output is this process's own, so the bundler's URL is where it has always
+ * been, and the answer to "why did it stop" is whatever the child printed.
+ */
+async function spawnChild(command: readonly string[]): Promise<number> {
+  const { spawn } = await import('node:child_process');
+  const [program, ...args] = command as [string, ...string[]];
+  const child = spawn(program, args, { stdio: 'inherit', shell: process.platform === 'win32' });
+
+  // Forwarded rather than relied upon: Ctrl+C in a terminal reaches the whole group already, but
+  // a parent killed by a supervisor is the case where the bundler would otherwise be orphaned.
+  const relay = (signal: NodeJS.Signals) => (): void => {
+    child.kill(signal);
+  };
+  process.on('SIGINT', relay('SIGINT'));
+  process.on('SIGTERM', relay('SIGTERM'));
+
+  return new Promise<number>((done) => {
+    child.on('error', (error) => {
+      console.error(`scenoco watch: could not run "${command.join(' ')}": ${error.message}`);
+      done(1);
+    });
+    child.on('exit', (code, signal) => done(signal ? 0 : (code ?? 1)));
+  });
 }
 
 /**
@@ -216,8 +300,19 @@ function init(args: readonly string[]): number {
     const result = scaffold(target);
     console.log(`Created ${result.written.length} files in ${result.directory}\n`);
     if (target !== '.') console.log(`  cd ${target}`);
-    console.log('  npm install');
-    console.log('  npm run dev\n');
+    // Inside the workspace that *builds* these packages, `npm install` is the wrong next step:
+    // the project already resolves them through the symlinks above it, and installing replaces
+    // those with whatever is published. Two compilers then answer with two vocabularies, and
+    // every message reads as the toolchain contradicting itself.
+    if (linkedPackages(result.directory)) {
+      console.log('  npm run dev\n');
+      console.log('(The @scenoco-three packages already resolve to this workspace, through the');
+      console.log(' node_modules above this directory. Running `npm install` here would replace');
+      console.log(' them with the published copies, which is almost certainly not what you want.)\n');
+    } else {
+      console.log('  npm install');
+      console.log('  npm run dev\n');
+    }
     console.log('Arrow keys move the block, Space drops a crate. Then read AGENTS.md — the model in a');
     console.log('page — and assets/scenes/main.scene.xml, which ends with one thing to try that shows');
     console.log('what the compiler does when you slip.');
@@ -225,6 +320,24 @@ function init(args: readonly string[]): number {
   } catch (error) {
     console.error(`scenoco init: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
+  }
+}
+
+/**
+ * True when a `@scenoco-three` package already resolves from above `directory` as a symlink —
+ * which is to say, this is somewhere inside the workspace that builds them.
+ */
+function linkedPackages(directory: string): boolean {
+  for (let dir = resolve(directory); ; dir = dirname(dir)) {
+    const scope = join(dir, 'node_modules', '@scenoco-three');
+    try {
+      // Any of them: a workspace links every package it builds, and which ones a given project
+      // happens to depend on is not the question being asked.
+      if (readdirSync(scope).some((name) => lstatSync(join(scope, name)).isSymbolicLink())) return true;
+    } catch {
+      // Nothing there; keep climbing.
+    }
+    if (dirname(dir) === dir) return false;
   }
 }
 
@@ -330,8 +443,9 @@ function help(): void {
 
   scenoco build [dir]     compile every document in the project
   scenoco watch [dir]     compile, then recompile as documents and components change
+  scenoco watch -- <cmd>  the same, running <cmd> beside it: scenoco watch -- vite
   scenoco check [dir]     compile without writing — for CI
-  scenoco init <dir>      a whole project that runs: scene, component, shapes, Vite wired up
+  scenoco init <dir>      a whole project that runs: scene, component, shapes, a bundler
   scenoco new <kind> <name>
   scenoco new asset       the primitives: ${Object.keys(PRIMITIVES).join(', ')}
   scenoco new asset <name> <Tag>

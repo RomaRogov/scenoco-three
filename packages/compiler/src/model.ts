@@ -87,7 +87,7 @@ export interface PropInfo {
 
 /** A serialized field of a component, as the source declares it. */
 export interface SerializedField extends PropInfo {
-  /** True when it took a `@serializeField` decorator rather than being public. */
+  /** True when a `@serializeField` tag took it rather than it being public. */
   explicit: boolean;
 }
 
@@ -129,6 +129,14 @@ export interface ComponentInfo {
   description?: string;
   /** Base class name, when it is another component rather than `Component` itself. */
   extends?: string;
+  /**
+   * How the class leaves its file, when a document cannot import it as it stands.
+   *
+   * Generated code writes `import { Name } from './Name.js'`, so a class that is declared but
+   * not exported by name compiles to an import of something that is not there. Absent means it
+   * is exported by name, which is the ordinary case.
+   */
+  unexported?: 'local' | 'default';
   /** Serialized fields, own and inherited, in declaration order. */
   fields: SerializedField[];
   /**
@@ -136,6 +144,13 @@ export interface ComponentInfo {
    * writing one is reported as exactly that, rather than as an attribute that does not exist.
    */
   nonSerialized?: string[];
+  /**
+   * Members a document cannot write, and why — a private field, a getter, a `readonly`.
+   *
+   * The name *is* declared, so "no such field" is a lie that sends a reader to check their
+   * spelling. Each of these has a different fix, and the fix is the message.
+   */
+  unauthored?: Array<{ name: string; why: 'private' | 'getter' | 'readonly' }>;
   /**
    * Its typed events — `readonly onClick = new Event()` — own and inherited. Not attributes, so
    * not fields; listed because another component subscribes to them by name.
@@ -208,6 +223,16 @@ export interface TagInfo {
   properties: PropInfo[];
   /** Names of the classes this one derives from, nearest first. */
   bases: string[];
+  /**
+   * Every member of the class, for the tags a generated class extends — `Scene`, and whichever
+   * node a prefab is rooted at.
+   *
+   * A document's `id` becomes a field on that class, so an id that is already a member of the
+   * base redeclares it: `id="name"` shadows `Object3D.name`, typed as a node. In memory only —
+   * {@link serializeModel} leaves it out, because the editor has no question it answers and it
+   * is the largest thing here.
+   */
+  members?: string[];
 }
 
 /**
@@ -262,6 +287,12 @@ export interface ModuleInfo {
 
 /** Everything the emitters need to turn one project's XML into TypeScript. */
 export interface ProjectModel {
+  /**
+   * What is wrong with the project's *vocabulary* rather than with any one document — two
+   * packages claiming one tag name. Reported with everything else a build found, because a
+   * build that stopped here would say nothing about the rest of the project.
+   */
+  problems?: string[];
   components: ComponentInfo[];
   /**
    * Effects — the tags a render document is written from, described exactly as components are.

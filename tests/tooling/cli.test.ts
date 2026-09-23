@@ -407,12 +407,22 @@ describe('scenoco init', () => {
     expect(readFileSync(join(target, 'src/tags.ts'), 'utf8')).toContain("import 'three';");
   });
 
-  /** `tsc` reads the generated modules, and they do not exist until something has built them. */
-  it('checks by building first, because tsc has nothing to read otherwise', async () => {
+  /**
+   * One command, and the dev loop is one process.
+   *
+   * `check` is `scenoco check` alone because `check` typechecks the generated modules itself —
+   * a separate `tsc --noEmit` reported the same mistakes from inside a gitignored `.gen.ts`,
+   * which is the one file the reader must not edit. And `dev` carries the bundler, so there is
+   * no plugin to install and nothing to start twice.
+   */
+  it('names one command for checking, and runs the bundler under the watcher', async () => {
     const target = join(fixture.dir, 'checked');
     expect(await runCli(['init', target])).toBe(0);
     const manifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'));
-    expect(manifest.scripts.check).toBe('scenoco build && tsc --noEmit');
+    expect(manifest.scripts.check).toBe('scenoco check');
+    expect(manifest.scripts.dev).toBe('scenoco watch -- vite');
+    expect(manifest.scripts.build).toBe('scenoco build && vite build');
+    expect(Object.keys(manifest.devDependencies)).not.toContain('@scenoco-three/vite');
   });
 
   it('invites the reader to break it, and names the command that answers', async () => {
@@ -420,7 +430,7 @@ describe('scenoco init', () => {
     expect(await runCli(['init', target])).toBe(0);
     const scene = readFileSync(join(target, 'assets/scenes/main.scene.xml'), 'utf8');
     expect(scene).toContain('Try this');
-    expect(scene).toContain('scenoco check');
+    expect(scene).toContain('npm run check');
     // The value it tells them to break has to be the one that is actually there.
     expect(scene).toContain('speed="6"');
   });
@@ -623,4 +633,55 @@ describe('a scene nothing loads', () => {
     expect(notes.some((line) => line.includes('loaded.scene.xml'))).toBe(false);
     expect(notes.some((line) => line.includes('next.scene.xml'))).toBe(false);
   }, 120_000);
+});
+
+/**
+ * `scenoco watch -- <command>`: the dev loop as one process.
+ *
+ * The rule worth pinning down is that the child starts **anyway** when the first build failed.
+ * Whoever ran `npm run dev` in a background terminal — which is how an agent runs it — must not
+ * be handed a dead process for a typo in an attribute: the diagnostics are printed, the bundler
+ * is up, and the next save fixes it in place.
+ */
+describe('scenoco watch with a command after --', () => {
+  it('starts the command even with a broken document, and exits with its code', async () => {
+    fixture.writeXml('assets/scenes/broken.scene.xml', '<Scene><Group position="over there" /></Scene>');
+    const marker = join(fixture.dir, 'child-ran');
+    // `--root` goes before the separator: everything after `--` belongs to the child.
+    const code = await runCli([
+      'watch',
+      '--root',
+      fixture.dir,
+      '--',
+      process.execPath,
+      '-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'yes'); process.exit(3);`,
+    ]);
+    expect(code).toBe(3);
+    expect(existsSync(marker)).toBe(true);
+    expect(err.join('\n')).toContain('problem(s)');
+  }, 120_000);
+});
+
+/**
+ * `scenoco init` inside the workspace that builds these packages.
+ *
+ * The steps it prints are right everywhere except here, where the project already resolves the
+ * packages through the symlinks above it — and `npm install` replaces those with whatever is
+ * published. A review lost an hour to exactly that: two compilers in one project, twelve
+ * confident `unknown-asset` diagnostics on files the starter had just written, and no message
+ * anywhere saying which compiler was answering.
+ */
+describe('scenoco init where the packages are already linked', () => {
+  it('does not tell you to npm install over them', async () => {
+    const target = join(fixture.dir, 'linked');
+    out.length = 0;
+    expect(await runCli(['init', target])).toBe(0);
+    // The fixture links the workspace packages into its own node_modules, as a real install does.
+    const steps = out.map((line) => line.trim());
+    expect(steps).toContain('npm run dev');
+    // Not as a step. It is still named in the sentence that says why it is not one.
+    expect(steps).not.toContain('npm install');
+    expect(out.join('\n')).toContain('already resolve to this workspace');
+  }, 60_000);
 });

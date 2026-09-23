@@ -52,7 +52,6 @@ beforeAll(() => {
   fixture.write(
     'components.ts',
     `import { Component, System, type PrefabType, type SceneType } from '@scenoco-three/core';
-import { nonSerialized } from '@scenoco-three/compiler/serialize';
 import { Color, Mesh, Object3D, Vector3 } from 'three';
 
 /** Scores a brick. */
@@ -60,8 +59,11 @@ export class Brick extends Component {
   points = 10;
   hits = 1;
   label = 'brick';
-  /** Set when the ball first touches it. */
-  @nonSerialized cracked = false;
+  /**
+   * Set when the ball first touches it.
+   * @nonSerialized
+   */
+  cracked = false;
 }
 
 /** The rules of the game — a scene service that reads the scene it serves. */

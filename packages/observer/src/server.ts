@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer, parseSync, type ViteDevServer } from 'vite';
-import { build, formatDiagnostic, indexDocument, withoutMarkers, type ProjectModel } from '@scenoco-three/compiler';
+import { createServer, type ViteDevServer } from 'vite';
+import { build, formatDiagnostic, indexDocument, type ProjectModel } from '@scenoco-three/compiler';
 
 export interface ServerOptions {
   /** Project root — the directory holding `tsconfig.json` and `assets/`. Defaults to cwd. */
@@ -21,8 +21,8 @@ export interface ServerOptions {
 export interface ProjectServer {
   url: string;
   port: number;
-  /** What the project's TypeScript declares. */
-  model(): ProjectModel;
+  /** What the project's TypeScript declares, or undefined while the project has never compiled. */
+  model(): ProjectModel | undefined;
   /**
    * True once the project changed and was rebuilt since the last `settle()`. The observer reads
    * this before a tool runs and reopens the document, so what an agent sees is what it last wrote.
@@ -61,37 +61,42 @@ export async function startProjectServer(options: ServerOptions = {}): Promise<P
   const root = resolve(options.root ?? process.cwd());
   let model: ProjectModel | undefined;
 
-  /** Compile the project. Provenance is always on here: it is what maps a node back to its element. */
+  /**
+   * Compile the project. Provenance is always on here: it is what maps a node back to its element.
+   *
+   * A thrown scan error — no tsconfig, two classes of one name — comes back as a message rather
+   * than escaping, for the same reason the first compile is allowed to fail: this server is
+   * spawned by an MCP client at session start, and a process that exits takes every tool with it.
+   */
   const compile = (rescan: boolean): { ok: true } | { ok: false; message: string } => {
     if (rescan) model = undefined;
-    const result = build({
-      root,
-      ...(options.modules ? { modules: options.modules } : {}),
-      provenance: true,
-      ...(model ? { model } : {}),
-    });
-    model = result.model;
-    if (result.diagnostics.length === 0) return { ok: true };
-    return { ok: false, message: result.diagnostics.map((d) => formatDiagnostic(d)).join('\n') };
+    try {
+      const result = build({
+        root,
+        ...(options.modules ? { modules: options.modules } : {}),
+        provenance: true,
+        ...(model ? { model } : {}),
+      });
+      model = result.model;
+      if (result.diagnostics.length === 0) return { ok: true };
+      return { ok: false, message: result.diagnostics.map((d) => formatDiagnostic(d)).join('\n') };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
   };
 
+  // Started even when the project does not compile. One bad attribute must not cost an agent
+  // every observer tool for a whole session: the diagnostics are recorded here, and every tool
+  // answers with them until a rebuild succeeds. Silent absence is the one failure it cannot debug.
   const first = compile(true);
-  if (!first.ok) throw new Error(`[scenoco] this project does not compile yet:\n${first.message}`);
+  let changed = !first.ok;
+  let failure: string | null = first.ok ? null : first.message;
 
   const port = await freePort();
   const vite = await createServer({
     root: appRoot,
     configFile: false,
-    plugins: [
-      documentApi(root),
-      // The project's components run here too, and the build's markers must not reach the page:
-      // no browser parses a decorator. `scenoco()` does the same in a project's own Vite.
-      {
-        name: 'scenoco:markers',
-        enforce: 'pre',
-        transform: (code, id) => withoutMarkers(code, id, (file, source) => parseSync(file, source).program),
-      },
-    ],
+    plugins: [documentApi(root)],
     ...(options.quiet ? { logLevel: 'silent' as const } : {}),
     clearScreen: false,
     server: {
@@ -114,8 +119,6 @@ export async function startProjectServer(options: ServerOptions = {}): Promise<P
   });
   await vite.listen();
 
-  let changed = false;
-  let failure: string | null = null;
   watchProject(vite, root, compile, (result) => {
     changed = true;
     failure = result.ok ? null : result.message;
@@ -124,7 +127,7 @@ export async function startProjectServer(options: ServerOptions = {}): Promise<P
   return {
     url: `http://localhost:${port}`,
     port,
-    model: () => model!,
+    model: () => model,
     get changed() {
       return changed;
     },

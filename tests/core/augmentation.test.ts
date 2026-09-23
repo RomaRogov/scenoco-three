@@ -61,6 +61,7 @@ describe('the Object3D augmentation', () => {
       '_destroyed',
       '_isActive',
       '_pendingDestroy',
+      '_pendingId',
       '_runtime',
       'activeInHierarchy',
       'activeSelf',

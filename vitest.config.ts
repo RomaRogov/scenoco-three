@@ -1,12 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { standardDecorators } from './packages/vite/src/decorators.js';
 
 export default defineConfig({
-  // oxc cannot lower TC39 standard decorators — it either applies the legacy
-  // transform to them or emits the syntax verbatim, and both fail far from the
-  // cause. This runs tsc over decorated files first. See the plugin's own notes.
-  plugins: [standardDecorators()],
   resolve: {
     alias: {
       '@scenoco-three/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),

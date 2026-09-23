@@ -22,10 +22,6 @@
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
     },
-    "./serialize": {
-      "types": "./dist/serialize.d.ts",
-      "import": "./dist/serialize.js"
-    },
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"

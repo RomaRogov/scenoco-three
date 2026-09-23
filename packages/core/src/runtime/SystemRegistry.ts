@@ -9,6 +9,7 @@ export class SystemRegistry {
   private readonly fixedUpdaters: SystemWith<'fixedUpdate'>[] = [];
   private readonly updaters: SystemWith<'update'>[] = [];
   private readonly lateUpdaters: SystemWith<'lateUpdate'>[] = [];
+  private readonly layouters: SystemWith<'layout'>[] = [];
   /** Added but not yet started, drained by the same flush that starts components. */
   private readonly pendingStart: System[] = [];
   private readonly destroyQueue: System[] = [];
@@ -43,6 +44,7 @@ export class SystemRegistry {
     if (system.fixedUpdate) this.fixedUpdaters.push(system as SystemWith<'fixedUpdate'>);
     if (system.update) this.updaters.push(system as SystemWith<'update'>);
     if (system.lateUpdate) this.lateUpdaters.push(system as SystemWith<'lateUpdate'>);
+    if (system.layout) this.layouters.push(system as SystemWith<'layout'>);
     if (system.start) this.pendingStart.push(system);
 
     if (system.awake) {
@@ -97,6 +99,13 @@ export class SystemRegistry {
     }
   }
 
+  layout(dt: number): void {
+    for (const system of this.layouters.slice()) {
+      if (system._pendingDestroy) continue;
+      call(system, 'layout', (s) => s.layout(dt));
+    }
+  }
+
   /**
    * Tear down what the frame queued. Last in the destruction pass: a component's `onDestroy`
    * commonly unregisters itself from a system, which has to still be there.
@@ -116,6 +125,7 @@ export class SystemRegistry {
     this.fixedUpdaters.length = 0;
     this.updaters.length = 0;
     this.lateUpdaters.length = 0;
+    this.layouters.length = 0;
     this.pendingStart.length = 0;
     this.destroyQueue.length = 0;
   }
@@ -125,6 +135,7 @@ export class SystemRegistry {
     removeFrom(this.fixedUpdaters, system as SystemWith<'fixedUpdate'>);
     removeFrom(this.updaters, system as SystemWith<'update'>);
     removeFrom(this.lateUpdaters, system as SystemWith<'lateUpdate'>);
+    removeFrom(this.layouters, system as SystemWith<'layout'>);
     removeFrom(this.pendingStart, system);
   }
 }

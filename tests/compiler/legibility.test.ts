@@ -141,6 +141,18 @@ describe('one spelling per value', () => {
     expect(good.code).toContain('new Vector3(1, 2, 3)');
   });
 
+  it('gives an axis left out its default, not a zero', () => {
+    // `scale="x: 1.4; y: 65"` on a ground plane made it vanish: a scale with a zero axis draws nothing.
+    const scaled = emit('scene', `<Scene><Group scale="x: 1.4; y: 65" position="x: 2" /></Scene>`);
+    expect(scaled.diagnostics).toEqual([]);
+    expect(scaled.code).toContain('new Vector3(1.4, 65, 1)');
+    expect(scaled.code).toContain('new Vector3(2, 0, 0)');
+    // A field's own initializer is its default, axis by axis.
+    const field = emit('scene', `<Scene><Systems><Physics2D gravity="x: 3" /></Systems></Scene>`);
+    expect(field.diagnostics).toEqual([]);
+    expect(field.code).toContain('new Vector2(3, -9.81)');
+  });
+
   it('takes #rrggbb for a colour and hands back the rewrite for JavaScript notation', () => {
     const bad = emit(
       'scene',

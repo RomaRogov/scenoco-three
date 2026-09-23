@@ -46,8 +46,8 @@ declare module 'three' {
     getSystem<T extends System>(type: SystemType<T>): T | null;
 
     /**
-     * Get the system of this class, adding one if it is missing — the system-level
-     * `requireComponent`, and how a service gets installed without anyone remembering to.
+     * The system of this class, added if it is missing — the scene-level `requireComponent`.
+     *
      * From a component, prefer its own `requireSystem`, which needs no scene in hand.
      */
     requireSystem<T extends System>(type: ConstructableSystem<T>, init?: SystemInit<T>): T;
@@ -59,15 +59,19 @@ declare module 'three' {
     mainCamera: Camera | null;
 
     /**
-     * How this scene is drawn: tone mapping, shadows, post effects. `Engine` applies it while
-     * this scene is active and restores the defaults for a scene that has none.
+     * How this scene is drawn: tone mapping, shadows, post effects.
+     *
+     * `Engine` applies it while this scene is active and restores the defaults for a scene that has
+     * none.
      */
     render: RenderSettings | null;
 
     /**
      * Keep this scene loaded when another is loaded — Unity's `DontDestroyOnLoad` for a whole
-     * document. With `loadAdditive` being a no-op for a loaded scene, every level can ask for
-     * the HUD and exactly one exists.
+     * document.
+     *
+     * With `loadAdditive` being a no-op for a loaded scene, every level can ask for the HUD and
+     * exactly one exists.
      */
     dontDestroyOnLoad: boolean;
 
@@ -81,22 +85,26 @@ declare module 'three' {
     keepAlive(...assets: unknown[]): this;
 
     /**
-     * Build the scene: `onLoad` is called and awaited, so async asset loading works. Components
-     * added along the way get `awake` at once, `start` on the first tick. A no-op if loaded.
+     * Build the scene: `onLoad` is called and awaited, so async asset loading works.
+     *
+     * Components added along the way get `awake` at once, `start` on the first tick. A no-op if
+     * loaded.
      */
     load(): Promise<this>;
 
     /**
-     * Tear the scene down: `onUnload` runs first with the scene still intact, then every
-     * component gets `onDisable` + `onDestroy`, every object leaves the graph, and GPU
-     * resources are disposed unless `disposeOnUnload` is off.
+     * Tear the scene down: `onUnload`, then every component's `onDisable` and `onDestroy`, then its
+     * GPU resources unless `disposeOnUnload` is off.
+     *
+     * `onUnload` runs with the scene still intact, and every object leaves the graph.
      */
     unload(): Promise<this>;
 
     /**
      * First component of `type` anywhere in the scene — Unity's `FindObjectOfType<T>()`, which
-     * likewise returns a component. To find an *object*, give it a marker component rather
-     * than a string tag.
+     * likewise returns a component.
+     *
+     * To find an *object*, give it a marker component rather than a string tag.
      */
     findObjectOfType<T extends Component>(type: ComponentType<T>, includeInactive?: boolean): T | null;
     /** Every component of `type` anywhere in the scene. Unity's `FindObjectsOfType<T>()`. */

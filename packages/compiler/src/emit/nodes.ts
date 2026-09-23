@@ -25,6 +25,10 @@ export function emitNode(scope: EmitScope, element: SncElement, parent: string, 
   // neither is a node.
   if (element.tag === 'Components' || element.tag === 'Systems') return;
 
+  // Everything written from here belongs to this element, until a child claims the buffer — and
+  // again after the children, below, so a parent's closing lines are not blamed on its last child.
+  scope.from(out, element);
+
   if (element.tag === 'Prefab') {
     emitSpawn(scope, element, parent, out);
     return;
@@ -74,6 +78,7 @@ export function emitNode(scope: EmitScope, element: SncElement, parent: string, 
   for (const assignment of assignments) out.push(`${placed.reference}.${assignment}`);
   applyPlacement(scope, element, placed.reference, out);
   for (const child of nodes) emitNode(scope, child, placed.reference, out);
+  scope.from(out, element);
   out.push(`${parent}.add(${placed.reference});`);
 }
 

@@ -3,15 +3,18 @@ import type { Fog, FogExp2, Scene, WebGLRenderer } from 'three';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 
 /**
- * One thing that decides how a frame is drawn — tone mapping, shadows, bloom. Its settings are
- * its own fields; both hooks are optional, and an effect usually has one.
+ * One thing that decides how a frame is drawn — tone mapping, shadows, bloom.
+ *
+ * Its settings are its own fields; both hooks are optional, and an effect usually has one.
  *
  * Core defines the model; the concrete effects live in `@scenoco-three/postfx`.
  */
 export abstract class Effect {
   /**
-   * Configure the frame, when these settings become current rather than every frame. Whatever
-   * it writes is reset for a scene without it, so one level's look cannot leak into the next.
+   * Configure the frame, when these settings become current rather than every frame.
+   *
+   * Whatever it writes is reset for a scene without it, so one level's look cannot leak into the
+   * next.
    */
   apply?(target: { renderer: WebGLRenderer; scene: Scene }): void;
 
@@ -55,8 +58,18 @@ export class RenderState {
     const settings = scene.render;
     const sameSettings = settings === this.settings;
     if (sameSettings && scene === this.scene) return false;
+    const previous = this.settings;
     this.settings = settings;
     this.scene = scene;
+
+    // Nothing touched while no scene in play has a render document.
+    //
+    // The reset below exists so that turning an effect off does not mean knowing which field it
+    // wrote — but a project with no `.render.xml` at all never asked for it, and running it on
+    // the first frame silently undid the `renderer.shadowMap.enabled = true` somebody had just
+    // written in `onLoad`. The rule is ownership: the frame belongs to the document, or to you,
+    // and the document only takes it once one exists.
+    if (!settings && !previous) return false;
 
     // Defaults first: otherwise turning an effect off means knowing which field it wrote.
     renderer.toneMapping = NoToneMapping;

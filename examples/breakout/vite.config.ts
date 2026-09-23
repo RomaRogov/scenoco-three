@@ -1,5 +1,9 @@
 import { defineConfig } from 'vite';
-import { scenoco } from '@scenoco-three/vite';
 
-// No `modules` list: the compiler reads the tag packages out of this project's package.json.
-export default defineConfig({ plugins: [scenoco()] });
+// No SceNoCo plugin: a document compiles to a `.gen.ts` beside it, which is ordinary TypeScript.
+// `npm run dev` is `scenoco watch -- vite` — the watcher compiles, vite serves.
+export default defineConfig({
+  // One `three` in the graph, or `instanceof` across two copies of it silently returns false.
+  resolve: { dedupe: ['three'] },
+  build: { sourcemap: true },
+});

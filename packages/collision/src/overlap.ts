@@ -2,8 +2,10 @@ import { Vector3 } from 'three';
 import type { Bounds, BoxBounds, CapsuleBounds } from './Collider.js';
 
 /**
- * Overlap tests between world-space bounds. Pure geometry — nothing here knows about
- * components, scenes or the loop, which is what keeps it readable and testable on its own.
+ * Overlap tests between world-space bounds.
+ *
+ * Pure geometry — nothing here knows about components, scenes or the loop, which is what keeps it
+ * readable and testable on its own.
  *
  * Every collider reduces to one of two bounds: an axis-aligned box, or a capsule (a segment
  * with a radius, which a sphere is with a zero-length segment). Three tests cover every pair.

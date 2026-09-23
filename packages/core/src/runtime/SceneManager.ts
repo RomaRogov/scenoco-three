@@ -14,7 +14,7 @@ export type SceneEventListener = (scene: Scene, type: SceneType) => void;
  * populate, since the class is the key and `load` constructs it.
  *
  * `tick` runs the phases in order — `fixedUpdate` (0..n times) → `update` → coroutines →
- * `lateUpdate` → deferred destruction. `Engine` calls it, or call it from your own loop.
+ * `lateUpdate` → deferred destruction → `layout`. `Engine` calls it, or call it from your own loop.
  */
 class SceneManagerClass {
   private readonly loaded = new Map<SceneType, Scene>();
@@ -25,6 +25,8 @@ class SceneManagerClass {
   private readonly unloadedListeners: SceneEventListener[] = [];
 
   private active: Scene | null = null;
+  /** The tail of the load queue — see {@link load}. */
+  private loading: Promise<unknown> = Promise.resolve();
   private lastTimestamp: number | null = null;
   /** Unspent scaled time owed to `fixedUpdate`. Global, so additive scenes stay in lockstep. */
   private fixedAccumulator = 0;
@@ -61,6 +63,19 @@ class SceneManagerClass {
    * `await SceneManager.load(Level1)` returns with the scene fully built.
    */
   async load<T extends Scene>(type: SceneType<T>): Promise<T> {
+    requireSceneType(type);
+    // One load at a time, whatever the caller does. Two overlapping `load` calls each unloaded
+    // what the other had just put up and both scenes ended up loaded with one of them active —
+    // a state nothing in the game can reason about. Queued, `load(A)` then `load(B)` means B.
+    this.loading = this.loading.then(
+      () => this.loadExclusive(type),
+      () => this.loadExclusive(type),
+    ) as Promise<Scene>;
+    return this.loading as Promise<T>;
+  }
+
+  /** One load, with everything else already unloaded. Serialised by {@link load}. */
+  private async loadExclusive<T extends Scene>(type: SceneType<T>): Promise<T> {
     for (const other of [...this.loaded.keys()]) {
       if (other === type) continue;
       if (this.loaded.get(other)?.dontDestroyOnLoad) continue;
@@ -76,6 +91,7 @@ class SceneManagerClass {
 
   /** Load `type` alongside whatever is already loaded, without changing the active scene. */
   async loadAdditive<T extends Scene>(type: SceneType<T>): Promise<T> {
+    requireSceneType(type);
     const existing = this.loaded.get(type);
     if (existing) return existing as T;
     const inFlight = this.pending.get(type);
@@ -251,11 +267,20 @@ class SceneManagerClass {
     for (const scene of scenes) scene._runtime.runUpdates();
     for (const scene of scenes) scene._runtime.runLateUpdates();
     for (const scene of scenes) scene._runtime.endFrame();
+    // Last, over the world as it will be drawn — including what was destroyed a moment ago.
+    for (const scene of scenes) scene._runtime.runLayout();
+
+    // The frame is over, so the one-frame edges expire here. It used to be `Engine`'s job, which
+    // made `getKeyDown` true for ever in any loop that drove `tick` itself — which this class
+    // invites, and which every example that does not use `Engine` has to do.
+    Input.endFrame();
   }
 
   /**
-   * Forget the last frame's timestamp, so the next `tick` produces a nominal delta instead of
-   * a huge one. Call it after a long synchronous load or when resuming from a paused tab.
+   * Forget the last frame's timestamp, so the next `tick` produces a nominal delta instead of a
+   * huge one.
+   *
+   * Call it after a long synchronous load or when resuming from a paused tab.
    */
   resetFrameClock(): void {
     this.lastTimestamp = null;
@@ -271,6 +296,23 @@ class SceneManagerClass {
  * as unused. Every symptom after this point — `load is not a function`, a scene that ticks
  * nothing — points anywhere but at either, so both are named.
  */
+/**
+ * `SceneManager.load(Level)` takes the **class**, not an instance of it.
+ *
+ * `load(new Level())` is the natural mistake — it is how a scene is made everywhere else — and
+ * it failed with "type is not a constructor" from inside a `new`, which says nothing about
+ * scenes and nothing about the call that was written.
+ */
+function requireSceneType(type: unknown): void {
+  if (typeof type === 'function') return;
+  const name = (type as { constructor?: { name?: string } })?.constructor?.name ?? 'that';
+  throw new Error(
+    `[scenoco] SceneManager.load takes a scene class, not a scene: write SceneManager.load(${name}), ` +
+      `not SceneManager.load(new ${name}()). The manager constructs it, because it also owns ` +
+      'unloading it.',
+  );
+}
+
 function requireAugmented(scene: Scene): void {
   if (typeof scene.load === 'function') return;
   throw new Error(

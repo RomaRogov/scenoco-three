@@ -34,18 +34,20 @@ export class UIRenderer extends System {
   /** Layout failures already reported, so a bad value logs once rather than at 60Hz. */
   private readonly reported = new Set<string>();
 
-  /**
-   * A UI layout is arithmetic over the current state, so it is as valid paused as running —
-   * which is what lets an editor show a HUD without starting the game.
-   */
-  override layout(deltaTime: number): void {
-    this.update(deltaTime);
+  /** Pointer events reach the elements with the rest of the frame's input, as Unity's EventSystem does. */
+  override update(): void {
+    this.events?.update();
   }
 
-  override update(deltaTime: number): void {
+  /**
+   * Lays out every UI root — last in the frame, so it shows the state everything else left.
+   *
+   * It is arithmetic over that state, so it is as valid paused as running — which is what lets an
+   * editor show a HUD without starting the game.
+   */
+  override layout(deltaTime: number): void {
     const renderer = Engine.current?.renderer;
     if (renderer) this.configure(renderer);
-    this.events?.update();
 
     // Activation is the one authored value nothing writes back through a setter: a component
     // calls `setActive` on the node, and only this looks at it again. All of it first, then the

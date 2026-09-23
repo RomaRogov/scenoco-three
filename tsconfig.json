@@ -31,7 +31,6 @@
     "packages/audio",
     "packages/ui",
     "packages/postfx",
-    "packages/vite/src",
     "tests/core",
     "tests/compiler",
     "tests/tooling/cli.test.ts",

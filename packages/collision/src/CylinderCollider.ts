@@ -1,7 +1,11 @@
 import { Quaternion, Vector3 } from 'three';
 import { Collider, type Bounds } from './Collider.js';
 
-/** A cylinder collision shape. Its long axis is Y, and it is treated as a capsule for overlap — close enough for detection, and exactly what rapier’s own broad phase does. */
+/**
+ * A cylinder collision shape, its long axis Y, treated as a capsule for overlap.
+ *
+ * Close enough for detection, and exactly what rapier’s own broad phase does.
+ */
 export class CylinderCollider extends Collider {
   /**
    * Radius.

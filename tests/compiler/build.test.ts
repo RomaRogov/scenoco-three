@@ -167,3 +167,29 @@ describe('a document of a kind nothing declares', () => {
     fixture.remove('assets/vfx/fire.particle.xml');
   });
 });
+
+describe('a document that stops compiling', () => {
+  /**
+   * The worst outcome of a failed build is a *working* game: the previous `.gen.ts` is still
+   * beside the document, the bundler imports it happily, and the fix that "did nothing" is last
+   * week's scene running. So the module is replaced by one that throws what the compiler said.
+   */
+  it('leaves a module that throws, not the last one that worked', () => {
+    const good = read('assets/scenes/breakout.scene.gen.ts');
+    expect(good).toContain('export class BreakoutScene');
+
+    const source = readFileSync(join(fixture.dir, 'assets/scenes/breakout.scene.xml'), 'utf8');
+    fixture.writeXml('assets/scenes/breakout.scene.xml', source.replace('<Scene', '<Scene background="not a colour"'));
+    const { diagnostics } = build({ root: fixture.dir, tsconfig: fixture.tsconfig, model: result.model });
+    expect(diagnostics.length).toBeGreaterThan(0);
+
+    const broken = read('assets/scenes/breakout.scene.gen.ts');
+    expect(broken).not.toContain('export class BreakoutScene');
+    expect(broken).toContain('throw new Error(');
+    expect(broken).toContain('assets/scenes/breakout.scene.xml:1:');
+
+    fixture.writeXml('assets/scenes/breakout.scene.xml', source);
+    build({ root: fixture.dir, tsconfig: fixture.tsconfig, model: result.model });
+    expect(read('assets/scenes/breakout.scene.gen.ts')).toBe(good);
+  });
+});

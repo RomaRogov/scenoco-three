@@ -21,8 +21,8 @@ export interface CapsuleBounds {
 export type Bounds = BoxBounds | CapsuleBounds;
 
 /**
- * Shared base for the collision shapes — **API-identical to rapier's `Collider`** so a scene
- * and its component code switch between the two back-ends by swapping the import.
+ * Shared base for the collision shapes — the same API as rapier's `Collider`, so the two back-ends
+ * swap by the import.
  *
  * **Detection only, no dynamics.** `restitution`, `friction` and `density` are accepted for
  * that compatibility and are inert here; overlaps drive the contact hooks and nothing moves.

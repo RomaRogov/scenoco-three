@@ -22,6 +22,14 @@ declare module 'three' {
     _pendingDestroy: boolean;
     /** @internal set by `instantiate` once `onLoad` has run. */
     _built: boolean;
+    /**
+     * @internal the id `instantiate` was given, until a scene is there to take it.
+     *
+     * A spawn under a parent that is not in a scene yet — a prefab building its own contents —
+     * has nowhere to register, and the id was simply dropped. It is claimed when the subtree
+     * joins a scene instead, which is also where a duplicate finally throws, as documented.
+     */
+    _pendingId: string | null;
 
     // --- GameObject surface -------------------------------------------------------------
     /** The scene this object currently belongs to, or `null` while detached. */
@@ -45,8 +53,10 @@ declare module 'three' {
     eulerAngles: Vector3;
 
     /**
-     * Activate or deactivate this object. An inactive object stops receiving every component
-     * hook and stops rendering (`visible` follows the flag), and so does its whole subtree.
+     * Activate or deactivate this object and its subtree — Unity's `SetActive`.
+     *
+     * An inactive object stops receiving every component hook and stops rendering (`visible`
+     * follows the flag), and so does its whole subtree.
      */
     setActive(value: boolean): this;
 
@@ -64,6 +74,7 @@ proto._activeInHierarchy = false;
 proto._destroyed = false;
 proto._pendingDestroy = false;
 proto._built = false;
+proto._pendingId = null;
 
 /**
  * Every accessor below is `configurable`, so evaluating this module twice replaces the previous

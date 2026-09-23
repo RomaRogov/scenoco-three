@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+    "dev": "scenoco watch -- vite",
+    "build": "scenoco build && vite build",
+    "check": "scenoco check"
   },
   "dependencies": {
     "@scenoco-three/collision": "*",

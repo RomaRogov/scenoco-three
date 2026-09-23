@@ -96,6 +96,14 @@ export function configIndex(shapes: Iterable<ConfigShape | undefined>): Map<stri
   return index;
 }
 
+/**
+ * The longest description `describe` prints: a doc comment's first paragraph, never cut.
+ *
+ * A summary that does not fit is a summary to rewrite, not one to truncate — cut, the last clause
+ * was the one that mattered ("…not called by the frame loop"). The tests hold every package to it.
+ */
+export const SUMMARY_LENGTH = 160;
+
 export function describe(input: DescribeInput, wanted?: string): string {
   const { model } = input;
   const kinds: Array<[string, ComponentInfo[]]> = [
@@ -187,7 +195,17 @@ export function describe(input: DescribeInput, wanted?: string): string {
     ...(input.configs?.keys() ?? []),
   ];
   const near = nearestName(wanted, names);
-  return `nothing here is called "${wanted}".${near ? ` Did you mean "${near}"?` : ''}`;
+  if (near) return `nothing here is called "${wanted}". Did you mean "${near}"?`;
+  // No near miss at all: most often a tag from a package this project has not wired up. A
+  // package is read through a real import, so depending on it is not enough — and that is the
+  // one thing a reader cannot discover from here, because the name is genuinely absent.
+  return (
+    `nothing here is called "${wanted}".\n\n` +
+    'If it comes from a package, the package has to be a dependency *and* imported: tags are ' +
+    "only ever written in XML, so nothing else in the project imports it. Add the dependency, " +
+    `then a line to src/tags.ts — import '@scope/package'; — and ask again.\n` +
+    'With no name at all, `scenoco describe` lists everything that is wired up right now.'
+  );
 }
 
 /**
@@ -467,6 +485,9 @@ const RUNTIME: Record<string, string> = {
     '  Input.mousePosition (CSS px), Input.pointer (NDC, for Raycaster.setFromCamera),',
     '  Input.mouseDelta, Input.mouseScrollDelta',
     '',
+    'A finger is the left mouse button: a tap is a click, and a touch on a phone is',
+    'getMouseButton(MouseButton.Left) with mousePosition following the finger.',
+    '',
     'Read it in update(). Do **not** use window.addEventListener for gameplay input: every',
     'component sees the same input for a frame regardless of update order, edges last exactly one',
     'frame, and the observer can drive this — none of which is true of raw DOM events.',
@@ -741,6 +762,18 @@ function describeTag(
     if (names.length) inherited.set(owner, names);
   }
   const whose = tag.module === 'three' ? " — three.js's own names" : '';
+  /**
+   * A base this project cannot be asked about by name.
+   *
+   * `<Text>` from the UI package derives from a class uikit also calls `Component`, so
+   * "inherited from Component" read as SceNoCo's `Component` and "describe Component" answered
+   * about that one — a page with none of these names on it. A base that is not itself a tag here
+   * is named with the package whose elements share it, and is not offered as a question.
+   */
+  const foreign = (owner: string): boolean =>
+    tag.module !== 'three' && !vocabulary.some((t) => t.name === owner);
+  const from = (owner: string): string =>
+    foreign(owner) ? `${owner} (${tag.module}'s own, not SceNoCo's)` : `${owner}${whose}`;
   // `path | a geometry element` names a form, and a form nobody has seen spelled sent a reader to
   // grep the compiler's README for the phrase. One line, spelled with a real class of each family.
   const families = [...new Set(own.flatMap((prop) => (prop.assetFamily ? [prop.assetFamily] : [])))];
@@ -755,6 +788,7 @@ function describeTag(
   const spelled = example.length
     ? [`  instead of a path, written inside is this node's own:  <${tag.name}>${example.join('')}</${tag.name}>`]
     : [];
+  const askable = [...inherited.keys()].filter((owner) => !foreign(owner));
   const shown = own.slice(0, 40).map((prop) => field(prop, inline));
   const note = tag.module !== 'three' ? notes?.[tag.name] : undefined;
   return [
@@ -764,8 +798,8 @@ function describeTag(
     ...shown,
     ...(own.length > shown.length ? [`… and ${own.length - shown.length} more of its own.`] : []),
     ...spelled,
-    ...[...inherited].map(([owner, names]) => `  inherited from ${owner}${whose}: ${names.join(' · ')}`),
-    ...(inherited.size ? [`  (describe ${[...inherited.keys()].join(' ')} for their types)`] : []),
+    ...[...inherited].map(([owner, names]) => `  inherited from ${from(owner)}: ${names.join(' · ')}`),
+    ...(askable.length ? [`  (describe ${askable.join(' ')} for their types)`] : []),
     // The attributes no class declares and every node takes. They are also the ones a document
     // uses most, so leaving them out made this answer quietly misleading.
     ...(tag.family === 'node'

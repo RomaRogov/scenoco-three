@@ -16,8 +16,9 @@ class TimeClass {
   /** Scaled time consumed by fixed steps so far. */
   fixedTime = 0;
   /**
-   * How far the current frame sits into the next fixed step, in `[0, 1)`. Anything moving at
-   * the fixed rate blends its last two poses with this, so motion stays smooth.
+   * How far the current frame sits into the next fixed step, in `[0, 1)`.
+   *
+   * Anything moving at the fixed rate blends its last two poses with this, so motion stays smooth.
    */
   interpolationAlpha = 0;
   /** Speed multiplier for `deltaTime` / `fixedUpdate` frequency. `0` freezes gameplay. */

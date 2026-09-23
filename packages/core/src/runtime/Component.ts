@@ -73,8 +73,10 @@ function isPlainData(value: object): boolean {
 }
 
 /**
- * Base class for all behaviour. Extend it, declare the settings as public fields, implement the
- * hooks you need, and attach it with `object3D.addComponent(MyComponent)`.
+ * Base class for all behaviour — Unity's `MonoBehaviour`.
+ *
+ * Extend it, declare the settings as public fields, implement the hooks you need, and attach it
+ * with `object3D.addComponent(MyComponent)`.
  *
  * `TObject` says what kind of node this expects underneath and types `this.object3D` as that
  * class — `Component<PointLight>` cannot be added to a `Mesh`.
@@ -112,13 +114,36 @@ export abstract class Component<TObject extends Object3D = Object3D> {
           'field initializer or a constructor. There is no node until awake(): move that line into awake().',
       );
     }
+    if (!this._object3D) this.gone('object3D');
     return this._object3D;
   }
 
   /**
-   * The scene this component lives in. Always there from `awake` on — a component only runs in a
-   * scene — so it is read without a null check. Read on a component whose node is in no scene, it
-   * throws and says so.
+   * Refuse to answer for a component that has been destroyed.
+   *
+   * Destruction nulls the node, so every passthrough below turned into "Cannot read properties
+   * of null (reading 'getComponent')" — a stack inside core, naming neither the component nor
+   * the fact that it is gone. The common cause is a callback that outlived what it belonged to,
+   * and that is what the message has to say.
+   */
+  private gone(member: string): never {
+    throw new Error(
+      `[scenoco] ${this.constructor.name} has been destroyed, so it has no node: ${member} cannot ` +
+        'be read. Something is still holding it — an event listener, a timer, a captured `this`. ' +
+        'Unsubscribe in onDestroy, or check `isDestroyed` first.',
+    );
+  }
+
+  /** The node, for the passthroughs — the same refusal as `object3D`, without the constructor case. */
+  private get host(): TObject {
+    if (!this._object3D) this.gone('its components');
+    return this._object3D;
+  }
+
+  /**
+   * The scene this component lives in — there from `awake` on, so it needs no null check.
+   *
+   * Read on a component whose node is in no scene, it throws and says so.
    */
   get scene(): Scene {
     const scene = this._object3D?.scene;
@@ -147,7 +172,9 @@ export abstract class Component<TObject extends Object3D = Object3D> {
 
   /**
    * True when the component is enabled, its object active in hierarchy and its scene loaded —
-   * exactly when it receives ticks. Unity's `Behaviour.isActiveAndEnabled`.
+   * exactly when it receives ticks.
+   *
+   * Unity's `Behaviour.isActiveAndEnabled`.
    */
   get isActiveAndEnabled(): boolean {
     return this._isActive && !this._pendingDestroy;
@@ -165,12 +192,12 @@ export abstract class Component<TObject extends Object3D = Object3D> {
 
   /** Shorthand for `this.object3D.getComponent(type)`. */
   getComponent<T extends Component>(type: ComponentType<T>): T | null {
-    return this._object3D.getComponent(type);
+    return this.host.getComponent(type);
   }
 
   /** Shorthand for `this.object3D.getComponents(type)`. */
   getComponents<T extends Component>(type: ComponentType<T>): T[] {
-    return this._object3D.getComponents(type);
+    return this.host.getComponents(type);
   }
 
   /** Shorthand for `this.object3D.getComponentInChildren(type, includeInactive)`. */
@@ -178,7 +205,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
     type: ComponentType<T>,
     includeInactive?: boolean,
   ): T | null {
-    return this._object3D.getComponentInChildren(type, includeInactive);
+    return this.host.getComponentInChildren(type, includeInactive);
   }
 
   /** Shorthand for `this.object3D.getComponentsInChildren(type, includeInactive)`. */
@@ -186,7 +213,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
     type: ComponentType<T>,
     includeInactive?: boolean,
   ): T[] {
-    return this._object3D.getComponentsInChildren(type, includeInactive);
+    return this.host.getComponentsInChildren(type, includeInactive);
   }
 
   /** Shorthand for `this.object3D.getComponentInParent(type, includeInactive)`. */
@@ -194,7 +221,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
     type: ComponentType<T>,
     includeInactive?: boolean,
   ): T | null {
-    return this._object3D.getComponentInParent(type, includeInactive);
+    return this.host.getComponentInParent(type, includeInactive);
   }
 
   /** Shorthand for `this.object3D.getComponentsInParent(type, includeInactive)`. */
@@ -202,7 +229,7 @@ export abstract class Component<TObject extends Object3D = Object3D> {
     type: ComponentType<T>,
     includeInactive?: boolean,
   ): T[] {
-    return this._object3D.getComponentsInParent(type, includeInactive);
+    return this.host.getComponentsInParent(type, includeInactive);
   }
 
   // --- systems -------------------------------------------------------------------------
@@ -213,8 +240,10 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   }
 
   /**
-   * The scene's system of this class, created if this is the first component to ask — how a
-   * component reaches a scene-level service, usually as `requireSystem(X).add(this)` in `awake`.
+   * The scene's system of this class, created on first ask — how a component reaches a scene-level
+   * service.
+   *
+   * Usually `requireSystem(X).add(this)` in `awake`.
    *
    * Throws on a detached node, which has no scene to hold the system.
    */
@@ -232,10 +261,14 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   // --- coroutines ----------------------------------------------------------------------
 
   /**
-   * Run a generator across frames. `yield null` waits one frame, a bare number waits that many
-   * seconds, and a promise is awaited.
+   * Run a generator across frames.
    *
-   * Every coroutine stops when the component is disabled or destroyed, so an endless loop is safe.
+   * `yield null` waits one frame, a bare number waits that many seconds, and a promise is waited
+   * on — `const data = yield fetch(url).then((r) => r.json())` resumes with what it resolved to,
+   * and a rejection is thrown at that `yield`, where your own try/catch can take it.
+   *
+   * Every coroutine stops when the component is disabled or destroyed, so an endless loop is
+   * safe — including one that disables its own component from inside the loop.
    */
   startCoroutine(body: Generator<Yieldable, unknown, unknown>): Coroutine {
     const coroutine = new Coroutine(body);
@@ -259,8 +292,8 @@ export abstract class Component<TObject extends Object3D = Object3D> {
   // --- events --------------------------------------------------------------------------
 
   /**
-   * Subscribe to another object's {@link Event} for as long as this component lives — the
-   * runtime unsubscribes during teardown, so a destroyed listener can never be called.
+   * Subscribe to an {@link Event} for as long as this component lives; the listener is dropped at
+   * teardown.
    */
   // `NoInfer` on the listener: the event's own type is the contract, so a listener that
   // ignores some arguments (the common case) can't narrow it.
@@ -302,7 +335,13 @@ export abstract class Component<TObject extends Object3D = Object3D> {
 
   // --- destruction ---------------------------------------------------------------------
 
-  /** Detach and destroy this component. `onDisable`/`onDestroy` run at the end of the frame. */
+  /**
+   * Detach and destroy **this component**. `onDisable`/`onDestroy` run at the end of the frame.
+   *
+   * Not the node it is on — the same as Unity, where `Destroy(this)` removes the script and
+   * leaves the object standing. To take the whole thing out of the game, which is nearly always
+   * what an enemy dying means, write `this.object3D.destroy()`.
+   */
   destroy(): void {
     this._object3D?.removeComponent(this);
   }

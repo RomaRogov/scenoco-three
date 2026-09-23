@@ -13,7 +13,7 @@
  *   1. `scenoco init`, `npm install`, `npm run check` on the starter exactly as it ships;
  *   2. a scene touching ui (a Button), particles (an inline effect and a `.particle.xml`) and
  *      collision, compiled and typechecked;
- *   3. `vite build`, the built page run in Chrome, its button clicked for real;
+ *   3. `npm run build` — `scenoco build` then the bundler — and the built page run in Chrome;
  *   4. the observer, over MCP, opening that scene.
  *
  * Along the way: every `@scenoco-three` package is installed once, from its tarball — a second
@@ -189,8 +189,10 @@ export class Probe extends Component {
   console.log(`  ${version}`);
 
   // --- 5. the production build, run --------------------------------------------------------------
-  step('vite build, and the built page in Chrome');
-  run(npx, ['--no-install', 'vite', 'build', '--logLevel', 'error'], app, false);
+  // The starter's own `build` script, not `vite build` directly: without a bundler plugin the
+  // documents are compiled by `scenoco build` first, and that ordering is the thing to prove.
+  step('npm run build, and the built page in Chrome');
+  run(npm, ['run', 'build'], app, false);
   await runBuiltPage(join(app, 'dist'));
 
   // --- 6. the observer, as an agent starts it ------------------------------------------------------

@@ -53,10 +53,12 @@ export function templateFiles(projectName: string): TemplateFile[] {
             version: '0.0.0',
             type: 'module',
             scripts: {
-              dev: 'vite',
-              build: 'vite build',
+              // One process: the watcher compiles the documents, and the bundler it starts
+              // serves what they compile to.
+              dev: 'scenoco watch -- vite',
+              build: 'scenoco build && vite build',
               preview: 'vite preview',
-              check: 'scenoco build && tsc --noEmit',
+              check: 'scenoco check',
             },
             dependencies: {
               '@scenoco-three/core': VERSIONS.scenoco,
@@ -64,7 +66,6 @@ export function templateFiles(projectName: string): TemplateFile[] {
             },
             devDependencies: {
               '@scenoco-three/compiler': VERSIONS.scenoco,
-              '@scenoco-three/vite': VERSIONS.scenoco,
               '@types/three': VERSIONS.typesThree,
               typescript: VERSIONS.typescript,
               vite: VERSIONS.vite,
@@ -107,10 +108,18 @@ export function templateFiles(projectName: string): TemplateFile[] {
     {
       path: 'vite.config.ts',
       contents: `import { defineConfig } from 'vite';
-import { scenoco } from '@scenoco-three/vite';
 
-// The plugin compiles every document under assets/ on start, and again whenever one changes.
-export default defineConfig({ plugins: [scenoco()] });
+// No SceNoCo plugin, and nothing to configure: a document compiles to a \`.gen.ts\` beside it —
+// ordinary TypeScript, with \`new URL(…, import.meta.url)\` asset references — so any bundler
+// builds it. \`npm run dev\` is \`scenoco watch -- vite\`: the watcher compiles, vite serves.
+export default defineConfig({
+  // One \`three\` in the graph, always. A tag package brings its own three-based dependencies,
+  // and \`instanceof\` across two copies of three silently returns false.
+  resolve: { dedupe: ['three'] },
+  // A scene bug otherwise surfaces as one minified line with two-letter names and no way back
+  // to the document.
+  build: { sourcemap: true },
+});
 `,
     },
 
@@ -342,7 +351,7 @@ export class Spinner extends Component {
      A node's position is the middle of it, so a 1-tall cube resting on the ground is at y: 0.5.
 
      ── Try this ────────────────────────────────────────────────────────────────────────
-     Change speed="6" below to speed="fast", then run:  npx scenoco check
+     Change speed="6" below to speed="fast", then run:  npm run check
      The compiler will name the file, the line, the column and what to write instead. That
      answer is the reason this framework exists; everything else is machinery. -->
 <Scene camera="#camera" background="#0b1120">
@@ -464,11 +473,18 @@ always lists what is actually wired up.
 | \`template.clone()\` of a node in the scene | \`this.scene.instantiate(template, { position })\` — Unity's \`Instantiate\`: its components come too, each with its own values. An inactive template gives an inactive copy; \`setActive(true)\` it |
 | \`import { Object3D, Mesh, Vector3 } from '@scenoco-three/core'\` | \`from 'three'\`. Core exports what it adds — \`Component\`, \`System\`, \`Event\`, \`Input\`, \`Time\`, \`KeyCode\` — and three.js's own classes come from \`three\`, with core's additions already on them |
 | \`<Cube>\` | \`<Mesh geometry="../geometry/cube.asset.xml" material="…" />\` |
+| \`this.destroy()\` to remove the enemy | \`this.object3D.destroy()\` — \`this.destroy()\` removes only this component, as Unity's does, and leaves the node standing there |
+| \`scene.remove(node)\`, \`node.removeFromParent()\` | \`node.destroy()\` — removing only detaches: nothing runs \`onDestroy\`, and its components keep listening |
+| \`engine.renderer.shadowMap.enabled = true\`, \`scene.fog = new Fog(…)\` | a \`.render.xml\` with \`<Shadows>\` / \`<Fog>\`, named by the scene's \`render="…"\`: that document owns the frame |
+| \`Time.deltaTime\` inside \`fixedUpdate\` | the \`dt\` argument — the fixed step, not the frame's |
+| \`this.enabled = false\` inside a coroutine | \`return\` from the generator; disable in \`update\` |
 
 ## Commands
 
 - \`npm run check\` — compiles the documents and typechecks. Run it after every edit; it prints
   \`file:line:col\` and the exact text to write instead.
+- If \`npm run dev\` or the observer says the project **does not compile**, the game keeps the last
+  scene that did. Fix the line it names before reading anything into a screenshot.
 - \`npx scenoco describe <Name> [<Name>…]\` — what a tag, a component or a runtime API accepts,
   read off the same declarations \`tsc\` checks, so there is never a reason to open a \`.d.ts\`.
   Name several at once: \`describe Component Object3D System Input Time Event Coroutine\` is one
@@ -516,7 +532,7 @@ gitignored, and the XML is the source of truth.
 ## The two commands worth knowing
 
 \`\`\`bash
-npx scenoco check
+npm run check
 \`\`\`
 
 Compiles without writing, and reports \`file:line:col\` with the exact text to write instead. This

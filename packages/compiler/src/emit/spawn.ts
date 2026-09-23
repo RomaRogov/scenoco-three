@@ -10,6 +10,7 @@ import { PERSIST, PLACEMENT, placementStatement, uniformScale } from './placemen
 import { sanitizeIdentifier } from './module.js';
 
 export function emitSpawn(scope: EmitScope, element: SncElement, parent: string, out: string[]): void {
+  scope.from(out, element);
   const href = element.attributes.get('src');
   if (!href) {
     scope.report(element, 'missing-src', '<Prefab> needs a src= naming the prefab document.');

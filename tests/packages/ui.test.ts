@@ -1,6 +1,6 @@
 import { Group, type Object3D, PerspectiveCamera, Scene, Color } from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { SceneManager, type SceneType } from '@scenoco-three/core';
+import { CameraFit, SceneManager, type SceneType } from '@scenoco-three/core';
 import { Button, Canvas, Panel, Text, UIRenderer, toUikitProperties, type Anchor } from '@scenoco-three/ui';
 import { Clock, resetEngine } from '../core/helpers.js';
 
@@ -525,5 +525,51 @@ describe('a button', () => {
     panel.setActive(false);
     click(panel);
     expect(clicks).toBe(0);
+  });
+});
+
+/**
+ * A `<Canvas>` under a camera that keeps a frame whole lays out inside that frame.
+ *
+ * `<CameraFit mode="contain">` keeps a portrait playfield a column on a wide window by showing
+ * more world at the sides — scenery, not screen. The UI filled the whole window regardless, so a
+ * HUD stretched edge to edge while the game it belonged to sat in the middle, and a game had to
+ * re-derive CameraFit's arithmetic to put it back. The canvas root is held to the frame instead.
+ */
+describe('a canvas under a fitted camera', () => {
+  function measure(fit: CameraFit | null, window: { width: number; height: number }): Record<string, unknown> {
+    const camera = new PerspectiveCamera(60, window.width / window.height);
+    const canvas = new Canvas();
+    camera.add(canvas);
+    if (fit) Object.assign(camera.addComponent(CameraFit), fit);
+    const set: Record<string, unknown>[] = [];
+    const uikit = canvas as unknown as {
+      renderer: unknown;
+      setProperties(p: Record<string, unknown>): void;
+    };
+    uikit.renderer = { getSize: (v: { set(x: number, y: number): unknown }) => v.set(window.width, window.height), xr: { getSession: () => null } };
+    const setProperties = uikit.setProperties.bind(canvas);
+    uikit.setProperties = (p) => {
+      set.push(p);
+      setProperties(p);
+    };
+    canvas.update(0);
+    return set.at(-1) ?? {};
+  }
+
+  it('narrows to the frame on a window wider than it', () => {
+    const boxed = measure({ mode: 'contain', width: 9, height: 19 } as CameraFit, { width: 1280, height: 800 });
+    expect(boxed.sizeY).toBeUndefined();
+    const full = measure(null, { width: 1280, height: 800 });
+    expect(full).toEqual({});
+    // The frame's shape, whatever the window's.
+    const camera = new PerspectiveCamera(60, 1280 / 800);
+    const frustumHeight = 2 * Math.tan(Math.PI / 6) * (camera.near + 0.1);
+    expect(boxed.sizeX as number).toBeCloseTo((frustumHeight * 9) / 19, 6);
+  });
+
+  it('leaves the canvas alone when the camera boxes nothing in', () => {
+    expect(measure({ mode: 'cover', width: 9, height: 19 } as CameraFit, { width: 1280, height: 800 })).toEqual({});
+    expect(measure({ mode: 'contain', width: 9, height: 0 } as CameraFit, { width: 1280, height: 800 })).toEqual({});
   });
 });

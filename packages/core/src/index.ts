@@ -20,7 +20,9 @@
  *   `init`, then wakes — field initializers run after `super()`, so a constructor taking
  *   settings would have them overwritten.
  * - **`awake` for your own state, `start` for reaching other components.**
- * - **Every destroy is deferred** to the end of the frame, so destroying inside a hook is safe.
+ * - **A destroy is deferred** to the end of the frame, so destroying inside a hook is safe.
+ *   `destroyImmediate` is the exception, for when it cannot wait; so is a node that is in no
+ *   scene, which has no frame to wait for.
  * - **Angles you set are degrees** — `Object3D.eulerAngles`. Radians exist only on the live
  *   `THREE.Euler` underneath.
  * - **No engine object, no registry, no reflection, no queries, no tags.** A class extending
@@ -37,6 +39,7 @@
  * per frame:        component.update      → system.update       → coroutines
  *                   component.lateUpdate  → system.lateUpdate
  *                   deferred destruction
+ *                   system.layout
  * ```
  *
  * `SceneManager.load` replaces every scene except one marked `dontDestroyOnLoad`, and
@@ -49,6 +52,7 @@ import './runtime/augment/components.js';
 import './runtime/augment/prefabs.js';
 import './runtime/augment/lifetime.js';
 import './runtime/augment/scene.js';
+import './runtime/augment/camera.js';
 
 export { Component } from './runtime/Component.js';
 export { System } from './runtime/System.js';

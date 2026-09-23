@@ -39,8 +39,10 @@ function load(url: string): Texture {
 }
 
 /**
- * The sampler settings a texture accepts — three.js's own. Not `image`, `source` or `mipmaps`:
- * those are the loaded data, and setting them would contradict the file.
+ * The sampler settings a texture accepts — three.js's own.
+ *
+ * Not `image`, `source` or `mipmaps`: those are the loaded data, and setting them would contradict
+ * the file.
  */
 export interface TextureSettings {
   colorSpace?: Texture['colorSpace'];

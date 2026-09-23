@@ -56,14 +56,19 @@ async function main(argv: readonly string[]): Promise<number> {
   // The browser, once, on the first tool that needs it — and again if it went away.
   let page: Promise<ScenePage> | null = null;
   let current: string | null = null;
-  const scenePage = (): Promise<ScenePage> =>
-    (page ??= openScenePage(server.url, { headed, ...(executable ? { executable } : {}) }).then((opened) => ({
+  const scenePage = (): Promise<ScenePage> => {
+    // A project that does not compile has no scene to look at, and the diagnostics *are* the
+    // answer — so this is a tool result, not a dead server. Chrome is not launched for it either:
+    // the project may still be broken when the agent gives up, and nothing was ever opened.
+    if (server.failure) return Promise.reject(new Error(`the project does not compile:\n${server.failure}`));
+    return (page ??= openScenePage(server.url, { headed, ...(executable ? { executable } : {}) }).then((opened) => ({
       async call(command) {
-        // The project changed since the last call: the page's module is stale. Reopen what was
-        // open, so what the agent sees is what it just wrote — or hear why it does not compile.
+        // `failure` is the authority on whether there is anything to look at; `changed` only says
+        // the page's module is stale and what was open has to be reopened, so that what the agent
+        // sees is what it just wrote.
+        if (server.failure) throw new Error(`the project does not compile:\n${server.failure}`);
         if (server.changed) {
           server.settle();
-          if (server.failure) throw new Error(`the project does not compile:\n${server.failure}`);
           if (current && command.type !== 'open') await opened.call({ id: '', type: 'open', path: current });
         }
         const result = await opened.call(command);
@@ -76,6 +81,7 @@ async function main(argv: readonly string[]): Promise<number> {
       },
       close: () => opened.close(),
     })));
+  };
 
   let closing = false;
   let mcpClose: () => Promise<void> = async () => {};

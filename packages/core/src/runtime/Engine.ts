@@ -70,6 +70,10 @@ export class Engine {
     this.canvas = options.canvas ?? document.createElement('canvas');
     if (!this.canvas.parentElement) this.container.appendChild(this.canvas);
     this.canvas.style.display = 'block';
+    // The game owns every gesture on its canvas. Left at the browser's default, a finger dragged
+    // across a phone is taken for a scroll: after a few pixels the page gets `pointercancel` and
+    // no more moves, so anything steered by a drag crawls and stops — and nothing says why.
+    this.canvas.style.touchAction = 'none';
 
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
@@ -120,6 +124,7 @@ export class Engine {
     this.stop();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    window.removeEventListener('resize', this.handleResize);
     this.unwatchScenes?.();
     this.unwatchScenes = null;
     this.effects?.dispose();
@@ -130,6 +135,24 @@ export class Engine {
     this.renderer.dispose();
     if (Engine.current === this) Engine.current = null;
   }
+
+  /**
+   * A scene with no camera, said once.
+   *
+   * Nothing is drawn through no camera, so the symptom is a black page with no error anywhere —
+   * and the cause is one attribute. Once per scene: this is inside the frame loop.
+   */
+  private warnNoCamera(scene: Scene): void {
+    if (this.warnedAbout.has(scene)) return;
+    this.warnedAbout.add(scene);
+    console.warn(
+      `[scenoco] "${scene.name || 'this scene'}" has no camera, so nothing is drawn. ` +
+        'Set one in the document — <Scene camera="#id"> — or assign `scene.mainCamera` in code.',
+    );
+  }
+
+  /** Scenes already complained about, so the frame loop says it once and not sixty times a second. */
+  private readonly warnedAbout = new WeakSet<Scene>();
 
   /** Match the drawing buffer and every live camera to the container's size. */
   resize(): void {
@@ -159,9 +182,8 @@ export class Engine {
     if (!this.running) return;
     this.frameHandle = requestAnimationFrame(this.frame);
 
+    // `tick` clears the one-frame input edges on its way out, so there is nothing to do here.
     SceneManager.tick(timestamp);
-    // Input edges are true for exactly one frame, so they clear once every component has read them.
-    Input.endFrame();
 
     this.onBeforeRender?.();
     this.render();
@@ -178,7 +200,10 @@ export class Engine {
   render(): void {
     const scene = SceneManager.activeScene;
     const camera = scene?.mainCamera;
-    if (!scene || !camera) return;
+    if (!scene || !camera) {
+      if (scene) this.warnNoCamera(scene);
+      return;
+    }
 
     this.renderScene(scene, camera);
 
@@ -195,9 +220,10 @@ export class Engine {
   }
 
   /**
-   * Draw one scene through one camera with that scene's render settings applied — what a
-   * preview or a capture outside the loop should call, since `renderer.render` skips tone
-   * mapping and every post pass.
+   * Draw one scene through one camera with its render settings — unlike `renderer.render`, which
+   * skips tone mapping and post passes.
+   *
+   * What a preview or a capture outside the loop should call.
    */
   renderScene(scene: Scene, camera: Camera): void {
     this.applyRenderSettings(scene);
@@ -206,9 +232,10 @@ export class Engine {
   }
 
   /**
-   * Size the drawing buffer and the post-processing chain together, for a host capturing at
-   * some resolution other than the container's. A composer left at the old size renders its
-   * passes at the wrong scale.
+   * Size the drawing buffer and the post-processing chain together, for a host capturing at some
+   * resolution other than the container's.
+   *
+   * A composer left at the old size renders its passes at the wrong scale.
    */
   setFrameSize(width: number, height: number): void {
     this.renderer.setSize(width, height, false);
@@ -248,8 +275,9 @@ export class Engine {
   }
 
   /**
-   * Resolves once the post-processing chain the active scene asked for is in place. A game
-   * never notices the frame or two without it; anything that draws *once* and looks at the
+   * Resolves once the post-processing chain the active scene asked for is in place.
+   *
+   * A game never notices the frame or two without it; anything that draws *once* and looks at the
    * result — a screenshot — must await this first.
    */
   async effectsReady(): Promise<void> {
@@ -266,10 +294,16 @@ export class Engine {
 
   private observeSize(): void {
     if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', () => this.resize());
+      // Kept, so `dispose` can take it off again. An anonymous listener on `window` cannot be
+      // removed, and a disposed engine went on resizing a renderer nobody was drawing with.
+      window.addEventListener('resize', this.handleResize);
       return;
     }
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.container);
   }
+
+  private readonly handleResize = (): void => {
+    this.resize();
+  };
 }

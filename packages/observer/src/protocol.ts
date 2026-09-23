@@ -89,8 +89,15 @@ export type SimStep =
   | { do: 'button'; button: string }
   | { do: 'buttonDown'; button: string }
   | { do: 'buttonUp'; button: string }
-  /** Mouse. `x,y` are canvas-relative pixels from the top left; `click` is down plus up. */
-  | { do: 'click'; x?: number; y?: number; button?: 'left' | 'right' | 'middle' }
+  /**
+   * The pointer — a mouse, or a finger. `x,y` are canvas-relative pixels from the top left, and
+   * left out they mean *where the pointer already is*, as a still hand would. `click` is down
+   * plus up; `pointerDown` and `pointerUp` hold and release, so a drag is down, then `move`s with
+   * `step`s between them, then up. `move` takes a point, or `dx,dy` from where it is.
+   */
+  | { do: 'click'; x?: number; y?: number; button?: PointerButton }
+  | { do: 'pointerDown'; x?: number; y?: number; button?: PointerButton }
+  | { do: 'pointerUp'; x?: number; y?: number; button?: PointerButton }
   | { do: 'move'; x?: number; y?: number; dx?: number; dy?: number }
   /**
    * Capture a PNG. `cameraPos` and `lookAt` are positions in the document's own vector grammar
@@ -117,3 +124,4 @@ export type ObserverResult =
   /** `simulate` — one entry per capturing step, in order. */
   | { kind: 'multi'; results: ObserverResult[] };
 
+export type PointerButton = 'left' | 'right' | 'middle';

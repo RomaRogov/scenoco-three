@@ -32,3 +32,5 @@ export type {
   ValueShape,
 } from './model.js';
 export { MODEL_FILE, PREVIEW_THREE } from './model.js';
+export { defaultAxes } from './dsl/axes.js';
+export { PLACEMENT } from './emit/placement.js';

@@ -4,7 +4,9 @@ import type { ConstructableSystem, SystemInit, SystemLifecycle, SystemType } fro
 
 /**
  * A scene-level service that runs once per phase, after every component has had its turn — a
- * physics world, an audio bus, a batched renderer. The thing with no node.
+ * physics world, an audio bus, a batched renderer.
+ *
+ * The thing with no node.
  *
  * `awake` builds the system while the scene is still filling up; `start` runs once every
  * component has registered, and is where a system may read the scene.

@@ -33,8 +33,8 @@ export class Event<TArgs extends unknown[] = []> {
   }
 
   /**
-   * Invoke every listener in subscription order, over a snapshot — a listener may subscribe,
-   * unsubscribe or destroy things without disturbing the dispatch in progress.
+   * Invoke every listener in subscription order, over a snapshot, so a listener may subscribe,
+   * unsubscribe or destroy freely.
    */
   emit(...args: TArgs): void {
     for (const listener of this.listeners.slice()) listener(...args);

@@ -180,10 +180,13 @@ describe('a document that uses the package', () => {
 });
 
 describe('two back-ends that share tag names', () => {
-  it('is a build error naming both classes', () => {
+  it('is reported on the class that lost, with the build still able to say what else is wrong', () => {
     // `@scenoco-three/collision` is a drop-in for `@scenoco-three/rapier`: same tags, same
     // hooks, no dynamics. That is only safe because a project picks one — depending on both
     // would leave `<BoxCollider>` meaning two different things.
+    //
+    // Reported rather than thrown: dropping a dependency is a decision, and it is made once,
+    // with the rest of the project's problems visible rather than hidden behind this one.
     const both = makeFixture('two-backends', { rapier: true, collision: true });
     try {
       both.write(
@@ -193,11 +196,13 @@ import { Collision } from '@scenoco-three/collision';
 export const used = [RigidBody, Collision];
 `,
       );
-      expect(() =>
-        Workspace.with(both.tsconfig, (w) =>
-          scanComponents(w, ['@scenoco-three/rapier', '@scenoco-three/collision']),
-        ),
-      ).toThrow(/is declared twice:.*rapier.*and.*collision/s);
+      const found = Workspace.with(both.tsconfig, (w) =>
+        scanComponents(w, ['@scenoco-three/rapier', '@scenoco-three/collision']),
+      );
+      const clash = found.flatMap((info) => info.problems ?? []).find((p) => p.code === 'duplicate-class');
+      expect(clash?.message).toMatch(/is declared twice:.*collision/s);
+      // One class still answers to the tag, so every other document in the project compiles.
+      expect(found.filter((info) => info.name === 'BoxCollider')).toHaveLength(1);
     } finally {
       both.dispose();
     }

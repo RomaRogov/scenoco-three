@@ -4,8 +4,8 @@ import { Component } from '@scenoco-three/core';
 export type RigidBodyKind = 'dynamic' | 'fixed' | 'kinematic';
 
 /**
- * Accepted so a scene reads the same on this back-end as on `@scenoco-three/rapier`, and
- * **inert**: this package detects overlaps and dispatches contact hooks, and moves nothing.
+ * Inert here: accepted so a scene reads the same as on `@scenoco-three/rapier`, but this package
+ * moves nothing.
  *
  * Swap the import for `@scenoco-three/rapier` and the same scene gains real dynamics with no
  * other change. That is the whole point of the shared names.

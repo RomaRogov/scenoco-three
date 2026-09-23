@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { Color, Object3D, Scene, TextureLoader, Vector2, Vector3, Vector4 } from 'three';
 import type { SceneType } from '@scenoco-three/core';
-import { parseDocument, type ProjectModel, type PropInfo, type SncElement, type TagInfo, type ValueShape } from '@scenoco-three/compiler/browser';
+import { parseDocument, PLACEMENT as PLACED, type ProjectModel, type PropInfo, type SncElement, type TagInfo, type ValueShape } from '@scenoco-three/compiler/browser';
 import { parseValue } from '../values.js';
 import { Previews } from './preview.js';
 import type { Source } from './source.js';
@@ -354,7 +354,7 @@ class Builder {
     if (scale !== undefined) {
       const uniform = Number(scale.trim());
       if (Number.isFinite(uniform) && !scale.includes(':')) node.scale.setScalar(uniform);
-      else node.scale.fromArray(parseValue('vector3', scale) as number[]);
+      else node.scale.fromArray(parseValue('vector3', scale, PLACED.scale!.default) as number[]);
     }
     if (get('visible') !== undefined) node.visible = get('visible') === 'true';
     if (get('active') === 'false') node.setActive(false);
@@ -387,7 +387,7 @@ class Builder {
       case 'number':
       case 'boolean':
       case 'string':
-        return parseValue(prop.shape, text);
+        return parseValue(prop.shape, text, prop.default);
       case 'color':
         return new Color(parseValue('color', text) as number);
       case 'vector2':

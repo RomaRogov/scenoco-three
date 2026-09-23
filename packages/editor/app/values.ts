@@ -1,4 +1,5 @@
 import type { PropInfo, ValueShape } from '@scenoco-three/compiler';
+import { defaultAxes } from '@scenoco-three/compiler/browser';
 
 /**
  * A value as the inspector's widgets handle it: a number, a flag, some text, or a list of axes.
@@ -10,8 +11,11 @@ import type { PropInfo, ValueShape } from '@scenoco-three/compiler';
  */
 export type Scalar = number | boolean | string | number[];
 
-/** Attribute text → a value a widget can edit, or undefined when there is nothing to show. */
-export function parseValue(shape: ValueShape, text: string | undefined): Scalar | undefined {
+/**
+ * Attribute text → a value a widget can edit, or undefined when there is nothing to show. A vector
+ * axis the text leaves out takes `declared`, the property's default — as the compiler does.
+ */
+export function parseValue(shape: ValueShape, text: string | undefined, declared?: string): Scalar | undefined {
   if (text === undefined) return undefined;
   switch (shape) {
     case 'number': {
@@ -23,12 +27,12 @@ export function parseValue(shape: ValueShape, text: string | undefined): Scalar 
     case 'color':
       return colorToNumber(text);
     case 'vector2':
-      return axes(text, 2);
+      return axes(text, 2, declared);
     case 'vector3':
     case 'euler':
-      return axes(text, 3);
+      return axes(text, 3, declared);
     case 'vector4':
-      return axes(text, 4);
+      return axes(text, 4, declared);
     default:
       return text;
   }
@@ -62,7 +66,7 @@ export function formatValue(shape: ValueShape, value: Scalar): string {
  * optional shows its declared default when it has one, and a neutral value when it does not.
  */
 export function shownValue(prop: PropInfo, written: string | undefined): Scalar {
-  return parseValue(prop.shape, written) ?? parseValue(prop.shape, prop.default?.replace(/^['"]|['"]$/g, '')) ?? neutral(prop.shape);
+  return parseValue(prop.shape, written, prop.default) ?? parseValue(prop.shape, prop.default?.replace(/^['"]|['"]$/g, '')) ?? neutral(prop.shape);
 }
 
 function neutral(shape: ValueShape): Scalar {
@@ -106,8 +110,8 @@ export function widgetFor(prop: PropInfo): ValueShape | null {
   }
 }
 
-function axes(text: string, arity: number): number[] {
-  const out = new Array<number>(arity).fill(0);
+function axes(text: string, arity: number, declared?: string): number[] {
+  const out = defaultAxes(declared, arity);
   const names = ['x', 'y', 'z', 'w'];
   // The one spelling a document uses. A value that is not in it reads as zeroes, which is what
   // the compiler would have rejected anyway — the widget then writes it back correctly.

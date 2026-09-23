@@ -1,5 +1,11 @@
 import type { SncDiagnostic } from '../dsl/diagnostics.js';
 
+/** A position in the document a generated line came from. */
+export interface Origin {
+  line: number;
+  column: number;
+}
+
 /**
  * Builds one generated TypeScript module.
  *
@@ -22,6 +28,21 @@ export class TsModule {
   /** Module-scope declarations printed between the imports and the body. */
   private readonly hoisted: string[] = [];
   private readonly lines: string[] = [];
+  /**
+   * Where the lines from each index onward came from, in the order they were claimed.
+   *
+   * This is what keeps a mistake out of the generated file when `tsc` is the one that found it:
+   * a type error lands on a line here, and this says which element wrote it, so the report comes
+   * back at the `.xml` the reader can actually edit. Recorded always — it is a handful of numbers
+   * per document, and a map that only exists in dev is a map that is missing whenever it matters.
+   */
+  private readonly origins: Array<{ from: number; origin: Origin }> = [];
+  /** Local import name → the element that asked for it, so a bad import is blamed on the tag. */
+  private readonly importOrigins = new Map<string, Origin>();
+  /** Whose turn it is: set by the emitters, read by {@link require}. */
+  private importing: Origin | undefined;
+  /** Rendered line → origin, filled by {@link render} because the imports decide the offsets. */
+  private lineOrigins = new Map<number, Origin>();
   private indentation = 0;
 
   private readonly banner: string;
@@ -44,6 +65,9 @@ export class TsModule {
     for (let n = 2; this.taken.has(local); n++) local = `${name}$${n}`;
     this.taken.add(local);
     byName.set(name, local);
+    // A class that is declared but not exported, or one whose module moved, fails on the import
+    // line rather than where it is used — so the import remembers who wanted it.
+    if (this.importing) this.importOrigins.set(`${module} ${name}`, this.importing);
     return local;
   }
 
@@ -115,6 +139,33 @@ export class TsModule {
     return this;
   }
 
+  /** How many body lines have been written — the index the next claim starts at. */
+  get written(): number {
+    return this.lines.length;
+  }
+
+  /** Everything written from body line `from` onward came from `origin`, until the next claim. */
+  claim(from: number, origin: Origin): this {
+    this.origins.push({ from, origin });
+    return this;
+  }
+
+  /** Whose element is being emitted right now — what an import written from here belongs to. */
+  now(origin: Origin | undefined): this {
+    this.importing = origin;
+    return this;
+  }
+
+  /**
+   * Rendered line number (1-based) → where in the document that line came from.
+   *
+   * Only valid after {@link render}, which is what fixes how many lines the banner and the
+   * imports take.
+   */
+  origin(): ReadonlyMap<number, Origin> {
+    return this.lineOrigins;
+  }
+
   report(diagnostic: SncDiagnostic): void {
     this.diagnostics.push(diagnostic);
   }
@@ -126,6 +177,8 @@ export class TsModule {
   /** The finished module source. */
   render(): string {
     const out: string[] = [this.banner, ''];
+    /** Import lines, by their index in `out` — turned into file lines once the banner is counted. */
+    const imported = new Map<number, Origin>();
     for (const module of [...this.sideEffects].sort()) {
       // A named import from the same module already evaluates it, so printing both is one line
       // of noise in every generated file that happens to name a class from core.
@@ -135,6 +188,10 @@ export class TsModule {
     for (const module of [...this.imports.keys()].sort(sortImports)) {
       const byName = this.imports.get(module)!;
       const entries = [...byName.entries()].sort(([a], [b]) => a.localeCompare(b));
+      // One line, several names: the first that has an origin owns it. Two tags from one module
+      // that both went wrong is not a case worth splitting the import for.
+      const owner = entries.map(([name]) => this.importOrigins.get(`${module} ${name}`)).find(Boolean);
+      if (owner) imported.set(out.length + 1, owner);
       const clause = ([name, local]: [string, string]) => (name === local ? name : `${name} as ${local}`);
       const types = entries.filter(([name]) => this.typeOnly.has(`${module} ${name}`));
       // All types: `import type`, which a `verbatimModuleSyntax` build erases outright. Mixed:
@@ -150,6 +207,18 @@ export class TsModule {
     }
     if (this.imports.size > 0 || this.sideEffects.size > 0) out.push('');
     if (this.hoisted.length > 0) out.push(...this.hoisted, '');
+    // Everything above the body, so a body line's index can be turned into a file line. Counted
+    // in newlines, not in entries: the banner and a hoisted declaration are each several lines.
+    const bannerLines = this.banner.split('\n').length - 1;
+    const headLines = out.join('\n').split('\n').length;
+    this.lineOrigins = new Map<number, Origin>();
+    for (const [index, origin] of imported) this.lineOrigins.set(index + bannerLines, origin);
+    let next = 0;
+    let current: Origin | undefined;
+    for (let i = 0; i < this.lines.length; i++) {
+      while (next < this.origins.length && this.origins[next]!.from <= i) current = this.origins[next++]!.origin;
+      if (current) this.lineOrigins.set(headLines + i + 1, current);
+    }
     out.push(...this.lines);
     // One trailing newline, never two — the file is regenerated constantly and a stable byte
     // sequence is what keeps a watch loop from rewriting an unchanged file.

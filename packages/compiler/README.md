@@ -9,8 +9,10 @@ component or runtime API accepts, read off the same declarations `tsc` checks.
 npm i -D @scenoco-three/compiler
 ```
 
-Most projects never call this directly — [`@scenoco-three/vite`](https://www.npmjs.com/package/@scenoco-three/vite)
-runs it on build and on change. Reach for the CLI for one-off checks, for CI, and for scaffolding.
+There is no bundler plugin to install. `scenoco watch -- vite` compiles the documents and runs
+your bundler beside it, `scenoco build` compiles once for a production build, and `scenoco check`
+compiles without writing — for CI. Any bundler works: a document becomes plain TypeScript with
+`new URL(…, import.meta.url)` asset references.
 
 ## Starting a project
 
@@ -152,13 +154,13 @@ reference, every value form and every diagnostic, is in
 ## Programmatic API
 
 ```ts
-import { build, formatDiagnostics } from '@scenoco-three/compiler';
+import { build, formatDiagnostic } from '@scenoco-three/compiler';
 
-const result = await build({ root: process.cwd() });
-if (result.diagnostics.length) console.error(formatDiagnostics(result.diagnostics));
+const result = build({ root: process.cwd() });
+for (const problem of result.diagnostics) console.error(formatDiagnostic(problem));
 ```
 
-`build()` is the whole compiler; the CLI and the Vite plugin are thin views over it. Also exported
+`build()` is the whole compiler; every CLI command is a thin view over it. Also exported
 for tools that need to *describe* a project rather than compile it: `scanProject`, `scanComponents`,
 `scanTags`, `parseDocument`, `describe`, `documentKinds`, `PLACEMENT`, and `formatDiagnostic`.
 

@@ -126,7 +126,6 @@ folder or a URL and edits it in place, hosted on GitHub Pages.
 | --- | --- | --- |
 | 1 | [`@scenoco-three/core`](packages/core) | Runtime: `Component`, `System`, `SceneManager`, `Engine`, the `Object3D`/`Scene` augmentations, input, coroutines, assets. |
 | 2 | [`@scenoco-three/compiler`](packages/compiler) | Build time: the parser, the workspace scan, the emitters, diagnostics, `scenoco check` / `describe` / `init`. Run `describe` for the format. |
-| 2 | [`@scenoco-three/vite`](packages/vite) | The Vite plugin: compile on start, recompile on change. ~120 lines. |
 | 3 | [`@scenoco-three/observer`](packages/observer) | The MCP server, over stdio, driving a headless Chrome: `open`, `outline`, `screenshot`, `telemetry`, `simulate` with `eval`. |
 | — | [`@scenoco-three/editor`](packages/editor) | The standalone visual editor: a static site (GitHub Pages, or `npx scenoco-editor`) that opens a scene from a folder or a URL. Depends on nothing at run time. |
 | adapters | | thin, opt-in, 50 to 400 lines each: |

@@ -410,7 +410,7 @@ export class SceneDocument implements ConfigHost {
   }
 
   attachmentValue(attachment: Attachment, prop: PropInfo): Scalar | undefined {
-    return parseValue(prop.shape, attachment.attributes.get(prop.name));
+    return parseValue(prop.shape, attachment.attributes.get(prop.name), prop.default);
   }
 
   setAttachmentValue(
@@ -677,7 +677,7 @@ export class SceneDocument implements ConfigHost {
    * show the default, greyed.
    */
   nodeValue(node: Object3D, prop: PropInfo): Scalar | undefined {
-    return parseValue(prop.shape, this.nodeAttr(node, prop.name));
+    return parseValue(prop.shape, this.nodeAttr(node, prop.name), prop.default);
   }
 
   setNodeValue(node: Object3D, prop: PropInfo, value: Scalar, opts?: { coalesce?: boolean }): void {

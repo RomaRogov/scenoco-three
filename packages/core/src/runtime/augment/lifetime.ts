@@ -140,7 +140,14 @@ proto.remove = function (this: Object3D, ...objects: Object3D[]): Object3D {
   if (object === reparenting) return this; // mid-flight move inside the same scene
 
   const runtime = object._runtime;
-  if (runtime) runtime.unregisterSubtree(object);
+  if (runtime) {
+    runtime.unregisterSubtree(object);
+    // Detaching is not destroying, and it is meant to be: a node taken out and put back keeps
+    // its components and their state, which is how pooling works. But `onDestroy` never runs,
+    // and anything the components subscribed to still holds them — so a node dropped here and
+    // forgotten is a leak that behaves like a bug in whatever it was listening to.
+    runtime.noticeDetached(object);
+  }
   markHierarchy(object, false, []);
   return this;
 } as Object3D['remove'];

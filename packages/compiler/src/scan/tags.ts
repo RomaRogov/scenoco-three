@@ -56,6 +56,8 @@ export function scanTags(
   modules: readonly string[] = ['three'],
   /** The types that author as a path — a project's document kinds. See `shapeOf`. */
   documents?: ReadonlySet<string>,
+  /** Where two packages claiming one tag is recorded. Reported with the build's own findings. */
+  conflicts: string[] = [],
 ): TagInfo[] {
   const { checker, project } = workspace;
   const resolved = resolveAll(workspace, modules);
@@ -85,10 +87,14 @@ export function scanTags(
       }
       const owner = claimed.get(tag.name);
       if (owner) {
-        throw new Error(
-          `[scenoco] the tag <${tag.name}> is exported by both "${owner}" and "${specifier}". ` +
-            'Two packages cannot claim one tag name; rename one, or drop a dependency.',
+        // Kept, not thrown — see the same decision in `scanClasses.claim`. The first package
+        // named wins, and the conflict is reported with everything else the build found.
+        conflicts.push(
+          `The tag <${tag.name}> is exported by both "${owner}" and "${specifier}". Two packages ` +
+            `cannot claim one tag name; rename one, or drop a dependency. Until then it is ` +
+            `"${owner}" that documents get.`,
         );
+        continue;
       }
       claimed.set(tag.name, specifier);
       tags.push(tag);
@@ -126,6 +132,12 @@ function describeTag(
   const family = familyOf(symbol.name, chain);
   if (!family) return undefined;
 
+  // Only a node: it is the one family a generated class extends — a scene extends `Scene`, a
+  // prefab extends whatever its root is — and so the only one whose members an `id` can collide
+  // with. Read off the type, so a three.js release that adds a property adds it here too.
+  const members =
+    family === 'node' ? checker.getPropertiesOfType(instance).map((member) => member.name) : undefined;
+
   const parameters = signature
     .getParameters()
     .map((parameter) => propOf(parameter, checker, {}, documents, project))
@@ -151,6 +163,7 @@ function describeTag(
     parameters,
     properties,
     bases: chain,
+    ...(members ? { members } : {}),
   };
 }
 

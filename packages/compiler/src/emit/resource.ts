@@ -201,15 +201,32 @@ function unknownAttribute(
     ask: tag.name,
     takes: names,
   });
+  const instead = renamed(attribute);
   return {
     line: element.line,
     column: element.column,
     code: 'unknown-attribute',
-    message:
-      `<${tag.name}> has no attribute "${attribute}".${attrAdvice.text}${elsewhere(attribute, tag, vocabulary)}`,
-    ask: attrAdvice.ask,
+    message: instead
+      ? `<${tag.name}> has no attribute "${attribute}". ${instead}`
+      : `<${tag.name}> has no attribute "${attribute}".${attrAdvice.text}${elsewhere(attribute, tag, vocabulary)}`,
+    ...(instead ? {} : { ask: attrAdvice.ask }),
     ...(element.file ? { file: element.file } : {}),
   };
+}
+
+/**
+ * Attributes three.js has that a document spells differently, with the spelling.
+ *
+ * These are not misspellings and a near-miss search will never find them: they are three.js's own
+ * property names, which is to say the first thing anyone writes. `rotation` is the one a model
+ * reaches for every time, and "no such attribute" on a name that plainly exists on the class
+ * reads as the compiler being wrong about three.js.
+ */
+function renamed(attribute: string): string | undefined {
+  if (attribute === 'rotation' || attribute === 'quaternion') {
+    return 'A document turns a node with eulerAngles, in degrees: eulerAngles="x: 0; y: 45; z: 0".';
+  }
+  return undefined;
 }
 
 /**

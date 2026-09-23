@@ -19,7 +19,6 @@ export type {
   ValueShape,
 } from './model.js';
 export { MODEL_FILE, PREVIEW_THREE } from './model.js';
-export { withoutMarkers, type MarkerNode } from './markers.js';
 export { parseDocument, type SncElement, type ParseResult } from './dsl/parse.js';
 /**
  * The attributes every node takes, whatever its tag. Exported because anything that describes a

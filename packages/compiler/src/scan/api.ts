@@ -10,7 +10,7 @@
  * Two shapes of answer:
  *
  * - an export of `@scenoco-three/core` or a tag package — a class (`Component`, `System`), or an
- *   instance (`Input`, `Time`, `SceneManager`): its members, with the first sentence of each doc.
+ *   instance (`Input`, `Time`, `SceneManager`): its members, each with its doc's first paragraph.
  * - `Object3D` or `Scene`: *what the framework adds* to the three.js class. The augmentation is
  *   the whole node API — `addComponent`, `instantiate`, `destroy`, `byId` — and three's own hundred
  *   members are documented elsewhere, so those are left out.
@@ -22,13 +22,38 @@ import type { Workspace } from './workspace.js';
 
 const CORE = '@scenoco-three/core';
 
-/** A member line: the signature as declared, and its doc's first sentence, if any. */
+/** A member line: the signature as declared, and its doc's first paragraph, if any. */
 interface Member {
   text: string;
   doc?: string;
 }
 
 export function describeApi(workspace: Workspace, name: string, modules: readonly string[]): string | undefined {
+  const found = lookUp(workspace, name, modules);
+  if (!found || (found.members.length === 0 && found.augments)) return undefined;
+  const heading = `${found.heading}${found.summary ? `. ${found.summary}` : ''}`;
+  return found.members.length ? [heading, ...render(found.members)].join('\n') : heading;
+}
+
+/**
+ * Every description `describeApi` would print for a name — the class's and each member's. They
+ * are printed whole, never cut, so the test that holds them to `SUMMARY_LENGTH` reads them here.
+ */
+export function apiSummaries(workspace: Workspace, name: string, modules: readonly string[]): string[] {
+  const found = lookUp(workspace, name, modules);
+  if (!found) return [];
+  return [found.summary, ...found.members.map((member) => member.doc)].filter((doc): doc is string => !!doc);
+}
+
+interface Found {
+  heading: string;
+  summary?: string;
+  members: Member[];
+  /** An augmented three.js class: only what the framework added, and nothing when it added none. */
+  augments?: boolean;
+}
+
+function lookUp(workspace: Workspace, name: string, modules: readonly string[]): Found | undefined {
   const { checker } = workspace;
 
   // The augmented three.js classes: only what the framework added.
@@ -37,13 +62,11 @@ export function describeApi(workspace: Workspace, name: string, modules: readonl
     const symbol = three && checker.getExportsOfModule(three).find((s) => s.name === name);
     const instance = symbol && instanceTypeOf(symbol, checker);
     if (!instance) return undefined;
-    const members = membersOf(instance, workspace, (path) => !isThree(path));
-    if (members.length === 0) return undefined;
     const what =
       name === 'Object3D'
         ? 'what @scenoco-three/core adds to every three.js node. `this.object3D` in a component is one'
         : 'what @scenoco-three/core adds to THREE.Scene. `this.scene` in a component is one';
-    return [`${name} — ${what}:`, ...render(members)].join('\n');
+    return { heading: `${name} — ${what}:`, members: membersOf(instance, workspace, (path) => !isThree(path)), augments: true };
   }
 
   for (const specifier of [CORE, ...modules.filter((m) => m !== 'three' && m !== CORE)]) {
@@ -54,10 +77,13 @@ export function describeApi(workspace: Workspace, name: string, modules: readonl
     const declared = resolveAlias(exported, checker);
     const instance = instanceTypeOf(declared, checker) ?? checker.getTypeOfSymbol(declared);
     if (!instance) continue;
-    const members = membersOf(instance, workspace, () => true);
-    const summary = firstSentence(docOfSymbol(declared, workspace.project) ?? '');
-    const heading = `${name} — from ${specifier}${summary ? `. ${summary}` : ''}`;
-    return members.length ? [heading, ...render(members)].join('\n') : heading;
+    const summary = docOfSymbol(declared, workspace.project);
+    return {
+      heading: `${name} — from ${specifier}`,
+      ...(summary ? { summary } : {}),
+      // three.js's own members are documented by three.js, here as on a node.
+      members: membersOf(instance, workspace, (path) => !isThree(path)),
+    };
   }
   return undefined;
 }
@@ -133,17 +159,10 @@ function signatureOf(node: ast.Node, sourceFile: ast.SourceFile): string | undef
 }
 
 function render(members: Member[]): string[] {
-  return members.map((member) =>
-    member.doc ? `  ${member.text}\n      ${firstSentence(member.doc)}` : `  ${member.text}`,
-  );
+  return members.map((member) => (member.doc ? `  ${member.text}\n      ${member.doc}` : `  ${member.text}`));
 }
 
-function firstSentence(text: string): string {
-  const cut = text.search(/\.\s|\.$/);
-  const sentence = cut === -1 ? text : text.slice(0, cut + 1);
-  return sentence.length > 160 ? `${sentence.slice(0, 157)}…` : sentence;
-}
-
+/** Declared by three.js or by TypeScript's own lib — documented where they are declared. */
 function isThree(path: string): boolean {
-  return /\/node_modules\/(?:@types\/)?three\//.test(path);
+  return /\/node_modules\/(?:(?:@types\/)?three\/|typescript\/lib\/)/.test(path) || /\/lib\.[\w.]+\.d\.ts$/.test(path);
 }

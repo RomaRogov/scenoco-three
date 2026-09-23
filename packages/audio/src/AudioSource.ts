@@ -136,9 +136,10 @@ export class AudioSource extends Component {
   }
 
   /**
-   * Fire a one-off that overlaps whatever is already playing — Unity's `PlayOneShot`. This is
-   * the one to reach for on a footstep or a hit: calling `play()` repeatedly cuts each sound off
-   * with the next.
+   * Fire a one-off that overlaps whatever is already playing — Unity's `PlayOneShot`.
+   *
+   * This is the one to reach for on a footstep or a hit: calling `play()` repeatedly cuts each
+   * sound off with the next.
    *
    * Defaults to this source's own clip, and takes another to play a variation through the same
    * settings.

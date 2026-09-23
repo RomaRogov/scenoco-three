@@ -6,13 +6,28 @@ export function textOf(sourceFile: ast.SourceFile, node: ast.Node | undefined): 
   return node ? sourceFile.text.slice(node.pos, node.end).trim() : undefined;
 }
 
-/** 1-based line number of a node. */
+/**
+ * 1-based line the node itself starts on.
+ *
+ * `node.pos` is where its *trivia* starts — the end of whatever came before it — so a class two
+ * blank lines below an import reported the import's line, and a field below a doc comment
+ * reported the comment's. Both are lines a reader then goes and looks at for nothing.
+ */
 export function lineOf(sourceFile: ast.SourceFile, node: ast.Node): number {
   let line = 1;
-  for (let i = 0; i < node.pos && i < sourceFile.text.length; i++) {
-    if (sourceFile.text.charCodeAt(i) === 10) line++;
-  }
+  const start = Math.min(startOf(sourceFile, node), sourceFile.text.length);
+  for (let i = 0; i < start; i++) if (sourceFile.text.charCodeAt(i) === 10) line++;
   return line;
+}
+
+/** Where a node's own text begins: past the whitespace and comments `pos` includes. */
+function startOf(sourceFile: ast.SourceFile, node: ast.Node): number {
+  let start = node.pos;
+  ast.forEachLeadingCommentRange(sourceFile.text, node.pos, (_pos, end) => {
+    start = end;
+  });
+  while (start < node.end && /\s/.test(sourceFile.text[start] ?? '')) start++;
+  return start;
 }
 
 /**
@@ -68,7 +83,9 @@ function commentLines(sourceFile: ast.SourceFile, node: ast.Node): string[] | un
   ast.forEachLeadingCommentRange(sourceFile.text, node.pos, (pos, end) => {
     comments.push(sourceFile.text.slice(pos, end));
   });
-  const block = comments.find((c) => c.startsWith('/**'));
+  // The **last** doc block, as TypeScript itself resolves one: a file header, or a stray second
+  // comment, sits above the one that describes the declaration, and only the nearest is its own.
+  const block = comments.filter((c) => c.startsWith('/**')).pop();
   if (!block) return undefined;
   return block
     .replace(/^\/\*\*/, '')
@@ -96,6 +113,17 @@ export function docTagOf(sourceFile: ast.SourceFile, node: ast.Node, tag: string
   }
   const joined = text.join(' ').replace(/\s+/g, ' ').trim();
   return joined.length > 0 ? joined : undefined;
+}
+
+/**
+ * Whether a JSDoc tag is written above a node — `@serializeField`, with nothing after it.
+ *
+ * Separate from {@link docTagOf}, which answers with the tag's *text*: a marker carries none, so
+ * "written" and "wrote something" are different questions.
+ */
+export function hasDocTag(sourceFile: ast.SourceFile, node: ast.Node, tag: string): boolean {
+  const lines = commentLines(sourceFile, node);
+  return (lines ?? []).some((line) => line === `@${tag}` || line.startsWith(`@${tag} `));
 }
 
 /** {@link docTagOf} for a symbol read through the checker: the first declaration that has it. */

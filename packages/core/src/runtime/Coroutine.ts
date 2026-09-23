@@ -48,15 +48,19 @@ export class WaitForSecondsRealtime extends WaitForSeconds {
   }
 }
 
-/** Suspend until the next fixed step has run. */
+/**
+ * Suspend until the next fixed step has run.
+ *
+ * Nothing to count: coroutines are polled *after* the step, so the first poll this wait ever
+ * sees is already on the far side of one. Counting a frame here made every
+ * `yield new WaitForFixedUpdate()` take two steps, which is a physics bug nobody would look for
+ * in a coroutine.
+ */
 export class WaitForFixedUpdate extends YieldInstruction {
   override readonly fixed = true;
-  private ticked = false;
 
   keepWaiting(): boolean {
-    if (this.ticked) return false;
-    this.ticked = true;
-    return true;
+    return false;
   }
 }
 
@@ -118,15 +122,31 @@ export class Coroutine {
   private readonly body: AnyGenerator;
   private waiting: YieldInstruction | null = null;
   private waitingPromise: Promise<unknown> | null = null;
-  private promiseSettled = false;
+  private settled: { value: unknown } | { error: unknown } | null = null;
+  /** True while `body.next()` is on the stack — a generator cannot be re-entered. */
+  private running = false;
+  /** A stop asked for from inside the body, honoured the moment the body lets go. */
+  private stopRequested = false;
 
   constructor(body: AnyGenerator) {
     this.body = body;
   }
 
-  /** @internal cancel, running any `finally` blocks in the generator. */
+  /**
+   * @internal cancel, running any `finally` blocks in the generator.
+   *
+   * A coroutine that disables its own component, or destroys its own node, stops itself from
+   * inside `next()` — and `return()` on a generator that is already running throws "Generator is
+   * already running", which surfaced from `setActive(false)` with nothing in the message about
+   * coroutines and left `onDisable` unrun. So a stop from inside is remembered and honoured by
+   * the runner on the way out, which is where the generator is no longer on the stack.
+   */
   stop(): void {
     if (this.done) return;
+    if (this.running) {
+      this.stopRequested = true;
+      return;
+    }
     this.done = true;
     this.body.return(undefined);
   }
@@ -138,10 +158,17 @@ export class Coroutine {
   tick(fixedPhase: boolean): void {
     if (this.done) return;
 
+    /** What to hand back into the generator: a promise's value, or nothing. */
+    let resume: { value: unknown } | { error: unknown } = { value: undefined };
+
     if (this.waitingPromise) {
-      if (!this.promiseSettled) return;
+      // A promise resumes in the frame phase, like every other wait that is not a
+      // `WaitForFixedUpdate` — the fixed phase runs a variable number of times per frame, and
+      // resuming there made a coroutine's timing depend on the physics rate.
+      if (fixedPhase || !this.settled) return;
+      resume = this.settled;
       this.waitingPromise = null;
-      this.promiseSettled = false;
+      this.settled = null;
     } else if (this.waiting) {
       // A wait is polled only in the phase it belongs to.
       if (this.waiting.fixed !== fixedPhase) return;
@@ -152,9 +179,19 @@ export class Coroutine {
       return;
     }
 
-    const result = this.body.next();
-    if (result.done) {
+    this.running = true;
+    let result;
+    try {
+      // The awaited value goes back in, so `const data = yield fetch(url)` is the value and not
+      // `undefined`; a rejection is thrown at the `yield`, where the body's own try/catch can
+      // see it and where an unhandled one is reported like any other error in a coroutine.
+      result = 'error' in resume ? this.body.throw(resume.error) : this.body.next(resume.value);
+    } finally {
+      this.running = false;
+    }
+    if (result.done || this.stopRequested) {
       this.done = true;
+      if (!result.done) this.body.return(undefined);
       return;
     }
     this.accept(result.value);
@@ -168,10 +205,14 @@ export class Coroutine {
     } else if (instruction && typeof (instruction as Promise<unknown>).then === 'function') {
       const promise = instruction as Promise<unknown>;
       this.waitingPromise = promise;
-      const settle = () => {
-        this.promiseSettled = true;
-      };
-      promise.then(settle, settle);
+      promise.then(
+        (value) => {
+          if (this.waitingPromise === promise) this.settled = { value };
+        },
+        (error: unknown) => {
+          if (this.waitingPromise === promise) this.settled = { error };
+        },
+      );
     } else {
       // `yield null` / `yield` — resume next frame.
       this.waiting = null;

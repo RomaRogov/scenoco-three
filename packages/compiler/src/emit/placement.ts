@@ -11,7 +11,7 @@ import type { PropInfo } from '../model.js';
 export const PLACEMENT: Readonly<Record<string, PropInfo>> = {
   position: { name: 'position', type: 'Vector3', shape: 'vector3', required: false },
   eulerAngles: { name: 'eulerAngles', type: 'Vector3', shape: 'euler', required: false },
-  scale: { name: 'scale', type: 'Vector3', shape: 'vector3', required: false },
+  scale: { name: 'scale', type: 'Vector3', shape: 'vector3', required: false, default: 'x: 1; y: 1; z: 1' },
   name: { name: 'name', type: 'string', shape: 'string', required: false },
   /**
    * Whether the node is on — Unity's `GameObject.SetActive`. Turns the whole subtree off: no

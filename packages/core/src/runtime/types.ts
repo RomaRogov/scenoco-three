@@ -9,8 +9,10 @@ export type ComponentType<T extends Component = Component> = abstract new (...ar
 export type ConstructableComponent<T extends Component = Component> = new () => T;
 
 /**
- * The `Object3D` subclass a component declares it needs. `addComponent` uses it as its `this`
- * type, so attaching to the wrong kind of node is a type error rather than a crash in `awake`.
+ * The `Object3D` subclass a component declares it needs.
+ *
+ * `addComponent` uses it as its `this` type, so attaching to the wrong kind of node is a type error
+ * rather than a crash in `awake`.
  */
 export type OwnerOf<T extends Component> = T extends Component<infer TObject> ? TObject : Object3D;
 
@@ -50,13 +52,19 @@ export type AuthorableFields<T, TBase> = Partial<
 export type ComponentInit<T extends Component> = AuthorableFields<T, Component>;
 
 /**
- * Where an instantiated prefab goes. In the same call as its settings because a prefab's
- * `awake` runs with its transform already set — placing it afterwards is too late.
+ * Where an instantiated prefab goes.
+ *
+ * In the same call as its settings because a prefab's `awake` runs with its transform already set —
+ * placing it afterwards is too late.
  */
 export interface PrefabPlacement {
   /**
    * An id for this instance — `scene.byId('slime3')`, and `scene.byId('slime3/body')` for the
-   * ids inside it. Unique within the scene; a duplicate throws.
+   * ids inside it.
+   *
+   * Unique within the scene, and a duplicate throws — at the spawn when the parent is already in
+   * one, and otherwise at the `add` that brings the subtree in, which is the first moment there
+   * is a scene to be unique within.
    */
   id?: string;
   name?: string;
@@ -105,8 +113,10 @@ export interface SystemLifecycle {
   awake?(): void;
   /**
    * Called once, after every component in the scene has had `awake` and `start` — too late for
-   * state they read in theirs. Where a system may read the scene: by now it is complete, where in
-   * `awake` it is still being built.
+   * state they read in theirs.
+   *
+   * Where a system may read the scene: by now it is complete, where in `awake` it is still being
+   * built.
    */
   start?(): void;
   /** Fixed-timestep tick, after every component's `fixedUpdate`. Step physics here. */
@@ -117,16 +127,23 @@ export interface SystemLifecycle {
   lateUpdate?(deltaTime: number): void;
   /**
    * Something outside the simulation moved the nodes this system mirrors — re-read them.
-   * Unity's `Physics2D.SyncTransforms`: without it a teleported body is drawn in its new place
-   * and collides in its old one.
+   *
+   * Unity's `Physics2D.SyncTransforms`: without it a teleported body is drawn in its new place and
+   * collides in its old one.
+   *
+   * **The frame loop never calls this.** It is for a tool driving the scene from outside — the
+   * observer and the editor do, after moving a node — and for game code that teleports a body
+   * and needs the world to agree before the next query.
    */
   syncTransforms?(): void;
 
   /**
-   * Bring this system's *presentation* up to date on a frame that is not simulated — a UI
-   * layout, which is arithmetic over the current state rather than a step of the world.
+   * Brings presentation up to date — a UI layout, a HUD's text. Last in every frame, and again
+   * whenever a scene is shown without being simulated.
    *
-   * Implement it only where running twice in a frame is harmless. Physics must not.
+   * The second half is what an editor or the observer needs: a paused scene, or one changed from
+   * outside since its last frame, still shows its current state. So it can run more than once a
+   * frame, and nothing here may step the world.
    */
   layout?(deltaTime: number): void;
 
@@ -147,7 +164,9 @@ export type SceneType<T extends Scene = Scene> = new () => T;
 export interface ComponentLifecycle {
   /**
    * Called once, when the owning object first becomes part of a loaded scene and is active in
-   * hierarchy — even if the component itself is disabled. Cache references here.
+   * hierarchy — even if the component itself is disabled.
+   *
+   * Cache references here.
    */
   awake?(): void;
   /** Called every time the component transitions from inactive to active. */
@@ -173,15 +192,19 @@ export interface ComponentLifecycle {
 export type LifecycleHook = keyof ComponentLifecycle;
 
 /**
- * A component narrowed to one that implements `K`. The per-hook buckets hold these, so the
- * runtime calls `component.update(dt)` with no `!` and no check at the call site.
+ * A component narrowed to one that implements `K`.
+ *
+ * The per-hook buckets hold these, so the runtime calls `component.update(dt)` with no `!` and no
+ * check at the call site.
  */
 export type ComponentWith<K extends LifecycleHook> = Component &
   Required<Pick<ComponentLifecycle, K>>;
 
 /**
- * Optional hooks a Scene subclass may implement, beyond the ones every node has. `onLoad` is
- * inherited rather than redeclared — one signature per property name across `Scene`'s bases.
+ * Optional hooks a Scene subclass may implement, beyond the ones every node has.
+ *
+ * `onLoad` is inherited rather than redeclared — one signature per property name across `Scene`'s
+ * bases.
  */
 export interface SceneLifecycle extends NodeLifecycle {
   /** Called at the start of `unload`, while the scene is still intact. */
@@ -189,13 +212,17 @@ export interface SceneLifecycle extends NodeLifecycle {
 }
 
 /**
- * The build hooks an `Object3D` subclass may implement to act as a prefab. Called only by
- * `instantiate`; a node added with plain `add()` is not built, and the runtime warns.
+ * The build hooks an `Object3D` subclass may implement to act as a prefab.
+ *
+ * Called only by `instantiate`; a node added with plain `add()` is not built, and the runtime
+ * warns.
  */
 export interface NodeLifecycle {
   /**
-   * Populate this node. Called once by `instantiate`, after `init` is applied and before the
-   * node enters the graph: its transform is final, and nothing below it has had `awake`.
+   * Populate this node — called once by `instantiate`, before the node enters the graph, its
+   * transform already final.
+   *
+   * `init` is applied by then, and nothing below it has had `awake`.
    *
    * The promise is for `Scene.load()`, which awaits it. `instantiate` hands back a finished
    * node synchronously, so a prefab returning one is reported — load assets in the scene.

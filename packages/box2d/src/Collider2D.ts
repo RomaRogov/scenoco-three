@@ -3,9 +3,10 @@ import { Component } from '@scenoco-three/core';
 import { RigidBody2D } from './RigidBody2D.js';
 
 /**
- * Shared base for the 2D collision shapes, mirroring how each light is its own tag: the
- * concrete shapes — `<BoxCollider2D>`, `<CircleCollider2D>`, and the rest — subclass this and
- * implement `toShape()`.
+ * Shared base for the 2D collision shapes; `<BoxCollider2D>`, `<CircleCollider2D>` and the rest
+ * subclass it and implement `toShape()`.
+ *
+ * Mirrors how each light is its own tag.
  *
  * A collider attaches to the `<RigidBody2D>` **on its own node**, and does so itself. There is
  * no registry and no per-step reconcile: the body is asked for in `start`, which is exactly

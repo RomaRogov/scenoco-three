@@ -4,9 +4,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const corePath = fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url));
-const serializePath = fileURLToPath(
-  new URL('../../packages/compiler/src/serialize.ts', import.meta.url),
-);
 const threePath = fileURLToPath(new URL('../../node_modules/@types/three/index.d.ts', import.meta.url));
 const box2dPath = fileURLToPath(new URL('../../packages/box2d/src/index.ts', import.meta.url));
 const rapierPath = fileURLToPath(new URL('../../packages/rapier/src/index.ts', import.meta.url));
@@ -101,11 +98,10 @@ export function makeFixture(name: string, options: FixtureOptions = {}): Fixture
     JSON.stringify({
       compilerOptions: {
         target: 'ES2022',
-        lib: ['ES2022', 'DOM', 'ESNext.Decorators'],
+        lib: ['ES2022', 'DOM'],
         module: 'ESNext',
         moduleResolution: 'Bundler',
         strict: true,
-        experimentalDecorators: false,
         useDefineForClassFields: true,
         noEmit: true,
         skipLibCheck: true,
@@ -114,7 +110,6 @@ export function makeFixture(name: string, options: FixtureOptions = {}): Fixture
         // prints, so a half-configured project looks like it worked.
         paths: {
           '@scenoco-three/core': [corePath],
-          '@scenoco-three/compiler/serialize': [serializePath],
           three: [threePath],
           ...(options.box2d ? { '@scenoco-three/box2d': [box2dPath] } : {}),
           ...(options.rapier ? { '@scenoco-three/rapier': [rapierPath] } : {}),

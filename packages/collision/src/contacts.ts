@@ -1,9 +1,9 @@
 import type { Object3D } from 'three';
 
 /**
- * The contact hooks a component may implement — **the exact four
- * `@scenoco-three/rapier` dispatches**, so behaviour written against one back-end runs
- * unchanged on the other.
+ * The contact hooks a component may implement — the same four `@scenoco-three/rapier` dispatches.
+ *
+ * Behaviour written against one back-end runs unchanged on the other.
  *
  * Declared as an interface and merged onto `Component`, the way core declares its own
  * lifecycle hooks, which is what makes them typed: `override onCollisionEnter(other: Object3D)`

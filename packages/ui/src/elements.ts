@@ -6,6 +6,7 @@ import {
   Image as UikitImage,
   Text as UikitText,
 } from '@pmndrs/uikit';
+import { CameraFit } from '@scenoco-three/core';
 import { UIRenderer } from './UIRenderer.js';
 import { applyRect, ownVisible, rectStateOf, whenInScene } from './rect.js';
 
@@ -89,6 +90,41 @@ export class Canvas extends Fullscreen {
     super(undefined as unknown as WebGLRenderer);
     joinRenderer(this);
   }
+
+  /**
+   * Fill the screen — or, under a camera that keeps a frame whole with `<CameraFit>`, fill that
+   * frame.
+   *
+   * Unity's canvas does the same against a camera's viewport rect.
+   *
+   * The world outside a `contain` frame is only there because the window has a different shape;
+   * a HUD laid out against it put its corners where the game is not. So the root shrinks to the
+   * frame, centred, and every anchor inside it means the frame's edge. Pixels stay pixels.
+   */
+  override update(delta: number): void {
+    super.update(delta);
+    // What uikit just measured: the whole frustum at the UI's depth. Its own signals, private in
+    // its types — read, never written, because they are rewritten every frame from the camera.
+    const { sizeX, sizeY } = this as unknown as { sizeX: { peek(): number }; sizeY: { peek(): number } };
+    const width = sizeX.peek();
+    const height = sizeY.peek();
+    const aspect = this.parent?.getComponent(CameraFit)?.frameAspect;
+    let box: { sizeX?: number; sizeY?: number } = {};
+    if (aspect && width > 0 && height > 0) {
+      box = width / height > aspect ? { sizeX: height * aspect } : { sizeY: width / aspect };
+    }
+    // Set as properties, which win over the measured defaults — and only when they change, so a
+    // steady window lays nothing out again.
+    if (box.sizeX === this.boxed.sizeX && box.sizeY === this.boxed.sizeY) return;
+    this.boxed = box;
+    (this as unknown as { setProperties(p: Record<string, unknown>): void }).setProperties({
+      sizeX: box.sizeX,
+      sizeY: box.sizeY,
+    });
+  }
+
+  /** The frame the root is held to, if any — see {@link update}. */
+  private boxed: { sizeX?: number; sizeY?: number } = {};
 
   override clone(recursive?: boolean): this {
     return cloneElement(this, recursive);

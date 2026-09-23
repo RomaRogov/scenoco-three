@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { BUILTIN_FILE_KINDS, fileKindOf, findAssets, type AssetFile, type AssetKind, type FileKind } from './assets.js';
 import { fileKindsOf, kindsOf, previewsOf, readModuleManifests, type ModuleManifests } from './manifest.js';
 import { formatDiagnostic, type SncDiagnostic } from './dsl/diagnostics.js';
@@ -19,6 +19,7 @@ import type {
 import { camelCase, pascalCase } from './emit/module.js';
 import { emitResource } from './emit/resource.js';
 import { MODEL_FILE, PREVIEW_THREE, type DocumentShape, type ProjectModel } from './model.js';
+import type { Origin } from './emit/module.js';
 import { scanConfigShape, shapeProblems, type ConfigShape } from './scan/interfaces.js';
 import { Workspace } from './scan/workspace.js';
 import { scanComponents, scanEffects, scanSystems } from './scan/components.js';
@@ -54,10 +55,20 @@ export interface BuildOptions {
   shapes?: ReadonlyMap<string, ConfigShape | undefined>;
   /**
    * Stamp every node with the document and line it came from (`userData.scenoco`), so an editor
-   * can map a live object back to the element that made it. Dev only — `scenoco()` turns it on
-   * while Vite is serving and off when it builds.
+   * can map a live object back to the element that made it. Dev only — a dev server turns it on
+   * while it is serving, and a production build leaves it off.
    */
   provenance?: boolean;
+  /**
+   * Typecheck the generated modules and report what `tsc` finds **at the document**.
+   *
+   * The checks in this compiler catch the mistakes worth a sentence of advice; this catches the
+   * rest. Without it they surface from a separate `tsc --noEmit`, at a line inside a gitignored
+   * `.gen.ts` — the one file the reader must not edit, and the one an agent will edit anyway.
+   * It costs a second TypeScript project, so it is the two commands that exist to find problems
+   * (`build` and `check`) that ask for it, and not a question like `describe`.
+   */
+  typecheck?: boolean;
 }
 
 export interface BuildResult {
@@ -117,11 +128,13 @@ export function build(options: BuildOptions): BuildResult {
       tsconfig,
       (workspace) => {
         const packages = classSources(modules);
+        const problems: string[] = [];
         model ??= {
           components: scanComponents(workspace, packages, documents),
           systems: scanSystems(workspace, packages, documents),
           effects: scanEffects(workspace, packages, documents),
-          tags: scanTags(workspace, modules, documents),
+          tags: scanTags(workspace, modules, documents, problems),
+          ...(problems.length > 0 ? { problems } : {}),
         };
         for (const kind of unscanned) {
           shapes.set(kind.kind, scanConfigShape(workspace, moduleOf(kind), kind.type!, documents));
@@ -143,6 +156,8 @@ export function build(options: BuildOptions): BuildResult {
   const exports = new Map<string, AssetImport>(); // absolute xml path → what it exports
   const files = new Map<string, string>();
   const diagnostics: SncDiagnostic[] = [];
+  /** For each generated module: which document it came from, and which element wrote each line. */
+  const origins = new Map<string, { document: string; lines: ReadonlyMap<number, Origin>; root: SncElement }>();
 
   // A document of a kind nothing declares. Walking past it silently is the one failure worse than
   // refusing to compile: no output, no message, and the breakage lands wherever the value was
@@ -172,6 +187,12 @@ export function build(options: BuildOptions): BuildResult {
         message: `"${owner ?? kind}" declares <${shape.name}>, which cannot be authored: ${problem}`,
       });
     }
+  }
+
+  // What the project's packages disagree about, reported before anything that depends on it:
+  // every document written against the losing package's tag will also complain, and this says why.
+  for (const problem of model.problems ?? []) {
+    diagnostics.push({ line: 1, column: 1, code: 'tag-conflict', file: 'package.json', message: problem });
   }
 
   // Mistakes in the components themselves, reported with the rest so one command answers
@@ -251,6 +272,7 @@ export function build(options: BuildOptions): BuildResult {
     );
 
     const emitted = emitOne(asset, byKind.get(asset.kind)!, root, {
+      projectRoot: resolve(options.root),
       model,
       shapes,
       configs,
@@ -260,12 +282,45 @@ export function build(options: BuildOptions): BuildResult {
     });
 
     diagnostics.push(...emitted.diagnostics);
-    if (emitted.code) files.set(asset.outputPath, rewriteComponentImports(emitted.code, asset.outputPath));
+    if (emitted.code) {
+      files.set(asset.outputPath, rewriteComponentImports(emitted.code, asset.outputPath));
+      origins.set(asset.outputPath, { document: asset.relativePath, lines: emitted.origin ?? new Map(), root });
+    }
+  }
+
+  // A document that did not compile must not leave the last one that did sitting beside it.
+  // Its module is replaced by one that throws what the compiler said, so the running game stops
+  // at that scene and names the line — rather than quietly running last week's version of it,
+  // which is how a fix that "did nothing" turns into an afternoon.
+  for (const asset of assets) {
+    if (files.has(asset.outputPath)) continue;
+    const why = diagnostics.find((d) => d.file === asset.relativePath);
+    if (!why) continue;
+    files.set(
+      asset.outputPath,
+      [
+        `// GENERATED from ${asset.relativePath} — which does not compile. Fix the document;`,
+        '// this file is rewritten on every build.',
+        `throw new Error(${JSON.stringify(`${asset.relativePath}:${why.line}:${why.column} ${why.message}`)});`,
+        '',
+      ].join('\n'),
+    );
   }
 
   diagnostics.push(...emitPreviews(root, installed, model, files));
 
   files.set(resolve(root, MODEL_FILE), serializeModel({ ...model, ...describeModules(kinds, shapes, installed) }, root));
+
+  // A name the scan never saw, with a file of that name sitting in the project. Done here, once,
+  // and only when something already failed: it is a directory walk, and the answer is worth it
+  // exactly when a reader is staring at "no such component" with the file open beside them.
+  locateUnscanned(root, diagnostics);
+
+  // Last, and only when asked: everything above has already said what it can, and a type error
+  // in generated code is the residue — the mistakes no rule here names yet.
+  if (options.typecheck && diagnostics.length === 0) {
+    diagnostics.push(...typeErrors(tsconfig, root, files, origins));
+  }
 
   if (!options.dryRun) {
     for (const [path, source] of files) {
@@ -483,7 +538,10 @@ function serializeModel(model: ProjectModel, root: string): string {
     components: model.components.map(portable),
     systems: model.systems.map(portable),
     effects: model.effects.map(portable),
-    tags: model.tags,
+    // Without `members`: a hundred node tags with every inherited property each is most of the
+    // file, and nothing that reads this asks what `Object3D` declares.
+    tags: model.tags.map(({ members: _members, ...tag }) => tag),
+    ...(model.problems ? { problems: model.problems } : {}),
     ...(model.documents ? { documents: model.documents } : {}),
     ...(model.modules ? { modules: model.modules } : {}),
   } satisfies ProjectModel);
@@ -594,6 +652,8 @@ function emitOne(
   kind: AssetKind,
   root: SncElement,
   context: {
+    /** The project root, for a diagnostic that has to name one of its source files. */
+    projectRoot: string;
     model: ProjectModel;
     shapes: ReadonlyMap<string, ConfigShape | undefined>;
     /** The config types by their own name, for a document that writes one inside an element. */
@@ -603,7 +663,7 @@ function emitOne(
     resolveAsset: ResolveAsset;
     provenance?: boolean;
   },
-): { code?: string; diagnostics: SncDiagnostic[] } {
+): { code?: string; diagnostics: SncDiagnostic[]; origin?: ReadonlyMap<number, Origin> } {
   const { model, resolveAsset } = context;
 
   if (asset.kind === 'texture') {
@@ -644,7 +704,9 @@ function emitOne(
             code: 'missing-package',
             message:
               `A ${kind.extension} needs ${kind.type} from "${moduleOf(kind)}", which this project ` +
-              'does not resolve. Add the package as a dependency, and import it somewhere.',
+              'does not resolve. A tag package is read through a real import, and tags are only ' +
+              `ever written in XML — so add the dependency, then a line in src/tags.ts: ` +
+              `import '${moduleOf(kind)}';`,
             file: asset.relativePath,
           },
         ],
@@ -668,6 +730,7 @@ function emitOne(
     kind: asset.kind,
     name: exportedName(asset),
     source: asset.relativePath,
+    root: context.projectRoot,
     model,
     configs: context.configs,
     plainPackages: context.plainPackages,
@@ -743,4 +806,110 @@ function rewriteComponentImports(code: string, outputPath: string): string {
 /** `tsc`-style rendering of everything a build reported. */
 export function formatDiagnostics(diagnostics: readonly SncDiagnostic[]): string {
   return diagnostics.map((d) => formatDiagnostic(d)).join('\n');
+}
+
+/**
+ * What `tsc` says about the modules this build just produced, reported at the XML that wrote them.
+ *
+ * Generated code is where a document's mistakes finally become type errors, and until this ran
+ * they surfaced from a separate `tsc --noEmit` at a line inside a `.gen.ts` — a gitignored build
+ * artifact that is rewritten on every build. Reading one teaches the wrong file, and editing one
+ * loses the edit; so the position is translated back through the line map the emitter kept, and
+ * the message is `tsc`'s own, because `tsc` is better at saying what is wrong with a type than a
+ * paraphrase would be.
+ *
+ * The files are handed over in memory rather than written, so `check` still writes nothing.
+ */
+function typeErrors(
+  tsconfig: string,
+  root: string,
+  files: ReadonlyMap<string, string>,
+  origins: ReadonlyMap<string, { document: string; lines: ReadonlyMap<number, Origin>; root: SncElement }>,
+): SncDiagnostic[] {
+  if (origins.size === 0) return [];
+  const overlay = new Map([...origins.keys()].map((path) => [path, files.get(path)!]));
+  const found: SncDiagnostic[] = [];
+  Workspace.with(
+    tsconfig,
+    (workspace) => {
+      // Only what the project's own `tsconfig` takes in. A document under a directory the
+      // `include` does not cover compiles fine and is simply not part of this program — asking
+      // about it is an error from the compiler server, not a problem with the document.
+      const inProgram = new Set(workspace.project.program.getSourceFileNames());
+      for (const [path, origin] of origins) {
+        if (!inProgram.has(path)) continue;
+        const source = overlay.get(path)!;
+        for (const problem of workspace.project.program.getSemanticDiagnostics(path)) {
+          const line = lineAt(source, problem.pos);
+          const at = origin.lines.get(line) ?? { line: origin.root.line, column: origin.root.column };
+          found.push({
+            line: at.line,
+            column: at.column,
+            code: 'type-error',
+            file: origin.document,
+            message: problem.text,
+          });
+        }
+      }
+    },
+    root,
+    overlay,
+  );
+  return found;
+}
+
+/** 1-based line holding the character at `offset`. */
+function lineAt(source: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset && i < source.length; i++) if (source.charCodeAt(i) === 10) line++;
+  return line;
+}
+
+/**
+ * Where a class a document named actually lives, when the scan never saw it.
+ *
+ * A component is found by reading the project's TypeScript, which is what the project's own
+ * `tsconfig` says it is. A class in a directory the `include` does not cover is invisible to
+ * that — and so is a class that is never exported — and both come back as "no such component",
+ * which sends a reader to check a spelling that is correct while the file is open beside them.
+ */
+function locateUnscanned(root: string, diagnostics: SncDiagnostic[]): void {
+  const wanted = new Set(
+    diagnostics
+      .filter((d) => d.code === 'unknown-component' || d.code === 'unknown-system' || d.code === 'unknown-tag')
+      .flatMap((d) => (d.ask ? [d.ask] : [])),
+  );
+  if (wanted.size === 0) return;
+
+  const found = new Map<string, string>();
+  const walk = (directory: string, depth: number): void => {
+    if (depth > 6) return;
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      const stem = entry.name.replace(/\.tsx?$/, '');
+      if (stem !== entry.name && wanted.has(stem)) found.set(stem, relative(root, full).split(sep).join('/'));
+    }
+  };
+  walk(root, 0);
+  if (found.size === 0) return;
+
+  for (const diagnostic of diagnostics) {
+    const file = diagnostic.ask ? found.get(diagnostic.ask) : undefined;
+    if (!file) continue;
+    diagnostic.message +=
+      ` (${file} is named after it. If the class is there, either it is not exported, or this ` +
+      "project's tsconfig \"include\" does not cover that directory — the scan reads what the " +
+      'tsconfig says the project is.)';
+  }
 }

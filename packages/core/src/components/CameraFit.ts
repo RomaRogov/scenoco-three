@@ -38,6 +38,20 @@ export class CameraFit extends Component<Camera> {
   private lastAspect = 0;
   private readonly worldPosition = new Vector3();
 
+  /**
+   * The shape of the frame this camera keeps whole on screen — `width / height` — when it
+   * letterboxes; `null` when nothing is boxed in.
+   *
+   * Only `contain` with both sides set promises a box: the frame sits centred, and the slack on
+   * the long axis shows more world rather than bars. That slack is scenery, not screen, so
+   * anything laid out *against the screen* — a screen-space UI under this camera — reads this and
+   * stays inside the frame. Without it a portrait game's HUD stretched across a wide window while
+   * its world stayed a column.
+   */
+  get frameAspect(): number | null {
+    return this.mode === 'contain' && this.width > 0 && this.height > 0 ? this.width / this.height : null;
+  }
+
   override start(): void {
     this.fit();
   }

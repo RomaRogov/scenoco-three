@@ -63,5 +63,8 @@
   },
   "peerDependencies": {
     "three": ">=0.160.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
   }
 }

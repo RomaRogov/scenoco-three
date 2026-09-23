@@ -1,6 +1,6 @@
 import type { SncDiagnostic } from '../dsl/diagnostics.js';
 import type { SncElement } from '../dsl/parse.js';
-import { TsModule } from './module.js';
+import { TsModule, type Origin } from './module.js';
 import { buildConstruction } from './resource.js';
 import { EmitScope, identifier, type GraphOptions } from './scope.js';
 import { emitNode, applyPlacement, partitionChildren } from './nodes.js';
@@ -38,7 +38,7 @@ export type { GraphOptions };
 export function emitGraph(
   root: SncElement,
   options: GraphOptions,
-): { code?: string; diagnostics: SncDiagnostic[] } {
+): { code?: string; diagnostics: SncDiagnostic[]; origin?: ReadonlyMap<number, Origin> } {
   const { kind, name, source } = options;
   const module = new TsModule(
     `// GENERATED from ${source} — do not edit.\n// Regenerate with \`scenoco build\`.`,
@@ -61,7 +61,12 @@ export function emitGraph(
 
   const scope = new EmitScope(module, options);
   const code = kind === 'scene' ? emitScene(scope, root, name) : emitPrefab(scope, root, name);
-  return { ...(module.diagnostics.length === 0 ? { code } : {}), diagnostics: module.diagnostics };
+  return {
+    ...(module.diagnostics.length === 0 ? { code } : {}),
+    diagnostics: module.diagnostics,
+    // Which element wrote each line, so anything `tsc` finds in here is reported at the document.
+    origin: module.origin(),
+  };
 }
 
 // --- documents -------------------------------------------------------------------------
@@ -71,6 +76,9 @@ function emitScene(scope: EmitScope, root: SncElement, name: string): string {
   // a `Breakout` component must not end up with the class and the import sharing a name.
   const className = scope.module.declare(name);
   const Scene = scope.module.require('three', 'Scene');
+  // What the class extends decides which ids are already taken: every member of the base is a
+  // name this document may not give a node.
+  scope.rootedAt(undefined);
   const fields: string[] = [];
   const build: string[] = [];
 
@@ -97,25 +105,28 @@ function emitScene(scope: EmitScope, root: SncElement, name: string): string {
   const wiring: string[] = [];
   emitComponentsFor(scope, root, 'this', wiring);
   emitMainCamera(scope, root, settings);
-  for (const placed of scope.byId.values()) fields.push(`${identifier(placed)}!: ${placed.typeName};`);
-  fields.push(...scope.componentFields());
+  for (const placed of scope.byId.values()) {
+    scope.from(fields, placed.element);
+    fields.push(`${identifier(placed)}!: ${placed.typeName};`);
+  }
+  scope.componentFields(fields);
 
   scope.module.block(`export class ${className} extends ${Scene} {`, () => {
-    for (const field of fields) scope.module.line(field);
+    scope.pour(fields);
     if (fields.length > 0) scope.module.line();
     scope.module.block(`override ${onLoadSignature(scope)} {`, () => {
       emitWait(scope);
-      for (const line of systems) scope.module.line(line);
+      scope.pour(systems);
       if (systems.length > 0 && build.length > 0) scope.module.line();
-      for (const line of build) scope.module.line(line);
+      scope.pour(build);
       if (settings.length > 0) {
         scope.module.line();
-        for (const line of settings) scope.module.line(line);
+        scope.pour(settings);
       }
       if (wiring.length > 0) {
         scope.module.line();
         scope.module.line('// Components last, so every `#id` above is already a real object.');
-        for (const line of wiring) scope.module.line(line);
+        scope.pour(wiring);
       }
       if (systemWiring.length > 0) {
         scope.module.line();
@@ -123,7 +134,7 @@ function emitScene(scope: EmitScope, root: SncElement, name: string): string {
         // is `node.getComponent(Button)`, which is null until that component is on the node. It
         // read null here, silently, and the system met `undefined` in `start()`.
         scope.module.line("// A system's references, now that the tree and its components exist.");
-        for (const line of systemWiring) scope.module.line(line);
+        scope.pour(systemWiring);
       }
     });
   });
@@ -155,6 +166,7 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
   const className = scope.module.declare(name);
   const tag = scope.tagFor(root, 'node');
   if (!tag) return scope.module.render();
+  scope.rootedAt(tag);
 
   const base = scope.module.require(tag.module, tag.name);
   // What the root is built from goes before `super()`, in the constructor, so every instance
@@ -195,12 +207,13 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
   const wiring: string[] = [];
   emitComponentsFor(scope, root, 'this', wiring);
 
-  const fields = [
-    ...[...scope.byId.values()]
-      .filter((placed) => placed.element !== root)
-      .map((placed) => `${identifier(placed)}!: ${placed.typeName};`),
-    ...scope.componentFields(),
-  ];
+  const fields: string[] = [];
+  for (const placed of scope.byId.values()) {
+    if (placed.element === root) continue;
+    scope.from(fields, placed.element);
+    fields.push(`${identifier(placed)}!: ${placed.typeName};`);
+  }
+  scope.componentFields(fields);
 
   scope.module.block(`export class ${className} extends ${base} {`, () => {
     if (scope.assets.awaited.length > 0) {
@@ -212,7 +225,7 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
       scope.module.line(`static readonly assets = [${scope.assets.awaited.join(', ')}] as const;`);
       scope.module.line();
     }
-    for (const field of fields) scope.module.line(field);
+    scope.pour(fields);
     if (fields.length > 0) scope.module.line();
     if (superArgs.trim().length > 0) {
       // A prefab class is constructed with no arguments — `instantiate` calls `new Type()` —
@@ -220,17 +233,17 @@ function emitPrefab(scope: EmitScope, root: SncElement, name: string): string {
       // in. Assigning it after `super()` would be wrong for the slots three.js only reads
       // once (`InstancedMesh`'s count, a geometry a Mesh caches).
       scope.module.block('constructor() {', () => {
-        for (const line of construct) scope.module.line(line);
+        scope.pour(construct);
         scope.module.line(`super(${superArgs});`);
       });
       scope.module.line();
     }
     scope.module.block('override onLoad(): void {', () => {
-      for (const line of build) scope.module.line(line);
+      scope.pour(build);
       if (wiring.length > 0) {
         scope.module.line();
         scope.module.line('// Components last, so every `#id` above is already a real object.');
-        for (const line of wiring) scope.module.line(line);
+        scope.pour(wiring);
       }
     });
   });

@@ -63,6 +63,26 @@ describe('systems', () => {
     expect(order[late + 1]).toBe('system:lateUpdate');
   });
 
+  it('lays out last in every frame, after this frame\'s destruction', async () => {
+    // What a paused viewer shows by calling `layout` is what the game draws: a HUD text written
+    // there has to update in a running game too, not only in the observer's pictures.
+    class Hud extends System {
+      override layout() { order.push(`hud:layout:${this.scene.children.length}`); }
+    }
+    const scene = await SceneManager.load(sceneOf((s) => {
+      s.createObject().addComponent(Mover);
+      s.addSystem(Hud);
+    }));
+    order.length = 0;
+    const doomed = scene.createObject();
+    const before = scene.children.length;
+    doomed.destroy();
+
+    new Clock().frame();
+    expect(order.filter((step) => step.startsWith('hud:'))).toEqual([`hud:layout:${before - 1}`]);
+    expect(order.at(-1)).toBe(`hud:layout:${before - 1}`);
+  });
+
   it('steps once per fixed step, not once per frame', async () => {
     class Stepper extends System {
       steps = 0;

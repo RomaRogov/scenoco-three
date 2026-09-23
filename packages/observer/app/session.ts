@@ -28,7 +28,7 @@ import {
   type PrefabType,
   type SceneType,
 } from '@scenoco-three/core';
-import type { PreviewFrame, SimStep } from '../src/protocol.js';
+import type { PointerButton, PreviewFrame, SimStep } from '../src/protocol.js';
 
 export type ViewMode = 'stopped' | 'play';
 
@@ -306,16 +306,15 @@ export class ObserverSession {
   step(dt = 1 / 60): void {
     this.clock += dt * 1000;
     SceneManager.tick(this.clock);
-    Input.endFrame();
   }
 
   /**
    * One frame of the observer's own loop.
    *
-   * `Input.endFrame` runs whether or not the scene stepped, and that is the point: `Engine` calls
-   * it from the loop the observer does not use, so nothing else would. Without it `getKeyDown` is
-   * true for ever after one press and `mouseDelta` keeps its last value — a camera that never
-   * stops turning once you have turned it, and a one-frame edge that fires on every frame.
+   * `Input.endFrame` runs whether or not the scene stepped, and that is the point: a stepped
+   * frame clears the edges inside `SceneManager.tick`, and a frame that did not step has to
+   * clear them itself. Without it `getKeyDown` is true for ever after one press and `mouseDelta`
+   * keeps its last value — a camera that never stops turning once you have turned it.
    */
   tick(dt: number): void {
     if (this.playing) this.step(dt);
@@ -767,8 +766,24 @@ export class ObserverSession {
           this.pointer('pointerdown', step.x, step.y, step.button);
           this.pointer('pointerup', step.x, step.y, step.button);
           break;
-        case 'move':
+        case 'pointerDown':
+          // The same arrival as a click, for the same reason — then the press, and nothing else,
+          // so the moves that follow are a drag with the button held.
           this.pointer('pointermove', step.x, step.y);
+          this.pointer('pointerdown', step.x, step.y, step.button);
+          break;
+        case 'pointerUp':
+          if (step.x !== undefined || step.y !== undefined) this.pointer('pointermove', step.x, step.y);
+          this.pointer('pointerup', step.x, step.y, step.button);
+          break;
+        case 'move':
+          // `dx,dy` were accepted here and dropped, so a relative drag moved the pointer to the
+          // middle of the canvas instead — which reads as the game ignoring the finger.
+          this.pointer(
+            'pointermove',
+            step.x ?? (step.dx !== undefined ? this.pointerAt().x + step.dx : undefined),
+            step.y ?? (step.dy !== undefined ? this.pointerAt().y + step.dy : undefined),
+          );
           break;
         case 'preview':
           out.push({
@@ -836,18 +851,45 @@ export class ObserverSession {
    * A pointer event at `x, y` in canvas pixels — which are the pixels of every shot, since the
    * canvas is the frame (see `fit`).
    */
-  private pointer(type: string, x?: number, y?: number, button?: 'left' | 'right' | 'middle'): void {
+  /**
+   * Send one pointer event at canvas pixels — or, with no point given, where the pointer already
+   * is. A pointer does not teleport to the middle because a step left its position out: a
+   * `pointerUp` after a drag lifts the finger where the drag ended.
+   *
+   * `buttons` is kept as the page would see it, so a move while pressed is a drag to anything
+   * that reads the event — the UI's own pointer handling does.
+   */
+  private pointer(type: string, x?: number, y?: number, button?: PointerButton): void {
     const rect = this.canvas.getBoundingClientRect();
+    const at = this.pointerAt();
+    const point = { x: x ?? at.x, y: y ?? at.y };
+    this.pointerPosition = point;
+    const code = button === 'right' ? 2 : button === 'middle' ? 1 : 0;
+    // `buttons` is a bitmask of what is held, with right and middle swapped relative to `button`.
+    const bit = code === 0 ? 1 : code === 2 ? 2 : 4;
+    if (type === 'pointerdown') this.held |= bit;
+    if (type === 'pointerup') this.held &= ~bit;
     this.canvas.dispatchEvent(
       new PointerEvent(type, {
         bubbles: true,
-        clientX: rect.left + (x ?? rect.width / 2),
-        clientY: rect.top + (y ?? rect.height / 2),
-        button: button === 'right' ? 2 : button === 'middle' ? 1 : 0,
+        clientX: rect.left + point.x,
+        clientY: rect.top + point.y,
+        button: type === 'pointermove' ? -1 : code,
+        buttons: this.held,
         pointerId: 1,
+        isPrimary: true,
       }),
     );
   }
+
+  /** Where the pointer is, in canvas pixels: the middle until something has moved it. */
+  private pointerAt(): { x: number; y: number } {
+    return this.pointerPosition ?? { x: this.canvas.clientWidth / 2, y: this.canvas.clientHeight / 2 };
+  }
+
+  private pointerPosition: { x: number; y: number } | null = null;
+  /** The `buttons` bitmask of what `pointerDown` is holding. */
+  private held = 0;
 }
 
 /**

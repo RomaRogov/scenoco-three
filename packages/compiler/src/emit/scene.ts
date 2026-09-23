@@ -17,6 +17,21 @@ export function applySceneSettings(scope: EmitScope, root: SncElement, out: stri
     if (attribute === 'camera') continue;
     if (STRUCTURAL.has(attribute) && attribute !== PERSIST) continue;
 
+    // three.js puts fog on the scene; SceNoCo puts everything about how a scene is *drawn* in
+    // one document, so that a scene can be shown two ways without editing the scene. It is a
+    // property of `Scene`, so without this it went to the value emitter and came back as a path
+    // that resolves to nothing — true, and about the wrong thing entirely.
+    if (attribute === 'fog') {
+      scope.report(
+        root,
+        'misplaced-fog',
+        'Fog lives in a render document, with the tone curve and the post effects it works ' +
+          'alongside: <Render><Fog color="#889" near="10" far="80" /></Render> in a `.render.xml`, ' +
+          'named here as <Scene render="../render/day.render.xml">.',
+      );
+      continue;
+    }
+
     const engine = SCENE_ATTRIBUTES[attribute];
     const prop = engine ?? tag?.properties.find((p) => p.name === attribute);
     if (!prop) {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -32,7 +33,9 @@ type Without<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
  * almost nothing about whether a game works. Drive it to the interesting moment, *then* look.
  */
 export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
-  const mcp = new McpServer({ name: 'scenoco-observer', version: '0.6.0' });
+  // Read off the manifest rather than written here. A second copy of a version number is a
+  // second thing to bump, and the one that is wrong is always the one a client reports.
+  const mcp = new McpServer({ name: 'scenoco-observer', version: packageVersion() });
 
   /** Every tool needs the page; the browser is launched on the first call that does. */
   const send = async (command: Without<ObserverCommand, 'id'>): Promise<ObserverResult> =>
@@ -247,25 +250,46 @@ export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
                   button: z.enum(BUTTON_NAMES as [ButtonName, ...ButtonName[]]).describe('A Unity input button'),
                 }),
               ),
-              strictStep({
-                do: z.literal('click'),
-                x: z
-                  .number()
-                  .optional()
-                  .describe(`Pixels from the left, as in this call's shots — ${FRAME.width} across unless width is set`),
-                y: z
-                  .number()
-                  .optional()
-                  .describe(`Pixels from the top, as in this call's shots — ${FRAME.height} down unless height is set`),
-                button: z.enum(['left', 'right', 'middle']).optional(),
-              }),
+              ...(
+                [
+                  ['click', 'Press and release the pointer — a click or a tap'],
+                  [
+                    'pointerDown',
+                    'Press and hold the pointer — a finger on the screen. `move` with `step`s between ' +
+                      'drags it; `pointerUp` lifts it',
+                  ],
+                  ['pointerUp', 'Lift the pointer held by `pointerDown`'],
+                ] as const
+              ).map(([verb, what]) =>
+                strictStep({
+                  do: z.literal(verb),
+                  x: z
+                    .number()
+                    .optional()
+                    .describe(
+                      `Pixels from the left, as in this call's shots — ${FRAME.width} across unless width ` +
+                        'is set. Left out: where the pointer already is',
+                    ),
+                  y: z
+                    .number()
+                    .optional()
+                    .describe(
+                      `Pixels from the top, as in this call's shots — ${FRAME.height} down unless height ` +
+                        'is set. Left out: where the pointer already is',
+                    ),
+                  button: z.enum(['left', 'right', 'middle']).optional(),
+                }).describe(what),
+              ),
               strictStep({
                 do: z.literal('move'),
-                x: z.number().optional(),
-                y: z.number().optional(),
-                dx: z.number().optional(),
-                dy: z.number().optional(),
-              }),
+                x: z.number().optional().describe('Pixels from the left, to move to'),
+                y: z.number().optional().describe('Pixels from the top, to move to'),
+                dx: z.number().optional().describe('Pixels to move right from where the pointer is'),
+                dy: z.number().optional().describe('Pixels to move down from where the pointer is'),
+              }).describe(
+                'Move the pointer — held down, this is a drag. One move lands in one frame: a drag ' +
+                  'a game reads frame by frame is several moves with a `step` after each',
+              ),
               strictStep({
                   do: z.literal('preview'),
                   ...viewpoint,
@@ -501,4 +525,14 @@ export async function startMcpStdio(server: McpServer, onClose: () => void): Pro
   const transport = new StdioServerTransport();
   transport.onclose = onClose;
   await server.connect(transport);
+}
+
+/** This package's own version, for the MCP handshake. */
+function packageVersion(): string {
+  try {
+    const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+    return (JSON.parse(manifest) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }
