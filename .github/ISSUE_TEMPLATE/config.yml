@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: How the format works
-    url: https://github.com/RomaRogov/scenoco-three/tree/main/packages/compiler
-    about: Run `npx scenoco describe` in a project — the vocabulary, read off the source.
+    url: https://github.com/RomaRogov/scenoco-three/tree/main/packages/core#readme
+    about: A scene is TSX with no React — core's README says the whole model in a page.
   - name: What the packages are
     url: https://github.com/RomaRogov/scenoco-three#readme
     about: The layers, and which one you actually need.

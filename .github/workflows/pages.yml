@@ -1,8 +1,7 @@
-# The standalone editor, as a site: open any .scene.xml by URL, from disk, or one of the examples.
+# The editor's interface as a hosted module, for a game page opened with ?edit=<this site>/editor.js.
+# Runs by hand: publishing is the maintainer's call.
 name: pages
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,10 +20,9 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run build
-      - run: npm --prefix packages/editor run build:app
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/editor/dist-app
+          path: packages/editor/dist
   deploy:
     needs: build
     runs-on: ubuntu-latest

@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { BoxGeometry, DirectionalLight, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene } from 'three';
+import { Behaviour, ref } from '@scenoco-three/core';
+import { snapshot, type SnapshotNode } from '@scenoco-three/core/snapshot';
+import { convert } from '../../packages/unity/src/convert.js';
+import { snapshotProject } from '../../packages/unity/src/export.js';
+
+const box = new BoxGeometry(1, 1, 1);
+const paint = { stone: new MeshStandardMaterial({ color: '#808080', emissive: '#ff0000', emissiveIntensity: 2 }) };
+
+class Grid extends Behaviour {
+  size = 4;
+}
+class Spawner extends Behaviour {
+  wave: (() => unknown)[] = [];
+  grid: Grid | null = null;
+}
+
+const Crate = () => <Mesh geometry={box} material={paint.stone} position={[1, 2, 3]} rotation={[0.5, 0.25, 0]} />;
+const Main = () => {
+  const grid = ref<Group>();
+  return (
+    <Scene>
+      <PerspectiveCamera args={[40, 1.5, 0.1, 100]} position={[0, 10, 10]} />
+      <DirectionalLight position={[0, 10, 0]} />
+      <Group ref={grid}>
+        <Grid size={6} />
+      </Group>
+      <Crate />
+      <Spawner wave={[Crate]} />
+    </Scene>
+  );
+};
+
+describe('unity export', () => {
+  it('mirrors three.js into Unity: positions, rotations, meshes, lights, names and references', () => {
+    const { data, scripts } = convert(snapshot({ '/src/scenes.tsx': { Crate, Main }, '/src/assets.ts': { box, paint }, '/src/Grid.ts': { Grid }, '/src/Spawner.ts': { Spawner } }), { firstScene: 'Main' });
+
+    // Z mirrored: a position negates z, a rotation x and y of its quaternion.
+    const crate = data.prefabs.find((p) => p.path === 'Assets/Prefabs/Crate.prefab')!.root;
+    expect(crate.position).toEqual([1, 2, -3]);
+    const q = new Mesh().rotation.set(0.5, 0.25, 0).clone();
+    const three = new Mesh();
+    three.rotation.copy(q);
+    expect(crate.rotation.map((v) => Math.round(v * 1e4))).toEqual([-three.quaternion.x, -three.quaternion.y, three.quaternion.z, three.quaternion.w].map((v) => Math.round(v * 1e4)));
+
+    // A box with one material is one submesh, its vertices mirrored and its triangles reversed.
+    const mesh = data.meshes.find((m) => m.path === crate.mesh)!;
+    expect(mesh.submeshes).toHaveLength(1);
+    expect(mesh.vertices.slice(0, 3)).toEqual([0.5, 0.5, -0.5]);
+    const [a, b, c] = box.index!.array as Uint16Array;
+    expect(mesh.submeshes[0]!.slice(0, 3)).toEqual([a, c, b]);
+
+    // The shared material is one asset; its emission and colour come across.
+    expect(data.materials).toEqual([expect.objectContaining({ path: 'Assets/Materials/stone.mat', color: '#808080', emission: '#ff0000', emissionIntensity: 2 })]);
+
+    const scene = data.scenes[0]!;
+    expect(scene.path).toBe('Assets/Scenes/Main.unity');
+    // A directional light points down at its target: Unity's rotation for straight down.
+    const light = scene.roots.find((r) => r.light)!;
+    expect(light.light).toMatchObject({ type: 'Directional', intensity: 1 / Math.PI });
+    expect(light.rotation.map((v) => Math.round(v * 1e4) / 1e4)).toEqual([0.7071, 0, 0, 0.7071]);
+    // A nested prefab is placed by its asset; a field holding a prefab holds the asset.
+    expect(scene.roots.find((r) => r.prefab)!.prefab).toBe('Assets/Prefabs/Crate.prefab');
+    const spawner = scene.roots[0]!.components.find((c) => c.type === 'Spawner')!;
+    expect(spawner.fields.wave).toEqual({ array: [{ asset: 'Assets/Prefabs/Crate.prefab' }] });
+
+    // A behaviour named like one of Unity's own gets a C# name Unity accepts.
+    expect(scene.roots.find((r) => r.components.some((c) => c.type === 'GridBehaviour'))).toBeDefined();
+    expect(scripts.get('GridBehaviour')).toContain('public class GridBehaviour : MonoBehaviour');
+    expect(scripts.get('GridBehaviour')).toContain('public float size = 4f;');
+    expect(scripts.get('Spawner')).toContain('public GameObject[] wave;');
+  });
+
+  it("builds the project's prefabs in its own page", async () => {
+    // breakout, through its own Vite and a headless Chrome: what `scenoco-unity` reads.
+    const snap = await snapshotProject(fileURLToPath(new URL('../../examples/breakout', import.meta.url)));
+    expect(snap.warnings).toEqual([]);
+    expect(snap.prefabs.map((p) => p.name).sort()).toEqual(['Arena', 'BrickPrefab', 'Level1', 'Level2', 'Level3', 'Run']);
+    // The walls share one geometry and one material, as assets.ts made them.
+    const all = (n: SnapshotNode): SnapshotNode[] => [n, ...n.children.flatMap(all)];
+    const walls = all(snap.prefabs.find((p) => p.name === 'Level1')!.root).filter((n) => /^wall(Left|Right)$/.test(n.name));
+    expect(walls).toHaveLength(2);
+    expect(walls[0]!.geometry).toBeDefined();
+    expect(walls[0]!.geometry).toBe(walls[1]!.geometry);
+    expect(walls[0]!.materials).toEqual(walls[1]!.materials);
+    expect(snap.materials[walls[0]!.materials![0]!]).toMatchObject({ name: 'wall', shared: true });
+  }, 60_000);
+});

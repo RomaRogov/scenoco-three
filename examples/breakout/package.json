@@ -4,14 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "scenoco watch -- vite",
-    "build": "scenoco build && vite build",
-    "check": "scenoco check"
+    "dev": "vite",
+    "build": "vite build",
+    "check": "tsc --noEmit && scenoco check src"
   },
   "dependencies": {
     "@scenoco-three/box2d": "*",
-    "@scenoco-three/core": "*",
-    "@scenoco-three/postfx": "*",
-    "@scenoco-three/ui": "*"
+    "@scenoco-three/core": "*"
+  },
+  "devDependencies": {
+    "@scenoco-three/tools": "*"
   }
 }

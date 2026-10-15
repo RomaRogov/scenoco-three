@@ -1,6 +1,6 @@
 import type { Mesh, Object3D } from 'three';
-import { Component, Input, KeyCode, MouseButton } from '@scenoco-three/core';
-import { RigidBody2D } from '@scenoco-three/box2d';
+import { Behaviour, Input, KeyCode, MouseButton, findObjectOfType } from '@scenoco-three/core';
+import { Rigidbody2D } from '@scenoco-three/box2d';
 import { Brick } from './Brick.js';
 import { GameState } from './GameState.js';
 
@@ -13,7 +13,7 @@ import { GameState } from './GameState.js';
  * because a ball travelling sideways between two walls never comes back and the game is over
  * without ending.
  */
-export class Ball extends Component<Mesh> {
+export class Ball extends Behaviour<Mesh> {
   /** The node the ball sits on while waiting, and steers off. */
   paddle!: Object3D;
 
@@ -29,17 +29,17 @@ export class Ball extends Component<Mesh> {
   /**
    * How fast the ball travels, in units per second — constant, whatever it bounces off.
    *
-   * It belongs to the ball, so it lives on the ball — even though the ball is inside a prefab
-   * every level shares. A level that wants it faster writes `<Override target="#ball" speed="18" />`.
+   * It belongs to the ball, so it lives on the ball — even though the ball is inside the arena
+   * every level shares. A level that wants it faster passes `<Arena ballSpeed={18} />`.
    */
   speed = 15;
 
-  private body!: RigidBody2D;
+  private body!: Rigidbody2D;
   private game!: GameState;
 
   override awake(): void {
-    this.body = this.object3D.getComponent(RigidBody2D)!;
-    this.game = this.requireSystem(GameState);
+    this.body = this.node.getComponent(Rigidbody2D)!;
+    this.game = findObjectOfType(GameState)!;
     this.listen(this.game.ballReset, this.rest);
   }
 
@@ -84,8 +84,8 @@ export class Ball extends Component<Mesh> {
   }
 
   private follow(): void {
-    this.object3D.position.set(this.paddle.position.x, this.paddle.position.y + this.restHeight, 0);
-    this.body.setPosition(this.object3D.position.x, this.object3D.position.y);
+    this.node.position.set(this.paddle.position.x, this.paddle.position.y + this.restHeight, 0);
+    this.body.setPosition(this.node.position.x, this.node.position.y);
     this.body.setVelocity(0, 0);
   }
 
@@ -120,7 +120,7 @@ export class Ball extends Component<Mesh> {
    * middle sends it back up.
    */
   private steerOffPaddle(): void {
-    const offset = clamp((this.object3D.position.x - this.paddle.position.x) / 1.7, -1, 1);
+    const offset = clamp((this.node.position.x - this.paddle.position.x) / 1.7, -1, 1);
     const angle = (offset * this.steer * Math.PI) / 180;
     this.body.setVelocity(Math.sin(angle) * this.speed, Math.abs(Math.cos(angle)) * this.speed);
   }

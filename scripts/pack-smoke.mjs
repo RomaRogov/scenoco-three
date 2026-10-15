@@ -7,17 +7,16 @@
  * shipped a broken release before: `core@0.5.0` went out with a `sideEffects` list that let a
  * bundler drop half of it, and nothing here noticed, because no bundler ever met the package.
  *
- * So: `npm pack` every package, install the tarballs into a fresh project in the system temp
- * directory, and walk the path a user walks —
+ * So: `npm pack` every package and, in the system temp directory, walk the path a user walks —
  *
- *   1. `scenoco init`, `npm install`, `npm run check` on the starter exactly as it ships;
- *   2. a scene touching ui (a Button), particles (an inline effect and a `.particle.xml`) and
- *      collision, compiled and typechecked;
- *   3. `npm run build` — `scenoco build` then the bundler — and the built page run in Chrome;
- *   4. the observer, over MCP, opening that scene.
+ *   1. `npm create @scenoco-three`, from the packed starter: install, check, build, and the built
+ *      page run in Chrome;
+ *   2. a copy of the breakout example on the packed packages: install, `npm run check` (tsc, and
+ *      `scenoco check`: a scene only declares), build, and the built page playing a round;
+ *   3. the observer, over MCP, reading the running game.
  *
  * Along the way: every `@scenoco-three` package is installed once, from its tarball — a second
- * copy of core means two `Component` classes and a silently broken `instanceof`.
+ * copy of core means two `Behaviour` classes and a silently broken `instanceof`.
  *
  *   node scripts/pack-smoke.mjs [--keep]
  *
@@ -26,7 +25,7 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +38,6 @@ const app = join(work, 'app');
 mkdirSync(tarballs);
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const run = (command, args, cwd, quiet = true) =>
   execFileSync(command, args, { cwd, encoding: 'utf8', stdio: quiet ? ['ignore', 'pipe', 'pipe'] : 'inherit' });
 const step = (what) => console.log(`\n▸ ${what}`);
@@ -62,111 +60,75 @@ try {
   }
   const tarball = (name) => packed.get(name) ?? fail(`${name} was not packed`);
 
-  // --- 2. the starter, as it ships ------------------------------------------------------------
-  // The CLI from its own tarball, installed in a scratch directory: `scenoco init` is the first
-  // command anyone runs, and it has to work from the package rather than from this workspace.
-  step('scenoco init, from the packed compiler');
+  // --- 2. the starter, as `npm create` makes it -----------------------------------------------
+  step('npm create @scenoco-three, from the packed starter');
   const bootstrap = join(work, 'bootstrap');
   mkdirSync(bootstrap);
   writeFileSync(join(bootstrap, 'package.json'), JSON.stringify({ name: 'bootstrap', private: true }));
-  run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error', tarball('@scenoco-three/compiler')], bootstrap);
-  run(npx, ['--no-install', 'scenoco', 'init', app], bootstrap);
+  run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error', tarball('@scenoco-three/create')], bootstrap);
+  const starter = join(work, 'starter');
+  run(process.execPath, [join(bootstrap, 'node_modules', '@scenoco-three', 'create', 'index.js'), starter], work);
+  const starterManifest = JSON.parse(readFileSync(join(starter, 'package.json'), 'utf8'));
+  for (const deps of [starterManifest.dependencies, starterManifest.devDependencies]) {
+    for (const name of Object.keys(deps)) if (packed.has(name)) deps[name] = `file:${tarball(name)}`;
+  }
+  writeFileSync(join(starter, 'package.json'), `${JSON.stringify(starterManifest, null, 2)}\n`);
+  run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error'], starter, false);
+  run(npm, ['run', 'check'], starter, false);
+  run(npm, ['run', 'build'], starter, false);
+  await runBuiltPage(join(starter, 'dist'), async (page) => {
+    await page.waitForFunction(() => (document.querySelector('canvas')?.width ?? 0) > 0, undefined, { timeout: 30_000 });
+    await page.keyboard.press('Space');
+    await new Promise((done) => setTimeout(done, 500));
+    console.log('  the starter runs, and drops a crate without an error');
+  });
 
+  // --- 3. a game, as a user has one ----------------------------------------------------------
+  step('breakout, copied out of the workspace, on the packed packages');
+  const example = join(repo, 'examples', 'breakout');
+  mkdirSync(app);
+  for (const entry of ['src', 'index.html', 'vite.config.ts']) cpSync(join(example, entry), join(app, entry), { recursive: true });
+  // Standalone: the example's own tsconfig extends the workspace's.
+  writeFileSync(
+    join(app, 'tsconfig.json'),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true, noImplicitOverride: true,
+          skipLibCheck: true, noEmit: true, lib: ['ES2022', 'DOM', 'DOM.Iterable'], types: ['vite/client'],
+          jsx: 'react-jsx', jsxImportSource: '@scenoco-three/core',
+        },
+        include: ['src'],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  const exampleManifest = JSON.parse(readFileSync(join(example, 'package.json'), 'utf8'));
+  const workspace = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
+  const appManifest = {
+    name: 'packed-breakout',
+    private: true,
+    type: 'module',
+    scripts: exampleManifest.scripts,
+    dependencies: { ...exampleManifest.dependencies, three: workspace.devDependencies.three },
+    devDependencies: {
+      ...exampleManifest.devDependencies,
+      '@scenoco-three/observer': '*',
+      '@types/three': workspace.devDependencies['@types/three'],
+      typescript: workspace.devDependencies.typescript,
+      vite: workspace.devDependencies.vite,
+    },
+  };
   // Every `@scenoco-three` dependency points at its tarball; nothing else changes, so npm
   // resolves the rest — three, vite, typescript — the way it will for a user.
-  const pin = (deps) => {
-    for (const name of Object.keys(deps ?? {})) if (packed.has(name)) deps[name] = `file:${tarball(name)}`;
-  };
-  const appManifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
-  pin(appManifest.dependencies);
-  pin(appManifest.devDependencies);
+  for (const deps of [appManifest.dependencies, appManifest.devDependencies]) {
+    for (const name of Object.keys(deps)) if (packed.has(name)) deps[name] = `file:${tarball(name)}`;
+  }
   writeFileSync(join(app, 'package.json'), `${JSON.stringify(appManifest, null, 2)}\n`);
 
-  step('npm install, then npm run check on the untouched starter');
+  step('npm install, then npm run check');
   run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error'], app, false);
-  run(npm, ['run', 'check'], app, false);
-
-  // --- 3. the packages a game adds ------------------------------------------------------------
-  step('adding ui, particles and collision, and a scene that uses all three');
-  appManifest.dependencies['@scenoco-three/ui'] = `file:${tarball('@scenoco-three/ui')}`;
-  appManifest.dependencies['@scenoco-three/particles'] = `file:${tarball('@scenoco-three/particles')}`;
-  appManifest.dependencies['@scenoco-three/collision'] = `file:${tarball('@scenoco-three/collision')}`;
-  appManifest.devDependencies['@scenoco-three/observer'] = `file:${tarball('@scenoco-three/observer')}`;
-  writeFileSync(join(app, 'package.json'), `${JSON.stringify(appManifest, null, 2)}\n`);
-  run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error'], app, false);
-
-  const tags = join(app, 'src', 'tags.ts');
-  writeFileSync(
-    tags,
-    `${readFileSync(tags, 'utf8')}import '@scenoco-three/ui';\nimport '@scenoco-three/particles';\nimport '@scenoco-three/collision';\n`,
-  );
-  // A document kind a package brings, from the template the package ships.
-  run(npx, ['--no-install', 'scenoco', 'new', 'particle', 'spark'], app);
-  writeFileSync(
-    join(app, 'src', 'Probe.ts'),
-    `import { Component } from '@scenoco-three/core';
-import type { Button } from '@scenoco-three/ui';
-
-/**
- * Says, on the page, that the scene runs and that its buttons answer. The first hands its place
- * to the second, the way a start button makes way for the round's controls.
- */
-export class Probe extends Component {
-  button!: Button;
-  again!: Button;
-  private frames = 0;
-
-  override start(): void {
-    this.again.object3D.setActive(false);
-    this.listen(this.button.onClick, () => {
-      document.body.dataset.clicked = 'yes';
-      this.button.object3D.setActive(false);
-      this.again.object3D.setActive(true);
-    });
-    this.listen(this.again.onClick, () => {
-      document.body.dataset.again = 'yes';
-    });
-  }
-
-  override update(): void {
-    document.body.dataset.frames = String(++this.frames);
-  }
-}
-`,
-  );
-  writeFileSync(
-    join(app, 'assets', 'scenes', 'main.scene.xml'),
-    `<Scene camera="#camera" background="#0b1120">
-  <PerspectiveCamera id="camera" position="y: 4; z: 8" eulerAngles="x: -25">
-    <Canvas>
-      <Panel id="go" anchor="center" width="220" height="64" background="#2563eb"
-             alignX="center" alignY="center">
-        <Text text="GO" fontSize="28" color="#ffffff" />
-        <Components><Button /></Components>
-      </Panel>
-      <Panel id="again" anchor="center" width="220" height="64" background="#16a34a">
-        <Components><Button /></Components>
-      </Panel>
-    </Canvas>
-  </PerspectiveCamera>
-  <AmbientLight intensity="0.8" />
-  <Mesh id="player" geometry="../geometry/cube.asset.xml" material="../materials/block.asset.xml">
-    <Components>
-      <SphereCollider radius="0.5" isSensor="true" />
-      <ParticleSystem playOnAwake="true">
-        <ParticleEffect duration="1" looping="true" startSize="0.2">
-          <Emission rateOverTime="20" />
-        </ParticleEffect>
-      </ParticleSystem>
-    </Components>
-  </Mesh>
-  <Group id="sparks">
-    <Components><ParticleSystem effect="../vfx/spark.particle.xml" playOnAwake="true" /></Components>
-  </Group>
-  <Group id="probe"><Components><Probe button="#go" again="#again" /></Components></Group>
-</Scene>
-`,
-  );
   run(npm, ['run', 'check'], app, false);
 
   // --- 4. one copy of each, from its tarball ---------------------------------------------------
@@ -184,16 +146,17 @@ export class Probe extends Component {
     console.log(`  ${name}  once, ${found[0].resolved.replace(/^.*\//, '')}`);
   }
 
-  const version = run(npx, ['--no-install', 'scenoco', '--version'], app).trim();
-  if (version.includes(repo)) fail(`scenoco answered from the workspace: ${version}`);
-  console.log(`  ${version}`);
-
   // --- 5. the production build, run --------------------------------------------------------------
-  // The starter's own `build` script, not `vite build` directly: without a bundler plugin the
-  // documents are compiled by `scenoco build` first, and that ordering is the thing to prove.
   step('npm run build, and the built page in Chrome');
   run(npm, ['run', 'build'], app, false);
-  await runBuiltPage(join(app, 'dist'));
+  await runBuiltPage(join(app, 'dist'), async (page) => {
+    await page.waitForFunction(() => document.getElementById('level')?.textContent?.includes('NEON GRID'), undefined, { timeout: 30_000 });
+    console.log('  the game runs: the first level is loaded and the HUD reports it');
+    // A real round: launch, and wait for the ball to break a brick against the wall.
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => document.getElementById('score')?.textContent !== '00000', undefined, { timeout: 30_000 });
+    console.log('  a launched ball breaks a brick, and the score shows it');
+  });
 
   // --- 6. the observer, as an agent starts it ------------------------------------------------------
   step('the observer over MCP');
@@ -214,8 +177,8 @@ export class Probe extends Component {
   }
 }
 
-/** Serve `dist`, open it in Chrome, wait for frames, click the button, and hear every error. */
-async function runBuiltPage(dist) {
+/** Serve `dist`, open it in Chrome, run `play` on the page, and hear every error. */
+async function runBuiltPage(dist, play) {
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm' };
   const server = createServer((req, res) => {
     const path = join(dist, decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname));
@@ -253,17 +216,7 @@ async function runBuiltPage(dist) {
       }
     });
     await page.goto(url);
-    await page.waitForFunction(() => Number(document.body.dataset.frames ?? 0) > 30, undefined, { timeout: 30_000 });
-    console.log('  the scene runs');
-    await page.mouse.click(400, 250);
-    await page.waitForFunction(() => document.body.dataset.clicked === 'yes', undefined, { timeout: 10_000 });
-    console.log('  its button answers a real click');
-    // The same spot again without moving: what is under a still mouse is what is there now, not
-    // the hidden button it last passed over.
-    await page.mouse.down();
-    await page.mouse.up();
-    await page.waitForFunction(() => document.body.dataset.again === 'yes', undefined, { timeout: 10_000 });
-    console.log('  and the button that took its place answers a click where the mouse already was');
+    await play(page);
   } catch (error) {
     fail(`the built page did not run: ${error instanceof Error ? error.message : error}${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
   } finally {
@@ -273,9 +226,9 @@ async function runBuiltPage(dist) {
   if (errors.length) fail(`the built page reported errors:\n  ${errors.join('\n  ')}`);
 }
 
-/** Start the observer the way an MCP client does, and ask it to open and describe the scene. */
+/** Start the observer the way an MCP client does, and ask it to read the running game. */
 async function runObserver(root) {
-  const cli = join(root, 'node_modules', '@scenoco-three', 'observer', 'dist', 'cli', 'index.js');
+  const cli = join(root, 'node_modules', '@scenoco-three', 'observer', 'dist', 'cli.js');
   const child = spawn(process.execPath, [cli, '--root', root], { stdio: ['pipe', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (d) => (stderr += d));
@@ -307,14 +260,12 @@ async function runObserver(root) {
   try {
     await send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'pack-smoke', version: '0' } });
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-    const opened = await send('tools/call', { name: 'open', arguments: { path: 'assets/scenes/main.scene.xml' } });
-    if (opened.result?.isError || opened.error) fail(`observer open failed: ${text(opened) || JSON.stringify(opened.error)}`);
-    const outline = text(await send('tools/call', { name: 'outline', arguments: {} }));
-    for (const expected of ['Probe', 'Button', 'ParticleSystem', 'SphereCollider']) {
+    const outline = text(await send('tools/call', { name: 'outline', arguments: { depth: 4 } }));
+    for (const expected of ['Progress', 'GameState', 'Ball', 'Rigidbody2D']) {
       if (!outline.includes(expected)) fail(`the observer's outline has no ${expected}:\n${outline}`);
     }
-    console.log('  opens the scene and outlines it');
-    const shot = await send('tools/call', { name: 'screenshot', arguments: { cameraPos: 'y: 4; z: 8' } });
+    console.log('  outlines the running game');
+    const shot = await send('tools/call', { name: 'screenshot', arguments: {} });
     if (!(shot.result?.content ?? []).some((c) => c.type === 'image')) fail(`no screenshot: ${text(shot)}`);
     console.log('  takes a screenshot');
   } finally {

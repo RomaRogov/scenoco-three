@@ -1,22 +1,13 @@
 import { Vec2, World, type Body, type Contact } from 'planck';
 import { Vector2, type Object3D } from 'three';
-import { Component, System, Time } from '@scenoco-three/core';
-import { RigidBody2D } from './RigidBody2D.js';
+import { System, sendMessage } from '@scenoco-three/core';
+import { Rigidbody2D } from './Rigidbody2D.js';
 import { applyWorldPose, worldPose } from './transform.js';
 
 /**
- * The 2D physics world, on planck — a pure-JS Box2D port, so there is no async init.
- *
- * ```xml
- * <Scene>
- *   <Systems>
- *     <Physics2D gravity="x: 0; y: -9.81" />
- *   </Systems>
- * </Scene>
- * ```
- *
- * Declaring it is optional: the first `<RigidBody2D>` calls `requireSystem` and gets a world
- * with default gravity. Declaring one only configures it.
+ * The 2D physics world, on planck — a pure-JS Box2D port, so there is no async init. Unity's
+ * `Physics2D`: made by the first `Rigidbody2D` that wakes, and set up through its statics —
+ * `Physics2D.gravity.set(0, 0)` for a game with no gravity.
  *
  * The simulation runs in the **XY plane**: a body's position drives the node's x and y, and its
  * angle drives `rotation.z`. Z is left alone, so a 2D game can still lay its art out in depth.
@@ -25,12 +16,12 @@ import { applyWorldPose, worldPose } from './transform.js';
  * attaches itself, and the system holds a world and steps it.
  */
 export class Physics2D extends System {
-  /** Gravity, in metres per second squared. */
-  gravity = new Vector2(0, -9.81);
+  /** Gravity, in metres per second squared — Unity's `Physics2D.gravity`. Read every step. */
+  static readonly gravity = new Vector2(0, -9.81);
   /** Velocity solver iterations per step. Higher is more accurate and slower. */
-  velocityIterations = 8;
+  static velocityIterations = 8;
   /** Position solver iterations per step. */
-  positionIterations = 3;
+  static positionIterations = 3;
 
   /** The live planck world. Reach for it when the wrapper does not expose something. */
   get world(): World {
@@ -40,14 +31,14 @@ export class Physics2D extends System {
   private _world!: World;
 
   /** Every body in the world, so `update` can interpolate the dynamic ones. */
-  private readonly bodies = new Set<RigidBody2D>();
+  private readonly bodies = new Set<Rigidbody2D>();
   /** Per dynamic body, its two most recent fixed poses. */
-  private readonly poses = new Map<RigidBody2D, Pose>();
+  private readonly poses = new Map<Rigidbody2D, Pose>();
   /** Contacts raised during a step, dispatched after it returns. */
   private readonly contacts: QueuedContact[] = [];
 
   override awake(): void {
-    this._world = new World({ gravity: new Vec2(this.gravity.x, this.gravity.y) });
+    this._world = new World({ gravity: new Vec2(Physics2D.gravity.x, Physics2D.gravity.y) });
     // Resolved to nodes at event time and dispatched after the step: a hook is free to destroy
     // things, and the node stays valid even when the body that raised the contact does not.
     this.world.on('begin-contact', (contact) => this.queue(contact, 'enter'));
@@ -55,7 +46,7 @@ export class Physics2D extends System {
   }
 
   override onDestroy(): void {
-    for (const rigidBody of this.bodies) rigidBody.releaseBody();
+    for (const rigidbody of this.bodies) rigidbody.releaseBody();
     this.bodies.clear();
     this.poses.clear();
     this.contacts.length = 0;
@@ -63,36 +54,36 @@ export class Physics2D extends System {
 
   // --- membership ------------------------------------------------------------------------
 
-  /** @internal called by `RigidBody2D.awake`. */
-  createBody(rigidBody: RigidBody2D): Body {
-    const { x, y, angle } = worldPose(rigidBody.object3D);
+  /** @internal called by `Rigidbody2D.awake`. */
+  createBody(rigidbody: Rigidbody2D): Body {
+    const { x, y, angle } = worldPose(rigidbody.node);
     const body = this.world.createBody({
-      type: rigidBody.bodyType(),
+      type: rigidbody.bodyType,
       position: new Vec2(x, y),
       angle,
-      linearDamping: rigidBody.linearDamping,
-      angularDamping: rigidBody.angularDamping,
-      fixedRotation: rigidBody.fixedRotation,
-      gravityScale: rigidBody.gravityScale,
-      bullet: rigidBody.bullet,
+      linearDamping: rigidbody.linearDamping,
+      angularDamping: rigidbody.angularDamping,
+      fixedRotation: rigidbody.fixedRotation,
+      gravityScale: rigidbody.gravityScale,
+      bullet: rigidbody.bullet,
     });
-    body.setUserData(rigidBody);
-    this.bodies.add(rigidBody);
-    if (rigidBody.kind === 'dynamic') this.poses.set(rigidBody, poseOf(body));
+    body.setUserData(rigidbody);
+    this.bodies.add(rigidbody);
+    if (rigidbody.bodyType === 'dynamic') this.poses.set(rigidbody, poseOf(body));
     return body;
   }
 
-  /** @internal called by `RigidBody2D.onDestroy`. */
-  destroyBody(rigidBody: RigidBody2D): void {
-    if (rigidBody.body) this.world.destroyBody(rigidBody.body);
-    this.bodies.delete(rigidBody);
-    this.poses.delete(rigidBody);
+  /** @internal called by `Rigidbody2D.onDestroy`. */
+  destroyBody(rigidbody: Rigidbody2D): void {
+    if (rigidbody.body) this.world.destroyBody(rigidbody.body);
+    this.bodies.delete(rigidbody);
+    this.poses.delete(rigidbody);
   }
 
   /** @internal drop the interpolation history, so a teleport does not blend across the jump. */
-  resetInterpolation(rigidBody: RigidBody2D): void {
-    if (rigidBody.body && this.poses.has(rigidBody)) {
-      this.poses.set(rigidBody, poseOf(rigidBody.body));
+  resetInterpolation(rigidbody: Rigidbody2D): void {
+    if (rigidbody.body && this.poses.has(rigidbody)) {
+      this.poses.set(rigidbody, poseOf(rigidbody.body));
     }
   }
 
@@ -105,13 +96,13 @@ export class Physics2D extends System {
    * the obvious one — and the gap is invisible: the platform is drawn in its new place while
    * its collider stays behind, so things bounce off nothing.
    */
-  override syncTransforms(): void {
-    for (const rigidBody of this.bodies) {
-      if (!rigidBody.body) continue;
-      rigidBody.syncFromNode();
+  syncTransforms(): void {
+    for (const rigidbody of this.bodies) {
+      if (!rigidbody.body) continue;
+      rigidbody.syncFromNode();
       // Otherwise the first frame after the sync interpolates from the pose the body used to
       // have, and the node visibly snaps back before catching up.
-      this.resetInterpolation(rigidBody);
+      this.resetInterpolation(rigidbody);
     }
   }
 
@@ -121,15 +112,16 @@ export class Physics2D extends System {
     // Kinematic bodies are driven by their node: game code moves the node, the body follows and
     // pushes dynamic bodies out of the way. Every `fixedUpdate` that moves one has already run,
     // which is exactly why a system's phase comes after a component's.
-    for (const rigidBody of this.bodies) {
-      if (rigidBody.kind === 'kinematic' && rigidBody.isActiveAndEnabled) rigidBody.syncFromNode();
+    for (const rigidbody of this.bodies) {
+      if (rigidbody.bodyType === 'kinematic' && rigidbody.isActiveAndEnabled) rigidbody.syncFromNode();
     }
 
-    this.world.step(dt, this.velocityIterations, this.positionIterations);
+    this.world.setGravity(new Vec2(Physics2D.gravity.x, Physics2D.gravity.y));
+    this.world.step(dt, Physics2D.velocityIterations, Physics2D.positionIterations);
 
-    for (const [rigidBody, pose] of this.poses) {
-      if (!rigidBody.isActiveAndEnabled || !rigidBody.body) continue;
-      advance(pose, rigidBody.body, dt);
+    for (const [rigidbody, pose] of this.poses) {
+      if (!rigidbody.isActiveAndEnabled || !rigidbody.body) continue;
+      advance(pose, rigidbody.body, dt);
     }
 
     this.flushContacts();
@@ -140,12 +132,12 @@ export class Physics2D extends System {
    * when the render rate and the fixed rate differ.
    */
   override update(): void {
-    const t = Time.interpolationAlpha;
-    for (const [rigidBody, pose] of this.poses) {
+    const t = this.runtime.interpolationAlpha;
+    for (const [rigidbody, pose] of this.poses) {
       // A disabled body's node belongs to whatever script disabled it.
-      if (!rigidBody.isActiveAndEnabled) continue;
+      if (!rigidbody.isActiveAndEnabled) continue;
       applyWorldPose(
-        rigidBody.object3D,
+        rigidbody.node,
         pose.previousX + (pose.x - pose.previousX) * t,
         pose.previousY + (pose.y - pose.previousY) * t,
         lerpAngle(pose.previousAngle, pose.angle, t),
@@ -158,12 +150,12 @@ export class Physics2D extends System {
   private queue(contact: Contact, phase: ContactPhase): void {
     const a = contact.getFixtureA();
     const b = contact.getFixtureB();
-    const bodyA = a.getBody().getUserData() as RigidBody2D | undefined;
-    const bodyB = b.getBody().getUserData() as RigidBody2D | undefined;
+    const bodyA = a.getBody().getUserData() as Rigidbody2D | undefined;
+    const bodyB = b.getBody().getUserData() as Rigidbody2D | undefined;
     if (!bodyA || !bodyB) return;
     this.contacts.push({
-      a: bodyA.object3D,
-      b: bodyB.object3D,
+      a: bodyA.node,
+      b: bodyB.node,
       sensor: a.isSensor() || b.isSensor(),
       phase,
     });
@@ -242,20 +234,12 @@ function advance(pose: Pose, body: Body, dt: number): void {
 const TELEPORT_FACTOR = 4;
 const TELEPORT_MARGIN = 0.1;
 
-/** Call every contact hook on `node` that wants to hear about `other`. */
+/** Tell every behaviour on `node` about `other`: Unity's contact messages, by name. */
 function dispatch(node: Object3D, other: Object3D, sensor: boolean, phase: ContactPhase): void {
-  for (const component of node.components) {
-    // Enqueued for destruction this frame: it should not act on a contact it will not survive.
-    if (component.isDestroyed || (component as Component)._pendingDestroy) continue;
-    const hook = sensor
-      ? phase === 'enter'
-        ? component.onTriggerEnter2D
-        : component.onTriggerExit2D
-      : phase === 'enter'
-        ? component.onCollisionEnter2D
-        : component.onCollisionExit2D;
-    hook?.call(component, other);
-  }
+  const message = sensor
+    ? phase === 'enter' ? 'onTriggerEnter2D' : 'onTriggerExit2D'
+    : phase === 'enter' ? 'onCollisionEnter2D' : 'onCollisionExit2D';
+  sendMessage(node, message, other);
 }
 
 /** Interpolate between two angles along the shortest arc, in radians. */

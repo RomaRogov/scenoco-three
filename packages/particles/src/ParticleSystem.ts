@@ -1,4 +1,4 @@
-import { Component } from '@scenoco-three/core';
+import { Behaviour, service } from '@scenoco-three/core';
 import type { ParticleSystem as QuarksSystem } from 'three.quarks';
 import type { ParticleEffect } from './config.js';
 import { ParticleRenderer } from './ParticleRenderer.js';
@@ -6,39 +6,20 @@ import { ParticleRenderer } from './ParticleRenderer.js';
 /**
  * Plays a particle effect on this node — Unity's Shuriken `ParticleSystem`.
  *
- * ```xml
- * <Group position="y: 1.2">
- *   <Components>
- *     <ParticleSystem effect="../vfx/fire.particle.xml" />
- *   </Components>
+ * ```ts
+ * // vfx.ts — an effect is data, typed by `ParticleEffect`
+ * export const fire: ParticleEffect = { duration: 3, startSize: 0.4, emission: { rateOverTime: 20 } };
+ * ```
+ * ```tsx
+ * <Group position={[0, 1.2, 0]}>
+ *   <ParticleSystem effect={vfx.fire} />
  * </Group>
  * ```
  *
- * The effect has the two forms every shared thing in the DSL has, and they mean what they mean
- * for a material. A **path** names a `.particle.xml` that every emitter pointing at it shares, so
- * tuning it is one edit in one place. An **element** gives this emitter its own:
- *
- * ```xml
- * <ParticleSystem>
- *   <ParticleEffect duration="3" startSize="0.4">
- *     <Emission rateOverTime="20" />
- *   </ParticleEffect>
- * </ParticleSystem>
- * ```
- *
- * The text inside is byte-identical to what the file holds, so the two are cut-and-paste in
- * either direction. Write the file when more than one emitter wants the effect; write the element
- * when this one is the only one that does.
- *
- * The emitter joins the scene's `ParticleRenderer` in `awake` and leaves it in `onDestroy`, so
- * nothing scans the scene for emitters that came or went. Disabling the component pauses it and
- * leaves its live particles standing; `stop()` clears them.
+ * Disabling it pauses the effect and leaves its live particles standing; `stop()` clears them.
  */
-export class ParticleSystem extends Component {
-  /**
-   * The effect to play. Required: an emitter with nothing to emit is a document that meant to
-   * say something and did not.
-   */
+export class ParticleSystem extends Behaviour {
+  /** The effect to play. */
   effect!: ParticleEffect;
 
   /** Start emitting as soon as the component starts. Unity's `playOnAwake`. */
@@ -62,19 +43,8 @@ export class ParticleSystem extends Component {
   // --- lifecycle -------------------------------------------------------------------------
 
   override awake(): void {
-    // A document cannot reach here without an effect: `effect!` has no default, so the compiler
-    // reports `missing-attribute`. This is for an emitter built in code. Core catches what a
-    // hook throws and reports it with the component and the node, so the message is the whole
-    // contribution — and the emitter is left inert rather than half-built.
-    if (!this.effect) {
-      throw new Error(
-        'ParticleSystem has no effect. Point it at a .particle.xml, or write one inside it: ' +
-          '<ParticleSystem effect="../vfx/fire.particle.xml" />',
-      );
-    }
-    // `requireSystem` rather than `getSystem`: a scene that never declared `<ParticleRenderer>`
-    // still gets one. Declaring it is only ever about ordering it against other systems.
-    this.renderer = this.requireSystem(ParticleRenderer);
+    if (!this.effect) throw new Error('ParticleSystem has no effect. Give it one: <ParticleSystem effect={vfx.fire} />, with fire a ParticleEffect.');
+    this.renderer = service(this.node, ParticleRenderer);
     this._system = this.renderer.createSystem(this);
     // three.quarks systems emit from the moment they are built.
     if (!this.playOnAwake) this.stop();

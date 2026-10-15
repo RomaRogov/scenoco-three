@@ -1,9 +1,10 @@
 import type { Object3D } from 'three';
+import { declareMessages } from '@scenoco-three/core';
 
 /**
  * The contact hooks a component may implement, named as Unity names them.
  *
- * These are declared as an interface and merged onto `Component`, exactly the way core declares
+ * These are declared as an interface and merged onto `Behaviour`, exactly the way core declares
  * its own lifecycle hooks. That is what makes them **typed**: `override onCollisionEnter2D(other:
  * Object3D)` is checked by the compiler, a misspelling is an error rather than a hook that
  * silently never fires, and "find all references" finds every handler.
@@ -20,5 +21,5 @@ export interface Contact2DHandlers {
 }
 
 declare module '@scenoco-three/core' {
-  interface Component extends Contact2DHandlers {}
+  interface Behaviour extends Contact2DHandlers {}
 }

@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/editor",
-  "version": "0.6.0",
-  "description": "The standalone SceNoCo editor: a static site that opens any .scene.xml from a folder or a URL, builds the scene live, and saves back \u2014 a tree, an inspector, gizmos. `scenoco-editor` serves it locally.",
+  "version": "0.7.0",
+  "description": "The SceNoCo editor: opened on a game's own dev server with ?edit — a tree, an inspector and gizmos over the live scene, writing back to the .tsx files byte for byte.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,56 +9,29 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/editor"
   },
-  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/editor#readme",
-  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "bin": {
-    "scenoco-editor": "./dist/cli/index.js"
+    "scenoco-editor": "./bin/serve.js"
   },
-  "main": "./dist/cli/index.js",
   "files": [
     "dist",
-    "dist-app"
-  ],
-  "keywords": [
-    "three",
-    "threejs",
-    "scenoco",
-    "editor",
-    "scene",
-    "xml",
-    "gizmo",
-    "inspector",
-    "gamedev"
+    "bin"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js && npm run build:app",
-    "build:app": "node scripts/static-tags.mjs && node scripts/static-model.mjs && node scripts/static-assets.mjs && vite build --config vite.static.config.ts",
-    "preview:app": "vite preview --config vite.static.config.ts --port 5195 --strictPort",
-    "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && tsc --noEmit -p tsconfig.json"
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": {},
-  "peerDependencies": {},
   "devDependencies": {
-    "@scenoco-three/audio": "^0.6.0",
-    "@scenoco-three/box2d": "^0.6.0",
-    "@scenoco-three/collision": "^0.6.0",
-    "@scenoco-three/compiler": "^0.6.0",
-    "@scenoco-three/core": "^0.6.0",
-    "@scenoco-three/particles": "^0.6.0",
-    "@scenoco-three/postfx": "^0.6.0",
-    "@scenoco-three/ui": "^0.6.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@vitejs/plugin-react": "^6.1.2",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-arborist": "^3.4.0",
     "react-dom": "^18.3.1",
-    "vite": "^8.0.0",
     "zustand": "^5.0.2"
   }
 }

@@ -1,9 +1,7 @@
 import { defineConfig } from 'vite';
+import { scenoco } from '@scenoco-three/tools/vite';
 
-// No SceNoCo plugin: a document compiles to a `.gen.ts` beside it, which is ordinary TypeScript.
-// `npm run dev` is `scenoco watch -- vite` — the watcher compiles, vite serves.
+// TSX through SceNoCo's own runtime, and — while serving — what the editor (`?edit`) reads and writes.
 export default defineConfig({
-  // One `three` in the graph, or `instanceof` across two copies of it silently returns false.
-  resolve: { dedupe: ['three'] },
-  build: { sourcemap: true },
+  plugins: [scenoco()],
 });

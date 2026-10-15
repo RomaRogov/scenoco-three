@@ -1,217 +1,280 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Quaternion, Vector3, type Object3D } from 'three';
-import { System, Time } from '@scenoco-three/core';
-import type { Collider } from './Collider.js';
-import { RigidBody } from './RigidBody.js';
+import { Runtime, System, sendMessage, service } from '@scenoco-three/core';
+import type { Collider } from './colliders.js';
+import type { Rigidbody } from './Rigidbody.js';
+
+/** What `onCollisionEnter` / `onCollisionExit` receive — Unity's `Collision`: the other side. */
+export interface Collision {
+  /** The other object. */
+  node: Object3D;
+  /** The other object's collider that touched. */
+  collider: Collider;
+  /** The other object's body, or null when it is a static collider. */
+  rigidbody: Rigidbody | null;
+}
 
 /**
- * The 3D physics world, on Rapier.
+ * The physics world, on Rapier — Unity's `Physics`. Made by the first `Rigidbody` or collider
+ * that wakes; nothing has to declare it. `Physics.gravity.set(0, -20, 0)` changes gravity, and
+ * `Physics.world` is Rapier's own world for anything the components do not expose.
  *
- * ```xml
- * <Scene>
- *   <Systems>
- *     <Physics gravity="x: 0; y: -9.81; z: 0" />
- *   </Systems>
- * </Scene>
- * ```
- *
- * Declaring it is optional: the first `<RigidBody>` calls `requireSystem` and gets a world with
- * default gravity. Declaring one only configures it.
- *
- * **Rapier loads as WebAssembly, so `await initRapier()` before the first scene loads.** That
- * is the one thing this package needs that `@scenoco-three/box2d` does not.
- *
- * Nothing is rediscovered per step: a body joins in `awake` and leaves in `onDestroy`, a collider
- * attaches itself, and the system holds a world and steps it.
+ * Each `fixedUpdate`, after every behaviour's: kinematic bodies follow their nodes, the world
+ * steps, dynamic bodies write back, and only then are contacts sent — so a handler may destroy
+ * freely without touching the world mid-step.
  */
 export class Physics extends System {
-  /** Gravity, in metres per second squared. */
-  gravity = new Vector3(0, -9.81, 0);
+  /** Gravity, in metres per second squared — Unity's `Physics.gravity`. Read every step. */
+  static readonly gravity = new Vector3(0, -9.81, 0);
 
-  /** The live Rapier world. Reach for it when the wrapper does not expose something. */
-  get world(): RAPIER.World {
-    return this._world;
+  /** The running scene's Rapier world — raycasts, shape casts, joints — or null before any body exists. */
+  static get world(): RAPIER.World | null {
+    const root = Runtime.current?.root;
+    return root ? service(root, Physics).world : null;
   }
 
-  private _world!: RAPIER.World;
+  /** @internal this scene's Rapier world. */
+  world!: RAPIER.World;
 
   private events!: RAPIER.EventQueue;
-  /** Every body in the world, so `update` can interpolate the dynamic ones. */
-  private readonly bodies = new Set<RigidBody>();
-  /** Per dynamic body, its two most recent fixed poses. */
-  private readonly poses = new Map<RigidBody, Pose>();
-  /** Handles of colliders removed since the last step, still named by that step's events. */
+  private readonly bodies = new Set<Rigidbody>();
+  /** Per dynamic body: its last two fixed poses, which `update` blends between. */
+  private readonly poses = new Map<Rigidbody, Pose>();
+  /** Rapier collider handle → collider, to turn a contact event back into objects. */
+  private readonly colliders = new Map<number, Collider>();
+  /** Handles removed since the last step: still named by that step's exit events. */
   private readonly retired: number[] = [];
-  /** Rapier collider handle → the node and sensor flag, for resolving contact events. */
-  private readonly colliders = new Map<number, { node: Object3D; sensor: boolean }>();
-  private readonly contacts: QueuedContact[] = [];
+  /** Colliders with no body: placed where their node is, and moved when it moves, as in Unity. */
+  private readonly statics = new Set<Collider>();
+  private readonly contacts: { a: Collider; b: Collider; started: boolean }[] = [];
+  /** Pairs touching now, by handle. A collider that goes away ends its pairs itself, at once. */
+  private readonly touching = new Map<string, { a: Collider; b: Collider; ha: number; hb: number }>();
 
   override awake(): void {
     if (typeof RAPIER.World !== 'function') {
-      throw new Error(
-        '[scenoco] Rapier is not initialised. `await initRapier()` before loading a scene — ' +
-          'Rapier is WebAssembly, so it cannot be ready at import time.',
-      );
+      throw new Error('Rapier is not loaded: `await initRapier()` before the scene renders — it is WebAssembly.');
     }
-    this._world = new RAPIER.World({ x: this.gravity.x, y: this.gravity.y, z: this.gravity.z });
+    this.world = new RAPIER.World(Physics.gravity);
     this.events = new RAPIER.EventQueue(true);
   }
 
   override onDestroy(): void {
-    for (const rigidBody of this.bodies) rigidBody.releaseBody();
-    this.bodies.clear();
-    this.poses.clear();
-    this.colliders.clear();
-    this.contacts.length = 0;
+    for (const rigidbody of this.bodies) rigidbody._body = null;
+    for (const collider of this.colliders.values()) collider._collider = null;
+    this.touching.clear();
+    this.statics.clear();
     this.events.free();
     this.world.free();
   }
 
-  // --- membership ------------------------------------------------------------------------
+  // --- membership: bodies and colliders join in their hooks, nothing is rediscovered --------
 
-  /** @internal called by `RigidBody.awake`. */
-  createBody(rigidBody: RigidBody): RAPIER.RigidBody {
-    const position = rigidBody.object3D.getWorldPosition(SCRATCH_POSITION);
-    const rotation = rigidBody.object3D.getWorldQuaternion(SCRATCH_ROTATION);
-    const body = this.world.createRigidBody(
-      rigidBody
-        .describe()
-        .setTranslation(position.x, position.y, position.z)
-        .setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w })
-        .setLinearDamping(rigidBody.linearDamping)
-        .setAngularDamping(rigidBody.angularDamping)
-        .setGravityScale(rigidBody.gravityScale)
-        .setCcdEnabled(rigidBody.ccd),
-    );
-    this.bodies.add(rigidBody);
-    if (rigidBody.kind === 'dynamic') this.poses.set(rigidBody, poseOf(body));
+  /** @internal */
+  createBody(rigidbody: Rigidbody): RAPIER.RigidBody {
+    const node = rigidbody.node;
+    const p = node.getWorldPosition(SCRATCH_V);
+    const q = node.getWorldQuaternion(SCRATCH_Q);
+    const desc = (rigidbody.isKinematic ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.dynamic())
+      .setTranslation(p.x, p.y, p.z)
+      .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+      .setLinearDamping(rigidbody.linearDamping)
+      .setAngularDamping(rigidbody.angularDamping)
+      .setGravityScale(rigidbody.useGravity ? 1 : 0);
+    if (rigidbody.freezeRotation) desc.lockRotations();
+    const body = this.world.createRigidBody(desc);
+    body.userData = rigidbody; // Rapier's own place for it, so `hit.collider.parent()?.userData` works too
+    this.bodies.add(rigidbody);
+    if (!rigidbody.isKinematic) this.poses.set(rigidbody, poseOf(body));
     return body;
   }
 
-  /** @internal called by `RigidBody.onDestroy`. */
-  destroyBody(rigidBody: RigidBody): void {
-    if (rigidBody.body) {
-      // Removing a body removes its colliders, and Rapier reports a stopped event for each pair
-      // they were in on the next step — which is how the other side hears its exit, as it does
-      // in Unity. Those events name the handles, so the handles stay resolvable until that step
-      // has been drained; deleting them here would have silently dropped every such exit, and
-      // never deleting them, which is what this did before, leaked one entry per collider.
-      for (let i = 0; i < rigidBody.body.numColliders(); i++) {
-        this.retired.push(rigidBody.body.collider(i).handle);
-      }
-      this.world.removeRigidBody(rigidBody.body);
+  /** @internal */
+  destroyBody(rigidbody: Rigidbody): void {
+    const body = rigidbody._body;
+    if (body) {
+      for (let i = 0; i < body.numColliders(); i++) this.endContacts(body.collider(i).handle);
+      this.world.removeRigidBody(body);
     }
-    this.bodies.delete(rigidBody);
-    this.poses.delete(rigidBody);
+    this.bodies.delete(rigidbody);
+    this.poses.delete(rigidbody);
   }
 
-  /** @internal called by `RigidBody.attachCollider`. */
-  createCollider(collider: Collider, owner: RigidBody): RAPIER.Collider {
-    const created = this.world.createCollider(collider.toDesc(), owner.body ?? undefined);
-    // A contact event carries collider handles, so the mapping back to a node lives here.
-    this.colliders.set(created.handle, { node: owner.object3D, sensor: collider.isSensor });
+  /** @internal On the body when there is one; otherwise a static collider where its node is, as in Unity. */
+  createCollider(collider: Collider, body: RAPIER.RigidBody | null): RAPIER.Collider {
+    const node = collider.node;
+    const scale = node.getWorldScale(new Vector3());
+    const desc = collider
+      .shape(scale)
+      .setFriction(collider.friction)
+      .setRestitution(collider.bounciness)
+      .setDensity(collider.density)
+      .setSensor(collider.isTrigger)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+      // Unity reports a trigger against anything with a body, kinematic included; Rapier's default does not.
+      .setActiveCollisionTypes(collider.isTrigger ? RAPIER.ActiveCollisionTypes.ALL : RAPIER.ActiveCollisionTypes.DEFAULT);
+    const center = SCRATCH_V.copy(collider.center).multiply(scale);
+    if (body) {
+      desc.setTranslation(center.x, center.y, center.z);
+    } else {
+      const { p, q } = staticPose(collider, scale);
+      desc.setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+      this.statics.add(collider);
+    }
+    const created = this.world.createCollider(desc, body ?? undefined);
+    this.colliders.set(created.handle, collider);
     return created;
   }
 
-  /** @internal called by `RigidBody.detachCollider`. */
-  destroyCollider(collider: RAPIER.Collider): void {
-    // Kept resolvable until the stopped events naming it are drained — see `destroyBody`.
-    this.retired.push(collider.handle);
-    this.world.removeCollider(collider, true);
-  }
-
-  /** @internal drop the interpolation history, so a teleport does not blend across the jump. */
-  resetInterpolation(rigidBody: RigidBody): void {
-    if (rigidBody.body && this.poses.has(rigidBody)) {
-      this.poses.set(rigidBody, poseOf(rigidBody.body));
-    }
-  }
-
-  // --- the step --------------------------------------------------------------------------
-
-  override fixedUpdate(dt: number): void {
-    // Kinematic bodies are driven by their node: game code moves the node, the body follows.
-    // Every `fixedUpdate` that moves one has already run, which is why a system's phase comes
-    // after a component's.
-    for (const rigidBody of this.bodies) {
-      if (rigidBody.kind === 'kinematic' && rigidBody.isActiveAndEnabled) rigidBody.syncFromNode();
-    }
-
-    this.world.timestep = dt;
-    this.world.step(this.events);
-    this.drainEvents();
-
-    for (const rigidBody of this.bodies) {
-      if (!rigidBody.isActiveAndEnabled || !rigidBody.body) continue;
-      const pose = this.poses.get(rigidBody);
-      // Dynamic bodies record two poses for `update` to blend; everything else writes straight
-      // through, because there is nothing to interpolate.
-      if (pose) advance(pose, rigidBody.body, dt);
-      else writeThrough(rigidBody);
-    }
-
-    this.flushContacts();
+  /** @internal */
+  destroyCollider(created: RAPIER.Collider): void {
+    const collider = this.colliders.get(created.handle);
+    if (collider) this.statics.delete(collider);
+    this.endContacts(created.handle);
+    this.world.removeCollider(created, true);
   }
 
   /**
-   * Blend each dynamic body's node between its last two fixed poses, so motion stays smooth
-   * when the render rate and the fixed rate differ.
+   * The collider behind a Rapier collider or its handle — how a raycast, shape cast or contact
+   * found through Rapier's API comes back to an object: `physics.colliderOf(hit.collider)?.node`.
    */
-  override update(): void {
-    const t = Time.interpolationAlpha;
-    for (const [rigidBody, pose] of this.poses) {
-      // A disabled body's node belongs to whatever script disabled it.
-      if (!rigidBody.isActiveAndEnabled) continue;
-      applyWorldPose(
-        rigidBody.object3D,
-        BLEND_POSITION.lerpVectors(pose.previousPosition, pose.position, t),
-        BLEND_ROTATION.slerpQuaternions(pose.previousRotation, pose.rotation, t),
-      );
-    }
+  colliderOf(collider: RAPIER.Collider | number): Collider | null {
+    return this.colliders.get(typeof collider === 'number' ? collider : collider.handle) ?? null;
   }
 
-  // --- contacts --------------------------------------------------------------------------
+  /** @internal a teleport: forget the previous pose, so nothing blends across the jump. */
+  resetPose(rigidbody: Rigidbody): void {
+    if (rigidbody._body && this.poses.has(rigidbody)) this.poses.set(rigidbody, poseOf(rigidbody._body));
+  }
 
-  private drainEvents(): void {
-    this.events.drainCollisionEvents((first, second, started) => {
-      const a = this.colliders.get(first);
-      const b = this.colliders.get(second);
-      if (!a || !b) return;
-      this.contacts.push({
-        a: a.node,
-        b: b.node,
-        sensor: a.sensor || b.sensor,
-        phase: started ? 'enter' : 'exit',
-      });
+  // --- the step ------------------------------------------------------------------------------
+
+  override fixedUpdate(dt: number): void {
+    // A kinematic body follows its node — unless code drove it the Rapier way this step
+    // (`setNextKinematicTranslation`), and then the node follows the body instead.
+    const drivenByBody: Rigidbody[] = [];
+    for (const rigidbody of this.bodies) {
+      const body = rigidbody._body;
+      if (!rigidbody.isKinematic || !body || !rigidbody.enabled) continue;
+      if (moving(body)) {
+        drivenByBody.push(rigidbody);
+        continue;
+      }
+      body.setNextKinematicTranslation(rigidbody.node.getWorldPosition(SCRATCH_V));
+      body.setNextKinematicRotation(rigidbody.node.getWorldQuaternion(SCRATCH_Q));
+    }
+
+    // A static collider moved through its node — a scrolling obstacle, a sliding door — goes with it.
+    for (const collider of this.statics) {
+      const created = collider._collider;
+      if (!created || !collider.enabled) continue;
+      const { p, q } = staticPose(collider, collider.node.getWorldScale(SCALE));
+      const t = created.translation();
+      const r = created.rotation();
+      // Rapier keeps f32, so compare with a tolerance: an unmoved wall is not touched.
+      if (Math.abs(t.x - p.x) + Math.abs(t.y - p.y) + Math.abs(t.z - p.z) > 1e-4) created.setTranslation(p);
+      if (Math.abs(r.x - q.x) + Math.abs(r.y - q.y) + Math.abs(r.z - q.z) + Math.abs(r.w - q.w) > 1e-6) created.setRotation(q);
+    }
+
+    this.world.gravity = Physics.gravity;
+    this.world.timestep = dt;
+    this.world.step(this.events);
+
+    this.events.drainCollisionEvents((h1, h2, started) => {
+      if (this.retired.includes(h1) || this.retired.includes(h2)) return; // already ended by endContacts
+      const a = this.colliders.get(h1);
+      const b = this.colliders.get(h2);
+      if (!a || !b) return this.reportForeign(a ? h2 : h1);
+      const key = pairKey(h1, h2);
+      if (started) this.touching.set(key, { a, b, ha: h1, hb: h2 });
+      else if (!this.touching.delete(key)) return;
+      this.contacts.push({ a, b, started });
     });
-    // Every event a removed collider was going to be named in has now been read.
     for (const handle of this.retired) this.colliders.delete(handle);
     this.retired.length = 0;
-  }
 
-  private flushContacts(): void {
-    // Both sides hear about it, and both hear the same thing. Dispatched after the step, so a
-    // hook is free to destroy things without splicing the world mid-simulation.
-    for (const { a, b, sensor, phase } of this.contacts) {
-      dispatch(a, b, sensor, phase);
-      dispatch(b, a, sensor, phase);
+    for (const [rigidbody, pose] of this.poses) if (rigidbody._body) advance(pose, rigidbody._body, dt);
+    for (const rigidbody of drivenByBody) {
+      const t = rigidbody._body!.translation();
+      const r = rigidbody._body!.rotation();
+      applyWorldPose(rigidbody.node, BLEND_V.set(t.x, t.y, t.z), BLEND_Q.set(r.x, r.y, r.z, r.w));
     }
-    this.contacts.length = 0;
+
+    for (const { a, b, started } of this.contacts.splice(0)) dispatch(a, b, started);
+  }
+
+  /**
+   * A collider is going away — destroyed, disabled, or its body is. Its pairs end now, while both
+   * objects still have their nodes; Rapier's own events for them arrive next step and are dropped.
+   */
+  private endContacts(handle: number): void {
+    this.retired.push(handle);
+    for (const [key, pair] of this.touching) {
+      if (pair.ha !== handle && pair.hb !== handle) continue;
+      this.touching.delete(key);
+      dispatch(pair.a, pair.b, false);
+    }
+  }
+
+  private reported = false;
+
+  /** A collider made with Rapier's API directly is real to Rapier, and invisible to everything here. */
+  private reportForeign(handle: number): void {
+    if (this.reported || this.retired.includes(handle)) return;
+    this.reported = true;
+    console.warn(
+      'A collider created with Rapier\'s API directly touched something. It gets no messages and moves no ' +
+        'object: make bodies and colliders with <Rigidbody /> and <BoxCollider /> & co., and use Rapier for queries and joints.',
+    );
+  }
+
+  /** Dynamic bodies are drawn between their last two fixed poses, so motion is smooth at any frame rate. */
+  override update(): void {
+    const t = Math.min(this.runtime.interpolationAlpha, 1);
+    for (const [rigidbody, pose] of this.poses) {
+      if (!rigidbody.enabled) continue;
+      applyWorldPose(rigidbody.node, BLEND_V.lerpVectors(pose.previous, pose.position, t), BLEND_Q.slerpQuaternions(pose.previousRotation, pose.rotation, t));
+    }
   }
 }
 
-type ContactPhase = 'enter' | 'exit';
-
-interface QueuedContact {
-  a: Object3D;
-  b: Object3D;
-  sensor: boolean;
-  phase: ContactPhase;
+/** Where a static collider's shape sits in the world: its node's pose, offset by `center`. */
+function staticPose(collider: Collider, scale: Vector3): { p: Vector3; q: Quaternion } {
+  const q = collider.node.getWorldQuaternion(STATIC_Q);
+  const p = STATIC_V.copy(collider.center).multiply(scale).applyQuaternion(q).add(collider.node.getWorldPosition(SCRATCH_V));
+  return { p, q };
 }
 
-/** A dynamic body's two most recent fixed poses. */
+function moving(body: RAPIER.RigidBody): boolean {
+  const t = body.translation();
+  const n = body.nextTranslation();
+  const r = body.rotation();
+  const m = body.nextRotation();
+  return t.x !== n.x || t.y !== n.y || t.z !== n.z || r.x !== m.x || r.y !== m.y || r.z !== m.z || r.w !== m.w;
+}
+
+/** Both sides hear it, each about the other — Unity's messages, Unity's payloads. */
+function dispatch(a: Collider, b: Collider, started: boolean): void {
+  if (a.isTrigger || b.isTrigger) {
+    const name = started ? 'onTriggerEnter' : 'onTriggerExit';
+    sendMessage(a.node, name, b);
+    sendMessage(b.node, name, a);
+  } else {
+    const name = started ? 'onCollisionEnter' : 'onCollisionExit';
+    sendMessage(a.node, name, collisionWith(b));
+    sendMessage(b.node, name, collisionWith(a));
+  }
+}
+
+function pairKey(h1: number, h2: number): string {
+  return h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
+}
+
+function collisionWith(other: Collider): Collision {
+  return { node: other.node, collider: other, rigidbody: other.attachedRigidbody };
+}
+
 interface Pose {
-  previousPosition: Vector3;
+  previous: Vector3;
   previousRotation: Quaternion;
   position: Vector3;
   rotation: Quaternion;
@@ -221,52 +284,32 @@ function poseOf(body: RAPIER.RigidBody): Pose {
   const t = body.translation();
   const r = body.rotation();
   return {
-    previousPosition: new Vector3(t.x, t.y, t.z),
+    previous: new Vector3(t.x, t.y, t.z),
     previousRotation: new Quaternion(r.x, r.y, r.z, r.w),
     position: new Vector3(t.x, t.y, t.z),
     rotation: new Quaternion(r.x, r.y, r.z, r.w),
   };
 }
 
-/**
- * Shift current → previous and record the new pose.
- *
- * A move far larger than this step's velocity allows is a teleport — a respawn, a manual
- * `setPosition` — so the previous pose snaps to it rather than being blended across the jump.
- * The threshold scales with speed, so a genuinely fast body is not mistaken for one.
- */
+/** Shift current → previous. A jump far beyond the body's speed is a teleport, and is not blended. */
 function advance(pose: Pose, body: RAPIER.RigidBody, dt: number): void {
   const t = body.translation();
   const r = body.rotation();
   const v = body.linvel();
   const moved = Math.hypot(t.x - pose.position.x, t.y - pose.position.y, t.z - pose.position.z);
-  const allowed = Math.hypot(v.x, v.y, v.z) * dt * TELEPORT_FACTOR + TELEPORT_MARGIN;
-
-  if (moved > allowed) {
-    pose.previousPosition.set(t.x, t.y, t.z);
+  const teleported = moved > Math.hypot(v.x, v.y, v.z) * dt * 4 + 0.1;
+  if (teleported) {
+    pose.previous.set(t.x, t.y, t.z);
     pose.previousRotation.set(r.x, r.y, r.z, r.w);
   } else {
-    pose.previousPosition.copy(pose.position);
+    pose.previous.copy(pose.position);
     pose.previousRotation.copy(pose.rotation);
   }
   pose.position.set(t.x, t.y, t.z);
   pose.rotation.set(r.x, r.y, r.z, r.w);
 }
 
-/** Non-dynamic bodies have nothing to blend: the world's pose is the node's pose. */
-function writeThrough(rigidBody: RigidBody): void {
-  const t = rigidBody.body!.translation();
-  const r = rigidBody.body!.rotation();
-  applyWorldPose(rigidBody.object3D, BLEND_POSITION.set(t.x, t.y, t.z), BLEND_ROTATION.set(r.x, r.y, r.z, r.w));
-}
-
-/**
- * Put a world pose back on the node, through whatever it hangs under.
- *
- * The body's pose is read from the node's place in the **world** — a body is free to sit under
- * any node, as it is in Unity — so the result has to come back the same way. Writing it straight
- * into `position` drew a nested body at its parent's offset twice over.
- */
+/** A body's pose is a world pose; put it back through whatever the node hangs under. */
 function applyWorldPose(node: Object3D, position: Vector3, rotation: Quaternion): void {
   const parent = node.parent;
   if (!parent) {
@@ -275,33 +318,14 @@ function applyWorldPose(node: Object3D, position: Vector3, rotation: Quaternion)
     return;
   }
   parent.updateWorldMatrix(true, false);
-  node.position.copy(parent.worldToLocal(LOCAL_POSITION.copy(position)));
-  node.quaternion.copy(parent.getWorldQuaternion(LOCAL_ROTATION).invert().multiply(rotation));
+  node.position.copy(parent.worldToLocal(SCRATCH_V.copy(position)));
+  node.quaternion.copy(parent.getWorldQuaternion(SCRATCH_Q).invert().multiply(rotation));
 }
 
-const BLEND_POSITION = new Vector3();
-const BLEND_ROTATION = new Quaternion();
-const LOCAL_POSITION = new Vector3();
-const LOCAL_ROTATION = new Quaternion();
-
-const TELEPORT_FACTOR = 4;
-const TELEPORT_MARGIN = 0.1;
-
-/** Call every contact hook on `node` that wants to hear about `other`. */
-function dispatch(node: Object3D, other: Object3D, sensor: boolean, phase: ContactPhase): void {
-  for (const component of node.components) {
-    // Enqueued for destruction this frame: it should not act on a contact it will not survive.
-    if (component.isDestroyed || component._pendingDestroy) continue;
-    const hook = sensor
-      ? phase === 'enter'
-        ? component.onTriggerEnter
-        : component.onTriggerExit
-      : phase === 'enter'
-        ? component.onCollisionEnter
-        : component.onCollisionExit;
-    hook?.call(component, other);
-  }
-}
-
-const SCRATCH_POSITION = new Vector3();
-const SCRATCH_ROTATION = new Quaternion();
+const SCRATCH_V = new Vector3();
+const SCRATCH_Q = new Quaternion();
+const BLEND_V = new Vector3();
+const BLEND_Q = new Quaternion();
+const STATIC_V = new Vector3();
+const STATIC_Q = new Quaternion();
+const SCALE = new Vector3();

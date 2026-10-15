@@ -1,34 +1,18 @@
 import { AudioListener } from 'three';
-import { System } from '@scenoco-three/core';
+import { System, cameraOf } from '@scenoco-three/core';
 import { hasWebAudio } from './AudioClip.js';
 
 /**
- * The scene's ears and its master volume.
+ * The scene's ears and its master volume: made by the first `AudioSource` that starts.
+ * `AudioMixer.volume = 0.5` halves everything — Unity's `AudioListener.volume`.
  *
- * ```xml
- * <Scene>
- *   <Systems>
- *     <AudioMixer volume="0.8" />
- *   </Systems>
- * </Scene>
- * ```
- *
- * Declaring it is optional: the first `<AudioSource>` calls `requireSystem` and gets one.
- * Declaring it only sets the master volume.
- *
- * In Unity the ears are an `AudioListener` component you put on the Main Camera — and every new
- * Unity scene already has one, so nobody thinks about it. This is that, made literal: the
- * listener is created here and parented to `scene.mainCamera` as soon as the scene names one.
- * It is a system rather than a component because there is exactly one per scene and it belongs
- * to no particular node, which is the line core already draws.
- *
- * It also handles the thing no component could do for itself: browsers refuse to start an
- * `AudioContext` until the user has interacted with the page, so the first click or key press
- * resumes it.
+ * In Unity the ears are an `AudioListener` on the main camera; here the listener follows whichever
+ * camera draws the scene. Browsers refuse to start an `AudioContext` until the page has been
+ * interacted with, so the first click or key press resumes it.
  */
 export class AudioMixer extends System {
-  /** Master volume, `0`..`1`. Scales every `AudioSource` in the scene. */
-  volume = 1;
+  /** Master volume, `0`..`1`. Scales every `AudioSource`. */
+  static volume = 1;
 
   /** The three.js listener — the "ears". Null where there is no Web Audio. */
   get listener(): AudioListener | null {
@@ -43,8 +27,8 @@ export class AudioMixer extends System {
   override awake(): void {
     if (!hasWebAudio()) return;
     this._listener = new AudioListener();
-    this._listener.setMasterVolume(this.volume);
-    this.appliedVolume = this.volume;
+    this._listener.setMasterVolume(AudioMixer.volume);
+    this.appliedVolume = AudioMixer.volume;
     window.addEventListener('pointerdown', this.resume);
     window.addEventListener('keydown', this.resume);
   }
@@ -53,21 +37,16 @@ export class AudioMixer extends System {
     const listener = this.listener;
     if (!listener) return;
 
-    // The camera is set during `onLoad`, which may be after the first source woke this up, and
-    // a scene is free to swap it later. Checking here costs one reference comparison a frame and
-    // means neither ordering has to be documented.
-    const camera = this.scene.mainCamera;
+    // A load may bring another camera; checking costs one comparison a frame.
+    const camera = cameraOf(this.runtime);
     if (camera && camera !== this.attachedTo) {
       camera.add(listener);
       this.attachedTo = camera;
     }
 
-    // Assigning `volume` is how a script changes it, so the change has to reach three.js
-    // somewhere. Here, rather than behind a setter, keeps the field a plain field — which is
-    // what makes it an attribute the compiler can read.
-    if (this.volume !== this.appliedVolume) {
-      listener.setMasterVolume(this.volume);
-      this.appliedVolume = this.volume;
+    if (AudioMixer.volume !== this.appliedVolume) {
+      listener.setMasterVolume(AudioMixer.volume);
+      this.appliedVolume = AudioMixer.volume;
     }
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/particles",
-  "version": "0.6.0",
-  "description": "Particle systems / VFX for SceNoCo: a Unity-style <ParticleSystem> component playing .particle.xml effects, batched by three.quarks",
+  "version": "0.7.0",
+  "description": "Particle effects for SceNoCo on three.quarks: Unity's ParticleSystem playing typed ParticleEffect data.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -20,8 +20,7 @@
     }
   },
   "files": [
-    "dist",
-    "templates"
+    "dist"
   ],
   "sideEffects": true,
   "keywords": [
@@ -37,28 +36,13 @@
   "publishConfig": {
     "access": "public"
   },
-  "scenoco": {
-    "documents": [
-      {
-        "extension": ".particle.xml",
-        "type": "ParticleEffect",
-        "dir": "assets/vfx",
-        "description": "A particle effect, in Unity Shuriken module form",
-        "template": "./templates/particle.xml"
-      }
-    ],
-    "previews": {
-      "ParticleSystem": "./dist/particle.preview.js"
-    }
-  },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && npm run build:preview",
-    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json",
-    "build:preview": "esbuild src/preview.ts --bundle --format=esm --platform=browser --external:three --outfile=dist/particle.preview.js --log-level=warning"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.6.0",
+    "@scenoco-three/core": "^0.7.0",
     "three.quarks": "^0.17.1"
   },
   "peerDependencies": {

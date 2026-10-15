@@ -60,29 +60,21 @@ export type ParticleRenderMode =
 export type ParticleBlending = 'Additive' | 'Alpha';
 
 /**
- * What a particle effect is, as data — the thing a `.particle.xml` compiles to.
+ * What a particle effect is, as data: a constant in a `.ts` module, played by a `ParticleSystem`.
  *
- * ```xml
- * <!-- assets/vfx/fire.particle.xml -->
- * <ParticleEffect duration="3" startLifetime="1.6" startColor="#ffdd66">
- *   <Emission rateOverTime="90"><Burst time="0" count="10" /></Emission>
- *   <Shape type="Cone" radius="0.35" angle="14" />
- *   <ColorOverLifetime colors="[#ffee88, #ff6622]" />
- *   <SizeOverLifetime curve="[0.4, 1, 0.2]" />
- * </ParticleEffect>
+ * ```ts
+ * export const fire: ParticleEffect = {
+ *   duration: 3, startLifetime: 1.6, startColor: new Color('#ffdd66'),
+ *   emission: { rateOverTime: 90, bursts: [{ time: 0, count: 10 }] },
+ *   shape: { type: 'Cone', radius: 0.35, angle: 14 },
+ * };
  * ```
- *
- * The compiler reads *this declaration* to decide what a document may say. An attribute exists
- * because a field does, and an element exists because a field holds a named type — `emission?:
- * Emission` is `<Emission>`, `bursts?: Burst[]` is `<Burst>` written as many times as you like.
- * Nothing anywhere keeps a list of these names; there is only the declaration.
  *
  * The modules are Unity's, and are named as Unity names them, because that is the vocabulary
  * whoever writes one of these files already has.
  *
- * Every field is optional, so a partial document is a valid effect; the defaults are the ones
- * named on {@link configToParameters}. Angles and rotations are **degrees**, as everywhere else
- * in authored data. The over-lifetime curves are evenly-spaced keyframes.
+ * Every field is optional, so a partial effect is a valid one; the defaults are the ones
+ * named on {@link configToParameters}. Angles and rotations are **degrees**, as in Unity's inspector. The over-lifetime curves are evenly-spaced keyframes.
  */
 export interface ParticleEffect {
   /** Length of one emission cycle, in seconds. */
@@ -154,8 +146,8 @@ export interface Renderer {
   /**
    * The sprite each particle is drawn with. Omitted, they use a soft round default.
    *
-   * Declared `Texture`, so a document reaches an image the same way a material's `map` does —
-   * `<Renderer texture="../textures/spark.png" />` — and the same image used by a material is
+   * Declared `Texture`, so an effect takes an image the same way a material's `map` does —
+   * `renderer: { texture: sharedTexture(sparkUrl) }` — and the same image used by a material is
    * the same `Texture` object, uploaded once.
    */
   texture?: Texture;
@@ -309,7 +301,7 @@ function particleMaterial(blending?: ParticleBlending, texture?: Texture): MeshB
     transparent: true,
     depthWrite: false,
   });
-  // The document already resolved the file to a shared `Texture`; nothing here loads anything.
+  // Already a `Texture` (`sharedTexture(url)`); nothing here loads anything.
   const map = texture ?? defaultParticleTexture();
   if (map) material.map = map; // omit when headless (no canvas) → no THREE warning
   return material;

@@ -1,23 +1,29 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+const src = (path: string) => fileURLToPath(new URL(`./packages/${path}`, import.meta.url));
+
 export default defineConfig({
+  // Scenes are TSX with no React: the JSX runtime is core's own.
+  oxc: { jsx: { runtime: 'automatic', importSource: '@scenoco-three/core' } },
   resolve: {
-    alias: {
-      '@scenoco-three/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
-      '@scenoco-three/box2d': fileURLToPath(new URL('./packages/box2d/src/index.ts', import.meta.url)),
-      '@scenoco-three/rapier': fileURLToPath(new URL('./packages/rapier/src/index.ts', import.meta.url)),
-      '@scenoco-three/collision': fileURLToPath(new URL('./packages/collision/src/index.ts', import.meta.url)),
-      '@scenoco-three/particles': fileURLToPath(new URL('./packages/particles/src/index.ts', import.meta.url)),
-      '@scenoco-three/audio': fileURLToPath(new URL('./packages/audio/src/index.ts', import.meta.url)),
-      '@scenoco-three/ui': fileURLToPath(new URL('./packages/ui/src/index.ts', import.meta.url)),
-    },
+    // Most specific first, so `@scenoco-three/core` does not swallow its own `/jsx-runtime`.
+    alias: [
+      { find: '@scenoco-three/core/jsx-dev-runtime', replacement: src('core/src/jsx-dev-runtime.ts') },
+      { find: '@scenoco-three/core/snapshot', replacement: src('core/src/snapshot.ts') },
+      { find: '@scenoco-three/core/jsx-runtime', replacement: src('core/src/jsx-runtime.ts') },
+      { find: '@scenoco-three/core', replacement: src('core/src/index.ts') },
+      { find: '@scenoco-three/box2d', replacement: src('box2d/src/index.ts') },
+      { find: '@scenoco-three/rapier', replacement: src('rapier/src/index.ts') },
+      { find: '@scenoco-three/particles', replacement: src('particles/src/index.ts') },
+      { find: '@scenoco-three/audio', replacement: src('audio/src/index.ts') },
+      { find: '@scenoco-three/tools/vite', replacement: src('tools/src/vite.ts') },
+      { find: '@scenoco-three/tools', replacement: src('tools/src/index.ts') },
+    ],
   },
   test: {
-    // Everything under tests/. This was an explicit allow-list while v1 and v2 shared the repo,
-    // and it outlived that: by the end it named all 38 files individually, so adding a new test
-    // file meant it silently never ran until someone noticed.
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.{ts,tsx}'],
+    exclude: ['**/node_modules/**', 'tests/.tmp/**'],
     environment: 'node',
   },
 });

@@ -1,3 +1,0 @@
-<!-- A 1 x 1 sheet, standing upright in XY and facing +Z, as three.js builds it.
-     Lay it flat with eulerAngles="x: -90" on the mesh. -->
-<PlaneGeometry width="1" height="1" />

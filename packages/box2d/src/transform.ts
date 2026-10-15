@@ -4,7 +4,7 @@ import { Euler, Quaternion, Vector3, type Object3D } from 'three';
  * The simulation runs in **world space**; a node's transform is relative to its parent.
  *
  * Nothing says a body has to sit at the root of the scene — a wall of bricks is laid out under
- * one node, exactly as it would be in Unity — and reading `object3D.position` for the body put
+ * one node, exactly as it would be in Unity — and reading `node.position` for the body put
  * every one of those bricks wherever its offset happened to land: the wall was drawn where the
  * document said and collided with nothing, ten units below.
  *

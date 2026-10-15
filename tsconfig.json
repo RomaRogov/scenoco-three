@@ -1,45 +1,23 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    // Scenes are TSX with no React: an element is the three.js object itself (packages/core/src/jsx.ts).
     "jsx": "react-jsx",
+    "jsxImportSource": "@scenoco-three/core",
     "paths": {
       "@scenoco-three/core": ["./packages/core/src/index.ts"],
+      "@scenoco-three/core/jsx-runtime": ["./packages/core/src/jsx-runtime.ts"],
+      "@scenoco-three/core/jsx-dev-runtime": ["./packages/core/src/jsx-dev-runtime.ts"],
+      "@scenoco-three/core/snapshot": ["./packages/core/src/snapshot.ts"],
       "@scenoco-three/box2d": ["./packages/box2d/src/index.ts"],
       "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"],
-      "@scenoco-three/collision": ["./packages/collision/src/index.ts"],
       "@scenoco-three/particles": ["./packages/particles/src/index.ts"],
       "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
-      "@scenoco-three/ui": ["./packages/ui/src/index.ts"],
-      "@scenoco-three/postfx": ["./packages/postfx/src/index.ts"],
-      "@scenoco-three/observer": ["./packages/observer/src/index.ts"],
-      "@scenoco-three/compiler/browser": ["./packages/compiler/src/browser.ts"]
+      "@scenoco-three/tools": ["./packages/tools/src/index.ts"],
+      "@scenoco-three/tools/vite": ["./packages/tools/src/vite.ts"],
+      "@scenoco-three/observer": ["./packages/observer/src/mcp.ts"]
     }
   },
-  // Everything is ported now. What is still excluded: `app/ui-react` (the v1
-  // React chrome, awaiting rewiring to `PropInfo`) and the v1-era tests; they are
-  // still on disk and
-  // re-enter this list as each one lands. They are kept rather than deleted
-  // because the editor and the Vite plugin are what the remaining phases *port*;
-  // deleting them would turn a port into a rewrite from scratch. v1 core and the
-  // v1 compiler are gone (git history has them) — nothing is left to import.
-  "include": [
-    "packages/core",
-    "packages/box2d",
-    "packages/rapier",
-    "packages/collision",
-    "packages/particles",
-    "packages/audio",
-    "packages/ui",
-    "packages/postfx",
-    "tests/core",
-    "tests/compiler",
-    "tests/tooling/cli.test.ts",
-    "tests/tooling/editor.test.ts",
-    "tests/tooling/observer.test.ts",
-    "packages/observer/src",
-    "packages/editor/src",
-    "packages/compiler/src",
-    "vitest.config.ts"
-  ],
-  "exclude": ["**/dist"]
+  "include": ["packages/core/src", "packages/box2d/src", "packages/rapier/src", "packages/particles/src", "packages/audio/src", "packages/observer/src", "packages/unity/src", "packages/tools/src", "packages/editor/src", "tests", "vitest.config.ts"],
+  "exclude": ["**/dist", "tests/.tmp"]
 }

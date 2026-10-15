@@ -1,59 +1,43 @@
 /**
- * `@scenoco-three/rapier` — 3D physics for SceNoCo, on Rapier.
+ * Physics on Rapier, in Unity's shape: `Rigidbody`, `BoxCollider`/`SphereCollider`/`CapsuleCollider`,
+ * and the contact messages on any behaviour.
  *
- * ```ts
- * import { initRapier } from '@scenoco-three/rapier';
+ * ```tsx
+ * await initRapier(); // WebAssembly: once, before the scene renders
  *
- * await initRapier();              // Rapier is WebAssembly; this loads it
- * await SceneManager.load(Level);
+ * <Mesh>
+ *   <SphereGeometry />
+ *   <Rigidbody />
+ *   <SphereCollider bounciness={0.6} />
+ *   <Ball />
+ * </Mesh>
  * ```
- *
- * ```xml
- * <Scene>
- *   <Systems>
- *     <Physics gravity="x: 0; y: -9.81; z: 0" />
- *   </Systems>
- *
- *   <Mesh id="ball" geometry="…" material="…" position="y: 5">
- *     <Components>
- *       <RigidBody kind="dynamic" ccd="true" />
- *       <SphereCollider radius="0.5" restitution="0.6" />
- *     </Components>
- *   </Mesh>
- * </Scene>
- * ```
- *
- * Contacts arrive as typed hooks on any component — `onCollisionEnter`, `onCollisionExit`,
- * `onTriggerEnter`, `onTriggerExit` — each taking the other node.
- *
- * `@scenoco-three/collision` exports the same tags and the same hooks with no dynamics, so a
- * project can swap the import. Because the names are shared, depending on **both** is a build
- * error: a project picks one back-end.
  */
 import RAPIER from '@dimforge/rapier3d-compat';
+import { declareMessages } from '@scenoco-three/core';
+import type { Collider } from './colliders.js';
+import type { Collision } from './Physics.js';
 
-// Side effect: merges the contact hooks onto `Component`.
-import './contacts.js';
+// The hooks exist — typed — only where this package is imported.
+declare module '@scenoco-three/core' {
+  interface BehaviourHooks {
+    /** A solid contact with another collider began. */
+    onCollisionEnter?(collision: Collision): void;
+    onCollisionExit?(collision: Collision): void;
+    /** Another collider entered this trigger, or this collider entered its trigger. */
+    onTriggerEnter?(other: Collider): void;
+    onTriggerExit?(other: Collider): void;
+  }
+}
+declareMessages(['onCollisionEnter', 'onCollisionExit', 'onTriggerEnter', 'onTriggerExit']);
 
-export { Physics } from './Physics.js';
-export { RigidBody, type RigidBodyKind } from './RigidBody.js';
-export { type ContactHandlers } from './contacts.js';
+export { Physics, type Collision } from './Physics.js';
+export { Rigidbody, ForceMode } from './Rigidbody.js';
+export { Collider, BoxCollider, SphereCollider, CapsuleCollider } from './colliders.js';
 
-export { Collider } from './Collider.js';
-export { BoxCollider } from './BoxCollider.js';
-export { SphereCollider } from './SphereCollider.js';
-export { CapsuleCollider } from './CapsuleCollider.js';
-export { CylinderCollider } from './CylinderCollider.js';
-export { PlaneCollider } from './PlaneCollider.js';
+let loading: Promise<void> | undefined;
 
-let started: Promise<void> | undefined;
-
-/**
- * Load Rapier's WebAssembly. Await it once, before the first scene that uses physics.
- *
- * Calling it again returns the same promise, so a scene that is not sure whether the app
- * already did can simply await it.
- */
+/** Load Rapier's WebAssembly. Await it once before the first scene with physics renders. */
 export function initRapier(): Promise<void> {
-  return (started ??= RAPIER.init());
+  return (loading ??= RAPIER.init());
 }

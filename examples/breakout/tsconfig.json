@@ -1,5 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": [], "lib": ["ES2022", "DOM"] },
-  "include": ["src", "assets"]
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@scenoco-three/core"
+  },
+  "include": ["src"]
 }

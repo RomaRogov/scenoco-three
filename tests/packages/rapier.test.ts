@@ -1,272 +1,268 @@
-import { BoxGeometry, Mesh, MeshBasicMaterial, Object3D, Scene, Vector3 } from 'three';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Component, SceneManager, Time, type SceneType } from '@scenoco-three/core';
-import { BoxCollider, Physics, RigidBody, SphereCollider, initRapier } from '@scenoco-three/rapier';
-import { Clock, resetEngine } from '../core/helpers.js';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import RAPIER from '@dimforge/rapier3d-compat';
+import { Object3D, Scene, Vector3 } from 'three';
+import { Behaviour, Runtime, destroy, service } from '@scenoco-three/core';
+import {
+  BoxCollider,
+  CapsuleCollider,
+  ForceMode,
+  Physics,
+  Rigidbody,
+  SphereCollider,
+  initRapier,
+  type Collider,
+  type Collision,
+} from '@scenoco-three/rapier';
 
-// Rapier is WebAssembly, so it cannot be ready at import time. This is the one thing the 3D
-// back-end needs that the 2D one does not.
-beforeAll(async () => {
-  await initRapier();
-}, 30_000);
+beforeAll(() => initRapier());
 
-afterEach(resetEngine);
-
-const geometry = new BoxGeometry(1, 1, 1);
-const material = new MeshBasicMaterial();
-
-function sceneOf(build: (scene: Scene) => void): SceneType {
-  return class extends Scene {
-    override onLoad(): void {
-      build(this);
-    }
+const runtimes: Runtime[] = [];
+function world() {
+  const scene = new Scene();
+  const runtime = new Runtime(scene);
+  runtimes.push(runtime);
+  const run = (seconds: number) => {
+    for (let i = 0; i < Math.round(seconds * 60); i++) runtime.update(1 / 60);
   };
+  return { scene, runtime, run };
+}
+afterEach(() => runtimes.splice(0).forEach((r) => r.dispose()));
+
+/** Writes down every contact message it receives. */
+class Ears extends Behaviour {
+  heard: string[] = [];
+  override onCollisionEnter(c: Collision) { this.heard.push(`collisionEnter:${c.node.name}`); }
+  override onCollisionExit(c: Collision) { this.heard.push(`collisionExit:${c.node.name}`); }
+  override onTriggerEnter(other: Collider) { this.heard.push(`triggerEnter:${other.node.name}`); }
+  override onTriggerExit(other: Collider) { this.heard.push(`triggerExit:${other.node.name}`); }
 }
 
-function box(
-  scene: Scene,
-  name: string,
-  init: Partial<RigidBody> = {},
-  collider: Partial<BoxCollider> = {},
-): Mesh {
-  const mesh = new Mesh(geometry, material);
-  mesh.name = name;
-  scene.add(mesh);
-  mesh.addComponent(RigidBody, init);
-  mesh.addComponent(BoxCollider, { halfExtents: new Vector3(0.5, 0.5, 0.5), ...collider });
-  return mesh;
+function floor(scene: Scene, options: { trigger?: boolean } = {}) {
+  const node = new Object3D();
+  node.name = 'floor';
+  node.scale.set(10, 1, 10); // the collider scales with it, as in Unity
+  scene.add(node);
+  node.addComponent(BoxCollider, { isTrigger: options.trigger ?? false }); // no Rigidbody: static
+  return node.addComponent(Ears);
 }
 
-const GROUND = { halfExtents: new Vector3(20, 0.5, 20) };
+function ball(scene: Scene, y: number) {
+  const node = new Object3D();
+  node.name = 'ball';
+  node.position.set(0, y, 0);
+  scene.add(node);
+  const body = node.addComponent(Rigidbody);
+  node.addComponent(SphereCollider, { radius: 0.5 });
+  return { node, body, ears: node.addComponent(Ears) };
+}
 
-describe('the world', () => {
-  it('is created on demand by the first body, with default gravity', async () => {
-    const scene = await SceneManager.load(sceneOf((s) => { box(s, 'crate'); }));
-    const physics = scene.getSystem(Physics)!;
-    expect(physics.gravity.y).toBeCloseTo(-9.81);
-    expect(physics.world).toBeTruthy();
+describe('rapier', () => {
+  it('drops a ball onto a static floor: it lands, and both sides hear the collision', () => {
+    const { scene, run } = world();
+    const ground = floor(scene);
+    const b = ball(scene, 3);
+    run(2);
+    expect(b.node.position.y).toBeCloseTo(1, 1); // floor top at 0.5, radius 0.5
+    expect(b.ears.heard).toContain('collisionEnter:floor');
+    expect(ground.heard).toContain('collisionEnter:ball');
   });
 
-  it('takes its settings from the scene when the scene declares it', async () => {
-    const scene = await SceneManager.load(sceneOf((s) => {
-      s.addSystem(Physics, { gravity: new Vector3(0, -20, 0) });
-      box(s, 'crate');
-    }));
-    expect(scene.getSystem(Physics)!.gravity.y).toBe(-20);
-  });
-});
-
-describe('bodies', () => {
-  it('falls under gravity and comes to rest on a fixed body', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    let ball!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      const ground = box(s, 'ground', { kind: 'fixed' }, GROUND);
-      ground.position.set(0, 0, 0);
-      ball = box(s, 'ball');
-      ball.position.set(0, 6, 0);
-    }));
-
-    const clock = new Clock();
-    clock.frames(240, 1 / 60);
-    // Resting on the ground's top face at y = 0.5, plus its own half-extent.
-    expect(ball.position.y).toBeGreaterThan(0.5);
-    expect(ball.position.y).toBeLessThan(1.6);
+  it('lets a ball fall through a trigger, which both sides hear as a trigger', () => {
+    const { scene, run } = world();
+    const zone = floor(scene, { trigger: true });
+    const b = ball(scene, 3);
+    run(2);
+    expect(b.node.position.y).toBeLessThan(-3);
+    expect(b.ears.heard).toEqual(['triggerEnter:floor', 'triggerExit:floor']);
+    expect(zone.heard).toEqual(['triggerEnter:ball', 'triggerExit:ball']);
   });
 
-  it('writes a nested body’s pose back through its parent', async () => {
-    // The body's pose is read from where the node is in the **world**, so it has to be written
-    // back the same way: straight into `position` it would be its parent's offset twice over.
-    Time.fixedDeltaTime = 1 / 60;
-    let crate!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      const holder = new Object3D();
-      holder.position.set(4, 10, 0);
-      s.add(holder);
-      crate = new Mesh(geometry, material);
-      holder.add(crate);
-      crate.addComponent(RigidBody);
-      crate.addComponent(BoxCollider, { halfExtents: new Vector3(0.5, 0.5, 0.5) });
-    }));
-
-    const clock = new Clock();
-    clock.frames(40, 1 / 60);
-
-    const world = crate.getWorldPosition(new Vector3());
-    const simulated = crate.getComponent(RigidBody)!.body!.translation();
-    expect(world.y).toBeCloseTo(simulated.y, 5);
-    expect(world.x).toBeCloseTo(4, 5);
-    expect(world.y).toBeLessThan(10); // it fell
+  it('reports a kinematic body moved by its node entering a static trigger, as Unity does', () => {
+    const { scene, run } = world();
+    const zone = floor(scene, { trigger: true });
+    const paddle = new Object3D();
+    paddle.name = 'paddle';
+    paddle.position.set(0, 3, 0);
+    scene.add(paddle);
+    paddle.addComponent(Rigidbody, { isKinematic: true });
+    paddle.addComponent(BoxCollider);
+    run(0.1);
+    paddle.position.y = 0; // move the node; the body follows
+    run(0.1);
+    expect(zone.heard).toContain('triggerEnter:paddle');
   });
 
-  it('joins the world in awake and leaves it in onDestroy', async () => {
-    let crate!: Mesh;
-    const scene = await SceneManager.load(sceneOf((s) => { crate = box(s, 'crate'); }));
-    const rigidBody = crate.getComponent(RigidBody)!;
-    expect(rigidBody.body).toBeTruthy();
-
-    crate.destroy();
-    new Clock().frame();
-    expect(rigidBody.body).toBe(null);
-    expect(scene.getSystem(Physics)!.world.bodies.len()).toBe(0);
+  it('moves a static collider with its node, so a scrolled pickup reaches a kinematic runner', () => {
+    const { scene, run } = world();
+    const runner = new Object3D();
+    runner.name = 'runner';
+    scene.add(runner);
+    runner.addComponent(Rigidbody, { isKinematic: true });
+    runner.addComponent(BoxCollider);
+    const coin = new Object3D();
+    coin.name = 'coin';
+    coin.position.z = -10;
+    scene.add(coin);
+    coin.addComponent(BoxCollider, { isTrigger: true }); // no Rigidbody, moved by its node
+    const ears = runner.addComponent(Ears);
+    for (let i = 0; i < 120; i++) {
+      coin.position.z += 10 / 60;
+      run(1 / 60);
+    }
+    expect(ears.heard).toEqual(['triggerEnter:coin', 'triggerExit:coin']);
   });
 
-  it('lets a kinematic body be driven by its node', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    let platform!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      platform = box(s, 'platform', { kind: 'kinematic' });
-    }));
-
-    platform.position.set(3, 2, 0);
-    new Clock().frames(3, 1 / 60);
-    expect(platform.getComponent(RigidBody)!.body!.translation().x).toBeCloseTo(3);
+  it('may destroy in a handler: the object goes, and the other side hears it leave', () => {
+    const { scene, run } = world();
+    const ground = floor(scene);
+    class Fragile extends Behaviour {
+      override onCollisionEnter() { destroy(this.node); }
+    }
+    const b = ball(scene, 2);
+    b.node.addComponent(Fragile);
+    run(2);
+    expect(b.node.parent).toBeNull();
+    expect(ground.heard).toEqual(['collisionEnter:ball', 'collisionExit:ball']);
   });
 
-  it('applies an impulse', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    let crate!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      s.addSystem(Physics, { gravity: new Vector3(0, 0, 0) });
-      crate = box(s, 'crate');
-    }));
-
-    crate.getComponent(RigidBody)!.applyImpulse(10, 0, 0);
-    new Clock().frames(20, 1 / 60);
-    expect(crate.position.x).toBeGreaterThan(0.5);
-  });
-});
-
-describe('colliders', () => {
-  it('attaches whichever order the document declares them in', async () => {
-    let node!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      node = new Mesh(geometry, material);
-      s.add(node);
-      // The collider first, so its `awake` runs before the body exists.
-      node.addComponent(SphereCollider, { radius: 0.4 });
-      node.addComponent(RigidBody);
-    }));
-    new Clock().frame();
-
-    expect(node.getComponent(RigidBody)!.body!.numColliders()).toBe(1);
-  });
-
-  it('removes its collider when disabled and rebuilds it when enabled', async () => {
-    let node!: Mesh;
-    await SceneManager.load(sceneOf((s) => { node = box(s, 'crate'); }));
-    new Clock().frame();
-
-    const collider = node.getComponent(BoxCollider)!;
-    const body = node.getComponent(RigidBody)!.body!;
-    expect(body.numColliders()).toBe(1);
-
-    collider.enabled = false;
-    expect(body.numColliders()).toBe(0);
-    collider.enabled = true;
-    expect(body.numColliders()).toBe(1);
-  });
-});
-
-describe('contacts', () => {
-  it('delivers typed hooks to both sides', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    const seen: string[] = [];
-    class Reporter extends Component {
-      override onCollisionEnter(other: Object3D): void {
-        seen.push(`${this.object3D.name}<-${other.name}`);
+  it('may destroy a pickup from the runner\'s onTriggerEnter', () => {
+    const { scene, run } = world();
+    const runner = new Object3D();
+    scene.add(runner);
+    runner.addComponent(Rigidbody, { isKinematic: true });
+    runner.addComponent(BoxCollider);
+    class Collector extends Behaviour {
+      picked = 0;
+      override onTriggerEnter(other: Collider) {
+        this.picked++;
+        destroy(other.node);
       }
     }
-    await SceneManager.load(sceneOf((s) => {
-      const ground = box(s, 'ground', { kind: 'fixed' }, GROUND);
-      ground.addComponent(Reporter);
-      const ball = box(s, 'ball');
-      ball.position.set(0, 4, 0);
-      ball.addComponent(Reporter);
-    }));
-
-    new Clock().frames(180, 1 / 60);
-    expect(seen).toContain('ball<-ground');
-    expect(seen).toContain('ground<-ball');
+    const collector = runner.addComponent(Collector);
+    const coin = new Object3D();
+    scene.add(coin);
+    coin.addComponent(BoxCollider, { isTrigger: true });
+    expect(() => run(0.5)).not.toThrow();
+    expect(collector.picked).toBe(1);
+    expect(coin.parent).toBeNull();
   });
 
-  it('reports a sensor as a trigger, with no collision response', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    const triggered: string[] = [];
-    let ball!: Mesh;
-    class Watcher extends Component {
-      override onTriggerEnter(other: Object3D): void { triggered.push(other.name); }
-      override onCollisionEnter(other: Object3D): void { triggered.push(`solid:${other.name}`); }
-    }
-    await SceneManager.load(sceneOf((s) => {
-      const sensor = box(s, 'sensor', { kind: 'fixed' }, { ...GROUND, isSensor: true });
-      sensor.addComponent(Watcher);
-      ball = box(s, 'ball');
-      ball.position.set(0, 4, 0);
-    }));
-
-    new Clock().frames(180, 1 / 60);
-    expect(triggered).toContain('ball');
-    expect(triggered.some((t) => t.startsWith('solid:'))).toBe(false);
-    expect(ball.position.y).toBeLessThan(-1);
-  });
-
-  it('lets a hook destroy things without corrupting the step', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    class Fragile extends Component {
-      override onCollisionEnter(): void { this.object3D.destroy(); }
-    }
-    let ground!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      ground = box(s, 'ground', { kind: 'fixed' }, GROUND);
-      const crate = box(s, 'crate');
-      crate.position.set(0, 3, 0);
-      crate.addComponent(Fragile);
-    }));
-
-    expect(() => new Clock().frames(200, 1 / 60)).not.toThrow();
-    expect(ground.parent).not.toBe(null);
-  });
-
-  /**
-   * Destroying a body ends its pairs, and the other side hears about it — Unity's behaviour.
-   * Rapier reports the stopped event on the *next* step, naming handles that no longer exist, so
-   * the handle map has to keep them resolvable until that step has been drained.
-   */
-  it('tells the other side when a body it touched is destroyed', async () => {
-    Time.fixedDeltaTime = 1 / 60;
-    const seen: string[] = [];
-    class Log extends Component {
-      override onTriggerEnter(other: Object3D): void { seen.push(`trigger:${other.name}`); }
-      override onTriggerExit(other: Object3D): void { seen.push(`untrigger:${other.name}`); }
-    }
-    let slime!: Mesh;
-    await SceneManager.load(sceneOf((s) => {
-      const wall = box(s, 'wall', { kind: 'fixed' }, { isSensor: true });
-      wall.addComponent(Log);
-      slime = box(s, 'slime', { gravityScale: 0 }, { isSensor: true });
-      slime.position.set(0.5, 0, 0);
-    }));
-    const clock = new Clock();
-    clock.frames(3, 1 / 60);
-    expect(seen).toEqual(['trigger:slime']);
-
-    slime.destroy();
-    clock.frames(3, 1 / 60);
-    expect(seen).toEqual(['trigger:slime', 'untrigger:slime']);
+  it('applies force modes the way Unity does', () => {
+    const { scene, run } = world();
+    const b = ball(scene, 0);
+    b.body.useGravity = false;
+    run(0.05); // colliders attach at start, which gives the body its mass
+    b.body.velocity = new Vector3();
+    b.body.addForce(new Vector3(2, 0, 0), ForceMode.VelocityChange);
+    expect(b.body.velocity.x).toBeCloseTo(2);
+    b.body.addForce(new Vector3(b.body.mass, 0, 0), ForceMode.Impulse);
+    expect(b.body.velocity.x).toBeCloseTo(3);
+    expect(() => {
+      (b.body.velocity as Vector3).y = 5;
+    }).toThrow(); // a copy: changing it would otherwise do nothing, silently
   });
 });
 
-describe('the two back-ends agree', () => {
-  it('names its hooks the same as @scenoco-three/collision does', () => {
-    // A component written against one back-end runs unchanged on the other. The hooks are the
-    // contract, so they are declared identically and both packages merge them onto Component.
-    class Behaviour extends Component {
-      override onCollisionEnter(_other: Object3D): void {}
-      override onCollisionExit(_other: Object3D): void {}
-      override onTriggerEnter(_other: Object3D): void {}
-      override onTriggerExit(_other: Object3D): void {}
+describe("Rapier's own API, for everything that is not a component or a message", () => {
+  it('raycasts with world.castRay, and comes back to the object with colliderOf', () => {
+    const { scene, run } = world();
+    floor(scene);
+    const eye = new Object3D();
+    scene.add(eye);
+    class Looker extends Behaviour {
+      hitName = '';
+      hitY = 0;
+      override fixedUpdate() {
+        const physics = service(this.node, Physics);
+        const hit = physics.world.castRay(new RAPIER.Ray({ x: 0, y: 5, z: 0 }, { x: 0, y: -1, z: 0 }), 100, true);
+        if (!hit) return;
+        this.hitName = physics.colliderOf(hit.collider)?.node.name ?? '';
+        this.hitY = 5 - hit.timeOfImpact;
+      }
     }
-    expect(new Behaviour().onCollisionEnter).toBeTypeOf('function');
+    const looker = eye.addComponent(Looker);
+    run(0.1);
+    expect(looker.hitName).toBe('floor');
+    expect(looker.hitY).toBeCloseTo(0.5);
+  });
+
+  it('joins two bodies with world.createImpulseJoint, created in start when both exist', () => {
+    const { scene, run } = world();
+    const anchor = new Object3D();
+    anchor.position.set(0, 5, 0);
+    scene.add(anchor);
+    anchor.addComponent(Rigidbody, { isKinematic: true });
+    const weight = ball(scene, 3).node;
+
+    class Rope extends Behaviour {
+      to: Object3D | null = null;
+      override start() {
+        const a = this.getComponent(Rigidbody)!.rapierBody!;
+        const b = this.to!.getComponent(Rigidbody)!.rapierBody!;
+        const joint = RAPIER.JointData.spherical({ x: 0, y: 0, z: 0 }, { x: 0, y: 2, z: 0 });
+        service(this.node, Physics).world.createImpulseJoint(joint, a, b, true);
+      }
+    }
+    anchor.addComponent(Rope, { to: weight });
+    run(2);
+    expect(weight.position.y).toBeCloseTo(3, 1); // hangs two metres below, instead of falling
+  });
+
+  it('drives a kinematic body with setNextKinematicTranslation, and the node follows', () => {
+    const { scene, run } = world();
+    const platform = new Object3D();
+    scene.add(platform);
+    platform.addComponent(Rigidbody, { isKinematic: true });
+    platform.addComponent(BoxCollider);
+    class Lift extends Behaviour {
+      override fixedUpdate(dt: number) {
+        const body = this.getComponent(Rigidbody)!.rapierBody!;
+        const t = body.translation();
+        body.setNextKinematicTranslation({ x: t.x, y: t.y + dt, z: t.z });
+      }
+    }
+    platform.addComponent(Lift);
+    run(1);
+    expect(platform.position.y).toBeCloseTo(1, 1);
+  });
+
+  it("moves a character with Rapier's character controller, stopped by the floor", () => {
+    const { scene, run } = world();
+    floor(scene);
+    const hero = new Object3D();
+    hero.position.set(0, 2, 0);
+    scene.add(hero);
+    hero.addComponent(Rigidbody, { isKinematic: true });
+    hero.addComponent(CapsuleCollider, { radius: 0.3, height: 1.8 });
+    class Walker extends Behaviour {
+      private controller: RAPIER.KinematicCharacterController | null = null;
+      override start() {
+        this.controller = service(this.node, Physics).world.createCharacterController(0.01);
+      }
+      override fixedUpdate(dt: number) {
+        const collider = this.getComponent(CapsuleCollider)!.rapierCollider;
+        if (!this.controller || !collider) return;
+        this.controller.computeColliderMovement(collider, { x: dt, y: -5 * dt, z: 0 });
+        const move = this.controller.computedMovement();
+        const body = this.getComponent(Rigidbody)!.rapierBody!;
+        const t = body.translation();
+        body.setNextKinematicTranslation({ x: t.x + move.x, y: t.y + move.y, z: t.z + move.z });
+      }
+    }
+    hero.addComponent(Walker);
+    run(1);
+    expect(hero.position.y).toBeCloseTo(1.4, 1); // capsule half-height 0.9 on a floor whose top is 0.5
+    expect(hero.position.x).toBeGreaterThan(0.8);
+  });
+
+  it('says so when a collider made with the raw API touches one of ours', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { scene, run } = world();
+    const w = service(floor(scene).node, Physics).world;
+    const raw = w.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 2, 0));
+    w.createCollider(RAPIER.ColliderDesc.ball(0.5).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), raw);
+    run(2);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/created with Rapier's API directly/);
+    warn.mockRestore();
   });
 });

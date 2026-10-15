@@ -1,31 +1,22 @@
 import { Audio, PositionalAudio } from 'three';
-import { Component } from '@scenoco-three/core';
+import { Behaviour, service } from '@scenoco-three/core';
 import type { AudioClip } from './AudioClip.js';
 import { AudioMixer } from './AudioMixer.js';
 
 /**
  * Plays an {@link AudioClip} — Unity's `AudioSource`, field for field.
  *
- * ```xml
- * <Group position="x: 4">
- *   <Components>
- *     <AudioSource clip="../audio/engine.ogg" loop="true" spatial="true" minDistance="2" />
- *   </Components>
+ * ```tsx
+ * <Group position={[4, 0, 0]}>
+ *   <AudioSource clip={sounds.engine} loop spatial minDistance={2} />
  * </Group>
  * ```
  *
- * ```ts
- * class Paddle extends Component {
- *   bounce!: AudioSource;
- *   override onCollisionEnter2D() { this.bounce.playOneShot(); }
- * }
- * ```
- *
- * The clip is an asset reference, so the file is fetched and decoded before the scene finishes
- * loading and `play()` is instant. Where there is no Web Audio — a test, a server render —
+ * A clip is made in a `.ts` module — `export const engine = sharedClip(engineUrl)` — and loaded
+ * before the scene runs (`await loadAssets(engine)`), so `play()` is instant. Where there is no Web Audio — a test, a server render —
  * every method is a no-op and `isPlaying` is false, so a scene with sound in it still runs.
  */
-export class AudioSource extends Component {
+export class AudioSource extends Behaviour {
   /** The sound to play. */
   clip!: AudioClip;
 
@@ -63,19 +54,19 @@ export class AudioSource extends Component {
 
   override start(): void {
     // Checked before anything else, and before the Web Audio guard below: a missing clip is a
-    // mistake in the document, so it has to be reported wherever the scene runs — including the
+    // mistake in the scene, so it has to be reported wherever the scene runs — including the
     // headless test where nothing would ever have played anyway.
     if (!this.clip) {
       console.error(
-        '[scenoco] AudioSource has no clip. Point it at a sound file: ' +
-          '<AudioSource clip="../audio/engine.ogg" />',
+        '[scenoco] AudioSource has no clip. Give it one made with sharedClip: ' +
+          '<AudioSource clip={sounds.engine} />',
       );
       return;
     }
 
     // `start`, not `awake`: this reaches another component's work — the mixer's listener — and
     // that is exactly the line between the two hooks.
-    this.mixer = this.requireSystem(AudioMixer);
+    this.mixer = service(this.node, AudioMixer);
     const listener = this.mixer.listener;
     if (!listener) return; // no Web Audio; every method below is a no-op
 
@@ -84,7 +75,7 @@ export class AudioSource extends Component {
       audio.setRefDistance(this.minDistance);
       audio.setMaxDistance(this.maxDistance);
       // A positional source is heard from where its node is, so it hangs under the node.
-      this.object3D.add(audio);
+      this.node.add(audio);
     }
     audio.setLoop(this.loop);
     audio.setVolume(this.volume);
@@ -155,7 +146,7 @@ export class AudioSource extends Component {
     if (shot instanceof PositionalAudio) {
       shot.setRefDistance(this.minDistance);
       shot.setMaxDistance(this.maxDistance);
-      this.object3D.add(shot);
+      this.node.add(shot);
     }
     shot.setBuffer(buffer);
     shot.setVolume(this.volume * volumeScale);

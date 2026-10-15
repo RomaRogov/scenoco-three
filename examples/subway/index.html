@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>Rail Rush</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; background: #1b2160; overflow: hidden; user-select: none; -webkit-user-select: none; }
+      body { font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif; color: #fff; }
+      canvas { display: block; touch-action: none; }
+      .hidden { display: none !important; }
+      #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
+      body.running #hud { opacity: 1; }
+      #score-box { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 3px 0 rgba(60, 20, 90, .55); }
+      #score { font-size: clamp(36px, 7vw, 60px); font-weight: 900; font-style: italic; letter-spacing: 1px; }
+      #score-label { font-size: 12px; letter-spacing: 4px; opacity: .85; margin-top: -6px; }
+      #coins-box { position: absolute; top: 18px; right: 18px; display: flex; align-items: center; gap: 8px; font-size: 28px; font-weight: 900; text-shadow: 0 2px 0 rgba(60, 20, 90, .55); }
+      #coins-box.bump { animation: bump .25s ease-out; }
+      @keyframes bump { 40% { transform: scale(1.35); } }
+      .coin-icon { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff3b0, #ffc533 55%, #e08a00); box-shadow: 0 0 0 3px #b86e00 inset, 0 2px 6px rgba(0, 0, 0, .35); }
+      .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(40, 14, 70, .15), rgba(30, 10, 60, .62)); }
+      h1 { margin: 0; font-size: clamp(44px, 11vw, 96px); font-weight: 900; font-style: italic; line-height: .95; text-shadow: 0 5px 0 #7a1d6b, 0 10px 24px rgba(0, 0, 0, .4); }
+      h1 span { color: #ffd23f; }
+      .sub { font-size: 15px; opacity: .92; max-width: 420px; line-height: 1.5; }
+      kbd { background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .35); border-radius: 6px; padding: 1px 7px; font: inherit; font-weight: 700; }
+      button { font: inherit; font-weight: 900; font-size: 22px; letter-spacing: 2px; color: #3b1054; background: linear-gradient(#ffe066, #ffb703); border: 0; border-radius: 40px; padding: 14px 44px; cursor: pointer; box-shadow: 0 6px 0 #c77700, 0 12px 24px rgba(0, 0, 0, .35); transition: transform .08s; }
+      button:active { transform: translateY(4px); box-shadow: 0 2px 0 #c77700; }
+      .stats { display: flex; gap: 26px; justify-content: center; margin: 4px 0 8px; }
+      .stat b { display: block; font-size: 26px; }
+      .stat small { opacity: .8; letter-spacing: 2px; font-size: 11px; }
+      #final { font-size: clamp(56px, 12vw, 96px); font-weight: 900; font-style: italic; text-shadow: 0 4px 0 #7a1d6b; line-height: 1; }
+      h2 { margin: 0; font-size: 26px; letter-spacing: 6px; color: #ff8fa3; text-shadow: 0 2px 0 #5a1040; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div id="score-box"><div id="score">0</div><div id="score-label">SCORE</div></div>
+      <div id="coins-box"><span id="coins">0</span><span class="coin-icon"></span></div>
+    </div>
+
+    <div id="title" class="overlay">
+      <h1>RAIL<br /><span>RUSH</span></h1>
+      <div class="sub">
+        <kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> change lane · <kbd>↑</kbd> / <kbd>W</kbd> / <kbd>Space</kbd> jump · <kbd>↓</kbd> / <kbd>S</kbd> roll<br />
+        On a phone, swipe. Jump low barriers, roll under high ones, never hit a train.
+      </div>
+      <button data-button="Start">RUN</button>
+    </div>
+
+    <div id="over" class="overlay hidden">
+      <h2>CRASHED</h2>
+      <div id="final">0</div>
+      <div class="stats">
+        <div class="stat"><b id="final-dist">0 m</b><small>DISTANCE</small></div>
+        <div class="stat"><b id="final-coins">0</b><small>COINS</small></div>
+        <div class="stat"><b id="best">0</b><small>BEST</small></div>
+      </div>
+      <button data-button="Restart">RUN AGAIN</button>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

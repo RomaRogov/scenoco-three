@@ -1,32 +1,27 @@
-import { Engine, SceneManager } from '@scenoco-three/core';
-import { HudScene } from '../assets/scenes/hud.scene.gen.js';
-import { Level1Scene } from '../assets/scenes/level-1.scene.gen.js';
+import { ACESFilmicToneMapping, Vector2 } from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { play } from '@scenoco-three/core';
+import { Run } from './scenes/Run';
 
-const engine = new Engine();
+const game = play(Run);
 
-// The HUD is loaded alongside the level and marked as surviving a load, so the score, the lives
-// and the readout showing them are the same objects from the first level to the last. Every
-// level after this one is loaded by `Progress`, which is in it.
-await SceneManager.loadAdditive(HudScene);
-await SceneManager.load(Level1Scene);
-engine.start();
+// The look: a filmic curve so the emissive bricks do not clip flat, and enough bloom to make them
+// read as neon rather than plastic. Three.js's own post-processing, as its docs show it.
+game.renderer.toneMapping = ACESFilmicToneMapping;
+game.renderer.toneMappingExposure = 1.05;
 
-// A handle for poking at a running game from devtools, and for driving it a frame at a time
-// when `requestAnimationFrame` will not run — a background tab, an automated check.
-Object.assign(window as unknown as Record<string, unknown>, {
-  scenoco: {
-    engine,
-    SceneManager,
-    get scene() {
-      return SceneManager.activeScene;
-    },
-    step(frames = 1, dt = 1 / 60) {
-      for (let i = 0; i < frames; i++) {
-        clock += dt * 1000;
-        SceneManager.tick(clock);
-        engine.render();
-      }
-    },
-  },
-});
-let clock = performance.now();
+const composer = new EffectComposer(game.renderer);
+const scene = new RenderPass(game.scene, game.camera);
+composer.addPass(scene);
+// Threshold 0.5: the emissive paddle and the lit brick faces glow, not only the ball.
+composer.addPass(new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 0.5, 0.45, 0.5));
+composer.addPass(new OutputPass());
+addEventListener('resize', () => composer.setSize(innerWidth, innerHeight));
+
+game.render = () => {
+  scene.camera = game.camera; // each level brings its own camera
+  composer.render();
+};

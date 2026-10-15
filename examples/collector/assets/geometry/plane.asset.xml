@@ -1,4 +1,0 @@
-<!-- A 10 x 10 sheet — Unity's plane size — standing upright in XY.
-     A ground is this one laid flat:
-     <Mesh geometry="../geometry/plane.asset.xml" material="…" eulerAngles="x: -90" scale="6" /> -->
-<PlaneGeometry width="10" height="10" />

@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import type { Camera, Mesh } from 'three';
-import { Component, Input, MouseButton } from '@scenoco-three/core';
+import { Behaviour, Input, MouseButton } from '@scenoco-three/core';
 
 /**
  * Moves the paddle, by keyboard or by dragging.
@@ -8,9 +8,9 @@ import { Component, Input, MouseButton } from '@scenoco-three/core';
  * A drag beats the keys while it is held, because a finger on a phone is the only control there
  * is. The pointer's screen x is unprojected through the scene's own camera rather than scaled by
  * a guessed constant, so an edge-to-edge swipe reaches the paddle's actual limits whatever the
- * camera is doing — which matters here, since `FitCamera` moves it about with the aspect ratio.
+ * camera is doing — which matters here, since `CameraFit` changes it with the aspect ratio.
  */
-export class Paddle extends Component<Mesh> {
+export class Paddle extends Behaviour<Mesh> {
   /** Units per second, for the keyboard. */
   speed = 14;
 
@@ -21,17 +21,16 @@ export class Paddle extends Component<Mesh> {
   private readonly eye = new Vector3();
 
   override update(dt: number): void {
-    const camera = this.scene?.mainCamera;
-    if (Input.getMouseButton(MouseButton.Left) && camera) {
-      this.object3D.position.x = clamp(this.pointerX(camera), -this.halfRange, this.halfRange);
+    if (Input.getMouseButton(MouseButton.Left)) {
+      this.node.position.x = clamp(this.pointerX(this.camera), -this.halfRange, this.halfRange);
       return;
     }
 
     // Raw, not smoothed: a paddle has to stop the instant the key comes up.
     const direction = Input.getAxisRaw('Horizontal');
     if (direction === 0) return;
-    const x = this.object3D.position.x + direction * this.speed * dt;
-    this.object3D.position.x = clamp(x, -this.halfRange, this.halfRange);
+    const x = this.node.position.x + direction * this.speed * dt;
+    this.node.position.x = clamp(x, -this.halfRange, this.halfRange);
   }
 
   /**
@@ -46,7 +45,7 @@ export class Paddle extends Component<Mesh> {
     this.point.set(Input.pointer.x, Input.pointer.y, 0.5).unproject(camera);
     camera.getWorldPosition(this.eye);
     const direction = this.point.sub(this.eye);
-    if (Math.abs(direction.z) < 1e-6) return this.object3D.position.x; // looking along the plane
+    if (Math.abs(direction.z) < 1e-6) return this.node.position.x; // looking along the plane
     const distance = -this.eye.z / direction.z;
     return this.eye.x + direction.x * distance;
   }

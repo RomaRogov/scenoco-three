@@ -1,6 +1,5 @@
 import { Texture, TextureLoader } from 'three';
 import { trackLoad } from './Asset.js';
-import { shared } from './shared.js';
 
 /**
  * The texture for an image URL — one per URL, shared by everything that asks.
@@ -15,7 +14,7 @@ export function sharedTexture(url: string, settings?: TextureSettings): Texture 
     return existing;
   }
 
-  const texture = shared(load(url));
+  const texture = load(url);
   if (settings) apply(texture, settings);
   cache.set(url, texture);
   return texture;
@@ -75,7 +74,7 @@ function apply(texture: Texture, settings: TextureSettings): void {
   texture.needsUpdate = true;
 }
 
-/** @internal drop the URL cache. For tests and HMR; `disposeAssets` frees the textures. */
+/** @internal drop the URL cache. For tests and HMR. */
 export function clearTextureCache(): void {
   cache.clear();
 }

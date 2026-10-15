@@ -1,46 +1,30 @@
 /**
- * `@scenoco-three/box2d` — 2D physics for SceNoCo, on planck (a pure-JS Box2D port).
+ * `@scenoco-three/box2d` — 2D physics on planck (a pure-JS Box2D port), in Unity's shape.
  *
- * Core has no physics dependency: an app that does not import this package ships none. The 3D
- * counterpart is `@scenoco-three/rapier`.
- *
- * ```xml
- * <Scene>
- *   <Systems>
- *     <Physics2D gravity="x: 0; y: -9.81" />
- *   </Systems>
- *
- *   <Mesh id="ball" geometry="…" material="…" position="y: 5">
- *     <Components>
- *       <RigidBody2D kind="dynamic" bullet="true" />
- *       <CircleCollider2D radius="0.3" restitution="1" />
- *     </Components>
- *   </Mesh>
- * </Scene>
+ * ```tsx
+ * <Mesh position={[0, 5, 0]}>
+ *   <SphereGeometry args={[0.3]} />
+ *   <Rigidbody2D bullet />
+ *   <CircleCollider2D radius={0.3} restitution={1} />
+ * </Mesh>
  * ```
  *
  * The simulation runs in the **XY plane**: a body's position drives the node's x and y, and its
- * angle drives `rotation.z`.
+ * angle drives `rotation.z`. `Physics2D.gravity` is the world's gravity.
  *
- * Contacts arrive as typed hooks on any component — `onCollisionEnter2D`, `onCollisionExit2D`,
- * `onTriggerEnter2D`, `onTriggerExit2D` — each taking the other node. They are declared the way
- * core declares its own lifecycle hooks, so `override` checks them and a misspelling is a build
- * error rather than a handler that never fires.
- *
- * Unlike Rapier, planck is pure JS: there is no async init, and nothing to await before a scene
- * loads.
+ * Contacts arrive as Unity's messages on any behaviour of either node — `onCollisionEnter2D`,
+ * `onCollisionExit2D`, `onTriggerEnter2D`, `onTriggerExit2D` — each given the other node.
+ * planck is pure JS: there is nothing to await before a scene loads.
  */
 
-// Side effect: merges the contact hooks onto `Component`. Imported here so anything that
-// touches this package can implement them.
+// Side effect: types the contact messages on every behaviour, wherever this package is imported.
 import './contacts.js';
 
 export { Physics2D } from './Physics2D.js';
-export { RigidBody2D, type RigidBody2DKind } from './RigidBody2D.js';
+export { Rigidbody2D, type RigidbodyType2D } from './Rigidbody2D.js';
 export { type Contact2DHandlers } from './contacts.js';
 
-// Each shape is its own tag, mirroring how each light is. `Collider2D` is the abstract base
-// they share; it is machinery, not something a document writes.
+// Each shape is its own class, as Unity's are. `Collider2D` is the abstract base they share.
 export { Collider2D } from './Collider2D.js';
 export { BoxCollider2D } from './BoxCollider2D.js';
 export { CircleCollider2D } from './CircleCollider2D.js';

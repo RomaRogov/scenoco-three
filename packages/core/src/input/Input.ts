@@ -1,6 +1,9 @@
 import { Vector2 } from 'three';
 import { MouseButton, type KeyCode } from './KeyCode.js';
-import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type AxisName, type AxisBinding, type ButtonName } from './axes.js';
+import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type AxisName, type AxisBinding, type ButtonName as BuiltInButton } from './axes.js';
+
+/** Unity's built-in buttons, or any name a page element gives itself with `data-button="…"`. */
+export type ButtonName = BuiltInButton | (string & {});
 
 /**
  * Keyboard, mouse and wheel state, sampled per frame. Mirrors Unity's `Input`.
@@ -31,6 +34,12 @@ class InputClass {
   private readonly buttonsDownNamed = new Set<ButtonName>();
   private readonly buttonsUpNamed = new Set<ButtonName>();
   private readonly buttonsWereDown = new Set<ButtonName>();
+  /** Page elements with `data-button` held down now, by the pointer holding each. */
+  private readonly pagePointers = new Map<number, string>();
+  /** Every name a `data-button` has had, so its edges are worked out each frame. */
+  private readonly pageNames = new Set<string>();
+  /** Pressed since the last frame — so a tap shorter than a frame still goes down for one. */
+  private readonly pagePressed = new Set<string>();
 
   private element: HTMLElement | null = null;
   private readonly lastMouse = new Vector2();
@@ -95,7 +104,8 @@ class InputClass {
   getButton(button: ButtonName): boolean {
     const override = this.buttonOverrides.get(button);
     if (override !== undefined) return override;
-    return this.rawAxis(button) > 0;
+    for (const name of this.pagePointers.values()) if (name === button) return true;
+    return this.rawAxis(button as AxisName) > 0;
   }
 
   /** True only on the frame it went down — Unity's `GetButtonDown`. */
@@ -127,6 +137,13 @@ class InputClass {
   /** Which axes and buttons are currently being driven from outside. */
   get overriddenAxes(): AxisName[] {
     return [...this.overrides.keys()];
+  }
+
+  /** A key or mouse button bound to this button went down since the last frame. */
+  private pressedSinceFrame(name: ButtonName): boolean {
+    const binding: AxisBinding | undefined = AXES[name as keyof typeof AXES];
+    if (!binding) return false;
+    return (binding.positive ?? []).some((key) => this.pressed.has(key)) || (binding.mouse !== undefined && this.buttonsPressed.has(binding.mouse));
   }
 
   /** The instantaneous -1/0/1 of a keyboard entry, before smoothing and before any override. */
@@ -163,14 +180,16 @@ class InputClass {
 
     this.buttonsDownNamed.clear();
     this.buttonsUpNamed.clear();
-    for (const name of BUTTON_NAMES) {
-      const down = this.getButton(name);
+    for (const name of [...BUTTON_NAMES, ...this.pageNames]) {
+      // Pressed since the last frame counts too: a tap shorter than a frame still goes down once.
+      const down = this.getButton(name) || this.pagePressed.has(name) || this.pressedSinceFrame(name);
       const was = this.buttonsWereDown.has(name);
       if (down && !was) this.buttonsDownNamed.add(name);
       if (!down && was) this.buttonsUpNamed.add(name);
       if (down) this.buttonsWereDown.add(name);
       else this.buttonsWereDown.delete(name);
     }
+    this.pagePressed.clear();
   }
 
   /** @internal wire up DOM listeners. Called by `Engine`. */
@@ -189,6 +208,9 @@ class InputClass {
     window.addEventListener('pointercancel', this.onPointerUp);
     element.addEventListener('wheel', this.onWheel, { passive: true });
     element.addEventListener('contextmenu', this.onContextMenu);
+    // A HUD button is an element of the page: `<button data-button="Pause">`. Its press is a
+    // virtual button, sampled per frame like a key — not a handler firing between frames.
+    document.addEventListener('pointerdown', this.onPagePointerDown, true);
   }
 
   /** @internal */
@@ -204,6 +226,7 @@ class InputClass {
     window.removeEventListener('pointercancel', this.onPointerUp);
     element.removeEventListener('wheel', this.onWheel);
     element.removeEventListener('contextmenu', this.onContextMenu);
+    document.removeEventListener('pointerdown', this.onPagePointerDown, true);
     this.element = null;
     this.clear();
   }
@@ -237,6 +260,7 @@ class InputClass {
     this.buttonsDownNamed.clear();
     this.buttonsUpNamed.clear();
     this.buttonsWereDown.clear();
+    this.pagePointers.clear();
   }
 
   // The boundary where the DOM's strings and numbers become KeyCode / MouseButton, and the only
@@ -293,7 +317,16 @@ class InputClass {
     this.element?.focus?.();
   };
 
+  private readonly onPagePointerDown = (event: PointerEvent): void => {
+    const name = (event.target as Element | null)?.closest?.('[data-button]')?.getAttribute('data-button');
+    if (!name) return;
+    this.pageNames.add(name);
+    this.pagePressed.add(name);
+    this.pagePointers.set(event.pointerId, name);
+  };
+
   private readonly onPointerUp = (event: PointerEvent): void => {
+    this.pagePointers.delete(event.pointerId);
     const button = event.button as MouseButton;
     this.buttonsHeld.delete(button);
     this.buttonsReleased.add(button);

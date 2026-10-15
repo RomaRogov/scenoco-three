@@ -1,60 +1,37 @@
 # @scenoco-three/editor
 
-The **standalone editor** for [SceNoCo](https://github.com/RomaRogov/scenoco-three) scenes: a
-static site with a tree, an inspector, transform gizmos and comment-preserving saves. It needs
-nothing from a project and nothing from a server: it opens a scene from a folder on your machine
-or from a URL, builds it live in the page, and writes your changes back into the XML.
-
-It is what the repository publishes to GitHub Pages, and what `npx scenoco-editor` serves locally.
-
-## Opening a scene
-
-**A folder.** A scene is never one file — its geometry, materials and prefabs are files beside it
-— so the editor opens a folder (Chrome and Edge, through the File System Access API), lists every
-scene and prefab in it, and saves back to disk.
-
-**A URL.** Any `.scene.xml` or `.prefab.xml` on the web; what it refers to is fetched relative to
-it. Read-only, since the web is.
-
-The examples the site carries are offered underneath either way.
-
-## What it builds, and what it cannot
-
-The page parses the document with the compiler's own parser (`@scenoco-three/compiler/browser`)
-and builds the scene from the same vocabulary the compiler uses: three's classes and the SceNoCo
-packages the site carries, which are the ones listed in `static/package.json`. Nodes, assets,
-references, placement, prefabs and overrides are all live, stamped with the parser's positions,
-so the tree, the inspector and the gizmos find every element.
-
-It does not run anything, and has no Play. A component or a system is a project's own
-TypeScript, and there is no TypeScript in a static page — so this is an editor of documents:
-move things, arrange the hierarchy, set attributes, save. What it could not build it says rather
-than drops. To see a scene *run*, an agent uses the observer, and a person runs the game.
-
-## Components
-
-A node's components are read from its element — the `<Components>` block — never from a running
-instance. What each one takes comes from the project's model: every `scenoco build` (and the
-Vite plugin, and `scenoco watch`) leaves what it read from the project's TypeScript in
-`.scenoco/model.json`, and the editor uses the nearest one at or above the open document. So the
-inspector offers exactly the fields the compiler accepts, for the project's own components and
-for its packages' alike. Without a model it knows only the tag packages' components, and says so;
-a component it does not know still shows, with its attributes as written.
-
-## CLI
+A visual editor for SceNoCo scenes that is never part of the project. Part of
+[SceNoCo](https://github.com/RomaRogov/scenoco-three).
 
 ```bash
-npx scenoco-editor            # serve the site locally and open it
-npx scenoco-editor --port 5177 --no-open
+npm run dev                  # the game's own dev server, as always
+npx scenoco-editor           # the editor's interface, on http://localhost:5185
 ```
 
-## Building the site
+Then open the game with `?edit` — `http://localhost:5173/?edit` — or any scene or prefab function
+with `?edit&scene=/src/scenes/levels.tsx%23Level2`.
 
-```bash
-npm run build:app             # static/public (the vocabulary, the examples) + dist-app/
-npm run preview:app
-```
+- **The game builds the scene.** In development, `play()` sees `?edit`, builds the scene with the
+  game's own code on the game's own server, and holds it still: no behaviour wakes. Then it loads
+  this package's interface from its URL (`?edit=<url>` to load it from elsewhere).
+- **What you see is live.** A tree of the scene, an inspector — transform, the element's own
+  attributes, the geometry's and material's, every behaviour's fields — and a move / rotate / scale
+  gizmo, with Global or Local handles. A change is applied to the live object the way the scene sets it.
+- **Made for a finger as much as a mouse.** On a phone held upright the node list and the inspector
+  are bottom sheets, one at a time; turned sideways, or on a screen, they are side columns that can
+  both be open. Drag the letter beside a number to scrub it: the scene follows the drag, and the
+  file is written once, when it ends.
+- **What you change is written back, and nothing else is.** The project's `scenoco()` Vite plugin
+  writes one attribute into the `.tsx` file the element came from, splicing its text; comments,
+  layout and every other attribute stay byte for byte. A value it cannot see through — a
+  `material={paint.wall}`, a ref — is shown, not edited. Rotations show in degrees and are written
+  in radians; numbers are rounded to four decimals.
 
-## License
+- **Undo puts the text back.** ⌘Z / Ctrl+Z and ⇧⌘Z / Ctrl+Y restore an attribute exactly as it
+  was written — `-Math.PI / 2` too — and survive the reload that removing an attribute needs.
+- **A file changed behind its back is refused.** Every write names the element it means as the
+  editor last read it; if the file was edited elsewhere since, nothing is written and the editor
+  says to reload.
 
-MIT
+What it does not do yet: add or remove elements, or show what behaviours spawn at runtime
+(nothing runs while editing — `BrickField`'s bricks are not there).

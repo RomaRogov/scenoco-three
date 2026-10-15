@@ -1,8 +1,8 @@
 {
   "name": "scenoco-workspace",
   "private": true,
-  "version": "0.6.0",
-  "description": "SceNoCo workspace: core, compiler, the tag packages and the tools",
+  "version": "0.7.0",
+  "description": "SceNoCo workspace: core (Unity's behaviours on three.js, scenes in TSX), the physics, audio and particle packages, and the tools",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -13,38 +13,35 @@
   "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "workspaces": [
     "packages/core",
-    "packages/compiler",
     "packages/box2d",
     "packages/rapier",
-    "packages/collision",
     "packages/particles",
     "packages/audio",
-    "packages/ui",
-    "packages/postfx",
     "packages/observer",
+    "packages/unity",
+    "packages/tools",
+    "packages/create",
     "packages/editor"
   ],
   "scripts": {
     "examples:dev": "npm --prefix examples/breakout run dev",
     "examples:build": "npm --prefix examples/breakout run build",
-    "build": "npm run build:core && npm run build:compiler && npm run build:box2d && npm run build:rapier && npm run build:collision && npm run build:particles && npm run build:audio && npm run build:ui && npm run build:postfx && npm run build:observer && npm run build:editor",
+    "build": "npm run build:core && npm run build:box2d && npm run build:rapier && npm run build:particles && npm run build:audio && npm run build:observer && npm run build:tools && npm run build:unity && npm run build:editor",
     "build:core": "npm --prefix packages/core run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/compiler/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm --prefix examples/breakout run check && npm --prefix packages/create/template run check && npm --prefix examples/subway run check",
     "typecheck:core": "npm --prefix packages/core run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:pack": "node scripts/pack-smoke.mjs",
-    "build:compiler": "npm --prefix packages/compiler run build",
     "build:box2d": "npm --prefix packages/box2d run build",
     "build:rapier": "npm --prefix packages/rapier run build",
-    "build:collision": "npm --prefix packages/collision run build",
     "build:particles": "npm --prefix packages/particles run build",
     "build:audio": "npm --prefix packages/audio run build",
-    "build:ui": "npm --prefix packages/ui run build",
     "build:observer": "npm --prefix packages/observer run build",
+    "check:lockfile": "node scripts/check-lockfile.mjs",
+    "build:tools": "npm --prefix packages/tools run build",
     "build:editor": "npm --prefix packages/editor run build",
-    "build:postfx": "npm --prefix packages/postfx run build",
-    "check:lockfile": "node scripts/check-lockfile.mjs"
+    "build:unity": "npm --prefix packages/unity run build"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
@@ -52,7 +49,9 @@
     "three": "^0.184.0",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "optionalDependencies": {
     "@rolldown/binding-linux-arm64-gnu": "^1.1.1"

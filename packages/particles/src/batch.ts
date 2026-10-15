@@ -7,8 +7,8 @@ import { configToParameters, type ParticleEffect } from './config.js';
  * step that advances them.
  *
  * Its own class because **two** things build effects and they have to build them identically —
- * the scene's {@link ParticleRenderer}, and the editor preview, which has no scene, no components
- * and no engine. The preview bundles this file, so an effect in an editor is made by the same code
+ * the scene's {@link ParticleRenderer}, and anything else that draws an effect without a scene, so an
+ * effect is always made by the same code
  * that makes it in the game. There is no second implementation to drift.
  *
  * three.quarks batches every effect into a handful of draw calls through one `BatchedRenderer`, so

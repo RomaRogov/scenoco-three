@@ -1,6 +1,5 @@
 import type { AnimationClip, Object3D } from 'three';
 import { Asset } from './Asset.js';
-import { shared } from './shared.js';
 
 /** What the glTF loader hands back. Structural, so nothing here imports the addon's types. */
 interface LoadedGltf {
@@ -44,8 +43,6 @@ export class Model extends Asset<LoadedGltf> {
     ]);
     cloneSkinned ??= skeletonUtils.clone;
     const gltf = (await new GLTFLoader().loadAsync(this.url)) as LoadedGltf;
-    // Everything inside the file is shared by every instance, so scene unload must leave it be.
-    markSubtreeShared(gltf.scene);
     return gltf;
   }
 
@@ -62,7 +59,7 @@ export class Model extends Asset<LoadedGltf> {
 export function sharedModel(url: string): Model {
   let model = cache.get(url);
   if (!model) {
-    model = shared(new Model(url));
+    model = new Model(url);
     cache.set(url, model);
   }
   return model;
@@ -79,23 +76,11 @@ export function cloneTree(source: Object3D): Object3D {
 }
 const cache = new Map<string, Model>();
 
-/** @internal drop the URL cache. For tests and HMR; `disposeAssets` frees the models. */
+/** @internal drop the URL cache. For tests and HMR. */
 export function clearModelCache(): void {
   cache.clear();
 }
 
-function markSubtreeShared(root: Object3D): void {
-  root.traverse((object) => {
-    const mesh = object as Object3D & { geometry?: unknown; material?: unknown };
-    if (mesh.geometry) shared(mesh.geometry);
-    for (const material of materialsOf(mesh.material)) {
-      shared(material);
-      for (const value of Object.values(material)) {
-        if (value && typeof value === 'object' && 'isTexture' in value) shared(value);
-      }
-    }
-  });
-}
 
 function materialsOf(material: unknown): Array<Record<string, unknown> & { dispose?(): void }> {
   if (!material) return [];

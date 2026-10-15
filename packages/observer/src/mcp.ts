@@ -1,538 +1,423 @@
-import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+/**
+ * The observer's MCP surface: **eyes, not hands.**
+ *
+ * See the game, drive it with the player's own input, read its state, and step its clock. No tool
+ * writes to the project — an agent has file tools for that, and the observer reloads whatever
+ * they write. The one pair of hands is `eval`, and it reaches the running page only: `reload`
+ * discards everything it did.
+ *
+ * `simulate` is the tool that matters. A screenshot of frame zero says almost nothing about whether
+ * a game works; drive it to the moment that matters, then look — in one call, on the frame named.
+ */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { FRAME, type Game } from './game.js';
 
-/**
- * A simulate step that refuses a key it does not have, rather than dropping it. `ui` written on a
- * `preview` step was once stripped in silence, and a model concluded from a dozen HUD-less shots
- * that text does not render.
- */
-const strictStep = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
-import { AXIS_NAMES, BUTTON_NAMES, type AxisName, type ButtonName } from '@scenoco-three/core';
-import { FRAME, type ObserverCommand, type ObserverResult, type SimStep } from './protocol.js';
-import type { ScenePage } from './browser.js';
+type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: 'image/png' };
 
-/** `Omit` over each member of a union, rather than over what the members share. */
-type Without<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+/** A step refuses a key it does not know, instead of dropping it silently. */
+const step = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-/**
- * The MCP surface: **eyes, not hands.**
- *
- * Open a document, render it, drive it, read what happened. There is no tool here that writes to
- * the user's source, and that is a decision rather than an omission. An agent already has file
- * tools, and the observer's watcher rebuilds whatever it writes — so an edit tool would have
- * been a second write path into someone's project, one that never passed through the tools they
- * already have — their own editing, their diff, their undo. An agent holding one can reshape a scene while believing it is only looking at
- * it.
- *
- * The one thing worth insisting on: `simulate` exists because a screenshot of frame zero says
- * almost nothing about whether a game works. Drive it to the interesting moment, *then* look.
- */
-export function createMcpServer(page: () => Promise<ScenePage>): McpServer {
-  // Read off the manifest rather than written here. A second copy of a version number is a
-  // second thing to bump, and the one that is wrong is always the one a client reports.
-  const mcp = new McpServer({ name: 'scenoco-observer', version: packageVersion() });
+const DT = 'Seconds per frame (default 1/60)';
+const KEY = 'A key as Playwright names it: "ArrowLeft", "Space", "Enter", "Escape", "a", "Shift"';
+const XY = 'Pixels from the top-left of the window';
 
-  /** Every tool needs the page; the browser is launched on the first call that does. */
-  const send = async (command: Without<ObserverCommand, 'id'>): Promise<ObserverResult> =>
-    (await page()).call({ id: '', ...command } as ObserverCommand);
+const viewpoint = {
+  cameraPos: z
+    .array(z.number())
+    .length(3)
+    .optional()
+    .describe('Look from here, [x, y, z], instead of the game camera. Leave out for exactly what the player sees, HUD included'),
+  lookAt: z
+    .union([z.array(z.number()).length(3), z.string()])
+    .optional()
+    .describe('With cameraPos: a point [x, y, z], or a node by the name you gave it in JSX, "#<name>". Default the origin'),
+  fov: z.number().positive().optional().describe('With cameraPos: vertical field of view in degrees'),
+};
 
-  /**
-   * How much of the page's log has already been handed over.
-   *
-   * Everything new is appended to the next reply, so a message the page wrote cannot go unread
-   * just because nobody thought to ask. The framework reports a misplaced `<Canvas>` exactly
-   * this way, and a build once spent forty turns guessing past it.
-   */
-  let reported = 0;
+const frame = {
+  width: z.number().int().positive().default(FRAME.width).describe('Window width in pixels — 390×844 is a phone'),
+  height: z.number().int().positive().default(FRAME.height).describe('Window height in pixels'),
+};
 
-  /** Append anything the page has said since the last reply. */
-  const withConsole = async <T extends { content: unknown[] }>(payload: T): Promise<T> => {
-    const opened = await page();
-    const fresh = opened.consoleSince(reported).filter((e) => e.level === 'error' || e.level === 'warning');
-    reported = opened.consoleSeq;
-    if (fresh.length === 0) return payload;
-    const lines = fresh.map((e) => `  ${e.level === 'error' ? '✗' : '⚠'} ${e.text}`);
-    payload.content.push({
-      type: 'text',
-      text: `\n${fresh.length} new console message(s) from the page:\n${lines.join('\n')}`,
-    });
-    return payload;
-  };
+/** The lowest log level to show — the same on the `console` tool and the `console` step. */
+const LEVEL = z.enum(['error', 'warning', 'info', 'log', 'debug']).default('log').describe('Lowest level to include');
+const RANK = { error: 0, warning: 1, info: 2, log: 3, debug: 4 } as const;
 
-  // Every field has a default, so a first call needs nothing but a viewpoint. `ui` was required
-  // once, and the first thing every agent did was fail on "expected boolean, received undefined".
-  const frameSchema = {
-    width: z
-      .number()
-      .int()
-      .positive()
-      .default(FRAME.width)
-      .describe(
-        'Width of the window the game runs in for this call, in pixels — every shot is this size, and ' +
-          '`click` takes its pixels. Set width and height to try an aspect: 390×844 is the game on a phone',
-      ),
-    height: z.number().int().positive().default(FRAME.height).describe('Height of that window, in pixels'),
-    ui: z
-      .boolean()
-      .default(false)
-      .describe('Include the screen-space UI layer, framing the shot through the camera that hosts it'),
-  };
+/** On a screenshot step, the window for that one shot — where a model writes it anyway. */
+const shotSize = {
+  width: z.number().int().positive().optional().describe('Window width for this shot; the call’s otherwise'),
+  height: z.number().int().positive().optional().describe('Window height for this shot; the call’s otherwise'),
+};
 
-  const POINT =
-    '"y: 6; z: 12" — the document\'s own vector grammar, an omitted axis being 0 — or an id with an ' +
-    'optional offset, "#player" / "#player y: 6; z: 8", meaning that node\'s world position plus the offset';
-
-  const viewpoint = {
-    cameraPos: z
+const ALL_STEPS = [
+  step({ do: z.literal('play') }).describe('Run the game in real time'),
+  step({ do: z.literal('pause') }).describe('Hold the game clock where it is'),
+  step({ do: z.literal('reload') }).describe('Start the game over from a fresh page'),
+  step({
+    do: z.literal('step'),
+    frames: z.number().int().positive().default(1).describe('Frames to advance'),
+    dt: z.number().positive().optional().describe(DT),
+  }).describe('Hold the clock and advance exactly this many frames — deterministic'),
+  step({ do: z.literal('wait'), seconds: z.number().positive().describe('Real seconds') }).describe(
+    'Let real time pass — the game moves only while playing',
+  ),
+  step({
+    do: z.literal('press'),
+    key: z.string().describe(KEY),
+    frames: z.number().int().positive().default(6).describe('Frames to hold it (default 6, a tap)'),
+  }).describe('Press and release a key'),
+  step({ do: z.literal('keyDown'), key: z.string().describe(KEY) }).describe('Hold a key down'),
+  step({ do: z.literal('keyUp'), key: z.string().describe(KEY) }).describe('Release a held key'),
+  step({ do: z.literal('click'), x: z.number().describe(XY), y: z.number().describe(XY) }).describe('Click or tap'),
+  step({ do: z.literal('pointerDown'), x: z.number().optional().describe(XY), y: z.number().optional().describe(XY) }).describe(
+    'Press the pointer and keep it down',
+  ),
+  step({ do: z.literal('pointerUp') }).describe('Lift the pointer'),
+  step({ do: z.literal('move'), x: z.number().describe(XY), y: z.number().describe(XY) }).describe('Move the pointer'),
+  step({
+    do: z.literal('swipe'),
+    from: z.array(z.number()).length(2).describe('[x, y] in pixels'),
+    to: z.array(z.number()).length(2).describe('[x, y] in pixels'),
+    frames: z.number().int().positive().default(8).describe('Frames the swipe takes'),
+  }).describe('Press, drag and lift — a touch swipe'),
+  step({
+    do: z.literal('until'),
+    code: z
       .string()
-      .optional()
       .describe(
-        `Where to look from: ${POINT}. Omit it for exactly what the player sees — the game camera ` +
-          'as the game has it, HUD included: the one shot that shows a camera aimed at nothing',
+        'A JavaScript condition. `Game.state` reads the first live Game behaviour, `#<name>.position` a node by ' +
+          'the name you gave it in JSX; `findAll("Coin").length`, `Time.time` work too. e.g. "Game.state === \'over\'"',
       ),
-    lookAt: z.string().optional().describe(`What to look at: ${POINT}. Defaults to the origin`),
-    fov: z
-      .number()
-      .positive()
-      .optional()
-      .describe(
-        'Vertical field of view in degrees — smaller is more zoomed in. Try 20 to look closely ' +
-          'and 90 to take in a whole arena. Omit to keep the camera’s own. With `ui` the HUD is laid ' +
-          'out again for the lens, so it stays whole.',
-      ),
+    maxFrames: z.number().int().positive().default(600).describe('Give up after this many frames (default 600, 10 s)'),
+    dt: z.number().positive().optional().describe(DT),
+  }).describe('Hold the clock and step until the condition is true — for "when the train arrives", not "after 3 s"'),
+  step({
+    do: z.literal('watch'),
+    fields: z.array(z.string()).min(1).describe('Expressions to read, as in `until`: ["Player.lane", "Game.score"]'),
+    frames: z.number().int().positive().default(60).describe('Frames to run'),
+    every: z.number().int().positive().default(10).describe('Read every this many frames'),
+    dt: z.number().positive().optional().describe(DT),
+  }).describe('Hold the clock, step, and return a table of the values over time — telemetry'),
+  step({ do: z.literal('screenshot'), ...viewpoint, ...shotSize }).describe('A PNG of this moment'),
+  step({ do: z.literal('telemetry'), target: z.string().describe('"Player", "Player.lane" or "#<node name>"') }).describe(
+    'Read state as JSON — see the telemetry tool',
+  ),
+  step({ do: z.literal('outline'), depth: z.number().int().positive().default(4) }).describe('The scene as text'),
+  step({ do: z.literal('console'), level: LEVEL }).describe("What the page logged since the call began — warnings and errors come at the end of every reply anyway"),
+  step({
+    do: z.literal('eval'),
+    code: z.string().describe('The body of an async function; `return` a value to see it'),
+  }).describe(
+    'Set up or read a situation in JavaScript against the running game. In scope: every live behaviour class by ' +
+      'name, find(Type | "Type"), findAll(…), node("name"), destroy(), scene, camera, Time, Input, SceneManager, THREE. ' +
+      'e.g. `find(Player).invincible = true` — `Time.timeScale = 0.25` — `return findAll(Coin).length`. ' +
+      'It never touches a file; `reload` discards it.',
+  ),
+] as const;
+
+/** Every step, for a game on SceNoCo. */
+const STEPS = z.discriminatedUnion('do', ALL_STEPS);
+type Step = z.infer<typeof STEPS>;
+
+/** Steps that read the game through the bridge `play()` installs. */
+const LAYER_ONLY = new Set(['play', 'pause', 'step', 'until', 'watch', 'telemetry', 'outline', 'screenshot', 'eval']);
+
+/**
+ * What a page without the layer can do: input, real time, plain pictures, plain JavaScript. Offering
+ * the rest only to refuse it cost a model a turn per refusal, every session.
+ */
+const PAGE_STEPS = z.discriminatedUnion('do', [
+  ...ALL_STEPS.filter((s) => !LAYER_ONLY.has(s.shape.do.value)),
+  step({ do: z.literal('screenshot'), ...shotSize }).describe('A PNG of what the player sees, HUD included'),
+  step({
+    do: z.literal('eval'),
+    code: z.string().describe('The body of an async function run in the page; `return` a value to see it'),
+  }).describe('Read or set up a situation in JavaScript in the page — window, document, whatever the game exposes'),
+] as unknown as typeof ALL_STEPS);
+
+export interface ObserverOptions {
+  /** The project runs on SceNoCo: the clock, outline and telemetry tools are offered. */
+  layer: boolean;
+}
+
+export function createObserver(game: () => Promise<Game>, { layer }: ObserverOptions): McpServer {
+  const mcp = new McpServer({ name: 'scenoco-observer', version: '0.7.0' });
+  let reported = 0;
+  /** Where the page's log stood when the current `simulate` began. */
+  let callStart = 0;
+
+  /** Every reply ends with what the page said since the last one, and with a reload if there was one. */
+  const reply = async (content: Content[], note?: string | null): Promise<{ content: Content[] }> => {
+    const g = await game();
+    const fresh = g.consoleSince(reported).filter((e) => e.level === 'error' || e.level === 'warning');
+    reported = g.consoleSeq;
+    if (note) content.unshift({ type: 'text', text: note });
+    if (fresh.length) {
+      const lines = fresh.map((e) => `  ${e.level === 'error' ? '✗' : '⚠'} ${e.text}`);
+      content.push({ type: 'text', text: `${fresh.length} new console message(s) from the page:\n${lines.join('\n')}` });
+    }
+    return { content };
   };
 
-  mcp.registerTool(
-    'open',
-    {
-      description: 'Open a scene or prefab document in the observer page. Everything else needs one open.',
-      inputSchema: { path: z.string().describe('Project-relative path, e.g. assets/scenes/main.scene.xml') },
-    },
-    async ({ path }) =>
-      withConsole(text(await send({ type: 'open', path }))),
-  );
+  /** The game, reloaded first if its source changed. */
+  const ready = async () => {
+    const g = await game();
+    return { g, note: await g.freshen() };
+  };
+
+  const picture = async (g: Game, view: { cameraPos?: number[]; lookAt?: number[] | string; fov?: number }): Promise<Content> => {
+    if (view.cameraPos) {
+      const url = await g.bridge<string>('view', view);
+      return { type: 'image', data: url.split(',')[1] ?? '', mimeType: 'image/png' };
+    }
+    const png = await g.page.screenshot({ type: 'png' });
+    return { type: 'image', data: png.toString('base64'), mimeType: 'image/png' };
+  };
+
+  const json = (value: unknown): Content => ({ type: 'text', text: JSON.stringify(value, null, 2) });
 
   mcp.registerTool(
     'screenshot',
     {
       description:
-        'Render one PNG of the open scene from a stated viewpoint. `outline` is cheaper and exact; ' +
-        'take a picture to check what a picture is for — layout, look, whether a thing is drawn.',
-      inputSchema: { ...viewpoint, ...frameSchema },
+        layer
+          ? 'A PNG of the game now. With no viewpoint it is exactly what the player sees, HUD included; with cameraPos it ' +
+            'is the 3D scene from there. To capture a particular moment, use `simulate` and drive the game to it.'
+          : 'A PNG of the game now, exactly as the player sees it. To capture a particular moment, use `simulate`.',
+      inputSchema: layer ? { ...viewpoint, ...frame } : frame,
     },
-    async ({ cameraPos, lookAt, fov, width, height, ui }) =>
-      withConsole(image(
-        await send({
-          type: 'preview',
-          cameraPos,
-          ...(lookAt ? { lookAt } : {}),
-          ...(fov !== undefined ? { fov } : {}),
-          frame: { width, height, ui },
-        }),
-      )),
+    async ({ width, height, ...view }) => {
+      const { g, note } = await ready();
+      await g.resize(width, height);
+      return reply([await picture(g, view)], note);
+    },
+  );
+
+  if (layer) registerLayerTools();
+
+  function registerLayerTools() {
+  mcp.registerTool(
+    'outline',
+    {
+      description:
+        'The scene as text: named nodes and nodes with behaviours, their world positions, and each behaviour with ' +
+          'its fields — plus the clock. The cheapest and most exact view; read it before a screenshot.',
+      inputSchema: { depth: z.number().int().positive().default(4).describe('Levels to show') },
+    },
+    async ({ depth }) => {
+      const { g, note } = await ready();
+      return reply([{ type: 'text', text: await g.bridge<string>('outline', depth) }], note);
+    },
   );
 
   mcp.registerTool(
     'telemetry',
     {
       description:
-        'Read the live state at an id — a node’s transform, visibility and each component’s fields ' +
-        'and getters, or a component’s alone.',
-      inputSchema: {
-        id: z
-          .string()
-          .describe(
-            'An id= from the open document, or one given at instantiate — with `/` for what is ' +
-              'inside a spawned prefab: "slime3/body"',
-          ),
-      },
+        'Live state as JSON. "Player" — every live Player behaviour with its fields and getters; "Player.lane" — ' +
+          'that value from each; "#<name>" — a node by its JSX name: transform, visibility, behaviours.',
+      inputSchema: { target: z.string().describe('"Player", "Player.lane" or "#<node name>"') },
     },
-    async ({ id }) =>
-      withConsole(text(await send({ type: 'telemetry', targetId: id }))),
+    async ({ target }) => {
+      const { g, note } = await ready();
+      return reply([json(await g.bridge('telemetry', target))], note);
+    },
   );
 
-  mcp.registerTool(
-    'outline',
-    {
-      description:
-        'The scene as text: every node with its id, type, position and components, indented by ' +
-        'depth, plus the systems and their values. The cheapest and most exact view there is — ' +
-        'read this before taking a screenshot, and after a `simulate` to see what changed.',
-      inputSchema: {
-        id: z.string().optional().describe('Start at this node instead of the scene root'),
-        depth: z.number().int().positive().optional().describe('How many levels down to show (default 4)'),
-      },
-    },
-    async ({ id, depth }) =>
-      withConsole(text(
-        await send({
-          type: 'outline',
-          ...(id ? { targetId: id } : {}),
-          ...(depth !== undefined ? { depth } : {}),
-        }),
-      )),
-  );
-
-  for (const [name, type] of [
-    ['play', 'run'],
-    ['pause', 'pause'],
-    ['stop', 'stop'],
+  for (const [name, what] of [
+    ['play', 'Run the game in real time.'],
+    ['pause', 'Hold the game clock where it is. `simulate` steps it frame by frame.'],
   ] as const) {
-    mcp.registerTool(
-      name,
-      { description: `${name[0]!.toUpperCase()}${name.slice(1)} the open scene.`, inputSchema: {} },
-      async () =>
-      withConsole(text(await send({ type }))),
-    );
+    mcp.registerTool(name, { description: what, inputSchema: {} }, async () => {
+      const { g, note } = await ready();
+      const text = await control(g, name);
+      return reply([{ type: 'text', text }], note);
+    });
   }
+  }
+
+  mcp.registerTool('reload', { description: 'Start the game over from a fresh page — everything `eval` did is gone.', inputSchema: {} }, async () => {
+    const { g, note } = await ready();
+    return reply([{ type: 'text', text: await control(g, 'reload') }], note);
+  });
 
   mcp.registerTool(
     'simulate',
     {
-      description:
-        'Run a batch of steps against the live scene and collect what each produced. This is how ' +
-        'to find out whether a game works: drive it to the moment that matters, then capture. ' +
-        'Steps run in order.',
+      description: layer
+        ? 'Drive the game and look, in one call: input, frame stepping, waiting for a condition, telemetry over time, ' +
+          'screenshots. Steps run in order. `step`, `until` and `watch` hold the clock, so what they return is the exact ' +
+          'frame — deterministic; `play` lets it run in real time again. Prefer `until` to guessing seconds.'
+        : 'Drive the game and look, in one call: keys, clicks, swipes, real-time waits, screenshots and JavaScript. ' +
+          'Steps run in order, in real time.',
       inputSchema: {
-        // A real union rather than `record(unknown)`: a step is the one place a caller is most
-        // likely to mistype, and an untyped bag means a wrong `do` or a misspelled field reaches
-        // the page and does nothing rather than being refused here with the list of what exists.
         steps: z
-          .array(
-            z.discriminatedUnion('do', [
-              strictStep({ do: z.literal('play') }).describe('Start the scene running in real time'),
-              strictStep({ do: z.literal('pause') }).describe('Hold the scene where it is'),
-              strictStep({ do: z.literal('stop') }).describe('Reset the scene to its authored state'),
-              strictStep({
-                  do: z.literal('step'),
-                  frames: z.number().int().positive().optional().describe('Ticks to advance (default 1)'),
-                  dt: z
-                    .number()
-                    .positive()
-                    .optional()
-                    .describe(
-                      'Seconds per tick (default 1/60). Like any frame, capped at Time.maximumDeltaTime ' +
-                        '(1/6 s): to skip ahead, ask for more frames, not a longer one',
-                    ),
-                })
-                .describe(
-                  'Advance the scene by exact frames. After `pause` this is fully deterministic, ' +
-                    'so numbers read back are reproducible; while `play` runs, wall-clock time ' +
-                    'passes as well.',
-                ),
-              ...(['press', 'keyDown', 'keyUp'] as const).map((verb) =>
-                strictStep({
-                  do: z.literal(verb),
-                  key: z.string().describe('A KeyCode member name — "W", "Space", "LeftArrow"'),
-                }),
-              ),
-              strictStep({
-                  do: z.literal('axis'),
-                  axis: z.enum(AXIS_NAMES as [AxisName, ...AxisName[]]).describe('A Unity input axis'),
-                  value: z
-                    .number()
-                    .nullable()
-                    .describe('-1..1. Held until changed; null releases it back to the keys'),
-                })
-                .describe(
-                  'Drive a named axis, which is what gameplay reads — `getAxis("Horizontal")`, ' +
-                    'not A and D. Better than pressing keys when you want an exact value, and ' +
-                    'the only way to reach code written for a joystick.',
-                ),
-              ...(['button', 'buttonDown', 'buttonUp'] as const).map((verb) =>
-                strictStep({
-                  do: z.literal(verb),
-                  button: z.enum(BUTTON_NAMES as [ButtonName, ...ButtonName[]]).describe('A Unity input button'),
-                }),
-              ),
-              ...(
-                [
-                  ['click', 'Press and release the pointer — a click or a tap'],
-                  [
-                    'pointerDown',
-                    'Press and hold the pointer — a finger on the screen. `move` with `step`s between ' +
-                      'drags it; `pointerUp` lifts it',
-                  ],
-                  ['pointerUp', 'Lift the pointer held by `pointerDown`'],
-                ] as const
-              ).map(([verb, what]) =>
-                strictStep({
-                  do: z.literal(verb),
-                  x: z
-                    .number()
-                    .optional()
-                    .describe(
-                      `Pixels from the left, as in this call's shots — ${FRAME.width} across unless width ` +
-                        'is set. Left out: where the pointer already is',
-                    ),
-                  y: z
-                    .number()
-                    .optional()
-                    .describe(
-                      `Pixels from the top, as in this call's shots — ${FRAME.height} down unless height ` +
-                        'is set. Left out: where the pointer already is',
-                    ),
-                  button: z.enum(['left', 'right', 'middle']).optional(),
-                }).describe(what),
-              ),
-              strictStep({
-                do: z.literal('move'),
-                x: z.number().optional().describe('Pixels from the left, to move to'),
-                y: z.number().optional().describe('Pixels from the top, to move to'),
-                dx: z.number().optional().describe('Pixels to move right from where the pointer is'),
-                dy: z.number().optional().describe('Pixels to move down from where the pointer is'),
-              }).describe(
-                'Move the pointer — held down, this is a drag. One move lands in one frame: a drag ' +
-                  'a game reads frame by frame is several moves with a `step` after each',
-              ),
-              strictStep({
-                  do: z.literal('preview'),
-                  ...viewpoint,
-                  ui: z.boolean().optional().describe('Include the UI in this shot; the call’s `ui` otherwise'),
-                })
-                .describe('Capture a PNG. Size comes from this call; UI from the call, or from this step.'),
-              strictStep({
-                  do: z.literal('telemetry'),
-                  id: z
-                    .string()
-                    .describe(
-                      'An id= from the open document, or one given at instantiate — with `/` for ' +
-                        'what is inside a spawned prefab: "slime3/body"',
-                    ),
-                })
-                .describe('Sample a node and its components, or a component, by id'),
-              strictStep({
-                  do: z.literal('outline'),
-                  id: z.string().optional().describe('Start at this node instead of the scene root'),
-                  depth: z.number().int().positive().optional().describe('Levels to show (default 4)'),
-                })
-                .describe('The scene, or the subtree under `id`, as text — what changed, exactly'),
-              strictStep({
-                  do: z.literal('eval'),
-                  code: z
-                    .string()
-                    .describe('JavaScript, run as the body of an async function against the live scene'),
-                })
-                .describe(
-                  'Set up or read a situation in JavaScript. In scope: `scene`, `byId(path)`, ' +
-                    'every component and system class the scene runs, by its name, ' +
-                    '`find(Type, id?)` and `findAll(Type, id?)` (components by class or class name, ' +
-                    'under the node `id` when given — `find(Button, "start")`), ' +
-                    '`system(Type)`, `Time`, `Input`, `SceneManager`, `THREE`. Whatever you ' +
-                    '`return` comes back as JSON. e.g. `byId("player").position.set(0, 1, 5)` — ' +
-                    '`return findAll(Slime).map(s => s.object3D.position.toArray())` — ' +
-                    '`return system(GameState).score`. It touches only the running scene, ' +
-                    'never a file, and `stop` discards all of it.',
-                ),
-            ]),
-          )
-          .describe(
-            'Ordered steps; only `preview`, `telemetry`, `outline` and `eval` produce output. Size and UI are set ' +
-              'once for the whole batch, so two shots of one run stay comparable.',
-          ),
-        ...frameSchema,
+          .array(layer ? STEPS : PAGE_STEPS)
+          .min(1)
+          .describe(layer ? 'Ordered steps; screenshot, telemetry, outline, watch, until and eval produce output' : 'Ordered steps; screenshot and eval produce output'),
+        ...frame,
       },
     },
-    async ({ steps, width, height, ui }) => {
-      const result = await send({
-        type: 'simulate',
-        steps,
-        frame: { width, height, ui },
-      });
-      if (result.kind !== 'multi') return withConsole(text(result));
-      // Images and readings interleaved in the order they were captured, so a caller can line a
-      // frame up with the numbers that went with it.
-      return withConsole({
-        content: result.results.map((one) =>
-          one.kind === 'image'
-            ? { type: 'image' as const, data: one.dataUrl.split(',')[1] ?? '', mimeType: 'image/png' }
-            : one.kind === 'text'
-              ? { type: 'text' as const, text: one.text }
-              : { type: 'text' as const, text: JSON.stringify(one.kind === 'json' ? one.data : one, null, 2) },
-        ),
-      });
+    async ({ steps, width, height }) => {
+      const { g, note } = await ready();
+      await g.resize(width, height);
+      callStart = g.consoleSeq;
+      const out: Content[] = [];
+      for (const [index, s] of steps.entries()) {
+        const label = `[${index + 1}] ${s.do}`;
+        try {
+          const produced = await run(g, s);
+          for (const item of produced) out.push(item.type === 'text' ? { type: 'text', text: `${label}: ${item.text}` } : item);
+        } catch (error) {
+          out.push({ type: 'text', text: `${label} failed: ${error instanceof Error ? error.message : String(error)}\nThe remaining steps did not run.` });
+          break;
+        }
+      }
+      if (out.length === 0) out.push({ type: 'text', text: 'done — no step produced output' });
+      return reply(out, note);
     },
   );
 
   mcp.registerTool(
     'console',
     {
-      description:
-        "Everything the page has logged. New warnings and errors are appended to every other " +
-        "tool's reply already, so reach for this when you want the whole log, the quieter levels, " +
-        'or what happened before you started looking.',
+      description: "The page's log. New warnings and errors already come with every reply; this shows all of it.",
       inputSchema: {
-        level: z
-          .enum(['error', 'warning', 'info', 'log', 'debug'])
-          .optional()
-          .describe('Lowest level to include. Omit for warnings and errors only.'),
-        limit: z.number().int().positive().default(50).describe('Most recent entries to show'),
+        level: LEVEL,
+        limit: z.number().int().positive().default(50),
       },
     },
     async ({ level, limit }) => {
-      const rank = { error: 0, warning: 1, info: 2, log: 3, debug: 4 } as const;
-      const floor = rank[level ?? 'warning'];
-      const opened = await page();
-      const entries = opened.consoleSince(0).filter((entry) => rank[entry.level] <= floor);
-      reported = opened.consoleSeq;
-      const shown = entries.slice(-limit);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: shown.length
-              ? shown.map((entry) => `${entry.level}: ${entry.text}`).join('\n')
-              : 'the page has logged nothing at this level',
-          },
-        ],
-      };
+      const g = await game();
+      const entries = g.consoleSince(0).filter((e) => RANK[e.level] <= RANK[level]).slice(-limit);
+      reported = g.consoleSeq;
+      return { content: [{ type: 'text' as const, text: entries.map((e) => `${e.level}: ${e.text}`).join('\n') || 'nothing logged at this level' }] };
     },
   );
+
+  async function control(g: Game, what: 'play' | 'pause' | 'reload'): Promise<string> {
+    if (what === 'reload') {
+      await g.reload();
+      return 'reloaded — the game runs in real time from the start';
+    }
+    const c = await g.bridge<{ time: number; frame: number }>('hold', what === 'pause').then(() => g.bridge<{ time: number; frame: number }>('clock'));
+    return `${what === 'pause' ? 'held' : 'playing'} at ${c.time}s, frame ${c.frame}`;
+  }
+
+  /** One step; returns what it produced. */
+  async function run(g: Game, s: Step): Promise<Content[]> {
+    const dt = 'dt' in s && s.dt ? s.dt : 1 / 60;
+    const held = async () => (g.hasBridge ? (await g.bridge<{ held: boolean }>('clock')).held : false);
+    /** Let n frames pass: stepped when the clock is held, in real time otherwise. */
+    const frames = async (n: number) => {
+      if (await held()) await g.bridge('step', n, dt);
+      else await g.page.waitForTimeout((n * 1000) / 60);
+    };
+    const hold = async () => {
+      if (!(await held())) await g.bridge('hold', true);
+    };
+    switch (s.do) {
+      case 'play':
+      case 'pause':
+      case 'reload':
+        await control(g, s.do);
+        return [];
+      case 'step': {
+        await hold();
+        const c = await g.bridge<{ time: number; frame: number }>('step', s.frames, dt);
+        void c;
+        return [];
+      }
+      case 'wait':
+        await g.page.waitForTimeout(s.seconds * 1000);
+        return (await held())
+          ? [{ type: 'text', text: 'the clock is held, so the game did not move — `play` first, or `step`' }]
+          : [];
+      case 'press':
+        await g.page.keyboard.down(s.key);
+        await frames(s.frames);
+        await g.page.keyboard.up(s.key);
+        return [];
+      case 'keyDown':
+        await g.page.keyboard.down(s.key);
+        return [];
+      case 'keyUp':
+        await g.page.keyboard.up(s.key);
+        return [];
+      case 'click':
+        await g.page.mouse.click(s.x, s.y);
+        await frames(1);
+        return [];
+      case 'pointerDown':
+        if (s.x !== undefined && s.y !== undefined) await g.page.mouse.move(s.x, s.y);
+        await g.page.mouse.down();
+        return [];
+      case 'pointerUp':
+        await g.page.mouse.up();
+        return [];
+      case 'move':
+        await g.page.mouse.move(s.x, s.y);
+        return [];
+      case 'swipe': {
+        const [x0, y0] = s.from as [number, number];
+        const [x1, y1] = s.to as [number, number];
+        await g.page.mouse.move(x0, y0);
+        await g.page.mouse.down();
+        for (let i = 1; i <= s.frames; i++) {
+          await g.page.mouse.move(x0 + ((x1 - x0) * i) / s.frames, y0 + ((y1 - y0) * i) / s.frames);
+          await frames(1);
+        }
+        await g.page.mouse.up();
+        return [];
+      }
+      case 'until': {
+        await hold();
+        const r = await g.bridge<{ met: boolean; frames: number; time: number; frame: number }>('until', s.code, s.maxFrames, dt);
+        return [
+          {
+            type: 'text',
+            text: r.met
+              ? `true after ${r.frames} frames — now ${r.time}s, frame ${r.frame}`
+              : `still false after ${r.frames} frames (now ${r.time}s, frame ${r.frame}). The remaining steps ran anyway.`,
+          },
+        ];
+      }
+      case 'watch': {
+        await hold();
+        return [{ type: 'text', text: `\n${await g.bridge<string>('watch', s.fields, s.frames, s.every, dt)}` }];
+      }
+      case 'screenshot': {
+        const size = g.page.viewportSize()!;
+        if (s.width || s.height) await g.resize(s.width ?? size.width, s.height ?? size.height);
+        const shot = await picture(g, s);
+        if (s.width || s.height) await g.resize(size.width, size.height);
+        return [shot];
+      }
+      case 'telemetry':
+        return [json(await g.bridge('telemetry', s.target))];
+      case 'outline':
+        return [{ type: 'text', text: `\n${await g.bridge<string>('outline', s.depth)}` }];
+      case 'console': {
+        const lines = g.consoleSince(callStart).filter((e) => RANK[e.level] <= RANK[s.level]).map((e) => `${e.level}: ${e.text}`);
+        return [{ type: 'text', text: lines.length ? `\n${lines.join('\n')}` : 'nothing logged during this call so far' }];
+      }
+      case 'eval': {
+        const value = g.hasBridge
+          ? await g.bridge('evaluate', s.code)
+          : await g.page.evaluate((code) => new Function(`return (async () => {\n${code}\n})();`)(), s.code);
+        return [json(value ?? null)];
+      }
+    }
+  }
 
   return mcp;
 }
 
-function text(result: ObserverResult): { content: Array<{ type: 'text'; text: string }> } {
-  const body =
-    result.kind === 'json'
-      ? JSON.stringify(result.data, null, 2)
-      : result.kind === 'text'
-        ? result.text
-        : result.kind === 'ok'
-        ? (result.info ?? 'ok')
-        : JSON.stringify(result);
-  return { content: [{ type: 'text', text: body }] };
-}
-
-function image(
-  result: ObserverResult,
-): { content: Array<{ type: 'image'; data: string; mimeType: string }> } {
-  if (result.kind !== 'image') throw new Error('the observer did not return an image');
-  return {
-    content: [{ type: 'image', data: result.dataUrl.split(',')[1] ?? '', mimeType: 'image/png' }],
-  };
-}
-
-/**
- * Serve the MCP over HTTP on a fixed port.
- *
- * Fixed on purpose: an MCP client is configured once with a URL, and a port that moved on every
- * restart would need reconfiguring every time.
- *
- * **One transport per session**, created when a client initializes and kept until it goes away.
- * A single shared transport looked simpler and allowed exactly one client ever: the first
- * `initialize` claimed it, and every later one — a reconnect, a second client, a restarted
- * agent — got a bare `400`, which reads like a crashed server rather than a design limit.
- */
-export async function startMcpHttp(
-  makeServer: () => McpServer,
-  port: number,
-): Promise<{ close(): Promise<void> }> {
-  const sessions = new Map<string, StreamableHTTPServerTransport>();
-
-  const http = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res).catch((error: unknown) => {
-      res.statusCode = 500;
-      res.end(String(error instanceof Error ? error.message : error));
-    });
-  });
-
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const id = req.headers['mcp-session-id'];
-    const existing = typeof id === 'string' ? sessions.get(id) : undefined;
-    if (existing) return existing.handleRequest(req, res, await body(req));
-
-    const parsed = await body(req);
-    if (!isInitialize(parsed)) {
-      // A client routinely outlives the server it initialized against: the observer exits when
-      // its client hangs up, and the next `scenoco-observer` is a new process holding none of the
-      // old sessions. The protocol has one answer for a session id the server does not
-      // know — 404, on receipt of which a client must open a new session — and any other answer
-      // strands it. A JSON-RPC error inside a 200 in particular reads as a live server refusing
-      // the call, so the client keeps the dead id and every tool call after a restart fails.
-      const stale = typeof id === 'string';
-      res.statusCode = stale ? 404 : 400;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: null,
-          error: {
-            code: -32000,
-            message: stale
-              ? 'no such session — the observer restarted; initialize again'
-              : 'unknown session — send `initialize` first',
-          },
-        }),
-      );
-      return;
-    }
-
-    const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (session: string): void => {
-        sessions.set(session, transport);
-      },
-    });
-    transport.onclose = () => {
-      if (transport.sessionId) sessions.delete(transport.sessionId);
-    };
-    await makeServer().connect(transport);
-    return transport.handleRequest(req, res, parsed);
-  }
-
-  await new Promise<void>((done) => http.listen(port, done));
-
-  return {
-    close: async () => {
-      for (const transport of sessions.values()) await transport.close().catch(() => {});
-      sessions.clear();
-      await new Promise<void>((done) => http.close(() => done()));
-    },
-  };
-}
-
-function isInitialize(parsed: unknown): boolean {
-  return typeof parsed === 'object' && parsed !== null && (parsed as { method?: string }).method === 'initialize';
-}
-
-/** The request body, read once — the transport is handed the parsed value rather than the stream. */
-async function body(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const raw = Buffer.concat(chunks).toString('utf8');
-  try {
-    return raw ? JSON.parse(raw) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Serve the MCP over stdio — the transport an MCP client spawns a server with.
- *
- * The default, because it needs no port and no configuration beyond the command: the client
- * starts `scenoco-observer` in the project, talks to it on stdin/stdout, and ends it when the
- * session ends. Everything else this process prints goes to stderr, and the dev server is told
- * to be quiet, because one stray line on stdout is a broken session.
- */
-export async function startMcpStdio(server: McpServer, onClose: () => void): Promise<void> {
+/** Serve over stdio — what an MCP client spawns. Nothing else may print to stdout. */
+export async function serveStdio(mcp: McpServer, onClose: () => void): Promise<void> {
   const transport = new StdioServerTransport();
   transport.onclose = onClose;
-  await server.connect(transport);
-}
-
-/** This package's own version, for the MCP handshake. */
-function packageVersion(): string {
-  try {
-    const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
-    return (JSON.parse(manifest) as { version?: string }).version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
+  await mcp.connect(transport);
 }

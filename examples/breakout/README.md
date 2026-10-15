@@ -1,8 +1,8 @@
 # Breakout
 
-Three levels of Breakout, written as SceNoCo documents. It exists to be *built* rather than
-admired: everything in it is the ordinary way to do the thing, so where the engine makes that
-hard, the awkwardness is visible in the source.
+Three levels of Breakout on SceNoCo: scenes in TSX, behaviours in TypeScript, the HUD in HTML. It
+exists to be *built* rather than admired: everything in it is the ordinary way to do the thing, so
+where the engine makes that hard, the awkwardness is visible in the source.
 
 ![Breakout: a neon brick field, the paddle and ball glowing under bloom](screenshot.png)
 
@@ -16,62 +16,41 @@ Drag or use ←/→ (or A/D) to move the paddle, click or press space to launch.
 
 | | |
 | --- | --- |
-| `assets/render/neon.render.xml` | the look every level shares: fog, tone curve, bloom |
-| `assets/scenes/hud.scene.xml` | the HUD **and the run it reports on** — a scene marked `dontDestroyOnLoad`, so a level load does not touch it |
-| `assets/scenes/level-{1,2,3}.scene.xml` | one document per level: the look, the lights, the camera, and the wall's map |
-| `assets/scenes/arena.prefab.xml` | the walls, paddle, ball and floor sensor every level shares |
-| `assets/scenes/brick.prefab.xml` | one brick — all three tiers |
-| `src/Progress.ts` | score, lives, which level, and the readout showing them |
-| `src/GameState.ts` | one level's rules, as a scene service |
-| `src/BrickField.ts` | reads a level's map and places the wall |
-| `src/Ball.ts` `src/Paddle.ts` `src/Brick.ts` | one job each |
+| `src/main.ts` | `play(Run)`, and the look: three's tone mapping and `EffectComposer` bloom |
+| `index.html` | the HUD — score, level, lives, and the banner between rounds |
+| `src/scenes/Run.tsx` | the run: `Progress` and the list of levels, kept across every level load |
+| `src/scenes/levels.tsx` | one `Level` scene function, and three levels that differ in four values |
+| `src/scenes/Arena.tsx` | the walls, paddle, ball and floor sensor every level shares, and the brick prefab |
+| `src/assets.ts` | the geometries and materials several nodes share, made once |
+| `src/Progress.ts` | score, lives, which level, and writing them into the HUD |
+| `src/GameState.ts` | one level's rules, on the level's scene |
+| `src/BrickField.ts` | reads a level's map and spawns the wall |
+| `src/Ball.ts` `src/Paddle.ts` `src/Brick.ts` `src/CameraFit.ts` | one job each |
 
-A few things carry most of the weight, and each is a feature doing exactly what it is for:
+A few things carry most of the weight:
 
-- **The HUD is a persistent scene.** `main.ts` loads it additively; `<Scene dontDestroyOnLoad>`
-  keeps it. The score outlives the level because the object holding it is never rebuilt — no
-  module-scope singleton, nothing copied across the seam. `Engine` draws it over the active
-  scene without clearing, so it is composited last whatever the level does.
+- **The run outlives the level.** `play(Run)` loads the run first; `Progress` calls
+  `dontDestroyOnLoad(this)` in `awake` and then `SceneManager.load(Level1)`. A level load
+  destroys the level before it and leaves the run alone, so the score is never copied anywhere.
+- **The HUD is the page.** `Progress` writes `textContent` into `index.html`'s elements. The banner
+  between rounds is `<div data-button="Continue">`: a tap on it is `Input.getButtonDown('Continue')`
+  on the next frame, sampled like a key rather than handled between frames.
+- **A level is a scene function with props.** `<Level name="FORTRESS" ballSpeed={16} rows={…} />`;
+  the arena is a prefab function too, and `<Arena ballSpeed={ballSpeed} />` is how level three is
+  faster than level one.
+- **A wall is data and a loop.** `<BrickField rows={['.22222.', '2111112', …]} />`: a scene only
+  declares, so repetition is a behaviour's job. `BrickField` spawns `BrickPrefab` and sets
+  `Brick.hits` right after `instantiate`; the brick reads it in `start` and picks its tier's shared
+  material.
+- **The camera states a frame, not a fov.** `<CameraFit width={21} height={19.5} />`, so a phone in
+  portrait letterboxes instead of cropping the side walls.
 
-- **The levels are a list in a document.** `<Progress levels="[level-1.scene.xml,
-  level-2.scene.xml, level-3.scene.xml]">`. A scene compiles to a class and `SceneManager.load`
-  takes one, so a field declared `SceneType` is filled by a path like any other asset reference.
-  It is declared in the HUD, which no level imports, so nothing is circular.
-
-- **One brick prefab, three tiers.** A level says `hits="2"` — through an `<Override
-  target="#brick">` on a lone spawn, or a `2` in a wall's map — and nothing else; the prefab
-  names all three materials once and the brick picks the one its toughness earns. `<Override
-  target="#ball" speed="18" />` on the shared arena is how level three is faster than level one.
-
-- **A wall is data and a loop.** `<BrickField brick="brick.prefab.xml" rows="[.22222.,
-  2111112, …]" />`. The map used to sit above each level as a comment while thirty near-identical
-  `<Prefab>` elements repeated it below; the comment was always the readable version, so it is
-  the data now. What makes that possible is that a prefab is nameable — a field declared
-  `PrefabType` is filled by a path, exactly as a geometry or a material is — so the thing being
-  repeated is still authored in the document and the loop lives where loops live.
-
-- **The camera states a frame, not a fov.** `<CameraFit mode="contain" width="21" height="19.5">`,
-  so a phone in portrait letterboxes instead of cropping the side walls.
-
-- **The look is one file.** `<Scene render="../render/neon.render.xml">` in all three levels;
-  the fog, the tone curve and the bloom are written once. Each is on because its element is
-  there, so turning the bloom off is deleting a line.
-
-Bricks register themselves with `GameState` in `awake`, the way a `RigidBody2D` joins the physics
-world, so nothing queries the scene and no list of bricks is wired up by hand. `GameState` finds
-the persistent `Progress` in `start()` — the phase after the whole document is built — with
-`SceneManager.findObjectOfType`, which searches every loaded scene, as Unity's does.
+Bricks register with `GameState` in `awake` (found with `findObjectOfType`), so nothing queries the
+scene and no list of bricks is wired by hand. `GameState` finds the kept `Progress` the same way.
 
 ## What the engine still makes awkward
 
-Kept as written rather than tidied away, because each one is a gap worth closing:
-
-- **An `<Override>` cannot be given a name.** The three tiers are `hits="1|2|3"` at every site;
-  a named preset (v1 called them variants) would say `tier="hard"` once per brick and keep the
-  meaning in the prefab.
-- **A UI has no scale rule.** uikit lays out in CSS pixels, so a HUD sized for a desktop window
-  is enormous on a phone; the sizes here are a compromise picked by looking at both. A camera
-  has `CameraFit`; a `<Canvas>` has no equivalent.
-- **Nothing reports a brick that is unreachable.** A level whose grid puts a brick behind a wall
-  is a level that can never be cleared, and the first sign is a player waiting for a banner that
-  never comes.
+- **A prefab cannot be a behaviour's field.** A field typed as a function is not a setting, so
+  `BrickField` imports `BrickPrefab` rather than being handed it in the scene.
+- **Nothing reports a brick that is unreachable.** A level whose map puts a brick behind a wall can
+  never be cleared, and the first sign is a player waiting for a banner that never comes.

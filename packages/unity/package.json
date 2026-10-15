@@ -1,0 +1,43 @@
+{
+  "name": "@scenoco-three/unity",
+  "version": "0.7.0",
+  "description": "Export a SceNoCo game's prefabs, scenes, meshes and materials into a Unity project: nested prefabs, shared materials, behaviours as MonoBehaviours with their fields wired.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/unity"
+  },
+  "bin": {
+    "scenoco-unity": "./dist/cli.js"
+  },
+  "main": "./dist/export.js",
+  "types": "./dist/export.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/export.d.ts",
+      "import": "./dist/export.js"
+    }
+  },
+  "files": [
+    "dist",
+    "unity"
+  ],
+  "keywords": ["three", "threejs", "scenoco", "unity", "export", "prefab", "gamedev"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "playwright-core": "^1.62.1"
+  },
+  "peerDependencies": {
+    "@scenoco-three/core": "0.7.0",
+    "vite": ">=6"
+  }
+}

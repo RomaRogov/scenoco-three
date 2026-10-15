@@ -1,4 +1,4 @@
-import { Event, SceneManager, System } from '@scenoco-three/core';
+import { Behaviour, Event, findObjectOfType } from '@scenoco-three/core';
 import { Progress } from './Progress.js';
 import type { Brick } from './Brick.js';
 
@@ -6,18 +6,14 @@ import type { Brick } from './Brick.js';
 export type Phase = 'ready' | 'playing' | 'cleared' | 'lost' | 'won';
 
 /**
- * One level's rules, as a scene service.
+ * One level's rules, on the level's scene: `<Scene><GameState levelName="NEON GRID" />…`.
  *
- * A system rather than a component because it belongs to no node: every brick needs to reach
- * it, and it is not a property of any of them. Bricks register themselves in `awake` — the same
- * line a rigid body writes to join the physics world — so nothing queries the scene.
- *
- * It owns what is true *of this level*: the phase, and how many bricks are left. What is true
- * of the **run** — the score, the lives, which level this is — belongs to `Progress`, which
- * outlives the level. Reaching it is the one lookup here, and it happens in `start`, because
- * that is where a system may read the world: by then the whole document is built.
+ * Bricks find it with `findObjectOfType` and register in `awake`, so it knows how many there are.
+ * It owns what is true *of this level*: the phase, and how many bricks are left. What is true of
+ * the **run** — the score, the lives, which level this is — belongs to `Progress`, which outlives
+ * the level. Reaching it is the one lookup here, in `start`, when every level object is awake.
  */
-export class GameState extends System {
+export class GameState extends Behaviour {
   /** Shown on the HUD. Authored per level. */
   levelName = 'Level';
 
@@ -30,17 +26,16 @@ export class GameState extends System {
   /**
    * The run this level is part of, or `null` when there is none.
    *
-   * Null is a real case rather than an error: open `level-2.scene.xml` on its own in the editor
-   * and the HUD scene is not loaded, because nothing in this document references it. The level
+   * Null is a real case rather than an error: `play(Level2)` on its own has no run. The level
    * still plays — it simply has nothing to report to, which is better than a level that cannot
    * be opened without its bootstrap scene.
    */
   private progress: Progress | null = null;
 
   override start(): void {
-    // A global lookup, exactly as Unity's `FindObjectOfType` is: the HUD is in another scene —
-    // the persistent one — so no reference in this document could reach it.
-    this.progress = SceneManager.findObjectOfType(Progress);
+    // A global lookup, exactly as Unity's `FindObjectOfType` is: the run is in another scene —
+    // the kept one — so no reference in this scene could reach it.
+    this.progress = findObjectOfType(Progress);
     this.progress?.beginLevel(this);
   }
 
@@ -50,7 +45,7 @@ export class GameState extends System {
 
   // --- what the scene tells it ------------------------------------------------------------
 
-  /** Called by every brick in `awake`, which is how the system learns the level's size. */
+  /** Called by every brick in `awake`, which is how the level learns its size. */
   register(brick: Brick): void {
     this.bricks.add(brick);
   }

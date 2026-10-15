@@ -33,14 +33,13 @@ jobs:
       # install — core@0.5.0 did.
       - run: npm run smoke:pack
 
-      # Dependency order: everything peers on core; vite and observer sit on the compiler. The
-      # editor depends on neither, so its position is free.
+      # Dependency order: everything peers on core; observer and tools stand alone.
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for pkg in core compiler collision box2d rapier ui postfx particles audio vite observer editor; do
+          for pkg in core box2d rapier particles audio observer tools create editor; do
             dir="packages/$pkg"
             [ -d "$dir" ] || continue
             name=$(node -p "require('./$dir/package.json').name")

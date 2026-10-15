@@ -1,13 +1,9 @@
 import { AudioLoader } from 'three';
-import { Asset, shared } from '@scenoco-three/core';
+import { Asset } from '@scenoco-three/core';
 
 /**
- * A decoded sound file — Unity's `AudioClip`, and referenced the same way: a field on an
- * `AudioSource`, filled in by the document.
- *
- * ```xml
- * <AudioSource clip="../audio/engine.ogg" loop="true" spatial="true" />
- * ```
+ * A decoded sound file — Unity's `AudioClip`: the `clip` of an `AudioSource`, made once with
+ * `sharedClip(url)`.
  *
  * Decoding needs a Web Audio context, so the value is `null` where there is none — a test, a
  * server render. That is deliberate: a scene with sound in it still loads headless, and every
@@ -35,7 +31,7 @@ export class AudioClip extends Asset<AudioBuffer | null> {
 export function sharedClip(url: string): AudioClip {
   let clip = cache.get(url);
   if (!clip) {
-    clip = shared(new AudioClip(url));
+    clip = new AudioClip(url);
     cache.set(url, clip);
   }
   return clip;

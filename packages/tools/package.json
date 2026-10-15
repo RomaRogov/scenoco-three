@@ -1,0 +1,44 @@
+{
+  "name": "@scenoco-three/tools",
+  "version": "0.7.0",
+  "description": "SceNoCo's tools: `scenoco check` (a .tsx scene only declares), the `scenoco()` Vite plugin, and the read/edit layer the editor uses on scene files.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/tools"
+  },
+  "bin": {
+    "scenoco": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "rolldown": "^1.0.3"
+  },
+  "peerDependencies": {
+    "vite": ">=6"
+  }
+}

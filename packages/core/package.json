@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.6.1",
-  "description": "SceNoCo core: components on Object3D, scenes/prefabs as generated classes, and the game loop. Nothing else.",
+  "version": "0.7.0",
+  "description": "SceNoCo core: Unity's behaviours on three.js \u2014 Behaviour, coroutines, Time, Input, SceneManager \u2014 with scenes written in TSX and no React.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -17,10 +17,23 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx-dev-runtime.js"
+    },
+    "./snapshot": {
+      "types": "./dist/snapshot.d.ts",
+      "import": "./dist/snapshot.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "API.md"
   ],
   "keywords": [
     "three",
@@ -34,7 +47,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "//sideEffects": "true, not a list: every augment/* module patches a THREE prototype for its side effect alone, and a precise list of them was honoured by the dev server and not by a production site build, which dropped the Scene augmentation. Nothing in this package is worth shaking out at that cost.",
   "sideEffects": true,
   "scripts": {
     "prebuild": "rm -rf dist",

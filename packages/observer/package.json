@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/observer",
-  "version": "0.6.1",
-  "description": "An agent's eyes on a SceNoCo scene: an MCP server over stdio that compiles the project, runs the scene in a headless Chrome it owns, renders it from stated viewpoints, drives it frame by frame, and reads it back as text.",
+  "version": "0.7.0",
+  "description": "An agent's eyes on a SceNoCo game: an MCP server over stdio that runs the project's own Vite dev server in a headless Chrome it owns, holds and steps the game clock, drives input, and reads behaviours back as text.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -12,19 +12,18 @@
   "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/observer#readme",
   "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "bin": {
-    "scenoco-observer": "./dist/cli/index.js"
+    "scenoco-observer": "./dist/cli.js"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/mcp.js",
+  "types": "./dist/mcp.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js"
     }
   },
   "files": [
-    "dist",
-    "app"
+    "dist"
   ],
   "keywords": [
     "three",
@@ -42,19 +41,15 @@
   },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/index.js",
-    "typecheck": "npm --prefix ../core run build && npm --prefix ../compiler run build && tsc --noEmit -p tsconfig.json"
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "@scenoco-three/compiler": "^0.6.0",
-    "@scenoco-three/core": "^0.6.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "playwright-core": "^1.62.1",
     "zod": "^4.0.0"
   },
   "peerDependencies": {
-    "three": ">=0.160.0",
-    "vite": ">=8"
-  },
-  "devDependencies": {}
+    "vite": ">=6"
+  }
 }

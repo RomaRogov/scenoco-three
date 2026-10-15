@@ -1,16 +1,16 @@
-name: A diagnostic could be better
-description: The compiler caught it, but did not tell you what to write instead.
+name: A message could be better
+description: Something refused what you wrote — the runtime, `scenoco check` — but did not tell you what to write instead.
 labels: [diagnostics]
 body:
   - type: markdown
     attributes:
       value: |
-        A rejection that does not carry the answer is a defect here, not a nitpick — the whole
-        design bets on the compiler teaching rather than just refusing.
+        A refusal that does not carry the answer is a defect here, not a nitpick — the design bets
+        on every message saying what to write instead.
   - type: textarea
     id: got
     attributes:
-      label: What the compiler said
+      label: What it said
       render: text
     validations: { required: true }
   - type: textarea

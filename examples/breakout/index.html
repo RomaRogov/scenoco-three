@@ -4,12 +4,43 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>Breakout — SceNoCo</title>
+    <link rel="icon" href="data:," />
     <style>
       html, body { margin: 0; height: 100%; background: #05070d; overflow: hidden; }
       canvas { display: block; touch-action: none; }
+      body { font: bold 14px/1 system-ui, -apple-system, sans-serif; color: #e2e8f0; }
+      .bar {
+        position: fixed; inset: 0 0 auto 0; height: 58px; padding: 0 16px; box-sizing: border-box;
+        display: flex; align-items: center; justify-content: space-between;
+        background: rgb(13 21 38 / 0.94); pointer-events: none;
+      }
+      .group { display: flex; align-items: center; gap: 8px; }
+      .label { font-size: 11px; color: #5b7089; }
+      #score { font-size: 22px; color: #5eead4; }
+      #level { font-size: 11px; color: #8fa3bd; }
+      #lives { display: flex; gap: 7px; }
+      #lives i { width: 11px; height: 11px; border-radius: 50%; background: #fb7185; }
+      #lives i.spent { visibility: hidden; }
+      #banner {
+        position: fixed; inset: 0; display: flex; flex-direction: column; gap: 16px;
+        align-items: center; justify-content: center; background: rgb(3 5 9 / 0.82); cursor: pointer;
+      }
+      #banner[hidden] { display: none; }
+      #headline { font-size: 46px; color: #f8fafc; }
+      #hint { font-size: 15px; font-weight: normal; color: #7f96b3; }
     </style>
   </head>
   <body>
+    <div class="bar">
+      <div class="group"><span class="label">SCORE</span><span id="score">00000</span></div>
+      <div class="group"><span id="level">1/3</span></div>
+      <div class="group"><span class="label">LIVES</span><span id="lives"><i></i><i></i><i></i></span></div>
+    </div>
+    <!-- Between rounds. A virtual button: Input.getButtonDown('Continue') reads a tap on it. -->
+    <div id="banner" data-button="Continue" hidden>
+      <div id="headline"></div>
+      <div id="hint"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

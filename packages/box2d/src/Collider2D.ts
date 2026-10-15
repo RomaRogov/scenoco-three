@@ -1,6 +1,6 @@
 import type { FixtureOpt, Shape } from 'planck';
-import { Component } from '@scenoco-three/core';
-import { RigidBody2D } from './RigidBody2D.js';
+import { Behaviour } from '@scenoco-three/core';
+import { Rigidbody2D } from './Rigidbody2D.js';
 
 /**
  * Shared base for the 2D collision shapes; `<BoxCollider2D>`, `<CircleCollider2D>` and the rest
@@ -8,13 +8,13 @@ import { RigidBody2D } from './RigidBody2D.js';
  *
  * Mirrors how each light is its own tag.
  *
- * A collider attaches to the `<RigidBody2D>` **on its own node**, and does so itself. There is
+ * A collider attaches to the `<Rigidbody2D>` **on its own node**, and does so itself. There is
  * no registry and no per-step reconcile: the body is asked for in `start`, which is exactly
  * when every component in the scene has woken, so the two may be written in either order.
  *
- * Abstract, so it is machinery rather than a tag a document can write.
+ * Abstract, so it is machinery rather than a tag a scene can write.
  */
-export abstract class Collider2D extends Component {
+export abstract class Collider2D extends Behaviour {
   /** Density in kg/m². Zero for a shape that should not contribute mass. */
   density = 1;
   /** Friction, 0..1. */
@@ -72,7 +72,7 @@ export abstract class Collider2D extends Component {
    * collider.rebuild();
    * ```
    *
-   * Nothing needs it at load time: the values a document authors are applied before `awake`, so
+   * Nothing needs it at load time: the values a scene sets are applied before `awake`, so
    * the first fixture is already built from them.
    */
   rebuild(): void {
@@ -83,7 +83,7 @@ export abstract class Collider2D extends Component {
   }
 
   /** The body this collider gives shape to, or null while the node has none. */
-  protected body(): RigidBody2D | null {
-    return this.getComponent(RigidBody2D);
+  protected body(): Rigidbody2D | null {
+    return this.getComponent(Rigidbody2D);
   }
 }

@@ -1,0 +1,22 @@
+{
+  "name": "@scenoco-three/create",
+  "version": "0.7.0",
+  "description": "Start a SceNoCo game: `npm create @scenoco-three my-game`.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/create"
+  },
+  "bin": {
+    "create": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "template"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

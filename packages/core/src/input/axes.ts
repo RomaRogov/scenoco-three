@@ -20,6 +20,7 @@ export interface AxisBinding {
   readonly gravity: number;
 }
 
+/** @internal the default bindings behind every named axis; read them through `Input.getAxis`. */
 export const AXES = {
   Horizontal: {
     negative: [KeyCode.A, KeyCode.LeftArrow],
