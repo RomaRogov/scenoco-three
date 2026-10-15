@@ -10,7 +10,7 @@
     "directory": "packages/tools"
   },
   "bin": {
-    "scenoco": "./dist/cli.js"
+    "scenoco": "./bin/scenoco.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,14 +25,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
