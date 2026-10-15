@@ -55,6 +55,9 @@ try {
     const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     if (manifest.private) continue;
     const [info] = JSON.parse(run(npm, ['pack', '--json', '--pack-destination', tarballs], root));
+    // A cache or an install left in a package folder ships with it: create@0.7.0 carried 5 MB of Vite's.
+    const stray = info.files.find((f) => f.path.includes('node_modules/'));
+    if (stray) fail(`${manifest.name} would publish ${stray.path} — exclude it in "files"`);
     packed.set(manifest.name, join(tarballs, info.filename));
     console.log(`  ${manifest.name}@${manifest.version}  ${info.files.length} files`);
   }

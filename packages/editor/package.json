@@ -29,7 +29,7 @@
     "directory": "packages/editor"
   },
   "bin": {
-    "scenoco-editor": "./bin/serve.js"
+    "scenoco-editor": "bin/serve.js"
   },
   "files": [
     "dist",

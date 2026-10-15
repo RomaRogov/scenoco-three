@@ -31,7 +31,7 @@
     "directory": "packages/observer"
   },
   "bin": {
-    "scenoco-observer": "./dist/cli.js"
+    "scenoco-observer": "dist/cli.js"
   },
   "main": "./dist/mcp.js",
   "types": "./dist/mcp.d.ts",

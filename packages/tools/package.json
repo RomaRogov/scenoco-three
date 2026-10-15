@@ -28,7 +28,7 @@
     "directory": "packages/tools"
   },
   "bin": {
-    "scenoco": "./bin/scenoco.js"
+    "scenoco": "bin/scenoco.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -28,11 +28,12 @@
     "directory": "packages/create"
   },
   "bin": {
-    "create": "./index.js"
+    "create": "index.js"
   },
   "files": [
     "index.js",
-    "template"
+    "template",
+    "!template/node_modules"
   ],
   "publishConfig": {
     "access": "public"

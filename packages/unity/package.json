@@ -27,7 +27,7 @@
     "directory": "packages/unity"
   },
   "bin": {
-    "scenoco-unity": "./dist/cli.js"
+    "scenoco-unity": "dist/cli.js"
   },
   "main": "./dist/export.js",
   "types": "./dist/export.d.ts",
