@@ -141,6 +141,26 @@ export class Physics extends System {
     return this.colliders.get(typeof collider === 'number' ? collider : collider.handle) ?? null;
   }
 
+  /**
+   * `isKinematic` changed: Unity switches the body there and then. One let go starts still from where
+   * its node was left, with no motion carried over from being moved.
+   */
+  private retype(rigidbody: Rigidbody, body: RAPIER.RigidBody): void {
+    if (rigidbody.isKinematic) {
+      body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+      this.poses.delete(rigidbody);
+      return;
+    }
+    const p = rigidbody.node.getWorldPosition(SCRATCH_V);
+    const q = rigidbody.node.getWorldQuaternion(SCRATCH_Q);
+    body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    body.setTranslation(p, true);
+    body.setRotation(q, true);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.poses.set(rigidbody, poseOf(body));
+  }
+
   /** @internal a teleport: forget the previous pose, so nothing blends across the jump. */
   resetPose(rigidbody: Rigidbody): void {
     if (rigidbody._body && this.poses.has(rigidbody)) this.poses.set(rigidbody, poseOf(rigidbody._body));
@@ -154,6 +174,7 @@ export class Physics extends System {
     const drivenByBody: Rigidbody[] = [];
     for (const rigidbody of this.bodies) {
       const body = rigidbody._body;
+      if (body && rigidbody.isKinematic !== body.isKinematic()) this.retype(rigidbody, body);
       if (!rigidbody.isKinematic || !body || !rigidbody.enabled) continue;
       if (moving(body)) {
         drivenByBody.push(rigidbody);

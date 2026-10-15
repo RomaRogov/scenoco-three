@@ -2,6 +2,25 @@
   "name": "@scenoco-three/rapier",
   "version": "0.7.0",
   "description": "3D physics for SceNoCo on Rapier, in Unity's shape: Rigidbody, the colliders, Physics.gravity, and the contact messages.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "physics",
+    "rapier",
+    "3d-physics",
+    "rigidbody",
+    "collider"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/rapier#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,8 +28,6 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/rapier"
   },
-  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/rapier#readme",
-  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -21,15 +38,6 @@
   },
   "files": [
     "dist"
-  ],
-  "keywords": [
-    "three",
-    "threejs",
-    "physics",
-    "rapier",
-    "scene",
-    "components",
-    "gamedev"
   ],
   "publishConfig": {
     "access": "public"

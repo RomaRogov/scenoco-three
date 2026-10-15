@@ -22,7 +22,8 @@ export type ForceMode = (typeof ForceMode)[keyof typeof ForceMode];
  * same node, in either order.
  *
  * A dynamic body moves its node — set velocity or add force, not `node.position`. A kinematic
- * one follows its node: move the node, and the body pushes whatever it meets.
+ * one follows its node: move the node, and the body pushes whatever it meets. `isKinematic` may
+ * change at any time, as in Unity — set it to pick a body up, clear it to let go.
  */
 export class Rigidbody extends Behaviour {
   isKinematic = false;

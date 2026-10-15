@@ -2,6 +2,23 @@
   "name": "@scenoco-three/unity",
   "version": "0.7.0",
   "description": "Export a SceNoCo game's prefabs, scenes, meshes and materials into a Unity project: nested prefabs, shared materials, behaviours as MonoBehaviours with their fields wired.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "unity-export",
+    "prefab",
+    "porting"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/unity#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -24,7 +41,6 @@
     "dist",
     "unity"
   ],
-  "keywords": ["three", "threejs", "scenoco", "unity", "export", "prefab", "gamedev"],
   "publishConfig": {
     "access": "public"
   },

@@ -1,7 +1,28 @@
 {
   "name": "@scenoco-three/observer",
   "version": "0.7.0",
+  "mcpName": "io.github.RomaRogov/scenoco-observer",
   "description": "An agent's eyes on a SceNoCo game: an MCP server over stdio that runs the project's own Vite dev server in a headless Chrome it owns, holds and steps the game clock, drives input, and reads behaviours back as text.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "mcp",
+    "mcp-server",
+    "ai-agent",
+    "testing",
+    "screenshot",
+    "headless-chrome"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/observer#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,8 +30,6 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/observer"
   },
-  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/observer#readme",
-  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "bin": {
     "scenoco-observer": "./dist/cli.js"
   },
@@ -24,17 +43,6 @@
   },
   "files": [
     "dist"
-  ],
-  "keywords": [
-    "three",
-    "threejs",
-    "scenoco",
-    "mcp",
-    "agent",
-    "observer",
-    "screenshot",
-    "simulate",
-    "gamedev"
   ],
   "publishConfig": {
     "access": "public"

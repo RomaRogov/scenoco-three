@@ -68,7 +68,13 @@ npm run typecheck    # tsc over every package and the tests, then breakout's own
 npm test             # vitest — lean suite in zone folders under tests/
 npm run examples:dev # the breakout example
 npm run smoke:pack   # the packed tarballs, installed outside the workspace and played
+npm run site         # the Pages site in site/: the README, the examples, llms.txt, the editor
+npm run discovery    # context7.json again, after the root package.json's description or the rules card changed
 ```
+
+`context7.json`, `llms.txt` and the site's meta description take their words from the root
+`package.json`'s `description` and the starter's rules card (`scripts/discovery.mjs`); nothing there
+is written a second time. The README is free to read as a letter.
 
 Tests live in the root `tests/` in zone folders (`core/`, `packages/`, `tooling/`); one test per
 behaviour. `tests/core/api.test.ts` fails when a game-facing export is missing from `API.md`.

@@ -1,7 +1,11 @@
 name: Release
 
 # Publishes every package at the version in its `package.json`. Tag and push to fire it:
-#   git tag v0.6.0 && git push origin v0.6.0
+#   git tag v0.7.0 && git push origin v0.7.0
+#
+# No token: npm trusts this workflow (trusted publishing, OIDC). Each package names
+# RomaRogov/scenoco-three and this file, release.yml, as its publisher on npmjs.com, and npm adds a
+# provenance attestation to every version published from here.
 on:
   push:
     tags: ['v*']
@@ -12,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write        # npm provenance
+      id-token: write        # the OIDC token npm's trusted publishing exchanges for a publish
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +24,9 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships with npm 10.
+      - run: npm install -g npm@^11.5.1
 
       # Same two rules as CI: a committed lockfile so an upstream publish cannot change what
       # ships, and build first because the packages typecheck against each other's declarations.
@@ -35,11 +42,9 @@ jobs:
 
       # Dependency order: everything peers on core; observer and tools stand alone.
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for pkg in core box2d rapier particles audio observer tools create editor; do
+          for pkg in core box2d rapier particles audio observer tools unity create editor; do
             dir="packages/$pkg"
             [ -d "$dir" ] || continue
             name=$(node -p "require('./$dir/package.json').name")
@@ -48,6 +53,6 @@ jobs:
               echo "· $name@$version already published — skipping"
             else
               echo "→ publishing $name@$version"
-              npm publish -w "$dir" --provenance --access public
+              npm publish -w "$dir" --access public
             fi
           done

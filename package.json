@@ -2,7 +2,7 @@
   "name": "scenoco-workspace",
   "private": true,
   "version": "0.7.0",
-  "description": "SceNoCo workspace: core (Unity's behaviours on three.js, scenes in TSX), the physics, audio and particle packages, and the tools",
+  "description": "Unity's behaviours on three.js, with scenes written in TSX and no React.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -28,7 +28,7 @@
     "examples:build": "npm --prefix examples/breakout run build",
     "build": "npm run build:core && npm run build:box2d && npm run build:rapier && npm run build:particles && npm run build:audio && npm run build:observer && npm run build:tools && npm run build:unity && npm run build:editor",
     "build:core": "npm --prefix packages/core run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && npm --prefix examples/breakout run check && npm --prefix packages/create/template run check && npm --prefix examples/subway run check",
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm --prefix examples/breakout run check && npm --prefix examples/home run check && npm --prefix packages/create/template run check && npm --prefix examples/subway run check",
     "typecheck:core": "npm --prefix packages/core run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -41,17 +41,19 @@
     "check:lockfile": "node scripts/check-lockfile.mjs",
     "build:tools": "npm --prefix packages/tools run build",
     "build:editor": "npm --prefix packages/editor run build",
-    "build:unity": "npm --prefix packages/unity run build"
+    "build:unity": "npm --prefix packages/unity run build",
+    "site": "node scripts/site.mjs",
+    "discovery": "node scripts/discovery.mjs"
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^25.9.3",
     "@types/three": "^0.184.1",
     "three": "^0.184.0",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8",
-    "@dimforge/rapier3d-compat": "^0.19.3",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "vitest": "^4.1.8"
   },
   "optionalDependencies": {
     "@rolldown/binding-linux-arm64-gnu": "^1.1.1"

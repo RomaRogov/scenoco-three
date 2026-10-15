@@ -9,21 +9,15 @@ package-lock.json
 
 # Build output / artifacts
 dist/
-demo/
-schema/
+# The Pages site, built by `npm run site`.
+site/
 *.log
-
-# Compiled documents. A `.gen.ts` sits beside the `.xml` it came from and is rewritten on every
-# build — the XML is the source of truth, so committing both would mean reviewing the same change
-# twice and resolving conflicts in generated code.
-*.gen.ts
 
 # OS / editor
 .DS_Store
 
 # Tooling caches & local config (not published)
 .claude/
-.scenoco/
 .playwright-mcp/
 
 # Working notes, kept local. What is public is the README of each package and AGENTS.md.

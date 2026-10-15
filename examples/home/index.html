@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>SceNoCo</title>
+    <link rel="icon" href="data:," />
+    <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070d; overflow: hidden; }
+      canvas { display: block; touch-action: none; }
+      .what {
+        position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+        padding: 13px 26px; border-radius: 999px; border: 1px solid #2c4a6b;
+        background: rgb(10 16 28 / 0.82); color: #dbeafe; backdrop-filter: blur(6px);
+        font: 600 16px/1 system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: 0.02em;
+        text-decoration: none; white-space: nowrap; transition: border-color 0.15s, color 0.15s, background 0.15s;
+      }
+      .what:hover, .what:focus-visible { border-color: #4af0e0; color: #ffffff; background: rgb(14 28 40 / 0.9); outline: none; }
+    </style>
+  </head>
+  <body>
+    <a class="what" href="https://github.com/RomaRogov/scenoco-three#readme">What's that?</a>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

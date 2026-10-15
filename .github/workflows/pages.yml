@@ -1,4 +1,5 @@
-# The editor's interface as a hosted module, for a game page opened with ?edit=<this site>/editor.js.
+# The project's site: the README as its front page, the examples playable, llms.txt for coding
+# agents, and the editor's interface for a game page opened with ?edit=<this site>/editor.js.
 # Runs by hand: publishing is the maintainer's call.
 name: pages
 on:
@@ -18,11 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      # Same install as CI: the committed lockfile, so the site is built from what was tested.
+      - run: npm ci --legacy-peer-deps
       - run: npm run build
+      - run: npm run site
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/editor/dist
+          path: site
   deploy:
     needs: build
     runs-on: ubuntu-latest

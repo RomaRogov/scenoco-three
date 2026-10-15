@@ -1,7 +1,27 @@
 {
   "name": "@scenoco-three/core",
   "version": "0.7.0",
-  "description": "SceNoCo core: Unity's behaviours on three.js \u2014 Behaviour, coroutines, Time, Input, SceneManager \u2014 with scenes written in TSX and no React.",
+  "description": "SceNoCo core: Unity's behaviours on three.js — Behaviour, coroutines, Time, Input, SceneManager — with scenes written in TSX and no React.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "tsx",
+    "jsx",
+    "monobehaviour",
+    "components",
+    "coroutines",
+    "scene-graph"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/core#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,8 +29,6 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/core#readme",
-  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -34,15 +52,6 @@
   "files": [
     "dist",
     "API.md"
-  ],
-  "keywords": [
-    "three",
-    "threejs",
-    "scenoco",
-    "component",
-    "scene-graph",
-    "game-engine",
-    "gamedev"
   ],
   "publishConfig": {
     "access": "public"

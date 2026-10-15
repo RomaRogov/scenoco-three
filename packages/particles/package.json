@@ -2,6 +2,24 @@
   "name": "@scenoco-three/particles",
   "version": "0.7.0",
   "description": "Particle effects for SceNoCo on three.quarks: Unity's ParticleSystem playing typed ParticleEffect data.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "particles",
+    "particle-system",
+    "vfx",
+    "three.quarks"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/particles#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,8 +27,6 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/particles"
   },
-  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/particles#readme",
-  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -23,16 +39,6 @@
     "dist"
   ],
   "sideEffects": true,
-  "keywords": [
-    "three",
-    "threejs",
-    "scenoco",
-    "particles",
-    "particle-system",
-    "vfx",
-    "three.quarks",
-    "gamedev"
-  ],
   "publishConfig": {
     "access": "public"
   },

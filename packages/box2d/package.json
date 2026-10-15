@@ -2,6 +2,25 @@
   "name": "@scenoco-three/box2d",
   "version": "0.7.0",
   "description": "2D physics for SceNoCo on planck (Box2D), in Unity's shape: Rigidbody2D, the 2D colliders, and the contact messages.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "physics",
+    "box2d",
+    "planck",
+    "2d",
+    "rigidbody2d"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/box2d#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,8 +28,6 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/box2d"
   },
-  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/box2d#readme",
-  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,21 +39,10 @@
   "files": [
     "dist"
   ],
-  "keywords": [
-    "three",
-    "threejs",
-    "physics",
-    "2d",
-    "box2d",
-    "planck",
-    "scene",
-    "components",
-    "gamedev"
-  ],
   "publishConfig": {
     "access": "public"
   },
-  "//sideEffects": "contacts.ts merges the Unity-style contact hooks onto Component \u2014 a declaration-only import a bundler could otherwise elide. Everything else is pure.",
+  "//sideEffects": "contacts.ts merges the Unity-style contact hooks onto Component — a declaration-only import a bundler could otherwise elide. Everything else is pure.",
   "sideEffects": true,
   "scenoco": {},
   "scripts": {

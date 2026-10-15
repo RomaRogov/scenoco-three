@@ -92,6 +92,22 @@ describe('rapier', () => {
     expect(zone.heard).toContain('triggerEnter:paddle');
   });
 
+  it('switches a body between kinematic and dynamic when isKinematic changes, as Unity does', () => {
+    const { scene, run } = world();
+    floor(scene);
+    const b = ball(scene, 3);
+    run(0.2);
+    b.body.isKinematic = true; // picked up: the node leads, gravity lets go
+    b.node.position.set(2, 4, 0);
+    run(0.5);
+    expect(b.node.position.y).toBeCloseTo(4, 3);
+    expect(b.body.rapierBody!.translation().x).toBeCloseTo(2, 3);
+    b.body.isKinematic = false; // let go: it falls from where it was put, still
+    run(2);
+    expect(b.node.position.x).toBeCloseTo(2, 1);
+    expect(b.node.position.y).toBeCloseTo(1, 1);
+  });
+
   it('moves a static collider with its node, so a scrolled pickup reaches a kinematic runner', () => {
     const { scene, run } = world();
     const runner = new Object3D();
