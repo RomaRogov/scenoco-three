@@ -127,10 +127,10 @@ on them.
 >**TL;DR:** it's my approach to marry the traditional web rendering stack with classic game development
 patterns.
 
-A lightweight framework for Three.js, which adds a Unity-like component system with an event loop, and
-TSX scenes: they represent the scene tree, including components, properties and their relations, in
-a simple, text-based form, acceptable for human inspection, git diffs and, most importantly, all
-that makes LLMs fluent in scene description — the weakest part of the modern game slop scene. No
+A lightweight framework for Three.js, which adds a Unity-like component system with an event loop and
+TSX scenes. 
+TSX represent the scene tree (including components, properties and their relations) in
+a simple, text-based form, acceptable for human inspection, git diffs and, most importantly, it makes LLMs fluent in scene description — the weakest part of the modern game slop scene. No
 React involved.
 
 Also, there are a lot of game-specific things added for ease of life: unified input, time
