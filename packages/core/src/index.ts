@@ -48,6 +48,7 @@ export {
   getComponentInParent,
   type BehaviourInit,
   type BehaviourType,
+  type Prefab,
   type RenderCamera,
   type Yieldable,
 } from './kernel/index.js';

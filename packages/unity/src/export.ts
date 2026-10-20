@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, copyFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright-core';
+import { chromium, type Page, type Response } from 'playwright-core';
 import { createServer, loadConfigFromFile, type Plugin } from 'vite';
 import type { Snapshot } from '@scenoco-three/core/snapshot';
 import { convert, type Converted } from './convert.js';
@@ -83,6 +83,9 @@ export async function snapshotProject(root: string, options: { headed?: boolean 
     plugins: [page(root, gameModules(root))],
     // Not pre-bundled: the snapshot and the scenes must share one copy of core's JSX runtime.
     optimizeDeps: { exclude: ['@scenoco-three/core'] },
+    // Its own optimizer cache: a dev server or the observer on the same project re-bundling the
+    // shared one mid-load answers this page's imports with 504 "Outdated Optimize Dep".
+    cacheDir: join(root, 'node_modules', '.vite-scenoco-unity'),
     server: { port: 0, hmr: false },
   });
   await server.listen();
@@ -92,8 +95,15 @@ export async function snapshotProject(root: string, options: { headed?: boolean 
     const errors: string[] = [];
     tab.on('pageerror', (e) => errors.push(e.message));
     tab.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-    await tab.goto(new URL(PAGE, server.resolvedUrls!.local[0]).href);
-    await tab.waitForFunction(() => '__scenocoSnapshot' in window, null, { timeout: 30_000 }).catch(async () => {
+    // A cold cache can still be re-bundled while the page loads, when Vite finds a dependency its scan
+    // missed. Vite's HMR client reloads the page then; with HMR off, this does.
+    const url = new URL(PAGE, server.resolvedUrls!.local[0]).href;
+    for (let attempt = 1; ; attempt++) {
+      errors.length = 0;
+      await tab.goto(url);
+      if ((await pageLoaded(tab)) === 'settled' || attempt === 3) break;
+    }
+    await tab.waitForFunction(() => '__scenocoSnapshot' in window, null, { timeout: 1_000 }).catch(async () => {
       // The server's own reason, which the browser reports only as a status code.
       const reason = await tab.evaluate((url) => fetch(url).then((r) => (r.ok ? '' : r.text())), `/@id/${ENTRY}`).catch(() => '');
       const missing = /snapshot/.test(reason) ? ' — the project\'s @scenoco-three/core is older than this exporter: update it.' : '';
@@ -108,6 +118,26 @@ export async function snapshotProject(root: string, options: { headed?: boolean 
     await browser.close();
     await server.close();
   }
+}
+
+/**
+ * Wait for the export page: 'outdated' as soon as Vite answers one of its imports 504 — its optimizer
+ * re-bundled underneath, and only a reload picks that up — and 'settled' once it loaded or gave up.
+ */
+function pageLoaded(tab: Page): Promise<'settled' | 'outdated'> {
+  return new Promise((done) => {
+    const onResponse = (response: Response) => response.status() === 504 && finish('outdated');
+    const finish = (result: 'settled' | 'outdated') => {
+      tab.off('response', onResponse);
+      done(result);
+    };
+    tab.on('response', onResponse);
+    // A page that never loads is reported by the caller, with the server's reason.
+    tab.waitForFunction(() => '__scenocoSnapshot' in window, null, { timeout: 30_000 }).then(
+      () => finish('settled'),
+      () => finish('settled'),
+    );
+  });
 }
 
 export interface Written {

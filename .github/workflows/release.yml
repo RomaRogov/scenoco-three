@@ -44,7 +44,7 @@ jobs:
       - name: Publish
         run: |
           set -euo pipefail
-          for pkg in core box2d rapier particles audio observer tools unity create editor; do
+          for pkg in core box2d rapier particles audio splines observer tools unity create editor; do
             dir="packages/$pkg"
             [ -d "$dir" ] || continue
             name=$(node -p "require('./$dir/package.json').name")

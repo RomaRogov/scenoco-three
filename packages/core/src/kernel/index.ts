@@ -37,6 +37,7 @@ export { provideCamera, cameraOf, type RenderCamera } from './camera.js';
 export type {
   BehaviourHooks,
   BehaviourInit,
+  Prefab,
   BehaviourType,
   ConstructableBehaviour,
   InitValue,

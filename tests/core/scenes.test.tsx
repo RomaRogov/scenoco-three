@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, Scene } from 'three';
+import { BoxGeometry, Color, DirectionalLight, Group, Mesh, MeshStandardMaterial, Scene, WebGLRenderTarget } from 'three';
 import { Behaviour, Runtime, SceneManager, dontDestroyOnLoad, ref } from '@scenoco-three/core';
 import { attachWorld } from '../../packages/core/src/scenes.js';
 
@@ -72,18 +72,23 @@ describe('SceneManager', () => {
     const paint = new MeshStandardMaterial(); // an assets.ts constant: every scene may name it
     const freed: string[] = [];
     const box = ref<BoxGeometry>();
+    const sun = ref<DirectionalLight>();
     const Level = () => (
       <Scene>
         <Mesh material={paint}>
           <BoxGeometry ref={box} />
         </Mesh>
+        <DirectionalLight ref={sun} castShadow />
       </Scene>
     );
     SceneManager.load(Level);
     box.current!.addEventListener('dispose', () => freed.push('box'));
     paint.addEventListener('dispose', () => freed.push('paint'));
+    // What the renderer gives a shadow-casting light on its first frame: a map on the GPU.
+    sun.current!.shadow.map = new WebGLRenderTarget(16, 16);
+    sun.current!.shadow.map.addEventListener('dispose', () => freed.push('shadow map'));
     SceneManager.load(Two);
     frame();
-    expect(freed).toEqual(['box']);
+    expect(freed).toEqual(['box', 'shadow map']);
   });
 });

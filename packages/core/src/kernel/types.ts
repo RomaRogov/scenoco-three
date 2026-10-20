@@ -38,8 +38,24 @@ export interface BehaviourHooks {
 type IsIdentical<X, Y, Then, Else> =
   (<G>() => G extends X ? 1 : 2) extends <G>() => G extends Y ? 1 : 2 ? Then : Else;
 
-/** True for data, false for methods — a class (a prefab, a behaviour type) counts as data. */
-type IsValue<V> = V extends Function ? (V extends abstract new (...args: never[]) => unknown ? true : false) : true;
+declare const prefab: unique symbol;
+
+/**
+ * A prefab as a field's type, Unity's `public GameObject prefab`: `projectile: Prefab | null = null`,
+ * set in TSX as `<Tower projectile={Arrow} />`, built with `instantiate(this.projectile)`. Any
+ * function returning TSX is one. Typed this way, the field is a setting; typed `() => Object3D`,
+ * tsc cannot tell it from a method, and it would not be.
+ */
+export type Prefab<T extends Object3D = Object3D> = (() => unknown) & { readonly [prefab]?: T };
+
+/** True for data, false for methods — a class (a behaviour type) and a `Prefab` count as data. */
+type IsValue<V> = V extends Function
+  ? V extends abstract new (...args: never[]) => unknown
+    ? true
+    : typeof prefab extends keyof V
+      ? true
+      : false
+  : true;
 
 /** Plain settable data fields: no methods, no readonly fields (and so no getters). */
 type AuthorableKeys<T> = {
@@ -58,7 +74,9 @@ export interface RefLike<T> {
  * `'#ff8800'`, a vector from `[1, 2, 3]`, and for a link to an object, a ref to it, read once the
  * scene is built.
  */
-export type InitValue<V> = V extends { isColor: true }
+export type InitValue<V> = V extends RefLike<unknown>
+  ? 'a ref given to a field arrives as the object it points at: declare the field as the object — target: Mesh | null = null'
+  : V extends { isColor: true }
   ? V | string | number
   : V extends { fromArray(array: number[]): unknown }
     ? V | number[]

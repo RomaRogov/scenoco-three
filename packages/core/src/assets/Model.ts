@@ -37,12 +37,16 @@ export class Model extends Asset<LoadedGltf> {
 
   protected override async fetch(): Promise<LoadedGltf> {
     // Imported here so a project with no model ships neither addon — both are large.
-    const [{ GLTFLoader }, skeletonUtils] = await Promise.all([
+    const [{ GLTFLoader }, skeletonUtils, { MeshoptDecoder }] = await Promise.all([
       import('three/addons/loaders/GLTFLoader.js'),
       import('three/addons/utils/SkeletonUtils.js'),
+      import('three/addons/libs/meshopt_decoder.module.js'),
     ]);
     cloneSkinned ??= skeletonUtils.clone;
-    const gltf = (await new GLTFLoader().loadAsync(this.url)) as LoadedGltf;
+    // meshopt (EXT_meshopt_compression, gltfpack's -cc): a few KB of decoder, and a model a quarter
+    // the size. Quantized attributes (KHR_mesh_quantization) the loader reads on its own.
+    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const gltf = (await loader.loadAsync(this.url)) as LoadedGltf;
     return gltf;
   }
 

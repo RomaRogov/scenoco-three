@@ -333,6 +333,10 @@ export function assignInit(b: Behaviour, init: object): void {
   const target = b as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(init)) {
     if (isRef(value)) {
+      if (isRef(target[key])) {
+        const name = b.constructor.name;
+        throw new Error(`<${name} ${key}={…}>: a ref given to a field arrives as the object it points at, so the field holds the object, not a ref. In ${name}, declare it as ${key}: Mesh | null = null (the object's own class) and read this.${key} directly.`);
+      }
       // Not set yet while the scene is still being built: read at `awake`, and again at `start`.
       (b._refs ??= new Map()).set(key, value);
       target[key] = value.current;

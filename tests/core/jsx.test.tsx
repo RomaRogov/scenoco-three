@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BoxGeometry, Color, DirectionalLight, Fog, Group, Mesh, MeshStandardMaterial, Scene } from 'three';
 import { Runtime, wake } from '@scenoco-three/core';
-import { Behaviour, instantiate, ref } from '@scenoco-three/core';
+import { Behaviour, instantiate, ref, type Prefab, type Ref } from '@scenoco-three/core';
 import { jsx } from '@scenoco-three/core/jsx-runtime';
 
 const runtimes: Runtime[] = [];
@@ -19,6 +19,17 @@ class Aim extends Behaviour {
   override awake() {
     this.seen = this.target;
   }
+}
+
+class Launcher extends Behaviour {
+  shot: Prefab<Group> | null = null;
+  fire(): Group {
+    return instantiate(this.shot!, { parent: this.node });
+  }
+}
+
+class Holder extends Behaviour {
+  target: Ref<Group> = ref();
 }
 
 describe('TSX on three.js', () => {
@@ -76,8 +87,26 @@ describe('TSX on three.js', () => {
     expect(a.getComponent(Aim)).not.toBe(b.getComponent(Aim));
   });
 
-  it('answers a lowercase tag and an unplaceable child with what to write', () => {
+  it('takes a prefab as a field, as Unity takes a prefab in the inspector', () => {
+    const Shot = () => <Group name="shot" />;
+    const scene = (
+      <Scene>
+        <Group>
+          <Launcher shot={Shot} />
+        </Group>
+      </Scene>
+    ) as Scene;
+    run(scene);
+    const fired = scene.children[0]!.getComponent(Launcher)!.fire();
+    expect(fired.name).toBe('shot');
+  });
+
+  it('answers a lowercase tag, an unplaceable child and a ref-typed field with what to write', () => {
     expect(() => jsx('mesh', {})).toThrow(/<Mesh>, not <mesh>/);
     expect(() => jsx(Group, { children: new Color() })).toThrow(/needs attach=/);
+    const target = ref<Group>();
+    // @ts-expect-error a field holds the object a ref points at, never the ref
+    const holder = <Holder target={target} />;
+    expect(() => jsx(Group, { children: holder })).toThrow(/declare it as target: Mesh \| null = null/);
   });
 });

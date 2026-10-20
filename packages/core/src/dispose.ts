@@ -19,7 +19,7 @@ export function ownedBy(child: object, parent: object): void {
   if (typeof (child as { dispose?: unknown }).dispose === 'function') owners.set(child, parent);
 }
 
-/** @internal free what the elements under `root` built: geometries, materials and their textures. */
+/** @internal free what the elements under `root` built: geometries, materials and their textures, lights' shadows. */
 export function disposeBuilt(root: Object3D): void {
   const free = (value: unknown, owner: object): void => {
     if (!value || typeof value !== 'object' || owners.get(value) !== owner) return;
@@ -37,5 +37,8 @@ export function disposeBuilt(root: Object3D): void {
     }
     free(drawn.background, node);
     free(drawn.environment, node);
+    // A light's shadow map is the light's own, made by the renderer the first frame it casts: a
+    // 2048² target per sun, every load, until a phone's GPU gives up and drops the context.
+    if ((node as { isLight?: boolean }).isLight) (node as Object3D & { dispose(): void }).dispose();
   });
 }

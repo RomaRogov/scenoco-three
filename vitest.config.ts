@@ -17,6 +17,7 @@ export default defineConfig({
       { find: '@scenoco-three/rapier', replacement: src('rapier/src/index.ts') },
       { find: '@scenoco-three/particles', replacement: src('particles/src/index.ts') },
       { find: '@scenoco-three/audio', replacement: src('audio/src/index.ts') },
+      { find: '@scenoco-three/splines', replacement: src('splines/src/index.ts') },
       { find: '@scenoco-three/tools/vite', replacement: src('tools/src/vite.ts') },
       { find: '@scenoco-three/tools', replacement: src('tools/src/index.ts') },
     ],

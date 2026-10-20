@@ -21,7 +21,7 @@ describe('what agents and registries read', () => {
   });
 
   it('every published package says what it is and where it lives', () => {
-    for (const dir of readdirSync(new URL('packages/', root))) {
+    for (const dir of readdirSync(new URL('packages/', root), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
       const pkg = json(`packages/${dir}/package.json`);
       if (pkg.private) continue;
       expect(pkg.description, pkg.name).toBeTruthy();

@@ -11,10 +11,16 @@ is three.js, as three.js documents it.
 //   shadow-mapSize={[2048, 2048]} a dashed name reaches inside
 //   <MeshStandardMaterial />     geometry and material attach to their parent; anything else needs attach="fog"
 //   <Spinner speed={2} />        a Behaviour becomes a component of its parent; its props are its public fields
-//   ref={hero}                   const hero = ref<Mesh>() inside the scene function; a behaviour field takes it too
+//   ref={hero}                   const hero = ref<Mesh>() inside the scene function; a behaviour field takes it too,
+//                                and holds the object itself: target: Mesh | null = null, never a Ref
+//   <Tower projectile={Arrow} /> a prefab as a setting: projectile: Prefab | null = null
 // A scene file only declares: no loops, branches, handlers or calls — `scenoco check` says what to write instead.
 
-function play(scene: () => JSX.Element, options?: { container?: HTMLElement; fixedDelta?: number }): Game;
+function play(scene: () => JSX.Element, options?: {
+  container?: HTMLElement;
+  fixedDelta?: number;
+  renderer?: WebGLRenderer;         // your own, for what only its constructor sets: new WebGLRenderer({ antialias: false })
+}): Game;
 interface Game {
   readonly scene: Scene;            // the one scene that draws; SceneManager swaps what is in it
   readonly camera: PerspectiveCamera;   // the loaded scene's first camera, or a default
@@ -22,12 +28,13 @@ interface Game {
   render: () => void;               // replace to draw another way: game.render = () => composer.render()
 }
 function ref<T>(): { current: T | null };
-function instantiate(prefab: (() => JSX.Element) | Model, options?: {   // a prefab is a function returning TSX, or a loaded model
+type Prefab<T extends Object3D = Object3D> = () => JSX.Element;    // a function returning TSX, as a field's type
+function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: {   // a prefab, or a loaded model
   parent?: Object3D;                                  // default: the scene
   position?: Vector3 | [number, number, number];
   rotation?: Euler | [number, number, number];
   quaternion?: Quaternion;
-}): Object3D;                                         // awake runs now, start next frame: set fields in between
+}): T;                                                // awake runs now, start next frame: set fields in between
 function sourceOf(made: object): { fileName: string; lineNumber: number; columnNumber: number } | undefined;  // dev only
 
 const SceneManager: {
@@ -119,7 +126,7 @@ const AXES: Record<AxisName, …>;  const AXIS_NAMES: AxisName[];   // Unity's d
 // What a node's own elements built (<BoxGeometry> inside a <Mesh>) is freed when the node is destroyed —
 // a scene load included. What a scene only names in a prop (material={paint.wall}) is never freed by it.
 function sharedTexture(url: string, settings?: TextureSettings): Texture;   // one per URL; the image arrives later
-function sharedModel(url: string): Model;    // a glTF: await loadAssets(model), then model.instantiate()
+function sharedModel(url: string): Model;    // a glTF: await loadAssets(model), then model.instantiate(); meshopt-compressed (gltfpack -cc) loads too
 class Model extends Asset<GLTF> { readonly clips: AnimationClip[]; instantiate(): Object3D }
 // A model's clips play through an Animator on its root, or on a node above it. No controller: the
 // states are the clips' names, and every state loops.

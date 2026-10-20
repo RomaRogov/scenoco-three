@@ -5,12 +5,18 @@ import { installObserverBridge, isHeld } from './observe.js';
 import { SceneManager, attachWorld, loadInto } from './scenes.js';
 import { edit } from './edit.js';
 import { Model } from './assets/Model.js';
+import type { Prefab } from './kernel/types.js';
 
 export interface PlayOptions {
   /** Where the canvas goes. `document.body` when left out. */
   container?: HTMLElement;
   /** Seconds per `fixedUpdate`. Unity's default, 0.02. */
   fixedDelta?: number;
+  /**
+   * The renderer to draw with, for what only its constructor sets — `new WebGLRenderer({ antialias:
+   * false, powerPreference: 'high-performance' })`. One with antialiasing when left out.
+   */
+  renderer?: WebGLRenderer;
 }
 
 export interface Game {
@@ -41,8 +47,8 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   const fallback = new PerspectiveCamera(50, 1, 0.1, 1000);
   fallback.position.set(0, 0, 5);
 
-  const renderer = new WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const renderer = options.renderer ?? new WebGLRenderer({ antialias: true });
+  if (!options.renderer) renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const host = options.container ?? document.body;
   host.appendChild(renderer.domElement);
 
@@ -120,7 +126,7 @@ export interface InstantiateOptions {
  * frame, so fields set on its behaviours right after this call are in by `start`. Nothing is
  * cloned from a live node: every call makes its own objects.
  */
-export function instantiate<T extends Object3D = Object3D>(prefab: (() => unknown) | Model, options: InstantiateOptions = {}): T {
+export function instantiate<T extends Object3D = Object3D>(prefab: Prefab<T> | Model, options: InstantiateOptions = {}): T {
   const name = prefab instanceof Model ? `"${prefab.url}"` : prefab.name || 'prefab';
   const made = prefab instanceof Model ? prefab.instantiate() : prefab();
   if (!(made instanceof Object3D)) throw new Error(`instantiate(${name}): a prefab returns one element, such as <Group>…</Group>.`);

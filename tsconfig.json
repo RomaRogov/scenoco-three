@@ -13,11 +13,12 @@
       "@scenoco-three/rapier": ["./packages/rapier/src/index.ts"],
       "@scenoco-three/particles": ["./packages/particles/src/index.ts"],
       "@scenoco-three/audio": ["./packages/audio/src/index.ts"],
+      "@scenoco-three/splines": ["./packages/splines/src/index.ts"],
       "@scenoco-three/tools": ["./packages/tools/src/index.ts"],
       "@scenoco-three/tools/vite": ["./packages/tools/src/vite.ts"],
       "@scenoco-three/observer": ["./packages/observer/src/mcp.ts"]
     }
   },
-  "include": ["packages/core/src", "packages/box2d/src", "packages/rapier/src", "packages/particles/src", "packages/audio/src", "packages/observer/src", "packages/unity/src", "packages/tools/src", "packages/editor/src", "tests", "vitest.config.ts"],
+  "include": ["packages/core/src", "packages/box2d/src", "packages/rapier/src", "packages/particles/src", "packages/audio/src", "packages/splines/src", "packages/observer/src", "packages/unity/src", "packages/tools/src", "packages/editor/src", "tests", "vitest.config.ts"],
   "exclude": ["**/dist", "tests/.tmp"]
 }

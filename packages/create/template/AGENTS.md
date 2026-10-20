@@ -27,12 +27,15 @@ the package's source.
 3. Public fields are its settings. Attach it as a TSX child of the element it drives:
    `<Mesh><Spinner speed={2} /></Mesh>`. Props set starting values only.
 4. To link two objects, make a typed ref inside the scene function: `const paddle = ref<Group>()`,
-   `<Group ref={paddle}>`, `<Follow target={paddle} />`. Behaviours find each other in code —
+   `<Group ref={paddle}>`, `<Follow target={paddle} />` — the field holds the object itself,
+   `target: Group | null = null`. Behaviours find each other in code —
    `getComponent(T)`, `getComponentInChildren(T)`, `findObjectOfType(T)` — and talk through
    `Event<T>` fields and `this.listen(event, fn)`. `findObjectsOfType(T)` is cheap and skips what is
    being destroyed — keep no static lists.
 5. A prefab is a function returning TSX: `export const Coin = () => <Mesh>…</Mesh>`.
    `instantiate(Coin, { position })` builds a fresh one each call; set fields on it afterwards.
+   A behaviour that makes a prefab takes it as a field, as Unity's inspector does —
+   `shot: Prefab | null = null`, `<Gun shot={Bullet} />` — and does not import the prefab file.
    A scene is one too: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a node across loads.
    A glTF model is a prefab as well: `const hero = sharedModel('/hero.glb')` in a `.ts` module,
    `await loadAssets(hero)` in `main.ts`, then `instantiate(hero, { parent: this.node })`. Its clips
