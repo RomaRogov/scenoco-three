@@ -6,7 +6,6 @@ import { ref } from '@scenoco-three/core';
 import { ChaseCamera } from '../ChaseCamera';
 import { Game } from '../Game';
 import { Player } from '../Player';
-import { ShadowSetup } from '../ShadowSetup';
 import { Spawner } from '../Spawner';
 import { skyTexture } from '../textures';
 
@@ -26,9 +25,7 @@ export const Main = () => {
         shadow-mapSize={[2048, 2048]} shadow-camera-left={-13} shadow-camera-right={13}
         shadow-camera-top={24} shadow-camera-bottom={-24} shadow-camera-near={1} shadow-camera-far={60}
         shadow-bias={-0.0006}
-      >
-        <ShadowSetup />
-      </DirectionalLight>
+      />
 
       <Mesh position={[0, 16, -170]}>
         <CircleGeometry args={[22, 48]} />

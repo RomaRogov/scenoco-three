@@ -7,7 +7,7 @@ const files = import.meta.glob<string>(['./**/*.ts', './**/*.tsx', '!./source.ts
 const REPO = 'https://github.com/RomaRogov/scenoco-three/tree/main/examples/home/src';
 
 /** The scene, then the behaviours, then the rest. */
-const order = (path: string) => (path.endsWith('.tsx') ? 0 : /\/(main|assets)\.ts$/.test(path) ? 2 : 1);
+const order = (path: string) => (path.endsWith('.tsx') ? 0 : /\/main\.ts$/.test(path) ? 2 : 1);
 const paths = Object.keys(files).sort((a, b) => order(a) - order(b) || a.localeCompare(b));
 
 const KEYWORDS =

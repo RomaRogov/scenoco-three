@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BufferGeometry, Matrix4, Vector3, type Mesh, type Object3D } from 'three';
-import { Behaviour, service, type Event } from '@scenoco-three/core';
+import { Box3, BufferGeometry, Matrix4, Vector3, type Mesh, type Object3D } from 'three';
+import { Behaviour, service, writtenOf, type Event } from '@scenoco-three/core';
 import { Physics } from './Physics.js';
 import { PhysicsMaterialCombine, type PhysicsMaterial } from './PhysicsMaterial.js';
 import { Rigidbody } from './Rigidbody.js';
@@ -10,6 +10,9 @@ import { Rigidbody } from './Rigidbody.js';
  * one it is static — a floor, a wall, a coin — and moving its node still moves it, as in Unity.
  * Sizes are scaled by the node's world scale, as Unity scales them, so `<BoxCollider />` on a
  * mesh scaled to 4 is 4 wide.
+ *
+ * A size left out fits the meshes on and under the node, as Unity's colliders fit their mesh:
+ * `<BoxCollider />` on a letter of text is the letter's box, `center` included. Written, it is kept.
  */
 export abstract class Collider extends Behaviour {
   /** Reports `onTriggerEnter`/`Exit` instead of colliding. */
@@ -92,9 +95,19 @@ export abstract class Collider extends Behaviour {
   abstract shape(scale: Vector3): RAPIER.ColliderDesc;
 
   // `start`, not `awake`: by then every behaviour on the node is awake, so a Rigidbody written
-  // after its collider already has its body.
+  // after its collider already has its body, and a model shown in `awake` is there to fit.
   override start(): void {
+    const bounds = meshBounds(this.node);
+    if (bounds) this.fit(bounds, new Set(writtenOf(this)));
     this.add();
+  }
+
+  /** @internal take what was left out from the meshes' bounds, in the node's space. Fits nothing by default. */
+  protected fit(_bounds: Box3, _written: ReadonlySet<string>): void {}
+
+  /** The bounds' centre, unless `center` was written. */
+  protected fitCenter(bounds: Box3, written: ReadonlySet<string>): void {
+    if (!written.has('center')) bounds.getCenter(this.center);
   }
 
   override onEnable(): void {
@@ -135,8 +148,14 @@ export abstract class Collider extends Behaviour {
 }
 
 export class BoxCollider extends Collider {
-  /** Full size, as in Unity — not half. */
+  /** Full size, as in Unity — not half. Left out, the mesh's. */
   size = new Vector3(1, 1, 1);
+
+  protected override fit(bounds: Box3, written: ReadonlySet<string>): void {
+    if (written.has('size')) return;
+    bounds.getSize(this.size);
+    this.fitCenter(bounds, written);
+  }
 
   shape(scale: Vector3): RAPIER.ColliderDesc {
     return RAPIER.ColliderDesc.cuboid((this.size.x * scale.x) / 2, (this.size.y * scale.y) / 2, (this.size.z * scale.z) / 2);
@@ -144,7 +163,15 @@ export class BoxCollider extends Collider {
 }
 
 export class SphereCollider extends Collider {
+  /** Left out, half the mesh's largest side. */
   radius = 0.5;
+
+  protected override fit(bounds: Box3, written: ReadonlySet<string>): void {
+    if (written.has('radius')) return;
+    const size = bounds.getSize(new Vector3());
+    this.radius = Math.max(size.x, size.y, size.z) / 2;
+    this.fitCenter(bounds, written);
+  }
 
   shape(scale: Vector3): RAPIER.ColliderDesc {
     return RAPIER.ColliderDesc.ball(this.radius * Math.max(scale.x, scale.y, scale.z));
@@ -153,8 +180,17 @@ export class SphereCollider extends Collider {
 
 /** Upright, as Unity's default. `height` is the whole capsule, caps included. */
 export class CapsuleCollider extends Collider {
+  /** Left out, half the mesh's wider side across. */
   radius = 0.5;
+  /** Left out, the mesh's height. */
   height = 2;
+
+  protected override fit(bounds: Box3, written: ReadonlySet<string>): void {
+    const size = bounds.getSize(new Vector3());
+    if (!written.has('radius')) this.radius = Math.max(size.x, size.z) / 2;
+    if (!written.has('height')) this.height = size.y;
+    if (!written.has('radius') || !written.has('height')) this.fitCenter(bounds, written);
+  }
 
   shape(scale: Vector3): RAPIER.ColliderDesc {
     const radius = this.radius * Math.max(scale.x, scale.z);
@@ -284,3 +320,20 @@ export class MeshCollider extends Collider {
     return { positions: Float32Array.from(positions), indices: Uint32Array.from(indices) };
   }
 }
+
+/** Every mesh on and under `node`, bounded in `node`'s own space; null when there is none. */
+function meshBounds(node: Object3D): Box3 | null {
+  node.updateWorldMatrix(true, true);
+  const toNode = new Matrix4().copy(node.matrixWorld).invert();
+  const bounds = new Box3();
+  const box = new Box3();
+  const local = new Matrix4();
+  node.traverse((child) => {
+    const geometry = (child as Mesh).isMesh ? (child as Mesh).geometry : null;
+    if (!geometry) return;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    bounds.union(box.copy(geometry.boundingBox!).applyMatrix4(local.multiplyMatrices(toNode, child.matrixWorld)));
+  });
+  return bounds.isEmpty() ? null : bounds;
+}
+

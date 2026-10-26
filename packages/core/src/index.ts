@@ -66,7 +66,7 @@ export { Animator, type AnimatorStateInfo } from './animation/Animator.js';
 export { sharedTexture, type TextureSettings } from './assets/textures.js';
 
 // For packages — physics, audio, particles — not for games: a package's per-scene service, the
-// messages it sends, and the kernel's view of what is running.
+// messages it sends, the kernel's view of what is running, and what a component was given.
 export {
   System,
   service,
@@ -75,6 +75,7 @@ export {
   runtimeOf,
   behavioursOn,
   wake,
+  writtenOf,
   Runtime,
   type SystemType,
   type BehaviourHooks,

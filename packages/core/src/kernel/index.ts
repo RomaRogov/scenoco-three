@@ -31,6 +31,7 @@ export {
   runtimeOf,
   service,
   wake,
+  writtenOf,
 } from './runtime.js';
 export { fieldsOf, schemaOf, type FieldInfo } from './schema.js';
 export { provideCamera, cameraOf, type RenderCamera } from './camera.js';

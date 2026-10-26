@@ -1,9 +1,9 @@
 /**
  * Every `.tsx` file is a scene, and a scene only declares.
  *
- * A scene file may import, define constants of plain data, and export functions that make refs and
- * return TSX. Inside the TSX a value is a literal, a list or object of them, arithmetic on them
- * (`-Math.PI / 2`), or a name. Anything that runs — a loop, a branch, a handler, a call, a hook — is
+ * A scene file may import, define constants — plain data, or objects made from it with `new`
+ * (`const font = new Font(json)`) — and export functions that make refs and return TSX. Inside the
+ * TSX a value is a literal, a list or object of them, arithmetic on them (`-Math.PI / 2`), or a name. Anything that runs — a loop, a branch, a handler, a call, a hook — is
  * a component's job, in a `.ts` file. Each refusal says where and what to write instead.
  */
 import { readdirSync, statSync } from 'node:fs';
@@ -18,6 +18,7 @@ const BRANCH = 'a scene has no branches — show or hide from a component (node.
 const HANDLER = 'a scene has no handlers — what happens goes in a component: a class in a .ts file, with update()';
 const HOOK = 'there is no React here — TSX builds three.js objects once; what runs each frame is a component\'s update()';
 const CALL = 'a scene calls nothing — a value is a literal, a list or object of them, arithmetic like -Math.PI / 2, or a name';
+const NEW = 'a tag makes an object here — or make it in a constant above the scene, from data: const font = new Font(json)';
 
 export function checkScene(file: string, code: string): string[] {
   const problems: string[] = [];
@@ -27,6 +28,9 @@ export function checkScene(file: string, code: string): string[] {
   };
   const { program, errors } = parseSync(file, code, { lang: 'tsx' }) as unknown as { program: Node; errors: { message: string }[] };
   if (errors.length) return [`${file}  ${errors[0]!.message}`];
+
+  /** True while reading a module constant, which may also make an object from data with `new`. */
+  let constant = false;
 
   /** A value that is data: literals, lists and objects of them, arithmetic on them, names and their members. */
   const value = (node: Node | null | undefined): void => {
@@ -70,6 +74,11 @@ export function checkScene(file: string, code: string): string[] {
       case 'ArrowFunctionExpression':
       case 'FunctionExpression':
         return at(node, HANDLER);
+      case 'NewExpression':
+        if (!constant) return at(node, NEW);
+        value(node.callee as Node);
+        for (const arg of node.arguments as Node[]) value(arg);
+        return;
       case 'CallExpression': {
         const callee = node.callee as Node;
         const name = callee.type === 'Identifier' ? (callee.name as string) : callee.type === 'MemberExpression' ? ((callee.property as Node).name as string) : '';
@@ -130,7 +139,11 @@ export function checkScene(file: string, code: string): string[] {
         if (init && /Function/.test(init.type)) factory(init);
         else if (init?.type === 'CallExpression' && ((init.callee as Node).name as string) === 'ref') {
           at(init, 'make a ref inside the function that uses it — one at module level is shared by every copy');
-        } else value(init);
+        } else {
+          constant = true;
+          value(init);
+          constant = false;
+        }
       }
       return;
     }

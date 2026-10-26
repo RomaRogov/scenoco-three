@@ -1,101 +1,64 @@
 import {
-  Box3Helper, Color, DirectionalLight, Fog, GridHelper, Group, HemisphereLight, Mesh, MeshStandardMaterial,
+  Color, DirectionalLight, Fog, GridHelper, Group, HemisphereLight, Mesh, MeshStandardMaterial,
   PerspectiveCamera, PlaneGeometry, Scene,
 } from 'three';
-import { ref } from '@scenoco-three/core';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import { Font } from 'three/addons/loaders/FontLoader.js';
+import helvetiker from 'three/examples/fonts/helvetiker_bold.typeface.json';
 import { BoxCollider, Rigidbody } from '@scenoco-three/rapier';
-import { glyphs, selection } from '../assets';
 import { CameraFit } from '../CameraFit';
 import { FaceFront } from '../FaceFront';
 import { Respawn } from '../Respawn';
 import { Selector } from '../Selector';
-import { ShadowSetup } from '../ShadowSetup';
+
+/** How every letter is cut: three.js's own bold Helvetiker, extruded and bevelled. */
+const letter = { font: new Font(helvetiker), size: 1.6, depth: 0.6, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.035 };
+
+/** One letter: it falls, lands on the box its collider fits around it, and stays readable. */
+const Letter = ({ char, color, position }: { char: string; color: string; position: [number, number, number] }) => (
+  <Mesh name={char} position={position} castShadow receiveShadow>
+    <TextGeometry args={[char, letter]} />
+    <MeshStandardMaterial color={color} roughness={0.35} metalness={0.1} />
+    <Rigidbody angularDamping={0.4} />
+    <BoxCollider friction={0.9} bounciness={0.1} />
+    <FaceFront />
+    <Respawn />
+  </Mesh>
+);
 
 /** The word falls onto a grid; tap a letter to move it. */
-export const Home = () => {
-  const outline = ref<Box3Helper>();
-  return (
-    <Scene>
-      <Color attach="background" args={['#05070d']} />
-      <Fog attach="fog" args={['#05070d', 16, 42]} />
-      <HemisphereLight args={['#cfe6ff', '#0b1220', 0.9]} />
-      <DirectionalLight
-        position={[5, 12, 8]} intensity={2.4} castShadow
-        shadow-mapSize={[2048, 2048]} shadow-camera-left={-10} shadow-camera-right={10}
-        shadow-camera-top={10} shadow-camera-bottom={-10} shadow-camera-near={1} shadow-camera-far={40}
-        shadow-bias={-0.0005}
-      >
-        <ShadowSetup />
-      </DirectionalLight>
+export const Home = () => (
+  <Scene>
+    <Color attach="background" args={['#05070d']} />
+    <Fog attach="fog" args={['#05070d', 16, 42]} />
+    <HemisphereLight args={['#cfe6ff', '#0b1220', 0.9]} />
+    <DirectionalLight
+      position={[5, 12, 8]} intensity={2.4} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005}
+      shadow-camera-left={-10} shadow-camera-right={10} shadow-camera-top={10} shadow-camera-bottom={-10}
+    />
+    <PerspectiveCamera position={[0, 3.4, 12.5]} rotation={[-0.16, 0, 0]}>
+      <CameraFit width={12.5} height={7.5} distance={12.5} />
+    </PerspectiveCamera>
 
-      <PerspectiveCamera position={[0, 3.4, 12.5]} rotation={[-0.16, 0, 0]}>
-        <CameraFit width={12.5} height={7.5} distance={12.5} />
-      </PerspectiveCamera>
+    {/* the ground: a dark floor with a grid, and the box the letters land on */}
+    <Mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <PlaneGeometry args={[80, 80]} />
+      <MeshStandardMaterial color="#070b14" roughness={1} />
+    </Mesh>
+    <GridHelper args={[80, 80, '#2b5179', '#12233a']} position={[0, 0.002, 0]} />
+    <Group position={[0, -0.5, 0]}>
+      <BoxCollider size={[80, 1, 80]} friction={0.9} />
+    </Group>
 
-      {/* the ground: a grid on a dark floor, and the box the letters land on */}
-      <Mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <PlaneGeometry args={[80, 80]} />
-        <MeshStandardMaterial color="#070b14" roughness={1} />
-      </Mesh>
-      <GridHelper args={[80, 80, '#2b5179', '#12233a']} position={[0, 0.002, 0]} />
-      <Group position={[0, -0.5, 0]}>
-        <BoxCollider size={[80, 1, 80]} friction={0.9} />
-      </Group>
+    {/* each letter starts at its own height, its lower-left corner above its place in the word */}
+    <Letter char="s" color="#4af0e0" position={[-5.35, 5.9, -0.3]} />
+    <Letter char="c" color="#38bdf8" position={[-3.8, 7.9, -0.3]} />
+    <Letter char="e" color="#818cf8" position={[-2.17, 6.79, -0.3]} />
+    <Letter char="n" color="#c084fc" position={[-0.54, 8.98, -0.3]} />
+    <Letter char="o" color="#f472b6" position={[0.99, 7.4, -0.3]} />
+    <Letter char="c" color="#fb923c" position={[2.6, 9.8, -0.3]} />
+    <Letter char="o" color="#facc15" position={[4.19, 8.4, -0.3]} />
 
-      {/* s c e n o c o — each starts at its own height above the ground, and falls */}
-      <Mesh name="s" geometry={glyphs.s.geometry} position={[-4.8, 6.5, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#4af0e0" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.s.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-      <Mesh name="c" geometry={glyphs.c.geometry} position={[-3.2, 8.5, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#38bdf8" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.c.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-      <Mesh name="e" geometry={glyphs.e.geometry} position={[-1.6, 7.4, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#818cf8" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.e.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-      <Mesh name="n" geometry={glyphs.n.geometry} position={[0, 9.6, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#c084fc" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.n.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-      <Mesh name="o" geometry={glyphs.o.geometry} position={[1.6, 8, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#f472b6" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.o.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-      <Mesh name="c2" geometry={glyphs.c.geometry} position={[3.2, 10.4, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#fb923c" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.c.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-      <Mesh name="o2" geometry={glyphs.o.geometry} position={[4.8, 9, 0]} castShadow receiveShadow>
-        <MeshStandardMaterial color="#facc15" roughness={0.35} metalness={0.1} />
-        <Rigidbody angularDamping={0.4} />
-        <BoxCollider size={glyphs.o.size} friction={0.9} bounciness={0.1} />
-        <FaceFront />
-        <Respawn />
-      </Mesh>
-
-      {/* the selection: an outline the Selector fits to the picked letter, and its move gizmo */}
-      <Box3Helper ref={outline} args={[selection, '#e2f3ff']} visible={false} />
-      <Selector outline={outline} />
-    </Scene>
-  );
-};
+    <Selector />
+  </Scene>
+);

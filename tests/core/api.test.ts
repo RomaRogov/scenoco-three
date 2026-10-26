@@ -5,7 +5,7 @@ import * as core from '@scenoco-three/core';
 const digest = readFileSync(new URL('../../packages/core/API.md', import.meta.url), 'utf8');
 
 /** Exported for packages — physics, audio, particles — not for games. */
-const forPackages = new Set(['System', 'service', 'cameraOf', 'declareMessages', 'runtimeOf', 'behavioursOn', 'wake', 'Runtime']);
+const forPackages = new Set(['System', 'service', 'cameraOf', 'declareMessages', 'runtimeOf', 'behavioursOn', 'wake', 'writtenOf', 'Runtime']);
 
 describe('API.md', () => {
   it('names every export a game uses', () => {

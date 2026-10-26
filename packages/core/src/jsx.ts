@@ -95,18 +95,12 @@ const sources = new WeakMap<object, Source>();
 
 /** The prefab function whose element made a node, and whether that element passed it attributes. */
 const madeBy = new WeakMap<object, { prefab: () => unknown; given: boolean }>();
-/** The attributes a behaviour's element wrote, by name. */
-const written = new WeakMap<object, string[]>();
 
 /** @internal What an export reads: the prefab that made `node`, if a `<Prefab />` element did. */
 export function prefabOf(node: object): { prefab: () => unknown; given: boolean } | undefined {
   return madeBy.get(node);
 }
 
-/** @internal The fields a behaviour's element set — `<Tower range={7} />` wrote `range`. */
-export function writtenOf(behaviour: object): readonly string[] {
-  return written.get(behaviour) ?? [];
-}
 
 /**
  * Where the element that made this object — a node, a material, a behaviour — was written. Development
@@ -166,7 +160,6 @@ export function applyProp(target: Record<string, unknown>, key: string, value: u
 function addChild(parent: Record<string, unknown>, child: unknown, tag: string): void {
   if (isMarker(child)) {
     const behaviour = addDormant(parent as never, child.type, child.init);
-    written.set(behaviour, Object.keys(child.init));
     const source = sources.get(child);
     if (source) sources.set(behaviour, source);
     return;

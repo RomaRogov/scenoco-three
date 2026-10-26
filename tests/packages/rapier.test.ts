@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, Mesh, Object3D, Scene, Vector3 } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, Mesh, Object3D, Scene, SphereGeometry, Vector3 } from 'three';
 import { Behaviour, Event, Runtime, destroy, service } from '@scenoco-three/core';
 import {
   BoxCollider,
@@ -202,6 +202,32 @@ describe('rapier', () => {
     terrainData.changed.emit();
     run(0.1);
     expect(hits[0]).toBeCloseTo(2, 3);
+  });
+
+  it('fits a collider left without a size to the meshes on and under its node, and keeps what was written', () => {
+    const { scene, run } = world();
+    // Off its node's centre, as text geometry is: the box takes its size and its centre.
+    const slab = new Mesh(new BoxGeometry(2, 1, 4).translate(1, 0.5, 0));
+    const box = slab.addComponent(BoxCollider);
+    // A ball under a group, as a loaded model is, scaled by its node.
+    const holder = new Object3D();
+    holder.scale.setScalar(2);
+    holder.add(new Mesh(new SphereGeometry(1.5)));
+    const sphere = holder.addComponent(SphereCollider);
+    const tall = new Mesh(new BoxGeometry(1, 3, 1));
+    const capsule = tall.addComponent(CapsuleCollider, { radius: 0.2 });
+    const given = new Mesh(new BoxGeometry(5, 5, 5));
+    const kept = given.addComponent(BoxCollider, { size: new Vector3(1, 2, 3) });
+    scene.add(slab, holder, tall, given);
+    run(0.05);
+    expect(box.size.toArray()).toEqual([2, 1, 4]);
+    expect(box.center.toArray()).toEqual([1, 0.5, 0]);
+    const half = box.rapierCollider!.halfExtents();
+    expect([half.x, half.y, half.z]).toEqual([1, 0.5, 2]);
+    expect(sphere.radius).toBeCloseTo(1.5);
+    expect(sphere.rapierCollider!.radius()).toBeCloseTo(3); // the node's scale on top, as for every size
+    expect([capsule.radius, capsule.height]).toEqual([0.2, 3]);
+    expect(kept.size.toArray()).toEqual([1, 2, 3]);
   });
 
   it('holds a body that lands exactly on a peak, of a terrain or of a mesh', () => {

@@ -28,7 +28,8 @@ import {
   type Texture,
 } from 'three';
 import { Behaviour, behavioursOn } from './kernel/index.js';
-import { prefabOf, sourceOf, writtenOf } from './jsx.js';
+import { prefabOf, sourceOf } from './jsx.js';
+import { writtenOf } from './kernel/index.js';
 
 /** A value a behaviour's field holds, as data. Vectors are three.js's, untouched: right-handed, Y up. */
 export type SnapshotValue =

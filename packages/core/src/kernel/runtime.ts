@@ -258,8 +258,23 @@ export function addDormant<T extends Behaviour>(node: Node, type: ConstructableB
   if (b._node) throw new Error(`This ${b.constructor.name} is already attached to another node.`);
   checkHooks(b.constructor);
   attachDormant(node, b);
-  if (init) assignInit(b, init);
+  if (init) {
+    assignInit(b, init);
+    written.set(b, Object.keys(init));
+  }
   return b;
+}
+
+/** The fields each behaviour was given where it was made. */
+const written = new WeakMap<object, string[]>();
+
+/**
+ * The fields a behaviour was given where it was made — its TSX element's attributes, or the object
+ * `addComponent` was handed: `<BoxCollider size={…} />` wrote `size`. For a component that sizes
+ * itself from its node when a field was left out.
+ */
+export function writtenOf(behaviour: object): readonly string[] {
+  return written.get(behaviour) ?? [];
 }
 
 // --- messages -------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { Raycaster, Vector2, type Box3Helper, type Object3D } from 'three';
+import { Box3, Box3Helper, Raycaster, Vector2, type Object3D } from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { Behaviour, Input, MouseButton, findObjectsOfType } from '@scenoco-three/core';
 import { Rigidbody } from '@scenoco-three/rapier';
@@ -9,8 +9,7 @@ import { Rigidbody } from '@scenoco-three/rapier';
  * and when it is let go, it is a falling body again.
  */
 export class Selector extends Behaviour {
-  outline: Box3Helper | null = null;
-
+  private readonly outline = new Box3Helper(new Box3(), '#e2f3ff');
   private gizmo: TransformControls | null = null;
   private picked: Object3D | null = null;
   private readonly pressedAt = new Vector2();
@@ -27,6 +26,8 @@ export class Selector extends Behaviour {
     });
     this.node.add(gizmo.getHelper());
     this.gizmo = gizmo;
+    this.outline.visible = false;
+    this.node.add(this.outline);
   }
 
   override update() {
@@ -43,13 +44,13 @@ export class Selector extends Behaviour {
   }
 
   override lateUpdate() {
-    if (this.picked && this.outline) this.outline.box.setFromObject(this.picked);
+    if (this.picked) this.outline.box.setFromObject(this.picked);
   }
 
   private select(node: Object3D | null) {
     this.picked = node;
     if (node) this.gizmo?.attach(node);
     else this.gizmo?.detach();
-    if (this.outline) this.outline.visible = node !== null;
+    this.outline.visible = node !== null;
   }
 }

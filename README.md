@@ -132,7 +132,8 @@ Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md).
 
 Pre-1.0: scenes moved from XML documents to TSX in 0.7, and the editor was rebuilt on them. 0.8 adds
 terrain and splines, Unity's `Random`, `PlayerPrefs` and `PhysicsMaterial`, and replaces the
-observer's MCP server with the page bridge any browser tool can drive.
+observer's MCP server with the page bridge any browser tool can drive. In 0.9 a collider left without a size fits its
+mesh, as Unity's does.
 
 For agents: [`llms.txt`](https://romarogov.github.io/scenoco-three/llms.txt) and
 [`llms-full.txt`](https://romarogov.github.io/scenoco-three/llms-full.txt) list every document, and
