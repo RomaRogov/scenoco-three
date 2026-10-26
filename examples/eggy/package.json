@@ -1,0 +1,20 @@
+{
+  "name": "@scenoco-three/example-eggy",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "tsc --noEmit && scenoco check src"
+  },
+  "dependencies": {
+    "@scenoco-three/audio": "*",
+    "@scenoco-three/core": "*",
+    "@scenoco-three/rapier": "*",
+    "@scenoco-three/terrain": "*"
+  },
+  "devDependencies": {
+    "@scenoco-three/tools": "*"
+  }
+}

@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Vector3 } from 'three';
-import { Behaviour, service } from '@scenoco-three/core';
+import { BufferGeometry, Matrix4, Vector3, type Mesh, type Object3D } from 'three';
+import { Behaviour, service, type Event } from '@scenoco-three/core';
 import { Physics } from './Physics.js';
 import { Rigidbody } from './Rigidbody.js';
 
@@ -58,6 +58,13 @@ export abstract class Collider extends Behaviour {
     this.remove();
   }
 
+  /** The shape made again — after what it is made from changed. */
+  protected rebuild(): void {
+    if (!this._started || !this.enabled) return;
+    this.remove();
+    this.add();
+  }
+
   private add(): void {
     const rigidbody = this.attachedRigidbody;
     if (rigidbody) return rigidbody.attach(this);
@@ -100,5 +107,131 @@ export class CapsuleCollider extends Collider {
     const radius = this.radius * Math.max(scale.x, scale.z);
     const half = Math.max((this.height * scale.y) / 2 - radius, 0);
     return RAPIER.ColliderDesc.capsule(half, radius);
+  }
+}
+
+/**
+ * What `TerrainCollider` reads: `@scenoco-three/terrain`'s `TerrainData` has this shape. Heights in
+ * metres, row by row from -z, `heightmapResolution` a side, corner to corner over `size.x` × `size.z`
+ * centred on the node.
+ */
+export interface TerrainHeights {
+  readonly url: string;
+  readonly isLoaded: boolean;
+  readonly heightmapResolution: number;
+  readonly size: Vector3;
+  readonly heights: Float32Array;
+  /** Raised when the heights or the size change: the collider is made again. */
+  readonly changed: Event<[]>;
+}
+
+/**
+ * Unity's `TerrainCollider`: the ground of a `TerrainData` as a static heightfield, on the node the
+ * `Terrain` is on. Static only — a terrain does not move.
+ *
+ * ```tsx
+ * <Group scale={0.25}>
+ *   <Terrain terrainData={terrains.meadow} />
+ *   <TerrainCollider terrainData={terrains.meadow} />
+ * </Group>
+ * ```
+ */
+export class TerrainCollider extends Collider {
+  terrainData: TerrainHeights | null = null;
+
+  private dirty = false;
+
+  override start(): void {
+    super.start();
+    // Made again once, before the world next steps, however many changes came first.
+    if (this.terrainData) this.listen(this.terrainData.changed, () => (this.dirty = true));
+  }
+
+  override fixedUpdate(): void {
+    if (!this.dirty) return;
+    this.dirty = false;
+    this.rebuild();
+  }
+
+  shape(scale: Vector3): RAPIER.ColliderDesc {
+    const data = this.terrainData;
+    if (!data?.isLoaded) throw new Error(`TerrainCollider needs terrainData={…}, loaded with loadAssets${data ? `: "${data.url}" is not` : ''}.`);
+    const n = data.heightmapResolution;
+    // Rapier's heightfield is column-major: the sample at row r (along z), column c (along x) is r + c * n.
+    const heights = new Float32Array(n * n);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) heights[r + c * n] = data.heights[r * n + c]!;
+    const size = data.size;
+    // Internal edges fixed, as PhysX does by default: a body rolling across the triangles meets one
+    // smooth surface, not the ridge of every edge it crosses — which kicks it into small hops.
+    return RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, { x: size.x * scale.x, y: scale.y, z: size.z * scale.z }, RAPIER.HeightFieldFlags.FIX_INTERNAL_EDGES);
+  }
+}
+
+/**
+ * Unity's `MeshCollider`: the shape of a mesh. `convex` wraps it in its convex hull — what a moving
+ * body needs, as in Unity; without it the triangles themselves, for static ground, walls and rocks.
+ * The mesh is `sharedMesh` when given, else every mesh under the node, as placed under it.
+ *
+ * ```tsx
+ * <Group>
+ *   <Rigidbody />
+ *   <MeshCollider convex />
+ *   <ModelView model={models.egg} />
+ * </Group>
+ * ```
+ */
+export class MeshCollider extends Collider {
+  sharedMesh: BufferGeometry | null = null;
+  /** The convex hull: needed on a body that moves. */
+  convex = false;
+
+  shape(scale: Vector3): RAPIER.ColliderDesc {
+    const { positions, indices } = this.gather();
+    for (let i = 0; i < positions.length; i += 3) {
+      positions[i]! *= scale.x;
+      positions[i + 1]! *= scale.y;
+      positions[i + 2]! *= scale.z;
+    }
+    if (this.convex) {
+      const hull = RAPIER.ColliderDesc.convexHull(positions);
+      if (!hull) throw new Error(`MeshCollider on "${this.node.name}": its mesh is flat or empty, and has no convex hull.`);
+      return hull;
+    }
+    if (this.attachedRigidbody && !this.attachedRigidbody.isKinematic) {
+      throw new Error(`MeshCollider on "${this.node.name}": a moving body needs convex, as in Unity — <MeshCollider convex />.`);
+    }
+    // Internal edges fixed (merging the duplicate vertices a model's UV seams leave), as PhysX does by default.
+    return RAPIER.ColliderDesc.trimesh(positions, indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
+  }
+
+  /** The mesh's points and triangles in the node's own space, before its scale: shape() applies that, as for every collider. */
+  private gather(): { positions: Float32Array; indices: Uint32Array } {
+    const parts: { geometry: BufferGeometry; matrix: Matrix4 }[] = [];
+    if (this.sharedMesh) {
+      parts.push({ geometry: this.sharedMesh, matrix: new Matrix4() });
+    } else {
+      this.node.updateWorldMatrix(true, true);
+      const toNode = new Matrix4().copy(this.node.matrixWorld).invert();
+      this.node.traverse((object: Object3D) => {
+        const mesh = object as Mesh;
+        if (mesh.isMesh && mesh.geometry) parts.push({ geometry: mesh.geometry, matrix: new Matrix4().multiplyMatrices(toNode, mesh.matrixWorld) });
+      });
+    }
+    if (parts.length === 0) throw new Error(`MeshCollider on "${this.node.name}": no mesh under it, and no sharedMesh.`);
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const point = new Vector3();
+    for (const { geometry, matrix } of parts) {
+      const position = geometry.getAttribute('position');
+      const first = positions.length / 3;
+      for (let i = 0; i < position.count; i++) {
+        point.fromBufferAttribute(position, i).applyMatrix4(matrix);
+        positions.push(point.x, point.y, point.z);
+      }
+      const index = geometry.getIndex();
+      if (index) for (let i = 0; i < index.count; i++) indices.push(first + index.getX(i));
+      else for (let i = 0; i < position.count; i++) indices.push(first + i);
+    }
+    return { positions: Float32Array.from(positions), indices: Uint32Array.from(indices) };
   }
 }

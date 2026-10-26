@@ -1,5 +1,5 @@
-import { BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, PerspectiveCamera } from 'three';
-import { ref } from '@scenoco-three/core';
+import { BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, Object3D, PerspectiveCamera } from 'three';
+import { Behaviour, ref } from '@scenoco-three/core';
 import { Bob, Spawner } from '../fixtures';
 
 /** Typecheck-only: every line marked @ts-expect-error must stay an error. */
@@ -34,3 +34,15 @@ export const Probe = () => {
     </Group>
   );
 };
+
+class Swarm extends Behaviour<Group> {
+  marching = true;
+}
+
+/** Typecheck-only: a behaviour that drives a Group goes on a node typed as one. */
+export function addsToTypedNodes() {
+  const swarm: Swarm = new Group().addComponent(Swarm, { marching: false });
+  // @ts-expect-error a node typed Object3D cannot carry a Behaviour<Group>
+  new Object3D().addComponent(Swarm);
+  return swarm;
+}

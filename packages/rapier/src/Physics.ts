@@ -12,6 +12,11 @@ export interface Collision {
   collider: Collider;
   /** The other object's body, or null when it is a static collider. */
   rigidbody: Rigidbody | null;
+  /**
+   * The impulse that pushed the two apart when they met, in newton-seconds — Unity's
+   * `collision.impulse`: its length says how hard the hit was. Zero on exit.
+   */
+  impulse: Vector3;
 }
 
 /**
@@ -46,7 +51,7 @@ export class Physics extends System {
   private readonly retired: number[] = [];
   /** Colliders with no body: placed where their node is, and moved when it moves, as in Unity. */
   private readonly statics = new Set<Collider>();
-  private readonly contacts: { a: Collider; b: Collider; started: boolean }[] = [];
+  private readonly contacts: { a: Collider; b: Collider; started: boolean; impulse: Vector3 }[] = [];
   /** Pairs touching now, by handle. A collider that goes away ends its pairs itself, at once. */
   private readonly touching = new Map<string, { a: Collider; b: Collider; ha: number; hb: number }>();
 
@@ -55,6 +60,9 @@ export class Physics extends System {
       throw new Error('Rapier is not loaded: `await initRapier()` before the scene renders — it is WebAssembly.');
     }
     this.world = new RAPIER.World(Physics.gravity);
+    // Contacts within a centimetre, Unity's default contact offset (Rapier's is a fifth of that):
+    // a body hopping over uneven ground keeps its grip, rather than meeting it afresh at each landing.
+    this.world.integrationParameters.normalizedPredictionDistance = 0.01;
     this.events = new RAPIER.EventQueue(true);
   }
 
@@ -196,6 +204,10 @@ export class Physics extends System {
       if (Math.abs(r.x - q.x) + Math.abs(r.y - q.y) + Math.abs(r.z - q.z) + Math.abs(r.w - q.w) > 1e-6) created.setRotation(q);
     }
 
+    // Unity's cap holds inside the step, as PhysX's solver applies it: a torque this frame may not
+    // spin a body past it even for one step — the contacts would slip at the higher speed.
+    for (const rigidbody of this.poses.keys()) if (rigidbody._body) capSpin(rigidbody._body, rigidbody.maxAngularVelocity);
+
     this.world.gravity = Physics.gravity;
     this.world.timestep = dt;
     this.world.step(this.events);
@@ -208,19 +220,43 @@ export class Physics extends System {
       const key = pairKey(h1, h2);
       if (started) this.touching.set(key, { a, b, ha: h1, hb: h2 });
       else if (!this.touching.delete(key)) return;
-      this.contacts.push({ a, b, started });
+      this.contacts.push({ a, b, started, impulse: started ? this.impulseBetween(h1, h2) : new Vector3() });
     });
     for (const handle of this.retired) this.colliders.delete(handle);
     this.retired.length = 0;
 
-    for (const [rigidbody, pose] of this.poses) if (rigidbody._body) advance(pose, rigidbody._body, dt);
+    for (const [rigidbody, pose] of this.poses) {
+      const body = rigidbody._body;
+      if (!body) continue;
+      capSpin(body, rigidbody.maxAngularVelocity);
+      advance(pose, body, dt);
+    }
     for (const rigidbody of drivenByBody) {
       const t = rigidbody._body!.translation();
       const r = rigidbody._body!.rotation();
       applyWorldPose(rigidbody.node, BLEND_V.set(t.x, t.y, t.z), BLEND_Q.set(r.x, r.y, r.z, r.w));
     }
 
-    for (const { a, b, started } of this.contacts.splice(0)) dispatch(a, b, started);
+    for (const { a, b, started, impulse } of this.contacts.splice(0)) dispatch(a, b, started, impulse);
+  }
+
+  /** The impulse the solver applied between two colliders this step: on the first, from the second. */
+  private impulseBetween(h1: number, h2: number): Vector3 {
+    const total = new Vector3();
+    const c1 = this.world.getCollider(h1);
+    const c2 = this.world.getCollider(h2);
+    if (!c1 || !c2) return total;
+    this.world.contactPair(c1, c2, (manifold, flipped) => {
+      let sum = 0;
+      for (let i = 0; i < manifold.numContacts(); i++) sum += manifold.contactImpulse(i);
+      const n = manifold.normal();
+      // The manifold's normal points from its first collider to its second.
+      const sign = flipped ? 1 : -1;
+      total.x += n.x * sum * sign;
+      total.y += n.y * sum * sign;
+      total.z += n.z * sum * sign;
+    });
+    return total;
   }
 
   /**
@@ -232,7 +268,7 @@ export class Physics extends System {
     for (const [key, pair] of this.touching) {
       if (pair.ha !== handle && pair.hb !== handle) continue;
       this.touching.delete(key);
-      dispatch(pair.a, pair.b, false);
+      dispatch(pair.a, pair.b, false, new Vector3());
     }
   }
 
@@ -265,6 +301,13 @@ function staticPose(collider: Collider, scale: Vector3): { p: Vector3; q: Quater
   return { p, q };
 }
 
+/** Unity's `maxAngularVelocity`: a body spinning faster is slowed to it, its axis kept. */
+function capSpin(body: RAPIER.RigidBody, max: number): void {
+  const w = body.angvel();
+  const speed = Math.hypot(w.x, w.y, w.z);
+  if (speed > max) body.setAngvel({ x: (w.x / speed) * max, y: (w.y / speed) * max, z: (w.z / speed) * max }, true);
+}
+
 function moving(body: RAPIER.RigidBody): boolean {
   const t = body.translation();
   const n = body.nextTranslation();
@@ -274,15 +317,15 @@ function moving(body: RAPIER.RigidBody): boolean {
 }
 
 /** Both sides hear it, each about the other — Unity's messages, Unity's payloads. */
-function dispatch(a: Collider, b: Collider, started: boolean): void {
+function dispatch(a: Collider, b: Collider, started: boolean, impulse: Vector3): void {
   if (a.isTrigger || b.isTrigger) {
     const name = started ? 'onTriggerEnter' : 'onTriggerExit';
     sendMessage(a.node, name, b);
     sendMessage(b.node, name, a);
   } else {
     const name = started ? 'onCollisionEnter' : 'onCollisionExit';
-    sendMessage(a.node, name, collisionWith(b));
-    sendMessage(b.node, name, collisionWith(a));
+    sendMessage(a.node, name, collisionWith(b, impulse));
+    sendMessage(b.node, name, collisionWith(a, impulse.clone().negate()));
   }
 }
 
@@ -290,8 +333,8 @@ function pairKey(h1: number, h2: number): string {
   return h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
 }
 
-function collisionWith(other: Collider): Collision {
-  return { node: other.node, collider: other, rigidbody: other.attachedRigidbody };
+function collisionWith(other: Collider, impulse: Vector3): Collision {
+  return { node: other.node, collider: other, rigidbody: other.attachedRigidbody, impulse };
 }
 
 interface Pose {

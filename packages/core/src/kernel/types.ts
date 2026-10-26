@@ -13,6 +13,16 @@ export type ConstructableBehaviour<T extends Behaviour = Behaviour> = new () => 
 /** The node class a behaviour declares it drives: `Behaviour<Mesh>` → `Mesh`. */
 export type NodeOf<T extends Behaviour> = T extends Behaviour<infer N> ? N : Object3D;
 
+/**
+ * Passes when a node of class `N` can carry behaviour `T`; otherwise a type whose one property names
+ * the fix, which is what tsc prints — rather than `Property 'isGroup' is missing in type 'Object3D'`.
+ */
+export type FitsNode<N, T extends Behaviour> = N extends NodeOf<T>
+  ? unknown
+  : {
+      'this behaviour drives a narrower node class than this node is typed as. Type the node: instantiate<Group>(Prefab), or (node as Mesh). Or extend plain Behaviour': true;
+    };
+
 /** Unity's message methods, camelCase. Every one is optional; a behaviour is called only for what it defines. */
 export interface BehaviourHooks {
   /** Once, when the behaviour first lands in a running scene — before any `start`. */

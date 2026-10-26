@@ -1,0 +1,125 @@
+import { Color } from 'three';
+import type { ParticleEffect } from '@scenoco-three/particles';
+
+const c = (hex: string) => new Color(hex);
+const once = { duration: 0.5, looping: false, simulationSpace: 'World' } as const;
+
+/** Every particle effect in the game, as data. */
+export const vfx = {
+  explosion: {
+    ...once, startLifetime: 0.55, startSpeed: 5, startSize: 0.9, startColor: c('#ffd27a'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 28 }] },
+    shape: { type: 'Sphere', radius: 0.3 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#fff2b0'), c('#ff8a2a'), c('#5a1a00')] },
+    sizeOverLifetime: { curve: [0.6, 1, 0.2] },
+  },
+  smoke: {
+    ...once, startLifetime: 1.1, startSpeed: 1.6, startSize: 1.1, startColor: c('#8a8378'), gravityModifier: -0.05,
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 12 }] },
+    shape: { type: 'Hemisphere', radius: 0.5 },
+    renderer: { blending: 'Alpha' },
+    colorOverLifetime: { colors: [c('#b8b0a2'), c('#6b6459')] },
+    sizeOverLifetime: { curve: [0.4, 1, 1.3] },
+  },
+  arrowHit: {
+    ...once, startLifetime: 0.35, startSpeed: 2.2, startSize: 0.25, startColor: c('#e8d6b0'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 8 }] },
+    shape: { type: 'Sphere', radius: 0.1 },
+    renderer: { blending: 'Alpha' },
+    sizeOverLifetime: { curve: [1, 0.2] },
+  },
+  magicHit: {
+    ...once, startLifetime: 0.5, startSpeed: 3, startSize: 0.45, startColor: c('#c58bff'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 22 }] },
+    shape: { type: 'Sphere', radius: 0.15 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#ffffff'), c('#b06cff'), c('#3a1a8a')] },
+    sizeOverLifetime: { curve: [1, 0.5, 0] },
+  },
+  orbTrail: {
+    duration: 1, looping: true, simulationSpace: 'World', startLifetime: 0.35, startSpeed: 0.2, startSize: 0.45, startColor: c('#b783ff'),
+    emission: { rateOverTime: 70 },
+    shape: { type: 'Sphere', radius: 0.08 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#ffffff'), c('#a066ff'), c('#2a1066')] },
+    sizeOverLifetime: { curve: [1, 0.4, 0] },
+  },
+  frostHit: {
+    ...once, startLifetime: 0.5, startSpeed: 2.6, startSize: 0.35, startColor: c('#c8f0ff'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 18 }] },
+    shape: { type: 'Sphere', radius: 0.15 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#ffffff'), c('#7fd4ff'), c('#1a4a8a')] },
+    sizeOverLifetime: { curve: [1, 0.6, 0] },
+  },
+  chill: {
+    duration: 1, looping: true, simulationSpace: 'World', startLifetime: 0.6, startSpeed: 0.5, startSize: 0.22, startColor: c('#bfefff'),
+    gravityModifier: 0.05,
+    emission: { rateOverTime: 16 },
+    shape: { type: 'Circle', radius: 0.35 },
+    renderer: { blending: 'Additive' },
+    sizeOverLifetime: { curve: [1, 0] },
+  },
+  death: {
+    ...once, startLifetime: 0.7, startSpeed: 2.4, startSize: 0.7, startColor: c('#efe6d8'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 14 }] },
+    shape: { type: 'Hemisphere', radius: 0.35 },
+    renderer: { blending: 'Alpha' },
+    colorOverLifetime: { colors: [c('#ffffff'), c('#a59f95')] },
+    sizeOverLifetime: { curve: [0.5, 1, 0] },
+  },
+  coins: {
+    ...once, startLifetime: 0.7, startSpeed: 4, startSize: 0.28, startColor: c('#ffd23f'), gravityModifier: 1.1,
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 9 }] },
+    shape: { type: 'Cone', radius: 0.1, angle: 25 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#fff6c0'), c('#ffb703')] },
+  },
+  dust: {
+    ...once, startLifetime: 0.8, startSpeed: 2.6, startSize: 0.9, startColor: c('#c9a77a'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 22 }] },
+    shape: { type: 'Donut', radius: 1 },
+    renderer: { blending: 'Alpha' },
+    colorOverLifetime: { colors: [c('#e2c9a0'), c('#8a6f4c')] },
+    sizeOverLifetime: { curve: [0.5, 1, 0] },
+  },
+  upgrade: {
+    ...once, duration: 0.6, startLifetime: 1, startSpeed: 3.2, startSize: 0.35, startColor: c('#ffe066'), gravityModifier: -0.2,
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 30 }] },
+    shape: { type: 'Circle', radius: 1 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#ffffff'), c('#ffd23f'), c('#ff8a00')] },
+    sizeOverLifetime: { curve: [1, 0.6, 0] },
+  },
+  aura: {
+    duration: 1, looping: true, startLifetime: 1.4, startSpeed: 0.6, startSize: 0.25, startColor: c('#ffe066'), gravityModifier: -0.06,
+    emission: { rateOverTime: 10 },
+    shape: { type: 'Circle', radius: 0.9 },
+    renderer: { blending: 'Additive' },
+    sizeOverLifetime: { curve: [0, 1, 0] },
+  },
+  castleHit: {
+    ...once, startLifetime: 0.6, startSpeed: 4, startSize: 0.7, startColor: c('#ff6a4a'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 24 }] },
+    shape: { type: 'Hemisphere', radius: 0.8 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#ffd0a0'), c('#ff3a20'), c('#400000')] },
+  },
+  embers: {
+    duration: 1, looping: true, startLifetime: 1.6, startSpeed: 0.8, startSize: 0.3, startColor: c('#ff5a2a'), gravityModifier: -0.08,
+    emission: { rateOverTime: 9 },
+    shape: { type: 'Circle', radius: 0.8 },
+    renderer: { blending: 'Additive' },
+    noise: { strength: 0.6, frequency: 1.5 },
+    colorOverLifetime: { colors: [c('#ffb070'), c('#ff3a10'), c('#300000')] },
+  },
+  muzzle: {
+    ...once, startLifetime: 0.3, startSpeed: 2.2, startSize: 0.6, startColor: c('#ffcf80'),
+    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 10 }] },
+    shape: { type: 'Sphere', radius: 0.2 },
+    renderer: { blending: 'Additive' },
+    colorOverLifetime: { colors: [c('#fff4c0'), c('#ff7a20'), c('#3a1000')] },
+    sizeOverLifetime: { curve: [1, 0.3] },
+  },
+} satisfies Record<string, ParticleEffect>;

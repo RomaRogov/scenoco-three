@@ -32,6 +32,8 @@ export class Rigidbody extends Behaviour {
   angularDamping = 0.05;
   /** Keep it upright — what a character usually wants. */
   freezeRotation = false;
+  /** The fastest it may spin, radians per second — Unity's cap, 7 by default, so a body cannot spin up without end. */
+  maxAngularVelocity = 7;
 
   /** @internal */ _body: RAPIER.RigidBody | null = null;
   /** @internal */ _physics: Physics | null = null;

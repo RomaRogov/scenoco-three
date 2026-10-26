@@ -1,14 +1,16 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Object3D, Scene, Vector3 } from 'three';
-import { Behaviour, Runtime, destroy, service } from '@scenoco-three/core';
+import { BoxGeometry, BufferAttribute, BufferGeometry, Mesh, Object3D, Scene, Vector3 } from 'three';
+import { Behaviour, Event, Runtime, destroy, service } from '@scenoco-three/core';
 import {
   BoxCollider,
   CapsuleCollider,
+  MeshCollider,
   ForceMode,
   Physics,
   Rigidbody,
   SphereCollider,
+  TerrainCollider,
   initRapier,
   type Collider,
   type Collision,
@@ -161,6 +163,71 @@ describe('rapier', () => {
     expect(() => run(0.5)).not.toThrow();
     expect(collector.picked).toBe(1);
     expect(coin.parent).toBeNull();
+  });
+
+  it('is the ground of a TerrainData, scaled and placed by its node', () => {
+    const { scene, run } = world();
+    // 5 samples a side over 40 m, a tilted plane: up 3 m a sample along x, 1 m along z.
+    const n = 5;
+    const heights = Float32Array.from({ length: n * n }, (_, i) => Math.floor(i / n) + 3 * (i % n));
+    const terrainData = { url: 'plane.terrain', isLoaded: true, heightmapResolution: n, size: new Vector3(40, 12, 40), heights, changed: new Event() };
+    const ground = new Object3D();
+    ground.position.set(100, 2, 0);
+    ground.scale.setScalar(0.5);
+    ground.addComponent(TerrainCollider, { terrainData });
+    scene.add(ground);
+    const hits: number[] = [];
+    class Probe extends Behaviour {
+      override fixedUpdate() {
+        const physics = service(this.node, Physics);
+        hits.length = 0;
+        for (const [x, z] of [[104, -3], [97, 6]] as const) {
+          const hit = physics.world.castRay(new RAPIER.Ray({ x, y: 50, z }, { x: 0, y: -1, z: 0 }), 100, true);
+          hits.push(hit ? 50 - hit.timeOfImpact : NaN);
+        }
+      }
+    }
+    const probe = new Object3D();
+    probe.addComponent(Probe);
+    scene.add(probe);
+    run(0.1);
+    // (104, -3) is sample column 2.8, row 1.4: 1.4 + 3 × 2.8 = 9.8 m, half scale, on y = 2.
+    expect(hits[0]).toBeCloseTo(6.9, 3);
+    // (97, 6) is column 1.4, row 3.2: 3.2 + 4.2 = 7.4 m.
+    expect(hits[1]).toBeCloseTo(5.7, 3);
+    // The heights change in code, and say so: the heightfield is made again.
+    heights.fill(0);
+    terrainData.changed.emit();
+    run(0.1);
+    expect(hits[0]).toBeCloseTo(2, 3);
+  });
+
+  it('shapes a body with a convex mesh, rests it on a triangle mesh, and reports how hard it hit', () => {
+    const { scene, run } = world();
+    // The floor: two triangles, 20 m a side.
+    const floor = new Object3D();
+    floor.name = 'floor';
+    const plane = new BufferGeometry();
+    plane.setAttribute('position', new BufferAttribute(new Float32Array([-10, 0, -10, 10, 0, -10, 10, 0, 10, -10, 0, 10]), 3));
+    plane.setIndex([0, 2, 1, 0, 3, 2]);
+    floor.addComponent(MeshCollider, { sharedMesh: plane });
+    scene.add(floor);
+    // A box mesh as the body, its hull a 1 m cube, dropped from 5 m.
+    const box = new Mesh(new BoxGeometry(1, 1, 1));
+    box.position.set(0, 5, 0);
+    box.addComponent(Rigidbody);
+    box.addComponent(MeshCollider, { convex: true });
+    const hits: number[] = [];
+    class Feel extends Behaviour {
+      override onCollisionEnter(c: Collision) { hits.push(c.impulse.length()); }
+    }
+    box.addComponent(Feel);
+    scene.add(box);
+    run(2);
+    expect(box.position.y).toBeCloseTo(0.5, 1);
+    // Mass 1 kg falling 4.5 m: about 9.4 m/s, so an impulse near 9 N·s stops it.
+    expect(hits[0]).toBeGreaterThan(5);
+    expect(hits[0]).toBeLessThan(15);
   });
 
   it('applies force modes the way Unity does', () => {

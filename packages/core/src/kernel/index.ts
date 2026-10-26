@@ -38,6 +38,7 @@ export type {
   BehaviourHooks,
   BehaviourInit,
   Prefab,
+  FitsNode,
   BehaviourType,
   ConstructableBehaviour,
   InitValue,

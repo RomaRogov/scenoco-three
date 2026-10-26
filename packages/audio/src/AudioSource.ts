@@ -23,11 +23,29 @@ export class AudioSource extends Behaviour {
   /** Start playing as soon as the component starts. Unity's `playOnAwake`. */
   playOnAwake = true;
   /** Repeat forever. */
-  loop = false;
-  /** Volume, `0`..`1`, on top of the mixer's master volume. */
-  volume = 1;
+  get loop(): boolean {
+    return this._loop;
+  }
+  set loop(loop: boolean) {
+    this._loop = loop;
+    this._audio?.setLoop(loop);
+  }
+  /** Volume, `0`..`1`, on top of the mixer's master volume. Live, as Unity's: a change is heard at once. */
+  get volume(): number {
+    return this._volume;
+  }
+  set volume(volume: number) {
+    this._volume = volume;
+    this._audio?.setVolume(volume);
+  }
   /** Playback speed, and with it pitch. `1` is the recorded speed. */
-  pitch = 1;
+  get pitch(): number {
+    return this._pitch;
+  }
+  set pitch(pitch: number) {
+    this._pitch = pitch;
+    this._audio?.setPlaybackRate(pitch);
+  }
 
   /**
    * Play in 3D, attenuating with distance from the listener.
@@ -41,12 +59,15 @@ export class AudioSource extends Behaviour {
   /** 3D only: the distance past which it stops getting quieter. */
   maxDistance = 10_000;
 
-  /** The live three.js audio node. Null before `start`, and where there is no Web Audio. */
+  /** The live three.js audio node. Null until it first starts or plays, and where there is no Web Audio. */
   get audio(): Audio | PositionalAudio | null {
     return this._audio;
   }
 
   private _audio: Audio | PositionalAudio | null = null;
+  private _loop = false;
+  private _volume = 1;
+  private _pitch = 1;
 
   private mixer: AudioMixer | null = null;
 
@@ -64,11 +85,19 @@ export class AudioSource extends Behaviour {
       return;
     }
 
-    // `start`, not `awake`: this reaches another component's work — the mixer's listener — and
-    // that is exactly the line between the two hooks.
+    this.prepare();
+    if (this.playOnAwake) this.play();
+  }
+
+  /**
+   * The three.js node, made the first time it is needed: at `start`, or sooner when a sibling
+   * calls `play()` first — Unity's source plays the moment it is added.
+   */
+  private prepare(): Audio | PositionalAudio | null {
+    if (this._audio || !this.clip) return this._audio;
     this.mixer = service(this.node, AudioMixer);
     const listener = this.mixer.listener;
-    if (!listener) return; // no Web Audio; every method below is a no-op
+    if (!listener) return null; // no Web Audio; every method below is a no-op
 
     const audio = this.spatial ? new PositionalAudio(listener) : new Audio(listener);
     if (audio instanceof PositionalAudio) {
@@ -81,8 +110,7 @@ export class AudioSource extends Behaviour {
     audio.setVolume(this.volume);
     audio.setPlaybackRate(this.pitch);
     this._audio = audio;
-
-    if (this.playOnAwake) this.play();
+    return audio;
   }
 
   override onDisable(): void {
@@ -110,10 +138,11 @@ export class AudioSource extends Behaviour {
   /** Play from the start. Silently does nothing until the clip has loaded. */
   play(): void {
     const buffer = this.buffer();
-    if (!buffer || !this.audio) return;
-    if (this.audio.isPlaying) this.audio.stop();
-    this.audio.setBuffer(buffer);
-    this.audio.play();
+    const audio = this.prepare();
+    if (!buffer || !audio) return;
+    if (audio.isPlaying) audio.stop();
+    audio.setBuffer(buffer);
+    audio.play();
   }
 
   /** Stop, and rewind to the start. */
@@ -136,6 +165,7 @@ export class AudioSource extends Behaviour {
    * settings.
    */
   playOneShot(clip: AudioClip = this.clip, volumeScale = 1): void {
+    this.prepare();
     const listener = this.mixer?.listener;
     const buffer = clip?.isLoaded ? clip.value : null;
     if (!listener || !buffer) return;
@@ -156,12 +186,6 @@ export class AudioSource extends Behaviour {
       shot.removeFromParent();
     };
     shot.play();
-  }
-
-  /** Set the volume live, on this source and anything it is already playing. */
-  setVolume(volume: number): void {
-    this.volume = volume;
-    this.audio?.setVolume(volume);
   }
 
   private buffer(): AudioBuffer | null {

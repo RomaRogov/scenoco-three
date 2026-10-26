@@ -10,14 +10,14 @@ import {
   type BehaviourInit,
   type BehaviourType,
   type ConstructableBehaviour,
-  type NodeOf,
+  type FitsNode,
 } from './kernel/index.js';
 
 // Additions only: nothing three.js defines is replaced, so no three.js behaviour changes.
 declare module 'three' {
   interface Object3D {
     /** Unity's `AddComponent`. */
-    addComponent<T extends Behaviour>(this: NodeOf<T>, type: ConstructableBehaviour<T>, init?: BehaviourInit<T>): T;
+    addComponent<T extends Behaviour, N extends Object3D>(this: N, type: ConstructableBehaviour<T> & FitsNode<N, T>, init?: BehaviourInit<T>): T;
     /** Unity's `GetComponent`. */
     getComponent<T extends Behaviour>(type: BehaviourType<T>): T | null;
     getComponents<T extends Behaviour>(type: BehaviourType<T>): T[];
@@ -29,7 +29,7 @@ declare module 'three' {
 
 const methods: Partial<Object3D> = {
   addComponent(this: Object3D, type: ConstructableBehaviour, init?: object) {
-    return addComponent(this as never, type, init as never);
+    return addComponent(this, type as never, init as never);
   },
   getComponent(this: Object3D, type: BehaviourType) {
     return getComponent(this, type);

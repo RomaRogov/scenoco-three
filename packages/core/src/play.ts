@@ -113,7 +113,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
 }
 
 export interface InstantiateOptions {
-  /** Where it goes. The running scene when left out. */
+  /** Where it goes. The active scene when left out, as in Unity: the next scene load takes it too. */
   parent?: Object3D;
   position?: Vector3 | [number, number, number];
   rotation?: Euler | [number, number, number];
@@ -133,7 +133,11 @@ export function instantiate<T extends Object3D = Object3D>(prefab: Prefab<T> | M
   if (options.position) setVector(made.position, options.position);
   if (options.rotation) setVector(made.rotation, options.rotation);
   if (options.quaternion) made.quaternion.copy(options.quaternion);
-  const parent = options.parent ?? (Runtime.current?.root as Object3D | undefined);
+  // As in Unity, into the active scene: the next scene load destroys it too. Only with no scene
+  // loaded — a bare runtime — does it go to the root.
+  const root = Runtime.current?.root as Object3D | undefined;
+  const active = SceneManager.activeScene;
+  const parent = options.parent ?? (active && active.parent === root ? active : root);
   if (!parent) throw new Error(`instantiate(${name}) has nowhere to go: no parent, and no scene is running.`);
   parent.add(made);
   wake(made);

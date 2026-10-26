@@ -61,6 +61,12 @@ export abstract class Asset<T> {
   /** Do the actual loading. One implementation per resource kind. */
   protected abstract fetch(): Promise<T>;
 
+  /** Loaded now, from `value`: for an asset a game makes at runtime rather than reads from a file. */
+  protected provide(value: T): void {
+    this.loaded = value;
+    this.pending = undefined;
+  }
+
   /** Release the loaded value's GPU or audio resources. Override where there is something to free. */
   protected free(_value: T): void {}
 }

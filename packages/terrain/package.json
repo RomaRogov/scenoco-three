@@ -1,0 +1,57 @@
+{
+  "name": "@scenoco-three/terrain",
+  "version": "0.7.0",
+  "description": "Terrain for SceNoCo: Unity-shaped Terrain and TerrainData on three.js — a compact heightmap and ground layers splatted by weight, blended by height.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "terrain",
+    "heightmap",
+    "splatmap",
+    "landscape"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/terrain#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/terrain"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mapbox/martini": "^0.2.0",
+    "@scenoco-three/core": "^0.7.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  }
+}

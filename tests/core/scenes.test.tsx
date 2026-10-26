@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BoxGeometry, Color, DirectionalLight, Group, Mesh, MeshStandardMaterial, Scene, WebGLRenderTarget } from 'three';
-import { Behaviour, Runtime, SceneManager, dontDestroyOnLoad, ref } from '@scenoco-three/core';
+import { Behaviour, Runtime, SceneManager, dontDestroyOnLoad, instantiate, ref } from '@scenoco-three/core';
 import { attachWorld } from '../../packages/core/src/scenes.js';
 
 const runtimes: Runtime[] = [];
@@ -43,6 +43,16 @@ const Two = () => (
 );
 
 describe('SceneManager', () => {
+  it('puts what is instantiated with no parent into the active scene, so the next load destroys it', () => {
+    const { world, frame } = game();
+    SceneManager.load(One);
+    const shard = instantiate(() => <Group name="shard" />);
+    expect(shard.parent).toBe(SceneManager.activeScene);
+    SceneManager.load(Two);
+    frame();
+    expect(world.getObjectByName('shard')).toBeUndefined();
+  });
+
   it('swaps scenes as Unity does: the last load is destroyed at the end of the frame, what was kept stays', () => {
     const { world, frame } = game();
     SceneManager.load(Run);

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#2b1d12" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Tiny Bastion</title>
+    <link rel="icon" href="/ui/castle-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --wood: url(/ui/wood.jpg);
+        --paper: url(/ui/parchment.jpg);
+        --ink: #4a2a12;
+        --gold: #ffd23f;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #6fae4f; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      body { font-family: 'Nunito', system-ui, sans-serif; color: #fff; }
+      canvas { display: block; touch-action: none; }
+      .hidden { display: none !important; }
+      .display { font-family: 'Lilita One', 'Trebuchet MS', sans-serif; letter-spacing: .5px; }
+      img { -webkit-user-drag: none; pointer-events: none; }
+      button { font: inherit; border: 0; cursor: pointer; touch-action: manipulation; }
+
+      /* ── wooden chips and buttons ───────────────────────────────────────────── */
+      .chip {
+        display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 12px 0 4px; border-radius: 20px;
+        background: var(--wood) center / 160px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.25), 0 3px 0 #2b1a0c, 0 6px 12px rgba(0,0,0,.3);
+        font-family: 'Lilita One', sans-serif; font-size: 20px; text-shadow: 0 2px 0 rgba(0,0,0,.45);
+      }
+      .chip img { width: 34px; height: 34px; filter: drop-shadow(0 2px 1px rgba(0,0,0,.4)); }
+      .chip.bump { animation: bump .35s cubic-bezier(.3,1.8,.5,1); }
+      .chip.hurt { animation: hurt .45s; }
+      @keyframes bump { 35% { transform: scale(1.22); } }
+      @keyframes hurt { 20%, 60% { transform: translateX(-5px); background-color: #c22; } 40%, 80% { transform: translateX(5px); } }
+
+      .round {
+        width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+        background: var(--wood) center / 120px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.25), 0 3px 0 #2b1a0c, 0 6px 12px rgba(0,0,0,.3);
+        font-family: 'Lilita One', sans-serif; font-size: 17px; text-shadow: 0 2px 0 rgba(0,0,0,.5); transition: transform .08s;
+      }
+      .round:active, .btn:active, .card:active { transform: translateY(3px) scale(.97); }
+      .round svg { width: 22px; height: 22px; fill: #fff; filter: drop-shadow(0 2px 0 rgba(0,0,0,.45)); }
+      .round.on { background-color: #e8a317; background-blend-mode: multiply; }
+
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 26px; border-radius: 16px;
+        font-family: 'Lilita One', sans-serif; font-size: 22px; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.35);
+        background: linear-gradient(#7ed957, #3e9b2b); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 5px 0 #24661a, 0 10px 18px rgba(0,0,0,.3);
+        transition: transform .08s, filter .2s;
+      }
+      .btn.gold { background: linear-gradient(#ffe066, #f0a400); box-shadow: inset 0 2px 0 rgba(255,255,255,.5), 0 5px 0 #a86a00, 0 10px 18px rgba(0,0,0,.3); color: #5a3000; text-shadow: 0 1px 0 rgba(255,255,255,.5); }
+      .btn.red { background: linear-gradient(#ff7b6b, #d4392a); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 5px 0 #8c1f14, 0 10px 18px rgba(0,0,0,.3); }
+      .btn.wood { background: var(--wood) center / 180px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.3), inset 0 2px 0 rgba(255,255,255,.25), 0 5px 0 #2b1a0c, 0 10px 18px rgba(0,0,0,.3); }
+      .btn img { width: 26px; height: 26px; }
+      .btn[disabled] { filter: grayscale(1) brightness(.85); pointer-events: none; }
+      .btn.shimmer { position: relative; overflow: hidden; }
+      .btn.shimmer::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%); transform: translateX(-120%); animation: shimmer 2.6s infinite; }
+      @keyframes shimmer { 60%, 100% { transform: translateX(120%); } }
+
+      /* ── HUD ─────────────────────────────────────────────────────────────────── */
+      #hud { position: fixed; inset: 0; pointer-events: none; transition: opacity .3s; }
+      #hud > * { pointer-events: auto; }
+      #top { position: absolute; top: calc(var(--safe-top) + 10px); left: 10px; right: 10px; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+      #top > * { pointer-events: auto; }
+      #top .spacer { flex: 1; }
+      #wave-chip { padding-right: 14px; }
+      #wave-chip small { font-size: 13px; opacity: .8; margin-left: 2px; }
+
+      #next {
+        position: absolute; right: 16px; bottom: calc(var(--safe-bottom) + 22px);
+        width: 86px; height: 86px; border-radius: 50%; display: grid; place-items: center;
+        background: radial-gradient(circle at 50% 35%, #ff9b5c, #d4392a 70%); box-shadow: inset 0 3px 0 rgba(255,255,255,.4), 0 5px 0 #7d1c12, 0 10px 22px rgba(0,0,0,.4);
+        transition: transform .15s, opacity .3s;
+      }
+      #next.idle { animation: pulse 1.4s ease-in-out infinite; }
+      #next.gone { transform: scale(0); opacity: 0; pointer-events: none; }
+      #next img { width: 50px; height: 50px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.4)); }
+      #next svg.ring { position: absolute; inset: -6px; width: 98px; height: 98px; transform: rotate(-90deg); }
+      #next svg.ring circle { fill: none; stroke: #ffe066; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 289; filter: drop-shadow(0 0 4px #ffb703); }
+      #next .label { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 10px; border-radius: 10px; background: #2b1a0c; font-family: 'Lilita One', sans-serif; font-size: 14px; color: var(--gold); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+      @keyframes pulse { 50% { transform: scale(1.08); } }
+
+      #pops { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      .pop { position: absolute; font-family: 'Lilita One', sans-serif; font-size: 20px; color: var(--gold); text-shadow: 0 2px 0 #7a4a00, 0 0 8px rgba(0,0,0,.4); transform: translate(-50%, -50%); animation: rise 1s ease-out forwards; white-space: nowrap; }
+      .pop.hurt { color: #ff5c4d; text-shadow: 0 2px 0 #5a0a00; font-size: 24px; }
+      .pop img { width: 18px; height: 18px; vertical-align: -3px; }
+      @keyframes rise { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.5); } 15% { opacity: 1; transform: translate(-50%, -80%) scale(1.25); } 100% { opacity: 0; transform: translate(-50%, -260%) scale(1); } }
+
+      #vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 0 rgba(220,30,20,0); }
+      #vignette.flash { animation: vignette .6s ease-out; }
+      @keyframes vignette { 0% { box-shadow: inset 0 0 90px 30px rgba(220,30,20,.75); } 100% { box-shadow: inset 0 0 0 0 rgba(220,30,20,0); } }
+
+      #banner { position: fixed; top: 22%; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+      #banner .ribbon { padding: 10px 40px 12px; background: var(--wood) center / 200px; border-radius: 8px; font-family: 'Lilita One', sans-serif; font-size: 40px; text-shadow: 0 3px 0 rgba(0,0,0,.5); box-shadow: inset 0 0 0 3px rgba(0,0,0,.3), 0 8px 20px rgba(0,0,0,.4); }
+      #banner .who { display: flex; gap: 6px; margin-top: 8px; }
+      #banner .who span { display: flex; align-items: center; padding: 2px 8px 2px 2px; border-radius: 16px; background: rgba(43,26,12,.85); font-family: 'Lilita One', sans-serif; font-size: 16px; }
+      #banner .who img { width: 30px; height: 30px; }
+      #banner.show { animation: banner 2.4s cubic-bezier(.2,.9,.3,1) forwards; }
+      @keyframes banner { 0% { opacity: 0; transform: translateY(-40px) scale(.7); } 12% { opacity: 1; transform: translateY(0) scale(1.06); } 20% { transform: scale(1); } 80% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-20px); } }
+
+      #toast { position: fixed; left: 50%; bottom: 34%; transform: translateX(-50%); padding: 8px 16px; border-radius: 12px; background: rgba(43,26,12,.9); font-weight: 900; pointer-events: none; opacity: 0; }
+      #toast.show { animation: toast 1.4s; }
+      @keyframes toast { 10%, 80% { opacity: 1; transform: translate(-50%, -6px); } }
+
+      /* ── bottom sheets ───────────────────────────────────────────────────────── */
+      .sheet {
+        position: fixed; left: 8px; right: 8px; bottom: 0; margin: 0 auto; max-width: 480px; padding: 14px 14px calc(var(--safe-bottom) + 16px);
+        border-radius: 22px 22px 0 0; color: var(--ink);
+        background: var(--paper) center / 260px; box-shadow: inset 0 0 0 4px #8a5a2b, inset 0 0 0 7px #c9995b, 0 -8px 30px rgba(0,0,0,.35);
+        transform: translateY(110%); transition: transform .32s cubic-bezier(.2,1.25,.4,1);
+      }
+      .sheet.open { transform: translateY(0); }
+      .sheet h3 { margin: 0 0 10px; font-family: 'Lilita One', sans-serif; font-size: 22px; text-align: center; color: var(--ink); }
+      .sheet .x { position: absolute; top: 10px; right: 12px; width: 34px; height: 34px; border-radius: 50%; background: #8a5a2b; color: #fff; font-size: 20px; font-weight: 900; }
+      #cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      .card { position: relative; display: flex; flex-direction: column; align-items: center; padding: 6px 2px 8px; border-radius: 14px; background: rgba(255,248,230,.75); box-shadow: inset 0 0 0 2px #c9995b, 0 3px 0 #a87b45; color: var(--ink); transition: transform .08s; }
+      .card img { width: 64px; height: 64px; margin-top: -2px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.25)); }
+      .card b { font-family: 'Lilita One', sans-serif; font-size: 14px; font-weight: 400; }
+      .card .cost { display: flex; align-items: center; gap: 2px; font-family: 'Lilita One', sans-serif; font-size: 16px; color: #8a5a00; }
+      .card .cost img { width: 18px; height: 18px; margin: 0; }
+      .card.poor { filter: grayscale(.9); opacity: .7; }
+      .card.poor .cost { color: #c22; }
+      .sheet.open .card { animation: card-in .35s cubic-bezier(.2,1.4,.4,1) backwards; }
+      .sheet.open .card:nth-child(2) { animation-delay: .04s; } .sheet.open .card:nth-child(3) { animation-delay: .08s; } .sheet.open .card:nth-child(4) { animation-delay: .12s; }
+      @keyframes card-in { from { opacity: 0; transform: translateY(24px) scale(.8); } }
+      .shake { animation: shake .4s; }
+      @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+
+      #tower-sheet .head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+      #tower-sheet .head > img { width: 78px; height: 78px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.25)); }
+      #tower-sheet .head h3 { text-align: left; margin: 0; }
+      .stars { display: flex; gap: 2px; }
+      .stars img { width: 22px; height: 22px; }
+      .stars img.off { filter: grayscale(1) brightness(.6); opacity: .5; }
+      .stat-row { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 8px; font-weight: 900; font-size: 14px; margin: 4px 0; }
+      .bar { height: 10px; border-radius: 6px; background: rgba(74,42,18,.18); overflow: hidden; position: relative; }
+      .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: linear-gradient(#ffcf4a, #e08a00); transition: width .4s cubic-bezier(.2,1.3,.4,1); }
+      .bar u { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: rgba(74,180,60,.55); transition: width .4s; }
+      #tower-sheet .actions { display: flex; gap: 10px; margin-top: 12px; }
+      #tower-sheet .actions .btn { flex: 1; font-size: 19px; padding: 0 10px; }
+      #tower-sheet .note { text-align: center; font-weight: 900; font-size: 13px; opacity: .75; margin-top: 4px; }
+
+      /* ── full-screen panels ──────────────────────────────────────────────────── */
+      .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px); background: radial-gradient(ellipse at center, rgba(20,12,4,.25), rgba(20,12,4,.7)); animation: fade .3s; }
+      @keyframes fade { from { opacity: 0; } }
+      .panel { position: relative; width: min(92vw, 400px); padding: 26px 20px 22px; border-radius: 24px; text-align: center; color: var(--ink); background: var(--paper) center / 260px; box-shadow: inset 0 0 0 5px #8a5a2b, inset 0 0 0 8px #c9995b, 0 16px 40px rgba(0,0,0,.45); animation: panel-in .45s cubic-bezier(.2,1.4,.4,1); }
+      @keyframes panel-in { from { opacity: 0; transform: translateY(40px) scale(.85); } }
+      .panel h2 { margin: -50px auto 6px; width: max-content; padding: 8px 30px 10px; border-radius: 12px; font-family: 'Lilita One', sans-serif; font-size: 34px; font-weight: 400; color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.45); background: var(--wood) center / 200px; box-shadow: inset 0 0 0 3px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.35); }
+      .panel h2.red { background: linear-gradient(#d4392a, #8c1f14); }
+      .panel .col { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+      .big-stars { display: flex; justify-content: center; align-items: flex-end; gap: 4px; margin: 6px 0; }
+      .big-stars img { width: 70px; height: 70px; opacity: 0; filter: grayscale(1) brightness(.5); }
+      .big-stars img:nth-child(2) { width: 88px; height: 88px; margin-bottom: 10px; }
+      .big-stars img.show { animation: star-in .5s cubic-bezier(.2,1.6,.4,1) forwards; }
+      .big-stars img.show.got { filter: drop-shadow(0 4px 6px rgba(160,100,0,.5)); }
+      @keyframes star-in { from { opacity: 0; transform: scale(2.4) rotate(-40deg); } to { opacity: 1; transform: none; } }
+      .panel p { margin: 4px 0; font-weight: 900; }
+
+      /* ── title and level select ──────────────────────────────────────────────── */
+      #title { justify-content: flex-start; background: linear-gradient(rgba(20,12,4,.0), rgba(20,12,4,.45) 60%, rgba(20,12,4,.75)); overflow-y: auto; }
+      #logo { margin-top: max(5vh, 20px); text-align: center; animation: logo 3s ease-in-out infinite; }
+      #logo h1 { margin: 0; font-family: 'Lilita One', sans-serif; font-weight: 400; font-size: clamp(54px, 16vw, 92px); line-height: .9; color: #ffe066; text-shadow: 0 4px 0 #b86e00, 0 8px 0 #5a3000, 0 14px 24px rgba(0,0,0,.45); }
+      #logo h1 span { display: block; color: #fff; font-size: .62em; text-shadow: 0 3px 0 #5a3000, 0 8px 16px rgba(0,0,0,.45); }
+      #logo img { width: 120px; height: 120px; margin-bottom: -18px; filter: drop-shadow(0 8px 10px rgba(0,0,0,.4)); }
+      @keyframes logo { 50% { transform: translateY(-6px) rotate(-1deg); } }
+      #levels { display: flex; flex-direction: column; gap: 12px; width: min(92vw, 420px); margin-top: auto; }
+      .level { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 18px; text-align: left; color: var(--ink); background: var(--paper) center / 240px; box-shadow: inset 0 0 0 3px #8a5a2b, 0 5px 0 #4a2a12, 0 10px 20px rgba(0,0,0,.35); animation: level-in .5s cubic-bezier(.2,1.3,.4,1) backwards; transition: transform .08s; }
+      .level:nth-child(2) { animation-delay: .08s; } .level:nth-child(3) { animation-delay: .16s; }
+      @keyframes level-in { from { opacity: 0; transform: translateX(-60px); } }
+      .level .map { width: 74px; height: 74px; border-radius: 12px; background-size: cover; box-shadow: inset 0 0 0 3px rgba(74,42,18,.5); flex: none; }
+      .level .info { flex: 1; }
+      .level .info b { display: block; font-family: 'Lilita One', sans-serif; font-weight: 400; font-size: 22px; }
+      .level .info small { font-weight: 900; opacity: .7; }
+      .level .stars img { width: 22px; height: 22px; }
+      .level.locked { filter: grayscale(.85); }
+      .level.locked .map::after { content: '🔒'; display: grid; place-items: center; height: 100%; font-size: 30px; }
+      .level .go { flex: none; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(#7ed957, #3e9b2b); box-shadow: 0 4px 0 #24661a; }
+      .level .go svg { width: 24px; height: 24px; fill: #fff; }
+      #credits { font-size: 12px; font-weight: 900; opacity: .7; margin-top: 4px; text-align: center; }
+      #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #2b1d12; font-family: 'Lilita One', sans-serif; font-size: 28px; color: var(--gold); z-index: 10; transition: opacity .4s; }
+      #loading.done { opacity: 0; pointer-events: none; }
+    </style>
+    <script type="module" crossorigin src="/assets/index-BA7OtgGB.js"></script>
+  </head>
+  <body>
+    <div id="hud" class="hidden">
+      <div id="top">
+        <div class="chip" id="lives-chip"><img src="/ui/heart.png" alt="" /><span id="lives">20</span></div>
+        <div class="chip" id="gold-chip"><img src="/ui/coin.png" alt="" /><span id="gold">0</span></div>
+        <div class="spacer"></div>
+        <div class="chip" id="wave-chip"><img src="/ui/swords.png" alt="" /><span id="wave">0</span><small id="waves">/10</small></div>
+        <button class="round" data-button="Speed" id="speed">1×</button>
+        <button class="round" data-button="Pause" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.5" /><rect x="14" y="4" width="5" height="16" rx="1.5" /></svg></button>
+      </div>
+      <button id="next" class="idle" data-button="NextWave" aria-label="Next wave">
+        <svg class="ring" viewBox="0 0 98 98"><circle cx="49" cy="49" r="46" style="stroke-dashoffset: 289" /></svg>
+        <img src="/ui/swords.png" alt="" />
+        <span class="label" id="next-label">START</span>
+      </button>
+    </div>
+
+    <div id="pops"></div>
+    <div id="vignette"></div>
+    <div id="banner" class="hidden"><div class="ribbon" id="banner-text">WAVE 1</div><div class="who" id="banner-who"></div></div>
+    <div id="toast">Not enough gold</div>
+
+    <div class="sheet" id="build-sheet">
+      <button class="x" data-button="CloseSheet">×</button>
+      <h3>Build a tower</h3>
+      <div id="cards">
+        <button class="card" data-build="archer"><img src="/ui/archer.png" alt="" /><b>Archers</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>70</span></span></button>
+        <button class="card" data-build="cannon"><img src="/ui/cannon.png" alt="" /><b>Cannon</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>120</span></span></button>
+        <button class="card" data-build="mage"><img src="/ui/mage.png" alt="" /><b>Mage</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>110</span></span></button>
+        <button class="card" data-build="frost"><img src="/ui/frost.png" alt="" /><b>Frost</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>90</span></span></button>
+      </div>
+    </div>
+
+    <div class="sheet" id="tower-sheet">
+      <button class="x" data-button="CloseSheet">×</button>
+      <div class="head">
+        <img id="ts-icon" src="/ui/archer.png" alt="" />
+        <div><h3 id="ts-name">Archers</h3><div class="stars" id="ts-stars"></div></div>
+      </div>
+      <div class="stat-row"><span>Damage</span><div class="bar"><u id="ts-dmg-next"></u><i id="ts-dmg"></i></div><span id="ts-dmg-v">0</span></div>
+      <div class="stat-row"><span>Range</span><div class="bar"><u id="ts-rng-next"></u><i id="ts-rng"></i></div><span id="ts-rng-v">0</span></div>
+      <div class="stat-row"><span>Speed</span><div class="bar"><u id="ts-spd-next"></u><i id="ts-spd"></i></div><span id="ts-spd-v">0</span></div>
+      <div class="note" id="ts-note"></div>
+      <div class="actions">
+        <button class="btn gold shimmer" data-button="Upgrade" id="ts-upgrade"><img src="/ui/coin.png" alt="" /><span id="ts-up-cost">0</span></button>
+        <button class="btn red" data-button="Sell" id="ts-sell">Sell <span id="ts-refund">0</span></button>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="panel">
+        <h2>Paused</h2>
+        <div class="col">
+          <button class="btn" data-button="Resume">Resume</button>
+          <button class="btn wood" data-button="Restart">Restart</button>
+          <button class="btn wood" data-button="Menu">Map</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="won" class="overlay hidden">
+      <div class="panel">
+        <h2>Victory!</h2>
+        <div class="big-stars" id="won-stars"><img src="/ui/star.png" alt="" /><img src="/ui/star.png" alt="" /><img src="/ui/star.png" alt="" /></div>
+        <p id="won-text">The bastion stands.</p>
+        <div class="col">
+          <button class="btn gold shimmer" data-button="NextLevel" id="won-next">Next level</button>
+          <button class="btn wood" data-button="Restart">Play again</button>
+          <button class="btn wood" data-button="Menu">Map</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lost" class="overlay hidden">
+      <div class="panel">
+        <h2 class="red">Defeat</h2>
+        <p id="lost-text">The bastion has fallen.</p>
+        <div class="col">
+          <button class="btn" data-button="Restart">Try again</button>
+          <button class="btn wood" data-button="Menu">Map</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="title" class="overlay hidden">
+      <div id="logo"><img src="/ui/castle-icon.png" alt="" /><h1>TINY<span>BASTION</span></h1></div>
+      <div id="levels"></div>
+      <div id="credits">Art made locally: FLUX.2 · TRELLIS.2 · Blender</div>
+    </div>
+
+    <div id="loading">Loading…</div>
+  </body>
+</html>

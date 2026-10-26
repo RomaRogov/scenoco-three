@@ -53,6 +53,7 @@ export {
   type Yieldable,
 } from './kernel/index.js';
 
+export { Mathf } from './Mathf.js';
 export { Input, type ButtonName } from './input/Input.js';
 export { KeyCode, MouseButton } from './input/KeyCode.js';
 export { AXES, AXIS_NAMES, type AxisName } from './input/axes.js';

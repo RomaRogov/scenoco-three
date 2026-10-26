@@ -1,6 +1,6 @@
 import { Behaviour } from './Behaviour.js';
 import type { System, SystemType } from './System.js';
-import type { BehaviourInit, BehaviourType, ConstructableBehaviour, Node, NodeOf } from './types.js';
+import type { BehaviourInit, BehaviourType, ConstructableBehaviour, FitsNode, Node, NodeOf } from './types.js';
 
 // The registry lives beside the scene graph, never on it: nothing on a node is patched, so
 // whatever moves nodes — `add`, `attach`, `children.push`, a library — cannot get past it.
@@ -239,12 +239,12 @@ export function refreshBehaviour(b: Behaviour): void {
  * Construct a behaviour, apply its settings, attach it. If the node is already in a running scene,
  * `awake` and `onEnable` run before this returns — Unity's `AddComponent` — and `start` next frame.
  */
-export function addComponent<T extends Behaviour>(
-  node: NodeOf<T>,
-  type: ConstructableBehaviour<T> | T,
+export function addComponent<T extends Behaviour, N extends Node>(
+  node: N,
+  type: (ConstructableBehaviour<T> | T) & FitsNode<N, T>,
   init?: BehaviourInit<T>,
 ): T {
-  const b = addDormant(node, type, init);
+  const b = addDormant(node as unknown as NodeOf<T>, type, init);
   wake(node);
   return b;
 }

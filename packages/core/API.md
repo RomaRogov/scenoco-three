@@ -30,7 +30,7 @@ interface Game {
 function ref<T>(): { current: T | null };
 type Prefab<T extends Object3D = Object3D> = () => JSX.Element;    // a function returning TSX, as a field's type
 function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: {   // a prefab, or a loaded model
-  parent?: Object3D;                                  // default: the scene
+  parent?: Object3D;                                  // default: the active scene — the next load destroys it, as in Unity
   position?: Vector3 | [number, number, number];
   rotation?: Euler | [number, number, number];
   quaternion?: Quaternion;
@@ -45,7 +45,7 @@ const SceneManager: {
 function dontDestroyOnLoad(target: Object3D | Behaviour): void;  // in awake: this tree outlives every later load
 
 // ── behaviours ────────────────────────────────────────────────────────────────────────────
-abstract class Behaviour<N extends Object3D = Object3D> {
+abstract class Behaviour<N extends Object3D = Object3D> {   // Behaviour<Mesh>: goes only on a node typed Mesh — instantiate<Mesh>(P)
   readonly node: N;                     // the three.js object it is attached to
   enabled: boolean;                     // false: no hooks; toggling calls onEnable/onDisable
   readonly isActiveAndEnabled: boolean; // receiving hooks now
@@ -87,6 +87,14 @@ const Time: {
   readonly fixedDeltaTime: number;     readonly frameCount: number;
 };
 
+const Mathf: {   // Unity's, where JavaScript's Math spells it differently; Math.max/pow/round stay JS's
+  clamp(v, min, max): number;  clamp01(v): number;  lerp(a, b, t): number;  lerpUnclamped(a, b, t): number;
+  inverseLerp(a, b, v): number;  smoothStep(from, to, t): number;  moveTowards(current, target, maxDelta): number;
+  repeat(t, length): number;  pingPong(t, length): number;  deltaAngle(a, b): number;  lerpAngle(a, b, t): number;
+  approximately(a, b): boolean;
+  perlinNoise(x, y): number;   // about 0..1, features a unit apart: Mathf.perlinNoise(x * 0.1 + seed, z * 0.1)
+};
+
 class Event<A extends unknown[] = []> {   // a class field: readonly onScored = new Event<[points: number]>()
   emit(...args: A): void;
   on(fn: (...args: A) => void): void;  off(fn): void;  once(fn): void;  clear(): void;
@@ -97,7 +105,7 @@ function findObjectOfType<T>(type: Class<T>): T | null;
 function findObjectsOfType<T>(type: Class<T>): T[];   // skips what is being destroyed
 function sendMessage(node: Object3D, method: string, ...args: unknown[]): void;
 function broadcastMessage(node: Object3D, method: string, ...args: unknown[]): void;  // and its children
-function addComponent<T>(node: Object3D, type: Class<T>, init?: Partial<Fields<T>>): T;
+function addComponent<T>(node: Object3D, type: Class<T>, init?: Partial<Fields<T>>): T;   // node typed as T's N
 // and as free functions, the lookups above: getComponent(node, T), getComponents, getComponentInChildren,
 // getComponentsInChildren, getComponentInParent. three's Object3D gains them all as methods, and addComponent.
 

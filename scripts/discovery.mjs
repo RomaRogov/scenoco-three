@@ -31,14 +31,15 @@ export function summary() {
   return description;
 }
 
-/** The rules card's numbered rules, then its Unity mapping — each as one line. */
+/** The rules card's "How SceNoCo works" paragraphs, its Unity mapping last — each as one line. */
 export function rules() {
   const card = read(CARD);
-  const section = card.split(/^# Rules\s*$/m)[1];
-  if (!section) throw new Error(`${CARD} has no "# Rules" section.`);
-  const [numbered, ...rest] = section.split(/\n\s*\n(?=From Unity:)/);
-  const items = numbered.trim().split(/\n(?=\d+\. )/).map((item) => item.replace(/^\d+\.\s*/, ''));
-  return [...items, ...rest].map((text) => text.replace(/\s*\n\s*(- )?/g, ' ').trim());
+  const section = card.split(/^# How SceNoCo works\s*$/m)[1];
+  if (!section) throw new Error(`${CARD} has no "# How SceNoCo works" section.`);
+  return section
+    .trim()
+    .split(/\n\s*\n/)
+    .map((text) => text.replace(/\s*\n\s*/g, ' ').trim());
 }
 
 /** Context7's configuration for this repository. */
