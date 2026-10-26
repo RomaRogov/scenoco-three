@@ -214,9 +214,7 @@ export class TerrainCollider extends Collider {
     const heights = new Float32Array(n * n);
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) heights[r + c * n] = data.heights[r * n + c]!;
     const size = data.size;
-    // Internal edges fixed, as PhysX does by default: a body rolling across the triangles meets one
-    // smooth surface, not the ridge of every edge it crosses — which kicks it into small hops.
-    return RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, { x: size.x * scale.x, y: scale.y, z: size.z * scale.z }, RAPIER.HeightFieldFlags.FIX_INTERNAL_EDGES);
+    return RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, { x: size.x * scale.x, y: scale.y, z: size.z * scale.z });
   }
 }
 
@@ -252,8 +250,7 @@ export class MeshCollider extends Collider {
     if (this.attachedRigidbody && !this.attachedRigidbody.isKinematic) {
       throw new Error(`MeshCollider on "${this.node.name}": a moving body needs convex, as in Unity — <MeshCollider convex />.`);
     }
-    // Internal edges fixed (merging the duplicate vertices a model's UV seams leave), as PhysX does by default.
-    return RAPIER.ColliderDesc.trimesh(positions, indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
+    return RAPIER.ColliderDesc.trimesh(positions, indices);
   }
 
   /** The mesh's points and triangles in the node's own space, before its scale: shape() applies that, as for every collider. */

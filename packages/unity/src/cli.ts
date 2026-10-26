@@ -9,6 +9,11 @@ import { resolve } from 'node:path';
 import { snapshotProject, writeUnity } from './export.js';
 
 const args = process.argv.slice(2);
+const usage = 'usage: scenoco-unity <unity-project> [--root <game>] [--headed]';
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(usage);
+  process.exit(0);
+}
 const flag = (name: string) => {
   const i = args.indexOf(name);
   if (i < 0) return undefined;
@@ -21,8 +26,10 @@ if (headed) args.splice(args.indexOf('--headed'), 1);
 const root = resolve(flag('--root') ?? '.');
 const project = args[0];
 
-if (!project || args.length > 1) {
-  console.error('usage: scenoco-unity <unity-project> [--root <game>] [--headed]');
+// An option it does not know is a mistake, not a project's name.
+const unknown = args.find((a) => a.startsWith('-'));
+if (!project || args.length > 1 || unknown) {
+  console.error(unknown ? `scenoco-unity: no option ${unknown}\n${usage}` : usage);
   process.exit(2);
 }
 

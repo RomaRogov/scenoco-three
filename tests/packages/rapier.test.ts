@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BoxGeometry, BufferAttribute, BufferGeometry, Mesh, Object3D, Scene, Vector3 } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, Mesh, Object3D, Scene, Vector3 } from 'three';
 import { Behaviour, Event, Runtime, destroy, service } from '@scenoco-three/core';
 import {
   BoxCollider,
@@ -202,6 +202,30 @@ describe('rapier', () => {
     terrainData.changed.emit();
     run(0.1);
     expect(hits[0]).toBeCloseTo(2, 3);
+  });
+
+  it('holds a body that lands exactly on a peak, of a terrain or of a mesh', () => {
+    const { scene, run } = world();
+    // A cone of a hill, its top one sample, and a cone mesh beside it: each ball falls onto the tip.
+    const n = 33;
+    const heights = Float32Array.from({ length: n * n }, (_, i) => 3 * Math.max(0, 1 - Math.hypot(Math.floor(i / n) - 16, (i % n) - 16) / 16));
+    const terrainData = { url: 'hill.terrain', isLoaded: true, heightmapResolution: n, size: new Vector3(20, 3, 20), heights, changed: new Event() };
+    const hill = new Object3D();
+    hill.addComponent(TerrainCollider, { terrainData });
+    const cone = new Mesh(new ConeGeometry(6, 3, 24));
+    cone.position.set(30, 1.5, 0);
+    cone.addComponent(MeshCollider);
+    scene.add(hill, cone);
+    const balls = [0, 30].map((x) => {
+      const node = new Object3D();
+      node.position.set(x, 8, 0);
+      scene.add(node);
+      node.addComponent(Rigidbody);
+      node.addComponent(SphereCollider, { radius: 0.5 });
+      return node;
+    });
+    run(2);
+    for (const ball of balls) expect(ball.position.y).toBeCloseTo(3.5, 1);
   });
 
   it('shapes a body with a convex mesh, rests it on a triangle mesh, and reports how hard it hit', () => {

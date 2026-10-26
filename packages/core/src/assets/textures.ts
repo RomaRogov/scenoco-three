@@ -28,12 +28,17 @@ function load(url: string): Texture {
   if (typeof document === 'undefined') return new Texture();
 
   const loader = (sharedLoader ??= new TextureLoader());
-  const texture = loader.load(url, undefined, undefined, (error) => {
-    console.error(`[scenoco] failed to load texture "${url}":`, error);
+  // What `loadAssets` waits for is this texture's own load, ending when its image is set. A second
+  // request of the same URL, awaited instead, could finish first — a slow or remote file then
+  // reached the scene with no image yet.
+  let texture!: Texture;
+  const loaded = new Promise<void>((done, fail) => {
+    texture = loader.load(url, () => done(), undefined, (error) => {
+      console.error(`[scenoco] failed to load texture "${url}":`, error);
+      fail(error);
+    });
   });
-  // A second request, not a hook into the first — three.js's callback and promise forms are
-  // separate paths to the same load. It resolves from the browser's cache.
-  trackLoad(texture, loader.loadAsync(url));
+  trackLoad(texture, loaded);
   return texture;
 }
 
