@@ -15,8 +15,10 @@ export const unity = {
   nestRotation: unityQuaternion(-0.16740577, 0.9308833, 0.061736196, 0.31877953),
   // Prefabs/Star.prefab's root: the sprite turned to face the camera.
   starRotation: unityQuaternion(-0.24184473, 0.6644631, 0.24184474, 0.66446304),
-  // Main.unity's Directional Light, rotated (54.1, 63.7, 69.5): placed 30 m back along its rays.
+  // Main.unity's Directional Light, rotated (54.1, 63.7, 69.5): placed 30 m back along its rays,
+  // and its target 30 m on along them, where the light stands.
   sunPosition: new Vector3(0, 0, -1).applyQuaternion(unityEuler(54.122, 63.653, 69.547)).multiplyScalar(-30),
+  sunTarget: new Vector3(0, 0, -1).applyQuaternion(unityEuler(54.122, 63.653, 69.547)).multiplyScalar(30),
 };
 
 /** The slope's ground: made in code each level by `TerrainMesh`, one layer — TerrainMat, its texture tiled 15 times over the slope's 30 m width. */

@@ -32,7 +32,7 @@ not memory.
 
 - `packages/core` — the kernel (`Behaviour`, the per-scene `Runtime`, coroutines, `Time`, events,
   destruction), the TSX runtime (`jsx.ts`), `play`, `SceneManager`, `Input`, assets, and the
-  dev-only bridge the observer drives (`observe.ts`).
+  dev-only bridge a browser drives the game through (`observe.ts`).
 - Packages (`rapier`, `box2d`, `particles`, `audio`) attach through core's package seam: a private
   per-scene `System` reached with `service(node, Type)`, Unity's message names declared with
   `declareMessages`, and Unity's static facades (`Physics.gravity`) for anything a game sets.
@@ -40,8 +40,8 @@ not memory.
   byte-preserving read/write of a scene file.
 - `packages/create` — the starter `npm create @scenoco-three` copies; `template/AGENTS.md` is the
   rules card a model reads in a project, so a change to the API is a change there too.
-- `packages/observer` — an MCP server that **observes** a running game: the project's own Vite,
-  a headless Chrome it owns, the bridge `play()` installs in development.
+- `packages/observer` — `observe(page)`: a test drives a running game through the bridge `play()`
+  installs in development (`window.__scenoco`, core's `observe.ts`) on any Playwright page.
 - `packages/unity` — `scenoco-unity`: the game's prefabs, scenes, meshes and materials written into a
   Unity project. Core's `snapshot` (dev only) describes what the TSX declares; the package mirrors it
   into Unity's space and a C# importer builds it with Unity's API.

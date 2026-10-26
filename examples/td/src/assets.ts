@@ -64,7 +64,7 @@ export const terrains = {
 
 export const allAssets: Loadable[] = [...Object.values(models), ...Object.values(terrains)];
 
-const star = sharedTexture('/ui/star.png');
+const star = sharedTexture('ui/star.png');
 
 /** Shared by every health bar, ring and badge. */
 export const paint = {

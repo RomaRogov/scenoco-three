@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { BufferGeometry, Matrix4, Vector3, type Mesh, type Object3D } from 'three';
 import { Behaviour, service, type Event } from '@scenoco-three/core';
 import { Physics } from './Physics.js';
+import { PhysicsMaterialCombine, type PhysicsMaterial } from './PhysicsMaterial.js';
 import { Rigidbody } from './Rigidbody.js';
 
 /**
@@ -15,14 +16,64 @@ export abstract class Collider extends Behaviour {
   isTrigger = false;
   /** Offset from the node, before scale. */
   center = new Vector3();
-  friction = 0.5;
-  /** 0 stops dead, 1 bounces back as high. */
-  bounciness = 0;
   /** Kilograms per cubic metre: with the size, the body's mass. */
   density = 1;
 
   /** @internal */ _collider: RAPIER.Collider | null = null;
   /** @internal */ _physics: Physics | null = null;
+
+  private _friction = 0.5;
+  private _bounciness = 0;
+  private _material: PhysicsMaterial | null = null;
+
+  /** Resistance to sliding: 0 is ice. This collider's own, when it has no `material`. */
+  get friction(): number {
+    return this._friction;
+  }
+  set friction(value: number) {
+    this._friction = value;
+    this._applySurface();
+  }
+
+  /** 0 stops dead, 1 bounces back as high. This collider's own, when it has no `material`. */
+  get bounciness(): number {
+    return this._bounciness;
+  }
+  set bounciness(value: number) {
+    this._bounciness = value;
+    this._applySurface();
+  }
+
+  /**
+   * A surface shared with other colliders, with its combine modes — Unity's `sharedMaterial`. When
+   * set, it is used instead of this collider's `friction` and `bounciness`.
+   */
+  get material(): PhysicsMaterial | null {
+    return this._material;
+  }
+  set material(value: PhysicsMaterial | null) {
+    this._material?._users.delete(this);
+    this._material = value;
+    if (value && this._collider) value._users.add(this);
+    this._applySurface();
+  }
+
+  /** @internal what a contact with this collider uses. */
+  _surface(): { friction: number; bounciness: number; frictionCombine: PhysicsMaterialCombine; bounceCombine: PhysicsMaterialCombine } {
+    const m = this._material;
+    return m ?? { friction: this._friction, bounciness: this._bounciness, frictionCombine: PhysicsMaterialCombine.Average, bounceCombine: PhysicsMaterialCombine.Average };
+  }
+
+  /** @internal the surface, onto the live Rapier collider. Rapier's combine rules share Unity's order. */
+  _applySurface(): void {
+    const c = this._collider;
+    if (!c) return;
+    const s = this._surface();
+    c.setFriction(s.friction);
+    c.setRestitution(s.bounciness);
+    c.setFrictionCombineRule(s.frictionCombine as number as RAPIER.CoefficientCombineRule);
+    c.setRestitutionCombineRule(s.bounceCombine as number as RAPIER.CoefficientCombineRule);
+  }
 
   /**
    * The Rapier collider, once this has started — for Rapier's own API: the character controller,
@@ -66,6 +117,7 @@ export abstract class Collider extends Behaviour {
   }
 
   private add(): void {
+    this._material?._users.add(this);
     const rigidbody = this.attachedRigidbody;
     if (rigidbody) return rigidbody.attach(this);
     if (this._collider) return;
@@ -74,6 +126,7 @@ export abstract class Collider extends Behaviour {
   }
 
   private remove(): void {
+    this._material?._users.delete(this);
     const rigidbody = this.attachedRigidbody;
     if (rigidbody) rigidbody.detach(this);
     else if (this._collider) this._physics?.destroyCollider(this._collider);
@@ -173,11 +226,10 @@ export class TerrainCollider extends Collider {
  * The mesh is `sharedMesh` when given, else every mesh under the node, as placed under it.
  *
  * ```tsx
- * <Group>
+ * <Mesh geometry={rock} material={stone}>
  *   <Rigidbody />
  *   <MeshCollider convex />
- *   <ModelView model={models.egg} />
- * </Group>
+ * </Mesh>
  * ```
  */
 export class MeshCollider extends Collider {

@@ -16,7 +16,8 @@ export const engine = sharedClip(engineUrl);   // and `await loadAssets(engine)`
 ```
 
 - `AudioSource` — `clip`, `playOnAwake`, `loop`, `volume`, `pitch`, `spatial`, `minDistance`,
-  `maxDistance`; `play()`, `stop()`, `pause()`, `playOneShot()`, `isPlaying`.
+  `maxDistance`; `play()`, `stop()`, `pause()`, `playOneShot()`, `isPlaying`. As in Unity, `volume`,
+  `pitch` and `loop` change what is playing at once, and a source added in code plays straight away.
 - `AudioClip` — a decoded file, one per URL through `sharedClip(url)`.
 - `AudioMixer.volume` — the master volume. The listener follows whichever camera draws the scene,
   and the first click or key press starts the browser's audio.

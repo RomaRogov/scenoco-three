@@ -10,6 +10,7 @@ is three.js, as three.js documents it.
 //   position={[0, 1, 0]}         a value goes through the property's own set/copy: [x, y, z], '#ff8800', a scalar
 //   shadow-mapSize={[2048, 2048]} a dashed name reaches inside
 //   <MeshStandardMaterial />     geometry and material attach to their parent; anything else needs attach="fog"
+//   <Object3D attach="target" /> a node with attach is added and assigned: a light's target, moving with it
 //   <Spinner speed={2} />        a Behaviour becomes a component of its parent; its props are its public fields
 //   ref={hero}                   const hero = ref<Mesh>() inside the scene function; a behaviour field takes it too,
 //                                and holds the object itself: target: Mesh | null = null, never a Ref
@@ -23,7 +24,7 @@ function play(scene: () => JSX.Element, options?: {
 }): Game;
 interface Game {
   readonly scene: Scene;            // the one scene that draws; SceneManager swaps what is in it
-  readonly camera: PerspectiveCamera;   // the loaded scene's first camera, or a default
+  readonly camera: PerspectiveCamera | null;   // the loaded scene's first camera; null, and nothing drawn, without one
   readonly renderer: WebGLRenderer; // shadows, tone mapping: set them as three.js documents
   render: () => void;               // replace to draw another way: game.render = () => composer.render()
 }
@@ -93,6 +94,21 @@ const Mathf: {   // Unity's, where JavaScript's Math spells it differently; Math
   repeat(t, length): number;  pingPong(t, length): number;  deltaAngle(a, b): number;  lerpAngle(a, b, t): number;
   approximately(a, b): boolean;
   perlinNoise(x, y): number;   // about 0..1, features a unit apart: Mathf.perlinNoise(x * 0.1 + seed, z * 0.1)
+};
+
+const Random: {   // Unity's: one seeded generator; Random.initState(level) repeats a level's layout
+  initState(seed): void;  state: RandomState;   // save state and put it back to replay the same numbers
+  readonly value: number;                       // 0 up to 1
+  range(min, max): number;  rangeInt(min, max): number;   // rangeInt(0, items.length): a whole number, max excluded
+  readonly insideUnitCircle: Vector2;  readonly insideUnitSphere: Vector3;  readonly onUnitSphere: Vector3;
+  readonly rotation: Quaternion;  colorHSV(hueMin?, hueMax?, satMin?, satMax?, valueMin?, valueMax?): Color;
+};
+
+const PlayerPrefs: {   // Unity's, on localStorage; kept in memory for the visit where storage is refused
+  getInt(key, defaultValue = 0): number;  setInt(key, value): void;
+  getFloat(key, defaultValue = 0): number;  setFloat(key, value): void;
+  getString(key, defaultValue = ''): string;  setString(key, value): void;
+  hasKey(key): boolean;  deleteKey(key): void;  deleteAll(): void;  save(): void;
 };
 
 class Event<A extends unknown[] = []> {   // a class field: readonly onScored = new Event<[points: number]>()

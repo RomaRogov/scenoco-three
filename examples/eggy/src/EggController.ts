@@ -1,4 +1,4 @@
-import { Quaternion, Vector2, Vector3, type DirectionalLight, type Object3D, type PerspectiveCamera } from 'three';
+import { Quaternion, Vector2, Vector3, type Object3D, type PerspectiveCamera } from 'three';
 import { Behaviour, Input, Time, destroy, instantiate, type Prefab, type Yieldable } from '@scenoco-three/core';
 import { Collider, Rigidbody, type Collision } from '@scenoco-three/rapier';
 import { LevelController } from './LevelController';
@@ -51,10 +51,6 @@ export class EggController extends Behaviour {
     this.rb.isKinematic = true;
     this.camTrans = this.camContainer!.children[0] as PerspectiveCamera;
     this.camRot.copy(this.camTrans.quaternion);
-    // Unity's sun shines along its rotation; three.js's aims at a target, which has to travel with
-    // it, or the shadows swing round as the camera follows the egg down the slope.
-    const sun = this.camContainer!.children.find((child) => (child as DirectionalLight).isDirectionalLight) as DirectionalLight | undefined;
-    if (sun) this.camContainer!.add(sun.target);
     this.camContainer!.position.copy(TerrainMesh.getPoint(this.node.position));
   }
 

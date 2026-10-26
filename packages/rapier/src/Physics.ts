@@ -111,10 +111,13 @@ export class Physics extends System {
   createCollider(collider: Collider, body: RAPIER.RigidBody | null): RAPIER.Collider {
     const node = collider.node;
     const scale = node.getWorldScale(new Vector3());
+    const surface = collider._surface();
     const desc = collider
       .shape(scale)
-      .setFriction(collider.friction)
-      .setRestitution(collider.bounciness)
+      .setFriction(surface.friction)
+      .setRestitution(surface.bounciness)
+      .setFrictionCombineRule(surface.frictionCombine as number as RAPIER.CoefficientCombineRule)
+      .setRestitutionCombineRule(surface.bounceCombine as number as RAPIER.CoefficientCombineRule)
       .setDensity(collider.density)
       .setSensor(collider.isTrigger)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)

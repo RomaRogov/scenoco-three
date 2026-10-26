@@ -14,7 +14,9 @@ game.renderer.toneMapping = ACESFilmicToneMapping;
 game.renderer.toneMappingExposure = 1.05;
 
 const composer = new EffectComposer(game.renderer);
-const scene = new RenderPass(game.scene, game.camera);
+// Each level brings its own camera, so the pass is given whichever draws now, every frame — the
+// run starts on a scene with none.
+const scene = new RenderPass(game.scene, game.camera!);
 composer.addPass(scene);
 // Threshold 0.5: the emissive paddle and the lit brick faces glow, not only the ball.
 composer.addPass(new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 0.5, 0.45, 0.5));
@@ -22,6 +24,6 @@ composer.addPass(new OutputPass());
 addEventListener('resize', () => composer.setSize(innerWidth, innerHeight));
 
 game.render = () => {
-  scene.camera = game.camera; // each level brings its own camera
+  scene.camera = game.camera!; // render runs only while there is one
   composer.render();
 };

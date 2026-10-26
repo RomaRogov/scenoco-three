@@ -1,7 +1,5 @@
 import { Quaternion, Vector3, type Object3D, type Vector2 } from 'three';
-import { Behaviour, Mathf, instantiate, type Prefab } from '@scenoco-three/core';
-import { PlayerPrefs } from './prefs';
-import { Random } from './random';
+import { Behaviour, Mathf, PlayerPrefs, Random, instantiate, type Prefab } from '@scenoco-three/core';
 import { TerrainMesh } from './TerrainMesh';
 import { punch, tween, Ease } from './tween';
 

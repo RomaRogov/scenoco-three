@@ -1,4 +1,4 @@
-import { AmbientLight, DirectionalLight, Group, Mesh, PerspectiveCamera, PlaneGeometry, Scene } from 'three';
+import { AmbientLight, DirectionalLight, Group, Mesh, Object3D, PerspectiveCamera, PlaneGeometry, Scene } from 'three';
 import { ref } from '@scenoco-three/core';
 import { BoxCollider, MeshCollider, Rigidbody, TerrainCollider } from '@scenoco-three/rapier';
 import { Terrain } from '@scenoco-three/terrain';
@@ -31,7 +31,10 @@ export const Main = () => {
         {/* Unity's sun, kept over the egg so its shadows stay sharp along a long slope. Shadows reach
             40 m around it, as far as the Unity project's High quality cast them. */}
         <DirectionalLight intensity={Math.PI * 0.78} position={unity.sunPosition} castShadow shadow-intensity={0.848} shadow-mapSize={[4096, 4096]}
-          shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} shadow-camera-far={120} shadow-bias={-0.0005} />
+          shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} shadow-camera-far={120} shadow-bias={-0.0005}>
+          {/* Its target rides with it, so it shines the same way wherever the camera has followed the egg. */}
+          <Object3D attach="target" position={unity.sunTarget} />
+        </DirectionalLight>
       </Group>
 
       <Group name="terrain">

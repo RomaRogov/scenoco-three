@@ -412,7 +412,7 @@ export class Game extends Behaviour {
     const next = tower.next;
     ($('ts-icon') as HTMLImageElement).src = icons[tower.kind];
     $('ts-name').textContent = spec.name;
-    $('ts-stars').innerHTML = [1, 2, 3].map((i) => `<img src="/ui/star.png" class="${i <= tower.level ? '' : 'off'}" alt="" />`).join('');
+    $('ts-stars').innerHTML = [1, 2, 3].map((i) => `<img src="ui/star.png" class="${i <= tower.level ? '' : 'off'}" alt="" />`).join('');
     const dps = (l: { damage: number; rate: number }) => l.damage * l.rate;
     this.bar('ts-dmg', stats.damage, next?.damage, STAT_MAX.damage);
     this.bar('ts-rng', stats.range, next?.range, STAT_MAX.range);
@@ -470,7 +470,7 @@ export class Game extends Behaviour {
     if (p.z > 1) return;
     const el = document.createElement('div');
     el.className = `pop ${kind === 'hurt' ? 'hurt' : ''}`;
-    el.innerHTML = kind === 'coin' ? `${text} <img src="/ui/coin.png" alt="" />` : text;
+    el.innerHTML = kind === 'coin' ? `${text} <img src="ui/coin.png" alt="" />` : text;
     el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
     el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
     el.addEventListener('animationend', () => el.remove());

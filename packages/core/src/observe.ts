@@ -1,10 +1,11 @@
 /**
- * Dev only: what the observer drives the page through, and a warning about timers.
+ * Dev only: the bridge a test or an agent drives the running game through, at `window.__scenoco`.
  *
- * `play()` installs `window.__behaviours` when Vite serves the page in development. The
- * observer holds the clock with it — the host stops calling `runtime.update` — and steps exact
- * frames, so a reading or a screenshot lands on the frame it names. It reads game state by
- * behaviour class and node name: nothing in the game has to expose anything for it.
+ * `play()` installs it when Vite serves the page in development. It holds the clock — the page's
+ * loop stops calling `runtime.update` — and steps exact frames, so a reading or a screenshot lands on
+ * the frame it names. It reads game state by behaviour class and node name: nothing in the game has
+ * to expose anything. Every method takes and returns plain data, so any harness that can evaluate
+ * JavaScript in the page can call it — Playwright's `page.evaluate`, Puppeteer's, a console.
  */
 import * as THREE from 'three';
 import { Behaviour, Event, Runtime, Time, behavioursOn, destroy } from './kernel/index.js';
@@ -14,16 +15,24 @@ import { SceneManager } from './scenes.js';
 /** What the bridge reads from whatever draws the frame. */
 export interface ObservedState {
   scene: THREE.Scene;
-  camera: THREE.Camera;
+  camera: THREE.Camera | null;
   gl: THREE.WebGLRenderer;
   size: { width: number; height: number };
 }
 
 const held = new WeakSet<Runtime>();
+/** A viewpoint `view` set, drawn instead of the game camera while it lasts. */
+const viewing = new WeakMap<Runtime, THREE.Camera>();
+const DT = 1 / 60;
 
-/** @internal true while the observer holds this runtime's clock. */
+/** @internal true while the bridge holds this runtime's clock. */
 export function isHeld(runtime: Runtime): boolean {
   return held.has(runtime);
+}
+
+/** @internal the camera the bridge asked to draw from, if any. */
+export function viewOf(runtime: Runtime): THREE.Camera | null {
+  return viewing.get(runtime) ?? null;
 }
 
 /** @internal */
@@ -96,6 +105,7 @@ export function installObserverBridge(
       // works; the `#x` shorthand insists, because there a missing node is almost always a typo.
       node: (name: string) => get().scene.getObjectByName(name) ?? null,
       __node: nodeNamed,
+      __of: of,
       find: (type: string | (abstract new () => Behaviour)) => pick(type)[0] ?? null,
       findAll: pick,
       // The game's own names for the same lookups, so what a model writes in a behaviour works here too.
@@ -110,7 +120,8 @@ export function installObserverBridge(
   /**
    * The same reading everywhere — `until`, `watch` and `eval`: `Player.lane` is the first live
    * Player's lane, the shape a model writes without thinking, and `#runner.position` is the node
-   * named "runner". A class is still a class where it is not followed by a dot: `findAll(Coin)`.
+   * named "runner". A name the instance does not have is the class's own: `Player.instance` reads
+   * the static. A class is still a class where it is not followed by a dot: `findAll(Coin)`.
    */
   const rewrite = (code: string): string => {
     let body = code.replace(/(^|[^\w'"`])#([A-Za-z_][\w-]*)/g, (_, before: string, name: string) => `${before}__node(${JSON.stringify(name)})`);
@@ -120,8 +131,20 @@ export function installObserverBridge(
     body = body.replace(/\b(find|findAll|findObjectOfType|findObjectsOfType)\(\s*([A-Z]\w*)\s*\)/g, (call, fn: string, name: string) =>
       known.has(name) ? call : `${fn}(${JSON.stringify(name)})`,
     );
-    for (const name of learnClasses().keys()) body = body.replace(new RegExp(`\\b${name}\\b(?=\\s*\\.)`, 'g'), `find(${JSON.stringify(name)})`);
+    for (const name of known.keys()) {
+      body = body.replace(new RegExp(`\\b${name}\\b\\s*\\.\\s*([A-Za-z_$][\\w$]*)`, 'g'), (_, member: string) => `__of(${JSON.stringify(name)}, ${JSON.stringify(member)}).${member}`);
+    }
     return body;
+  };
+
+  /** `Player.member`: the first live Player's, unless only the class has it — a static. */
+  const of = (name: string, member: string): unknown => {
+    const type = learnClasses().get(name)!;
+    const live = byClass().get(name)?.[0] ?? null;
+    if (live && member in live) return live;
+    if (member in type) return type;
+    if (!live) throw new Error(`no ${name} is alive now, and the class has no static "${member}" — findAll(${name}).length is 0 until one is built.`);
+    return live;
   };
 
   /** A name that is not there, answered with the names that are. */
@@ -152,31 +175,77 @@ export function installObserverBridge(
     };
   };
 
-  const nextPaint = (): Promise<void> => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+  /**
+   * Let the page draw what was stepped, so a screenshot taken next shows it. A hidden page never
+   * paints, so this does not wait for longer than a tenth of a second.
+   */
+  const nextPaint = (): Promise<void> =>
+    new Promise((done) => {
+      setTimeout(done, 100);
+      requestAnimationFrame(() => requestAnimationFrame(() => done()));
+    });
 
   const stepFrames = (frames: number, dt: number): void => {
     for (let i = 0; i < frames; i++) frame(dt);
   };
+  /** Let frames pass: stepped when the clock is held, in real time otherwise. */
+  const pass = async (frames: number): Promise<void> => {
+    if (held.has(runtime)) stepFrames(frames, DT);
+    await new Promise((done) => setTimeout(done, held.has(runtime) ? 0 : (frames * 1000) / 60));
+    await nextPaint();
+  };
+  const hold = () => void held.add(runtime);
+
+  // Input as the player's: DOM events where the player's would land, so the game's Input and any
+  // HTML button read them alike. A key goes to whatever has focus, a pointer to what is under it.
+  let pointerAt: [number, number] = [0, 0];
+  let pointerTarget: Element | null = null;
+  const key = (type: 'keydown' | 'keyup', name: string) => {
+    const { code, key: text } = keyOf(name);
+    (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent(type, { code, key: text, bubbles: true, cancelable: true }));
+  };
+  const pointer = (type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number, buttons: number) => {
+    const target = type === 'pointerup' ? (pointerTarget ?? document.elementFromPoint(x, y)) : document.elementFromPoint(x, y);
+    if (!target) throw new Error(`nothing on the page at (${x}, ${y}) — the window is ${innerWidth}×${innerHeight}.`);
+    const init = { clientX: x, clientY: y, button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true, cancelable: true, composed: true };
+    target.dispatchEvent(new PointerEvent(type, init));
+    const mouse = { pointerdown: 'mousedown', pointermove: 'mousemove', pointerup: 'mouseup' }[type];
+    target.dispatchEvent(new MouseEvent(mouse, init));
+    if (type === 'pointerup' && target === pointerTarget) target.dispatchEvent(new MouseEvent('click', init));
+    pointerAt = [x, y];
+    if (type === 'pointerdown') pointerTarget = target;
+    if (type === 'pointerup') pointerTarget = null;
+  };
 
   const bridge = {
-    get held(): boolean {
-      return held.has(runtime);
-    },
-    hold(on: boolean): void {
-      if (on) held.add(runtime);
-      else held.delete(runtime);
+    /** What this is and how to call it — the first thing to read. */
+    help(): string {
+      return HELP;
     },
     clock() {
       return { held: held.has(runtime), time: round(Time.time), frame: Time.frameCount, timeScale: Time.timeScale };
     },
-    /** Advance exactly `frames` frames of `dt` each, then let the page paint them. */
-    async step(frames: number, dt: number) {
+    /** Hold the clock where it is: the game moves only when stepped. */
+    pause() {
+      hold();
+      return bridge.clock();
+    },
+    /** Run in real time again, from the game camera. */
+    play() {
+      held.delete(runtime);
+      viewing.delete(runtime);
+      return bridge.clock();
+    },
+    /** Hold the clock and advance exactly `frames` frames of `dt` seconds. */
+    async step(frames = 1, dt = DT) {
+      hold();
       stepFrames(frames, dt);
       await nextPaint();
       return bridge.clock();
     },
-    /** Step until `code` is true, at most `maxFrames`. */
-    async until(code: string, maxFrames: number, dt: number) {
+    /** Hold the clock and step until `code` is true, at most `maxFrames`. */
+    async until(code: string, maxFrames = 600, dt = DT) {
+      hold();
       const test = expression(code);
       for (let frame = 0; frame <= maxFrames; frame++) {
         if (test()) {
@@ -188,19 +257,24 @@ export function installObserverBridge(
       await nextPaint();
       return { met: false, frames: maxFrames, ...bridge.clock() };
     },
-    /** Step `frames`, reading each expression every `every` frames. A table, one row per sample. */
-    async watch(fields: string[], frames: number, every: number, dt: number) {
+    /**
+     * Hold the clock, step `frames`, and read each expression every `every` frames: one row per
+     * sample, with the time, the frame and each value under its text. A reading that throws is `{ error }`.
+     */
+    async watch(fields: string[], frames = 60, every = 10, dt = DT) {
+      hold();
       const readers = fields.map((field) => ({ field, read: expression(field) }));
-      const rows: string[] = [['t', 'frame', ...fields].join('\t')];
+      const rows: Record<string, unknown>[] = [];
       const sample = () => {
-        const values = readers.map(({ read }) => {
+        const row: Record<string, unknown> = { t: round(Time.time), frame: Time.frameCount };
+        for (const { field, read } of readers) {
           try {
-            return JSON.stringify(plain(read(), 1));
+            row[field] = plain(read(), 1);
           } catch (error) {
-            return `!${(error as Error).message}`;
+            row[field] = { error: (error as Error).message };
           }
-        });
-        rows.push([round(Time.time), Time.frameCount, ...values].join('\t'));
+        }
+        rows.push(row);
       };
       sample();
       for (let done = 0; done < frames; ) {
@@ -210,9 +284,10 @@ export function installObserverBridge(
         sample();
       }
       await nextPaint();
-      return rows.join('\n');
+      return rows;
     },
-    async evaluate(code: string): Promise<unknown> {
+    /** The body of an async function, with the game's names in scope; what it returns, as JSON. */
+    async eval(code: string): Promise<unknown> {
       const vars = scope();
       const fn = new Function(...Object.keys(vars), `return (async () => {\n${rewrite(code)}\n})();`) as (...args: unknown[]) => Promise<unknown>;
       let value: unknown;
@@ -226,7 +301,18 @@ export function installObserverBridge(
       if (value instanceof Behaviour) return { class: value.constructor.name, ...fields(value) };
       return plain(value, 3);
     },
-    outline(depth: number): string {
+    /** The first live behaviour of a class, by name — the object itself, to read or change. */
+    find(type: string): Behaviour | null {
+      return (scope().find as (t: string) => Behaviour | null)(type);
+    },
+    findAll(type: string): Behaviour[] {
+      return (scope().findAll as (t: string) => Behaviour[])(type);
+    },
+    /** A node by the name it was given in the scene. */
+    node(name: string): THREE.Object3D | null {
+      return get().scene.getObjectByName(name) ?? null;
+    },
+    outline(depth = 4): string {
       const lines: string[] = [];
       const visit = (node: THREE.Object3D, level: number) => {
         const own = behavioursOn(node).filter((b) => !b.isDestroyed);
@@ -243,7 +329,7 @@ export function installObserverBridge(
       };
       visit(get().scene, 0);
       const c = bridge.clock();
-      return `time ${c.time}s · frame ${c.frame} · timeScale ${c.timeScale}${c.held ? ' · held by the observer' : ''}\n${lines.join('\n')}`;
+      return `time ${c.time}s · frame ${c.frame} · timeScale ${c.timeScale}${c.held ? ' · clock held' : ''}\n${lines.join('\n')}`;
     },
     /** `Player` — every live Player; `Player.lane` — that field of each; `#runner` — a node by name. */
     telemetry(target: string): unknown {
@@ -276,33 +362,113 @@ export function installObserverBridge(
         return { on: where, [path.join('.')]: plain(value, 2) };
       });
     },
-    /** A picture from another viewpoint, rendered into the canvas and read back at once. No HUD. */
-    view(options: { cameraPos: number[]; lookAt?: number[] | string; fov?: number }): string {
-      const { gl, scene, camera, size } = get();
-      const eye = new THREE.PerspectiveCamera(options.fov ?? (camera as THREE.PerspectiveCamera).fov ?? 50, size.width / size.height, 0.05, 2000);
-      eye.position.fromArray(options.cameraPos);
-      const target =
-        typeof options.lookAt === 'string'
-          ? nodeNamed(options.lookAt.replace(/^#/, '')).getWorldPosition(new THREE.Vector3())
-          : new THREE.Vector3().fromArray(options.lookAt ?? [0, 0, 0]);
-      eye.lookAt(target);
-      gl.render(scene, eye);
-      return gl.domElement.toDataURL('image/png');
+    /**
+     * Draw the scene from another viewpoint, holding the clock, until `view(null)` or `play()`: the
+     * next screenshot of the page shows it, HUD and all.
+     */
+    async view(options: { cameraPos: number[]; lookAt?: number[] | string; fov?: number } | null) {
+      if (!options) {
+        viewing.delete(runtime);
+      } else {
+        const { camera, size } = get();
+        const eye = new THREE.PerspectiveCamera(options.fov ?? (camera as THREE.PerspectiveCamera | null)?.fov ?? 50, size.width / size.height, 0.05, 2000);
+        eye.position.fromArray(options.cameraPos);
+        const target =
+          typeof options.lookAt === 'string'
+            ? nodeNamed(options.lookAt.replace(/^#/, '')).getWorldPosition(new THREE.Vector3())
+            : new THREE.Vector3().fromArray(options.lookAt ?? [0, 0, 0]);
+        eye.lookAt(target);
+        hold();
+        viewing.set(runtime, eye);
+      }
+      await nextPaint();
+      return bridge.clock();
+    },
+    /** Hold a key for `frames` frames — `"Space"`, `"ArrowLeft"`, `"a"`, `"Enter"` — then let it go. */
+    async press(name: string, frames = 6) {
+      key('keydown', name);
+      await pass(frames);
+      key('keyup', name);
+      await pass(1);
+    },
+    keyDown(name: string) {
+      key('keydown', name);
+    },
+    keyUp(name: string) {
+      key('keyup', name);
+    },
+    /** Click or tap at a point of the window, in pixels from its top-left; then a frame passes. */
+    async click(x: number, y: number) {
+      pointer('pointerdown', x, y, 1);
+      pointer('pointerup', x, y, 0);
+      await pass(1);
+    },
+    pointerDown(x: number, y: number) {
+      pointer('pointerdown', x, y, 1);
+    },
+    pointerMove(x: number, y: number) {
+      pointer('pointermove', x, y, pointerTarget ? 1 : 0);
+    },
+    pointerUp() {
+      pointer('pointerup', ...pointerAt, 0);
+    },
+    /** Press at `from`, drag to `to` over `frames` frames, lift: a swipe. */
+    async swipe(from: [number, number], to: [number, number], frames = 8) {
+      pointer('pointerdown', from[0], from[1], 1);
+      for (let i = 1; i <= frames; i++) {
+        pointer('pointermove', from[0] + ((to[0] - from[0]) * i) / frames, from[1] + ((to[1] - from[1]) * i) / frames, 1);
+        await pass(1);
+      }
+      pointer('pointerup', to[0], to[1], 0);
+      await pass(1);
     },
   };
 
-  (window as unknown as { __behaviours?: unknown }).__behaviours = bridge;
+  (window as unknown as { __scenoco?: unknown }).__scenoco = bridge;
+  // Where an agent's browser tools look first: the console says what drives the game.
+  console.info('SceNoCo: this game is driven from the page with window.__scenoco — call __scenoco.help().');
   return () => {
     held.delete(runtime);
+    viewing.delete(runtime);
     restoreTimers();
-    const w = window as unknown as { __behaviours?: unknown };
-    if (w.__behaviours === bridge) delete w.__behaviours;
+    const w = window as unknown as { __scenoco?: unknown };
+    if (w.__scenoco === bridge) delete w.__scenoco;
   };
+}
+
+const HELP = `window.__scenoco — the running SceNoCo game, from the page (development only).
+Every method returns plain data; await the async ones. From Playwright: page.evaluate(() => __scenoco.until("Game.over")).
+
+Clock — a held clock moves only when stepped, so every reading lands on an exact frame:
+  pause()  play()  clock()
+  step(frames = 1)                      advance exactly this many frames
+  until(code, maxFrames = 600)          step until code is true: until("GameState.phase === 'over'")
+  watch([code, …], frames = 60, every = 10)   rows of values over time: watch(["Player.lane", "Time.time"])
+Reading — code is JavaScript where Player.lane is the first live Player's lane, #runner the node named "runner",
+and find(Type) / findAll(Type) / node(name) / destroy / scene / camera / Time / Input / SceneManager / THREE are in scope:
+  eval(code)                            the body of an async function: eval("return findAll(Coin).length")
+  find(name)  findAll(name)  node(name) the live objects themselves, to read or change
+  outline(depth = 4)                    the scene as text, with every behaviour's fields
+  telemetry("Player" | "Player.lane" | "#name")
+Input — as the player's, stepped while the clock is held; x, y in pixels from the window's top-left:
+  press(key, frames = 6)  keyDown(key)  keyUp(key)      keys: "Space", "ArrowLeft", "a", "Enter", "Escape"
+  click(x, y)  pointerDown(x, y)  pointerMove(x, y)  pointerUp()  swipe([x, y], [x, y], frames = 8)
+Looking — take the screenshot with the browser's own tool:
+  view({ cameraPos: [x, y, z], lookAt: [x, y, z] | "#name", fov }) draws from there until view(null) or play()
+CSS animations and timers in the page run in real time, not on the held clock: to wait for one, play() and let it finish.`;
+
+/** A key by the name Playwright uses — "Space", "ArrowLeft", "a", "7" — as the DOM's code and key. */
+function keyOf(name: string): { code: string; key: string } {
+  if (name === ' ' || name === 'Space') return { code: 'Space', key: ' ' };
+  if (/^[a-z]$/i.test(name)) return { code: `Key${name.toUpperCase()}`, key: name };
+  if (/^\d$/.test(name)) return { code: `Digit${name}`, key: name };
+  if (name === 'Shift' || name === 'Control' || name === 'Alt' || name === 'Meta') return { code: `${name}Left`, key: name };
+  return { code: name, key: name };
 }
 
 /**
  * A timer started from inside a frame is game code timing itself outside the game clock: it keeps
- * counting at `Time.timeScale = 0` and while the observer steps frames. Say so once, with the fix.
+ * counting at `Time.timeScale = 0` and while the bridge steps frames. Say so once, with the fix.
  */
 function warnAboutTimers(runtime: Runtime): () => void {
   const w = window as unknown as Record<'setTimeout' | 'setInterval', (...args: unknown[]) => unknown>;

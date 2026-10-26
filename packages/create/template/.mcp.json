@@ -1,1 +1,0 @@
-{ "mcpServers": { "scenoco": { "command": "npx", "args": ["scenoco-observer"] } } }

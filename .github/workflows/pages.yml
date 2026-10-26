@@ -23,6 +23,10 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run build
       - run: npm run site
+        env:
+          # The search consoles' ownership tags, from the repository's Actions variables, when set.
+          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
+          BING_SITE_VERIFICATION: ${{ vars.BING_SITE_VERIFICATION }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

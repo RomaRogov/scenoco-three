@@ -6,6 +6,7 @@
  * a value goes through the property's own `set` or `copy` (`position={[0, 1, 2]}`, `color="#f80"`,
  * `scale={2}`), a dashed name reaches inside (`shadow-mapSize={[2048, 2048]}`), and a child that is
  * not an `Object3D` is assigned to the property `attach` names — `geometry` and `material` by default.
+ * A node child is always added; with `attach` it fills that property too, as a light's `target` does.
  * A behaviour class is an element too: it becomes a component of its parent.
  */
 import { addDormant, afterNodeDestroyed } from './kernel/runtime.js';
@@ -161,7 +162,7 @@ export function applyProp(target: Record<string, unknown>, key: string, value: u
   owner[name] = value;
 }
 
-/** A child is added if it is a node, attached if `attach` or its kind names a property, made a component if it is a behaviour. */
+/** A child is added if it is a node, attached if `attach` or its kind names a property — both, for a node with `attach` — made a component if it is a behaviour. */
 function addChild(parent: Record<string, unknown>, child: unknown, tag: string): void {
   if (isMarker(child)) {
     const behaviour = addDormant(parent as never, child.type, child.init);
@@ -175,8 +176,12 @@ function addChild(parent: Record<string, unknown>, child: unknown, tag: string):
   }
   const value = child as Record<string, unknown>;
   const attach = attachOf(value);
-  if (attach) return applyAttach(parent, attach, value, tag);
-  if (value.isObject3D === true && typeof parent.add === 'function') return void (parent.add as (c: unknown) => void)(value);
+  const node = value.isObject3D === true && typeof parent.add === 'function';
+  if (attach) applyAttach(parent, attach, value, tag);
+  // A node is always in the scene, attached or not: `<Object3D attach="target" />` under a light is
+  // its target and its child, so it moves with the light — three.js wants a light's target in the scene.
+  if (node) return void (parent.add as (c: unknown) => void)(value);
+  if (attach) return;
   throw new Error(
     `<${(value.constructor as Function).name}> inside <${tag}> needs attach="…" — the property of ${tag} it fills.`,
   );

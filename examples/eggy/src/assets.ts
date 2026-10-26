@@ -31,14 +31,14 @@ const tiled = { wrapS: RepeatWrapping, wrapT: RepeatWrapping } as const;
 const onModel = { flipY: false } as const;
 
 export const textures = {
-  terrain: sharedTexture('/textures/terrain.jpg', tiled),
-  egg: sharedTexture('/textures/egg.jpg', onModel),
-  nest: sharedTexture('/textures/nest.jpg', { ...tiled, ...onModel }),
-  stone: sharedTexture('/textures/stone.jpg', { ...tiled, ...onModel }),
-  star: sharedTexture('/textures/star.png'),
+  terrain: sharedTexture('textures/terrain.jpg', tiled),
+  egg: sharedTexture('textures/egg.jpg', onModel),
+  nest: sharedTexture('textures/nest.jpg', { ...tiled, ...onModel }),
+  stone: sharedTexture('textures/stone.jpg', { ...tiled, ...onModel }),
+  star: sharedTexture('textures/star.png'),
   /** The height stamps the terrain is shaped with: read as data, not drawn. */
-  start: sharedTexture('/textures/start.png'),
-  end: sharedTexture('/textures/end.png'),
+  start: sharedTexture('textures/start.png'),
+  end: sharedTexture('textures/end.png'),
 };
 
 /** Unity's materials, with their values. Glossiness is roughness's opposite. */
@@ -71,12 +71,12 @@ function tiling(texture: Texture, scale: number, offset = 0): Texture {
 }
 
 export const sounds = {
-  music: sharedClip('/sounds/eggy_roll.mp3'),
-  roll: sharedClip('/sounds/grass_sound2.mp3'),
-  star: sharedClip('/sounds/star.mp3'),
-  win: sharedClip('/sounds/level_end.mp3'),
-  crash: sharedClip('/sounds/egg_crack.mp3'),
-  drop: sharedClip('/sounds/egg_drop.mp3'),
+  music: sharedClip('sounds/eggy_roll.mp3'),
+  roll: sharedClip('sounds/grass_sound2.mp3'),
+  star: sharedClip('sounds/star.mp3'),
+  win: sharedClip('sounds/level_end.mp3'),
+  crash: sharedClip('sounds/egg_crack.mp3'),
+  drop: sharedClip('sounds/egg_drop.mp3'),
 };
 
 export const allAssets = [...Object.values(models), ...Object.values(textures), ...Object.values(sounds)];

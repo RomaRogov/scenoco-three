@@ -5,10 +5,10 @@ import type { Runtime } from './runtime.js';
 export type RenderCamera = PerspectiveCamera;
 
 /** Per runtime: the camera it renders with now. Whatever drives the frame says. */
-const cameras = new WeakMap<Runtime, () => RenderCamera>();
+const cameras = new WeakMap<Runtime, () => RenderCamera | null>();
 
 /** @internal */
-export function provideCamera(runtime: Runtime, camera: () => RenderCamera): void {
+export function provideCamera(runtime: Runtime, camera: () => RenderCamera | null): void {
   cameras.set(runtime, camera);
 }
 

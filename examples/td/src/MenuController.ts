@@ -26,7 +26,7 @@ export class MenuController extends Behaviour {
       card.innerHTML = `
         <div class="map" style="background-image: url(${maps[id]})"></div>
         <div class="info"><b>${i + 1}. ${spec.name}</b><small>${spec.blurb}</small>
-          <div class="stars">${[1, 2, 3].map((s) => `<img src="/ui/star.png" class="${s <= got ? '' : 'off'}" alt="" />`).join('')}</div></div>
+          <div class="stars">${[1, 2, 3].map((s) => `<img src="ui/star.png" class="${s <= got ? '' : 'off'}" alt="" />`).join('')}</div></div>
         <div class="go"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg></div>`;
       const onClick = () => (locked ? this.refuse(card) : this.play(id));
       card.addEventListener('click', onClick);

@@ -13,7 +13,7 @@
  *      page run in Chrome;
  *   2. a copy of the breakout example on the packed packages: install, `npm run check` (tsc, and
  *      `scenoco check`: a scene only declares), build, and the built page playing a round;
- *   3. the observer, over MCP, reading the running game.
+ *   3. the observer: `observe(page)` reading the game on its dev server.
  *
  * Along the way: every `@scenoco-three` package is installed once, from its tarball — a second
  * copy of core means two `Behaviour` classes and a silently broken `instanceof`.
@@ -28,7 +28,7 @@ import { createServer } from 'node:http';
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const keep = process.argv.includes('--keep');
@@ -161,8 +161,8 @@ try {
     console.log('  a launched ball breaks a brick, and the score shows it');
   });
 
-  // --- 6. the observer, as an agent starts it ------------------------------------------------------
-  step('the observer over MCP');
+  // --- 6. the observer, as a test uses it -----------------------------------------------------------
+  step('observe(page) on the dev server');
   await runObserver(app);
 
   console.log(`\n✓ packed install works end to end${keep ? `\n  project kept at ${app}` : ''}`);
@@ -178,6 +178,16 @@ try {
   } else {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+/** Chrome on the GPU, from this workspace's driver: it is the thing doing the looking, not the thing under test. */
+async function launchChrome() {
+  const { chromium } = await import(join(repo, 'node_modules', 'playwright-core', 'index.mjs'));
+  return chromium.launch({
+    channel: 'chrome',
+    headless: true,
+    args: ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', ...(process.platform === 'darwin' ? ['--use-angle=metal'] : ['--enable-unsafe-swiftshader'])],
+  });
 }
 
 /** Serve `dist`, open it in Chrome, run `play` on the page, and hear every error. */
@@ -196,14 +206,7 @@ async function runBuiltPage(dist, play) {
   await new Promise((done) => server.listen(0, done));
   const url = `http://localhost:${server.address().port}/`;
 
-  // The harness's own browser driver, from this workspace: it is the thing doing the looking,
-  // not the thing under test.
-  const { chromium } = await import(join(repo, 'node_modules', 'playwright-core', 'index.mjs'));
-  const browser = await chromium.launch({
-    channel: 'chrome',
-    headless: true,
-    args: ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', ...(process.platform === 'darwin' ? ['--use-angle=metal'] : ['--enable-unsafe-swiftshader'])],
-  });
+  const browser = await launchChrome();
   const errors = [];
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
@@ -229,49 +232,38 @@ async function runBuiltPage(dist, play) {
   if (errors.length) fail(`the built page reported errors:\n  ${errors.join('\n  ')}`);
 }
 
-/** Start the observer the way an MCP client does, and ask it to read the running game. */
+/** The packed app's own dev server, and the packed observer reading the game on it. */
 async function runObserver(root) {
-  const cli = join(root, 'node_modules', '@scenoco-three', 'observer', 'dist', 'cli.js');
-  const child = spawn(process.execPath, [cli, '--root', root], { stdio: ['pipe', 'pipe', 'pipe'] });
-  let stderr = '';
-  child.stderr.on('data', (d) => (stderr += d));
-  let buffer = '';
-  const pending = new Map();
-  child.stdout.on('data', (chunk) => {
-    buffer += chunk;
-    for (let i; (i = buffer.indexOf('\n')) >= 0; ) {
-      const line = buffer.slice(0, i);
-      buffer = buffer.slice(i + 1);
-      if (!line.trim()) continue;
-      const message = JSON.parse(line);
-      pending.get(message.id)?.(message);
-      pending.delete(message.id);
-    }
-  });
-  let id = 0;
-  const send = (method, params) =>
-    new Promise((done, reject) => {
-      const n = ++id;
-      const timer = setTimeout(() => reject(new Error(`the observer did not answer ${method}\n${stderr}`)), 120_000);
-      pending.set(n, (message) => {
-        clearTimeout(timer);
-        done(message);
-      });
-      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: n, method, params })}\n`);
-    });
-  const text = (reply) => (reply.result?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  const port = 5170 + Math.floor(Math.random() * 20);
+  // Its own process group, so stopping it stops Vite too, not only npm.
+  const dev = spawn(npm, ['run', 'dev', '--', '--port', String(port), '--strictPort'], { cwd: root, stdio: 'ignore', detached: true, shell: process.platform === 'win32' });
+  const url = `http://localhost:${port}/`;
+  const browser = await launchChrome();
   try {
-    await send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'pack-smoke', version: '0' } });
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-    const outline = text(await send('tools/call', { name: 'outline', arguments: { depth: 4 } }));
+    for (let tries = 0; ; tries++) {
+      if (await fetch(url).then((r) => r.ok, () => false)) break;
+      if (tries > 150) fail(`the dev server did not answer at ${url}`);
+      await new Promise((done) => setTimeout(done, 200));
+    }
+    const { observe } = await import(pathToFileURL(join(root, 'node_modules', '@scenoco-three', 'observer', 'dist', 'index.js')).href);
+    const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
+    await page.goto(url);
+    const game = await observe(page);
+    const outline = await game.outline(4);
     for (const expected of ['Progress', 'GameState', 'Ball', 'Rigidbody2D']) {
       if (!outline.includes(expected)) fail(`the observer's outline has no ${expected}:\n${outline}`);
     }
     console.log('  outlines the running game');
-    const shot = await send('tools/call', { name: 'screenshot', arguments: {} });
-    if (!(shot.result?.content ?? []).some((c) => c.type === 'image')) fail(`no screenshot: ${text(shot)}`);
-    console.log('  takes a screenshot');
+    await game.press('Space');
+    const launched = await game.until("GameState.phase === 'playing'", { maxFrames: 60 });
+    if (!launched.met) fail('Space did not launch the ball through the bridge');
+    console.log('  presses a key and steps the held clock to the launch');
   } finally {
-    child.kill();
+    await browser.close();
+    try {
+      process.kill(-dev.pid);
+    } catch {
+      dev.kill();
+    }
   }
 }

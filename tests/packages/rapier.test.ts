@@ -8,6 +8,8 @@ import {
   MeshCollider,
   ForceMode,
   Physics,
+  PhysicsMaterial,
+  PhysicsMaterialCombine,
   Rigidbody,
   SphereCollider,
   TerrainCollider,
@@ -243,6 +245,33 @@ describe('rapier', () => {
     expect(() => {
       (b.body.velocity as Vector3).y = 5;
     }).toThrow(); // a copy: changing it would otherwise do nothing, silently
+  });
+
+  it('slides on a shared material by its combine mode, and a change to it reaches its colliders at once', () => {
+    const { scene, run } = world();
+    const ground = new Object3D();
+    ground.scale.set(40, 1, 40);
+    scene.add(ground);
+    ground.addComponent(BoxCollider, { friction: 1 });
+    const ice = new PhysicsMaterial({ friction: 0, frictionCombine: PhysicsMaterialCombine.Minimum });
+    const box = (z: number, material: PhysicsMaterial | null) => {
+      const node = new Object3D();
+      node.position.set(0, 1, z);
+      scene.add(node);
+      const body = node.addComponent(Rigidbody);
+      const collider = node.addComponent(BoxCollider, { friction: 1, material });
+      return { node, body, collider };
+    };
+    const onIce = box(-3, ice);
+    const plain = box(3, null);
+    run(0.5); // settled on the ground
+    for (const b of [onIce, plain]) b.body.velocity = new Vector3(4, 0, 0);
+    run(1);
+    // Minimum takes the ice's 0 over the ground's 1: it keeps going, where the plain box has stopped.
+    expect(onIce.node.position.x).toBeGreaterThan(3.5);
+    expect(plain.node.position.x).toBeLessThan(1.5);
+    ice.friction = 0.7;
+    expect(onIce.collider.rapierCollider!.friction()).toBeCloseTo(0.7);
   });
 });
 

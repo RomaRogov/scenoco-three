@@ -1,7 +1,7 @@
-import { Camera, Euler, Object3D, PerspectiveCamera, Scene, Timer, Vector2, Vector3, WebGLRenderer, type Quaternion } from 'three';
+import { Camera, Euler, Object3D, Scene, Timer, Vector2, Vector3, WebGLRenderer, type Quaternion } from 'three';
 import { Runtime, wake, provideCamera, type RenderCamera } from './kernel/index.js';
 import { Input } from './input/Input.js';
-import { installObserverBridge, isHeld } from './observe.js';
+import { installObserverBridge, isHeld, viewOf } from './observe.js';
 import { SceneManager, attachWorld, loadInto } from './scenes.js';
 import { edit } from './edit.js';
 import { Model } from './assets/Model.js';
@@ -22,8 +22,8 @@ export interface PlayOptions {
 export interface Game {
   /** The scene everything is in. `SceneManager.load` swaps what is in it, not the object. */
   readonly scene: Scene;
-  /** The camera drawing the scene now: the loaded scene's first camera, or a default one. */
-  readonly camera: RenderCamera;
+  /** The camera drawing the scene now: the loaded scene's first camera. Null, and nothing drawn, while it has none. */
+  readonly camera: RenderCamera | null;
   /** three.js's renderer: shadows, tone mapping and the rest are set on it as three.js documents. */
   readonly renderer: WebGLRenderer;
   readonly runtime: Runtime;
@@ -44,18 +44,22 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   if (import.meta.env?.DEV && new URLSearchParams(location.search).has('edit')) return edit(build, options);
   const scene = new Scene();
   const runtime = new Runtime(scene, { fixedDelta: options.fixedDelta });
-  const fallback = new PerspectiveCamera(50, 1, 0.1, 1000);
-  fallback.position.set(0, 0, 5);
 
   const renderer = options.renderer ?? new WebGLRenderer({ antialias: true });
   if (!options.renderer) renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const host = options.container ?? document.body;
   host.appendChild(renderer.domElement);
 
-  let camera: RenderCamera = fallback;
+  let camera: RenderCamera | null = null;
+  /**
+   * Frames drawn without a camera since the last load. Said once, a second in: a scene that loads the
+   * next one on its first frame — a bootstrap — never needs one, but an empty screen needs a reason.
+   */
+  let framesWithoutCamera = 0;
   const size = new Vector2();
   const fit = () => {
     renderer.getSize(size);
+    if (!camera) return;
     camera.aspect = size.x / size.y;
     camera.updateProjectionMatrix();
   };
@@ -65,9 +69,11 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     const look = (root: Object3D) => root.traverse((node) => void (found ??= (node as Camera).isCamera ? (node as RenderCamera) : null));
     for (const loaded of SceneManager.loadedScenes) look(loaded);
     if (!found) look(scene);
-    camera = found ?? fallback;
+    camera = found;
+    framesWithoutCamera = 0;
     fit();
   };
+  const noCamera = 'The scene has no camera, so nothing is drawn. Put one in it, as in Unity: <PerspectiveCamera position={[0, 2, 6]} />';
   const resize = () => {
     const width = host === document.body ? innerWidth : host.clientWidth;
     const height = host === document.body ? innerHeight : host.clientHeight;
@@ -89,7 +95,8 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     },
     renderer,
     runtime,
-    render: () => renderer.render(scene, camera),
+    // Called only while there is a camera.
+    render: () => renderer.render(scene, camera!),
   };
 
   /** One frame of the game: input first, then every behaviour, then input's one-frame edges roll over. */
@@ -107,7 +114,10 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   renderer.setAnimationLoop((now) => {
     timer.update(now);
     if (!isHeld(runtime)) frame(timer.getDelta());
-    game.render();
+    const view = import.meta.env?.DEV ? viewOf(runtime) : null;
+    if (view) renderer.render(scene, view);
+    else if (camera) game.render();
+    else if (++framesWithoutCamera === 60) console.error(noCamera);
   });
   return game;
 }

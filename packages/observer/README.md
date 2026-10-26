@@ -1,22 +1,20 @@
 # @scenoco-three/observer
 
-**An agent's eyes on a SceNoCo game, as an MCP server.** Part of
-[SceNoCo](https://github.com/RomaRogov/scenoco-three).
+**A SceNoCo game, driven from a test.** Part of [SceNoCo](https://github.com/RomaRogov/scenoco-three).
 
-```bash
-claude mcp add scenoco -- npx -y @scenoco-three/observer
+In development `play()` installs `window.__scenoco` in the page: hold and step the game clock, press
+keys, click, swipe, wait for a condition, read behaviours by class. Any browser tool can call it by
+evaluating in the page — `__scenoco.help()` lists it. This package is the same calls for a Playwright
+or Puppeteer test:
+
+```ts
+import { observe } from '@scenoco-three/observer';
+
+const game = await observe(page);
+await game.press('Space');
+expect((await game.until("GameState.phase === 'playing'")).met).toBe(true);
+expect(await game.eval('return findAll(Brick).length')).toBe(19);
 ```
 
-It speaks MCP on **stdio**: the client starts it in the project, and it ends with the session. On
-the first tool call it starts the project's **own Vite dev server** and a **headless Chrome** on the
-GPU (`--headed` shows the window), opens the game, and answers through the bridge `play()` installs
-in development. Nothing in the game has to expose anything.
-
-- `screenshot` — exactly what the player sees, HTML HUD included; or from another viewpoint.
-- `simulate` — ordered steps: `pause` holds the game clock, `step` / `until` advance exact frames
-  (`until: "GameState.phase === 'playing'"`), `watch` tabulates expressions over frames, `press`,
-  `click`, `swipe` drive input, `telemetry` / `outline` / `eval` read state. `Player.lane` is the
-  first live `Player`'s field; `#paddle` is the node named "paddle".
-- `outline`, `telemetry` — every behaviour's fields, by class.
-
-A page without SceNoCo still gets screenshots, input and `eval`.
+`Player.lane` reads the first live `Player`'s field; `#paddle` is the node named "paddle".
+`view({ cameraPos, lookAt })` draws from another viewpoint for the page's own screenshot.

@@ -12,14 +12,6 @@ describe('what agents and registries read', () => {
     expect(json('context7.json')).toEqual((await discovery()).context7());
   });
 
-  it("the MCP registry entry matches the observer's package", () => {
-    const pkg = json('packages/observer/package.json');
-    const server = json('packages/observer/server.json');
-    expect(server.name).toBe(pkg.mcpName);
-    expect(server.version).toBe(pkg.version);
-    expect(server.packages).toEqual([expect.objectContaining({ registryType: 'npm', identifier: pkg.name, version: pkg.version })]);
-  });
-
   it('every published package says what it is and where it lives', () => {
     for (const dir of readdirSync(new URL('packages/', root), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
       const pkg = json(`packages/${dir}/package.json`);

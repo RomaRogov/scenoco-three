@@ -7,9 +7,11 @@ read it instead of the package's source.
 
 - `src/scenes/` holds scenes and prefabs (`.tsx`), `src/` everything else; `src/main.ts` starts it.
 - `npm run check` typechecks, and checks that every `.tsx` file only declares.
-- `npm run dev` serves it. The `scenoco` MCP server (`.mcp.json`) runs the game in a headless Chrome:
-  `screenshot` shows it; `simulate` drives it — keys, clicks, swipes — holds and steps its clock
-  (`until: "GameState.phase === 'over'"`, `watch: ["Player.lane"]`) and reads behaviours by class.
+- `npm run dev` serves it. In development the page drives the running game from `window.__scenoco`
+  (`__scenoco.help()` lists it): hold and step its clock, press keys, click, swipe, read behaviours by
+  class. Evaluate in the page with any browser tool —
+  `async () => { await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
+  — then take its screenshot; in a Playwright test, `observe(page)` from `@scenoco-three/observer`.
 
 # How SceNoCo works
 
@@ -20,6 +22,8 @@ properties, R3F-style — `position={[0, 1, 0]}`, `color="#ff8800"`, `scale={2}`
 `shadow-mapSize={[1024, 1024]}`. A child node is added to its parent; a geometry or material fills
 `geometry` / `material`; anything else names the property it fills:
 `<Fog attach="fog" args={['#000000', 5, 30]} />`, `<Color attach="background" args={['#000000']} />`.
+A node with `attach` is both added and assigned: `<Object3D attach="target" position={[0, -1, 0]} />`
+inside a `DirectionalLight` is where it shines, and moves with it.
 
 **Behaviours.** What lives in the scene and changes over time — moves, reacts, animates — is
 Unity's MonoBehaviour: `class X extends Behaviour<Mesh>` in a `.ts` file, with the same hooks in
@@ -60,7 +64,8 @@ collider alone is static and still follows its node — and contacts arrive as
 `Physics.world`, `rb.rapierBody`, `collider.rapierCollider`. With rapier, `main.ts` starts with
 `await initRapier();`.
 
-**Starting.** `main.ts` runs `const game = play(Main);`. `game.renderer` is three's WebGLRenderer,
+**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first camera draws it, so a
+scene puts its camera in, as in Unity — one without draws nothing. `game.renderer` is three's WebGLRenderer,
 configured as three.js documents it — `game.renderer.shadowMap.enabled = true`.
 
 From Unity: gameObject/transform → `this.node` · transform.localPosition → `this.node.position`

@@ -1,7 +1,7 @@
 {
   "name": "scenoco-workspace",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Unity's behaviours on three.js, with scenes written in TSX and no React.",
   "type": "module",
   "license": "MIT",
@@ -51,9 +51,9 @@
   },
   "devDependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^25.9.3",
     "@types/three": "^0.184.1",
+    "playwright-core": "^1.62.1",
     "three": "^0.184.0",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",

@@ -1,8 +1,7 @@
 {
   "name": "@scenoco-three/observer",
-  "version": "0.7.0",
-  "mcpName": "io.github.RomaRogov/scenoco-observer",
-  "description": "An agent's eyes on a SceNoCo game: an MCP server over stdio that runs the project's own Vite dev server in a headless Chrome it owns, holds and steps the game clock, drives input, and reads behaviours back as text.",
+  "version": "0.8.0",
+  "description": "The running SceNoCo game from a test: observe(page) holds and steps the game clock, drives input, waits for conditions and reads behaviours back on any Playwright or Puppeteer page.",
   "keywords": [
     "three",
     "threejs",
@@ -14,12 +13,9 @@
     "webgl",
     "typescript",
     "unity",
-    "mcp",
-    "mcp-server",
     "ai-agent",
-    "testing",
-    "screenshot",
-    "headless-chrome"
+    "playwright",
+    "testing"
   ],
   "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/observer#readme",
   "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
@@ -30,15 +26,12 @@
     "url": "git+https://github.com/RomaRogov/scenoco-three.git",
     "directory": "packages/observer"
   },
-  "bin": {
-    "scenoco-observer": "dist/cli.js"
-  },
-  "main": "./dist/mcp.js",
-  "types": "./dist/mcp.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/mcp.d.ts",
-      "import": "./dist/mcp.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "files": [
@@ -49,15 +42,7 @@
   },
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "playwright-core": "^1.62.1",
-    "zod": "^4.0.0"
-  },
-  "peerDependencies": {
-    "vite": ">=6"
   }
 }

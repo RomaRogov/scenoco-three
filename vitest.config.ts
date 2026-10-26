@@ -19,6 +19,7 @@ export default defineConfig({
       { find: '@scenoco-three/audio', replacement: src('audio/src/index.ts') },
       { find: '@scenoco-three/splines', replacement: src('splines/src/index.ts') },
       { find: '@scenoco-three/terrain', replacement: src('terrain/src/index.ts') },
+      { find: /^@scenoco-three\/observer$/, replacement: src('observer/src/index.ts') },
       { find: '@scenoco-three/tools/vite', replacement: src('tools/src/vite.ts') },
       { find: '@scenoco-three/tools', replacement: src('tools/src/index.ts') },
     ],

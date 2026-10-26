@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/editor",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "The SceNoCo editor: opened on a game's own dev server with ?edit — a tree, an inspector and gizmos over the live scene, writing back to the .tsx files byte for byte.",
   "keywords": [
     "three",

@@ -1,7 +1,8 @@
 /**
  * Physics on Rapier, in Unity's shape: `Rigidbody`, `BoxCollider`/`SphereCollider`/`CapsuleCollider`,
- * `MeshCollider` (`convex` for a moving body), `TerrainCollider` (a `TerrainData`'s ground), and the
- * contact messages on any behaviour — `collision.impulse` says how hard a hit was.
+ * `MeshCollider` (`convex` for a moving body), `TerrainCollider` (a `TerrainData`'s ground),
+ * `PhysicsMaterial` (a surface colliders share, with combine modes), and the contact messages on any
+ * behaviour — `collision.impulse` says how hard a hit was.
  *
  * ```tsx
  * await initRapier(); // WebAssembly: once, before the scene renders
@@ -34,6 +35,7 @@ declareMessages(['onCollisionEnter', 'onCollisionExit', 'onTriggerEnter', 'onTri
 
 export { Physics, type Collision } from './Physics.js';
 export { Rigidbody, ForceMode } from './Rigidbody.js';
+export { PhysicsMaterial, PhysicsMaterialCombine } from './PhysicsMaterial.js';
 export { Collider, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, TerrainCollider, type TerrainHeights } from './colliders.js';
 
 let loading: Promise<void> | undefined;
