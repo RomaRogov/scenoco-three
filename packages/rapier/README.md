@@ -18,9 +18,11 @@ await initRapier(); // WebAssembly: once, before the first scene with physics
 </Mesh>
 ```
 
-- `Rigidbody` — `isKinematic`, `useGravity`, `freezeRotation`, damping, `velocity`,
-  `angularVelocity`, `maxAngularVelocity`, `mass`; `addForce(v, ForceMode.Impulse)`, `addTorque`,
-  `movePosition`, `moveRotation`. A dynamic body moves its node; a kinematic one follows its node.
+- `Rigidbody` — `isKinematic`, `useGravity`, `constraints`
+  (`RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY`, …), `freezeRotation`,
+  damping, `velocity`, `angularVelocity`, `maxAngularVelocity`, `mass`; `addForce(v, ForceMode.Impulse)`,
+  `addTorque`, `movePosition`, `moveRotation`. A change to any setting applies at once, as in Unity. A
+  dynamic body moves its node; a kinematic one follows its node.
 - `BoxCollider` (`size`), `SphereCollider` (`radius`), `CapsuleCollider` (`radius`, `height`),
   `MeshCollider` (the meshes under its node, or `sharedMesh`; `convex` for a moving body) and `TerrainCollider` (a
   `@scenoco-three/terrain` `TerrainData`'s ground), each with `isTrigger`, `center`, `friction`,

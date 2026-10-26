@@ -3,7 +3,8 @@
  *
  * A scene file may import, define constants — plain data, or objects made from it with `new`
  * (`const font = new Font(json)`) — and export functions that make refs and return TSX. Inside the
- * TSX a value is a literal, a list or object of them, arithmetic on them (`-Math.PI / 2`), or a name. Anything that runs — a loop, a branch, a handler, a call, a hook — is
+ * TSX a value is a literal, a list or object of them, arithmetic on them (`-Math.PI / 2`), flags
+ * combined with `|` (`RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ`), or a name. Anything that runs — a loop, a branch, a handler, a call, a hook — is
  * a component's job, in a `.ts` file. Each refusal says where and what to write instead.
  */
 import { readdirSync, statSync } from 'node:fs';
@@ -50,7 +51,7 @@ export function checkScene(file: string, code: string): string[] {
       case 'UnaryExpression':
         return ['-', '+'].includes(node.operator as string) ? value(node.argument as Node) : at(node, CALL);
       case 'BinaryExpression':
-        if (!['+', '-', '*', '/', '%'].includes(node.operator as string)) return at(node, BRANCH);
+        if (!['+', '-', '*', '/', '%', '|'].includes(node.operator as string)) return at(node, BRANCH);
         value(node.left as Node);
         return value(node.right as Node);
       case 'MemberExpression':

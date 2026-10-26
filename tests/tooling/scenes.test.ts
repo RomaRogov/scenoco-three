@@ -9,7 +9,7 @@ describe('a .tsx file is a scene', () => {
       const letter = { font: new Font(helvetiker), size: 1.6 };
       export const Main = () => {
         const hero = ref<Mesh>();
-        return <Group><Mesh ref={hero} rotation={[-Math.PI / 2, 0, 0]} position={[LANES[0] ?? 0, 1, 0]} /></Group>;
+        return <Group><Rigidbody constraints={RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY} /><Mesh ref={hero} rotation={[-Math.PI / 2, 0, 0]} position={[LANES[0] ?? 0, 1, 0]} /></Group>;
       };`;
     expect(checkScene('fine.tsx', fine.replace('LANES[0] ?? 0', '0'))).toEqual([]);
 

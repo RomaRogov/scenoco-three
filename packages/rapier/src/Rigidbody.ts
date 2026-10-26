@@ -18,6 +18,25 @@ export const ForceMode = {
 export type ForceMode = (typeof ForceMode)[keyof typeof ForceMode];
 
 /**
+ * The axes a body may not move along or turn about — Unity's `RigidbodyConstraints`, with its values,
+ * combined with `|`: `constraints={RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY}`.
+ */
+export const RigidbodyConstraints = {
+  None: 0,
+  FreezePositionX: 2,
+  FreezePositionY: 4,
+  FreezePositionZ: 8,
+  FreezeRotationX: 16,
+  FreezeRotationY: 32,
+  FreezeRotationZ: 64,
+  FreezePosition: 14,
+  FreezeRotation: 112,
+  FreezeAll: 126,
+} as const;
+/** One of `RigidbodyConstraints`, or several combined with `|`. */
+export type RigidbodyConstraints = number;
+
+/**
  * Unity's `Rigidbody`: makes its node a physics body. Its shape comes from the colliders on the
  * same node, in either order.
  *
@@ -27,17 +46,59 @@ export type ForceMode = (typeof ForceMode)[keyof typeof ForceMode];
  */
 export class Rigidbody extends Behaviour {
   isKinematic = false;
-  useGravity = true;
-  linearDamping = 0;
-  angularDamping = 0.05;
-  /** Keep it upright — what a character usually wants. */
-  freezeRotation = false;
   /** The fastest it may spin, radians per second — Unity's cap, 7 by default, so a body cannot spin up without end. */
   maxAngularVelocity = 7;
 
   /** @internal */ _body: RAPIER.RigidBody | null = null;
   /** @internal */ _physics: Physics | null = null;
   /** @internal */ readonly _attached = new Map<Collider, RAPIER.Collider>();
+
+  private _constraints: RigidbodyConstraints = RigidbodyConstraints.None;
+  private _useGravity = true;
+  private _linearDamping = 0;
+  private _angularDamping = 0.05;
+
+  // Unity applies these at once, so they are applied at once here too.
+  get useGravity(): boolean {
+    return this._useGravity;
+  }
+  set useGravity(on: boolean) {
+    this._useGravity = on;
+    this._body?.setGravityScale(on ? 1 : 0, true);
+  }
+
+  get linearDamping(): number {
+    return this._linearDamping;
+  }
+  set linearDamping(value: number) {
+    this._linearDamping = value;
+    this._body?.setLinearDamping(value);
+  }
+
+  get angularDamping(): number {
+    return this._angularDamping;
+  }
+  set angularDamping(value: number) {
+    this._angularDamping = value;
+    this._body?.setAngularDamping(value);
+  }
+
+  /** The axes it may not move along or turn about. A change applies at once, as in Unity. */
+  get constraints(): RigidbodyConstraints {
+    return this._constraints;
+  }
+  set constraints(value: RigidbodyConstraints) {
+    this._constraints = value;
+    this.applyConstraints();
+  }
+
+  /** Keep it from turning at all — what a character usually wants. Unity's shorthand for `FreezeRotation`. */
+  get freezeRotation(): boolean {
+    return (this._constraints & RigidbodyConstraints.FreezeRotation) === RigidbodyConstraints.FreezeRotation;
+  }
+  set freezeRotation(on: boolean) {
+    this.constraints = on ? this._constraints | RigidbodyConstraints.FreezeRotation : this._constraints & ~RigidbodyConstraints.FreezeRotation;
+  }
 
   /**
    * The Rapier body, from `awake` to `onDestroy` — use Rapier's own API on it for anything not
@@ -62,7 +123,10 @@ export class Rigidbody extends Behaviour {
   }
 
   set velocity(value: Vector3) {
-    this._body?.setLinvel(value, true);
+    // Rapier's locks stop forces and contacts, not a velocity handed to it: drop what is frozen, as Unity does.
+    const c = this._constraints;
+    const F = RigidbodyConstraints;
+    this._body?.setLinvel({ x: c & F.FreezePositionX ? 0 : value.x, y: c & F.FreezePositionY ? 0 : value.y, z: c & F.FreezePositionZ ? 0 : value.z }, true);
   }
 
   /** Angular velocity, radians per second. Assign a whole vector, as with `velocity`. */
@@ -72,7 +136,9 @@ export class Rigidbody extends Behaviour {
   }
 
   set angularVelocity(value: Vector3) {
-    this._body?.setAngvel(value, true);
+    const c = this._constraints;
+    const F = RigidbodyConstraints;
+    this._body?.setAngvel({ x: c & F.FreezeRotationX ? 0 : value.x, y: c & F.FreezeRotationY ? 0 : value.y, z: c & F.FreezeRotationZ ? 0 : value.z }, true);
   }
 
   addForce(force: Vector3, mode: ForceMode = ForceMode.Force): void {
@@ -110,6 +176,7 @@ export class Rigidbody extends Behaviour {
   override awake(): void {
     this._physics = service(this.node, Physics);
     this._body = this._physics.createBody(this);
+    this.applyConstraints();
     // A collider that started before this body existed has nothing else to attach it.
     for (const collider of this.getComponents(Collider)) if (collider._started && collider.enabled) this.attach(collider);
   }
@@ -129,6 +196,17 @@ export class Rigidbody extends Behaviour {
     for (const collider of this._attached.keys()) collider._collider = null;
     this._attached.clear();
     this._body = null;
+  }
+
+  private applyConstraints(): void {
+    const c = this._constraints;
+    const free = (flag: number) => (c & flag) === 0;
+    const F = RigidbodyConstraints;
+    this._body?.setEnabledTranslations(free(F.FreezePositionX), free(F.FreezePositionY), free(F.FreezePositionZ), true);
+    this._body?.setEnabledRotations(free(F.FreezeRotationX), free(F.FreezeRotationY), free(F.FreezeRotationZ), true);
+    // A frozen axis stops now, as in Unity: Rapier's lock only keeps it from gaining speed.
+    this.velocity = this.velocity;
+    this.angularVelocity = this.angularVelocity;
   }
 
   /** @internal */

@@ -11,6 +11,7 @@ import {
   PhysicsMaterial,
   PhysicsMaterialCombine,
   Rigidbody,
+  RigidbodyConstraints,
   SphereCollider,
   TerrainCollider,
   initRapier,
@@ -280,6 +281,27 @@ describe('rapier', () => {
     // Mass 1 kg falling 4.5 m: about 9.4 m/s, so an impulse near 9 N·s stops it.
     expect(hits[0]).toBeGreaterThan(5);
     expect(hits[0]).toBeLessThan(15);
+  });
+
+  it("freezes the axes Unity's constraints name, and a change applies at once", () => {
+    const { scene, run } = world();
+    const b = ball(scene, 0);
+    b.body.useGravity = false;
+    b.body.constraints = RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY;
+    run(0.05);
+    b.body.velocity = new Vector3(3, 2, 0);
+    b.body.angularVelocity = new Vector3(4, 4, 4);
+    run(0.5);
+    expect(b.node.position.x).toBeCloseTo(0, 5); // frozen along x
+    expect(b.node.position.y).toBeGreaterThan(0.5); // free along y
+    const w = b.body.angularVelocity;
+    expect([w.x, w.y]).toEqual([0, 0]);
+    expect(w.z).toBeGreaterThan(1); // turns only about z
+    expect(b.body.freezeRotation).toBe(false);
+    b.body.freezeRotation = true; // Unity's shorthand: every rotation frozen, the position flag kept
+    expect(b.body.constraints).toBe(RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezeRotation);
+    run(0.05);
+    expect(b.body.angularVelocity.z).toBe(0);
   });
 
   it('applies force modes the way Unity does', () => {

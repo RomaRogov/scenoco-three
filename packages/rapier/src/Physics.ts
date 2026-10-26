@@ -88,7 +88,6 @@ export class Physics extends System {
       .setLinearDamping(rigidbody.linearDamping)
       .setAngularDamping(rigidbody.angularDamping)
       .setGravityScale(rigidbody.useGravity ? 1 : 0);
-    if (rigidbody.freezeRotation) desc.lockRotations();
     const body = this.world.createRigidBody(desc);
     body.userData = rigidbody; // Rapier's own place for it, so `hit.collider.parent()?.userData` works too
     this.bodies.add(rigidbody);

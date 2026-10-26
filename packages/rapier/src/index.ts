@@ -34,7 +34,7 @@ declare module '@scenoco-three/core' {
 declareMessages(['onCollisionEnter', 'onCollisionExit', 'onTriggerEnter', 'onTriggerExit']);
 
 export { Physics, type Collision } from './Physics.js';
-export { Rigidbody, ForceMode } from './Rigidbody.js';
+export { Rigidbody, ForceMode, RigidbodyConstraints } from './Rigidbody.js';
 export { PhysicsMaterial, PhysicsMaterialCombine } from './PhysicsMaterial.js';
 export { Collider, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, TerrainCollider, type TerrainHeights } from './colliders.js';
 
