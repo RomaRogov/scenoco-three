@@ -31,13 +31,16 @@ export function summary() {
   return description;
 }
 
+/** The rules card's "How SceNoCo works" section: everything but the starter's own layout. */
+export function howItWorks() {
+  const section = read(CARD).split(/^# How SceNoCo works\s*$/m)[1];
+  if (!section) throw new Error(`${CARD} has no "# How SceNoCo works" section.`);
+  return section.trim();
+}
+
 /** The rules card's "How SceNoCo works" paragraphs, its Unity mapping last — each as one line. */
 export function rules() {
-  const card = read(CARD);
-  const section = card.split(/^# How SceNoCo works\s*$/m)[1];
-  if (!section) throw new Error(`${CARD} has no "# How SceNoCo works" section.`);
-  return section
-    .trim()
+  return howItWorks()
     .split(/\n\s*\n/)
     .map((text) => text.replace(/\s*\n\s*/g, ' ').trim());
 }

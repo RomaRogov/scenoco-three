@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "SceNoCo core: Unity's behaviours on three.js — Behaviour, coroutines, Time, Input, SceneManager — with scenes written in TSX and no React.",
   "keywords": [
     "three",
@@ -51,7 +51,8 @@
   },
   "files": [
     "dist",
-    "API.md"
+    "API.md",
+    "AGENTS.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -59,6 +60,7 @@
   "sideEffects": true,
   "scripts": {
     "prebuild": "rm -rf dist",
+    "prepack": "node ../../scripts/core-card.mjs",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

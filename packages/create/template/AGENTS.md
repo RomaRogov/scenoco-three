@@ -1,22 +1,25 @@
 # Project
 
-A game on SceNoCo: three.js scenes written in TSX — there is no React — and Unity's model of
-behaviours, named `Behaviour`. Everything not described here is plain three.js, TypeScript, DOM and
-CSS: write what you know. Every SceNoCo signature is in `node_modules/@scenoco-three/core/API.md` —
-read it instead of the package's source.
-
 - `src/scenes/` holds scenes and prefabs (`.tsx`), `src/` everything else; `src/main.ts` starts it.
-- `npm run check` typechecks, and checks that every `.tsx` file only declares.
-- `npm run dev` serves it. In development the page drives the running game from `window.__scenoco`
-  (`__scenoco.help()` lists it): hold and step its clock, press keys, click, swipe, read behaviours by
-  class. Evaluate in the page with any browser tool —
-  `async () => { await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
-  — then take its screenshot; in a Playwright test, `observe(page)` from `@scenoco-three/observer`.
+- `npm run check` runs `tsc --noEmit` and `scenoco check src`; `npm run dev` serves the game.
 
 # How SceNoCo works
 
+A game on SceNoCo: three.js scenes written in TSX — there is no React — and Unity's model of
+behaviours, named `Behaviour`. Everything not described here is plain three.js, TypeScript, DOM and
+CSS: write what you know. Every SceNoCo signature is in `node_modules/@scenoco-three/core/API.md` —
+read it instead of the package's source. Three's classes import from `three`, SceNoCo's (`Behaviour`,
+`play`, `prefab`, `ref`, `Input`, `Time`, …) from `@scenoco-three/core`.
+
+**Checking it.** `scenoco check src`, from `@scenoco-three/tools`, checks that every `.tsx` file only
+declares; `tsc` checks the rest. In development the page drives the running game from
+`window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock, press keys, click, swipe,
+read behaviours by class. Evaluate in the page with any browser tool —
+`async () => { await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
+— then take its screenshot; in a Playwright test, `observe(page)` from `@scenoco-three/observer`.
+
 **Scenes.** A `.tsx` file is a scene or a prefab, and it only declares — no hooks, loops, branches
-or handlers; `npm run check` points at them. An object made from data with `new` — a font, a curve — is
+or handlers; `scenoco check` points at them. An object made from data with `new` — a font, a curve — is
 a constant above the scene function: `const font = new Font(json)`. A tag is a three.js class you import:
 `<BoxGeometry args={[1, 2, 3]} />` is `new BoxGeometry(1, 2, 3)`, and attributes are its
 properties, R3F-style — `position={[0, 1, 0]}`, `color="#ff8800"`, `scale={2}`,
@@ -36,11 +39,11 @@ it is attached as a TSX child of its node: `<Mesh><Spinner speed={2} /></Mesh>`.
 **Links.** A typed ref made in the scene function links two objects: `const paddle = ref<Group>()`,
 `<Group ref={paddle}>`, `<Follow target={paddle} />` — the field holds the object itself,
 `target: Group | null = null`. A behaviour's tag takes `ref` too, linking that component:
-`<Rigidbody2D ref={wheel} />`, `<WheelJoint2D connectedBody={wheel} />`. In code, behaviours find each other as in Unity — `getComponent(T)`,
-`getComponentInChildren(T)`, `findObjectOfType(T)`, `findObjectsOfType(T)` — and can talk through
-`Event<T>` fields and `this.listen(event, fn)`. Unity's tags are empty behaviours —
-`class Enemy extends Behaviour {}`, `<Enemy />` on the node: `other.getComponent(Enemy)` is
-`CompareTag`, `findObjectsOfType(Enemy)` is `FindGameObjectsWithTag`.
+`<Rigidbody2D ref={wheel} />`, `<WheelJoint2D connectedBody={wheel} />`. In code, behaviours find
+each other as in Unity — `getComponent(T)`, `getComponentInChildren(T)`, `findObjectOfType(T)`,
+`findObjectsOfType(T)` — and can talk through `Event<T>` fields and `this.listen(event, fn)`. Unity's
+tags are empty behaviours — `class Enemy extends Behaviour {}`, `<Enemy />` on the node:
+`other.getComponent(Enemy)` is `CompareTag`, `findObjectsOfType(Enemy)` is `FindGameObjectsWithTag`.
 
 **Prefabs.** A prefab is made with `prefab()` around a function returning TSX with one root:
 `export const Coin = prefab(() => <Mesh>…</Mesh>)`. Its tag places and names that root as a Unity
@@ -49,10 +52,13 @@ instance's Transform does — `<Coin position={[2, 0, 0]} name="bonus" />` — s
 `instantiate(Coin, { position })` builds a fresh one each call — or taken by a field, as Unity's
 inspector does: `shot: Prefab | null = null`, `<Gun shot={Bullet} />`. A function not wrapped is a
 plain TSX component, reused markup whose tag is its props: `<Arena ballSpeed={16} />`. A scene is a
-plain function returning `<Scene>`: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a node across loads. A glTF model is
-loaded with `const hero = sharedModel('/hero.glb')` and `await loadAssets(hero)` in `main.ts`, then
-`instantiate(hero, { parent: this.node })`; its clips play through an `Animator`
-(`addComponent(Animator)`, `animator.crossFade('Run', 0.1)`).
+plain function returning `<Scene>`: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a
+node across loads.
+
+**Assets.** A glTF model is `const hero = sharedModel('/hero.glb')`, awaited with
+`await loadAssets(hero)` in `main.ts`, then `instantiate(hero, { parent: this.node })`; its clips play
+through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)`). A texture is
+`sharedTexture(url)`: one per URL, shared by every material that uses it.
 
 **Time.** `destroy(node)` is deferred to the end of the frame, as in Unity. Coroutines are Unity's:
 `this.startCoroutine(this.spawnWaves())` runs a generator method that yields
@@ -65,21 +71,32 @@ done with setTimeout or Date.now does not pause with it.
 pointer are Unity's: `Input.getKeyDown(KeyCode.Space)`, `Input.getAxis('Horizontal')`,
 `Input.getMouseButtonDown(MouseButton.Left)`, `Input.pointer`.
 
-**Physics** is a package: `npm install @scenoco-three/rapier` (3D) or `@scenoco-three/box2d` (2D).
-Bodies and colliders are Unity's components — `<Rigidbody />` plus a collider on the same element, and
-colliders on elements under it too, one compound body; a
-collider alone is static and still follows its node — and contacts arrive as
-`onCollisionEnter(collision)` / `onTriggerEnter(other)`. Unity's `Physics.raycast`, `CharacterController`
-and joints are there as Unity has them; everything else is Rapier's own API, used directly:
-`Physics.world`, `rb.rapierBody`, `collider.rapierCollider`. box2d's are the same in 2D:
-`Physics2D.raycast`, the nine 2D joints, `Physics2D.world` and `rb.planckBody` for planck's own. With rapier, `main.ts` starts with
-`await initRapier();`.
+**Space.** three.js is right-handed — x right, y up, z towards the viewer — where Unity is
+left-handed, z away; a camera looks down its own -z. Rotations are radians —
+`rotation={[-Math.PI / 2, 0, 0]}` lays a plane flat — where Unity's inspector shows degrees; 2D
+physics angles are degrees, as Unity's are.
 
-**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so a
-scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands over to
-the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and widens with the screen. `play(Main, { autoCamera: false })`
-leaves cameras to you: set `game.camera` and size it. `game.renderer` is three's WebGLRenderer,
-configured as three.js documents it — `game.renderer.shadowMap.enabled = true`.
+**Physics** is a package: `npm install @scenoco-three/rapier` (3D) or `@scenoco-three/box2d` (2D).
+Bodies and colliders are Unity's components — `<Rigidbody />` plus a collider on the same element,
+and colliders on elements under it too, one compound body; a collider alone is static and still
+follows its node — and contacts arrive as `onCollisionEnter(collision)` / `onTriggerEnter(other)`.
+Unity's `Physics.raycast`, `CharacterController` and joints are there as Unity has them; everything
+else is Rapier's own API, used directly: `Physics.world`, `rb.rapierBody`, `collider.rapierCollider`.
+With rapier, `main.ts` starts with `await initRapier();`. box2d is the same in 2D, in the XY plane:
+`Rigidbody2D`, `BoxCollider2D`, `Physics2D.raycast`, Unity's nine 2D joints, and `Physics2D.world` and
+`rb.planckBody` for planck's own.
+
+**More packages**, each in Unity's shape, each with its README in `node_modules/@scenoco-three/<name>/`:
+`particles` (`ParticleSystem`), `audio` (`AudioSource`), `splines` (`SplineContainer`, `SplineMesh`,
+`SplineAnimate`: tracks, rails, roads) and `terrain` (`Terrain`, `TerrainData`). Install one before
+writing your own.
+
+**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so
+a scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands
+over to the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and
+widens with the screen. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
+and size it. `game.renderer` is three's WebGLRenderer, configured as three.js documents it —
+`game.renderer.shadowMap.enabled = true`.
 
 From Unity: gameObject/transform → `this.node` · transform.localPosition → `this.node.position`
 (three's position is in the parent's space) · transform.position → `this.node.getWorldPosition(v)` ·

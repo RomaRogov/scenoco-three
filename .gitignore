@@ -31,3 +31,6 @@ agentic/
 
 # Test scratch folders, removed when their test file finishes
 tests/**/.tmp/
+
+# Written from the starter's rules card when core is packed (scripts/core-card.mjs)
+packages/core/AGENTS.md

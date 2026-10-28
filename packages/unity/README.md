@@ -20,7 +20,7 @@ Unity builds them the next time it compiles (or from **SceNoCo ▸ Import**):
 - **Behaviours** as MonoBehaviours. A game behaviour gets a C# stub in `Assets/Scripts/` with the
   fields its elements write, already set on every prefab and scene; its logic is yours to port. The
   stub is written once and never overwritten. Rapier's and Box2D's components become Unity's own
-  rigidbodies and colliders.
+  rigidbodies and colliders, and Box2D's joints Unity's 2D joints.
 
 The game is read in its own page, through its own Vite dev server and a headless Chrome: every
 module but the entry is imported, so nothing starts, and each prefab is built with its behaviours

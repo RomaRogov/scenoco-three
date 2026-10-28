@@ -1,7 +1,7 @@
 {
   "name": "scenoco-workspace",
   "private": true,
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "Unity's behaviours on three.js, with scenes written in TSX and no React.",
   "type": "module",
   "license": "MIT",
@@ -30,7 +30,7 @@
     "examples:build": "npm --prefix examples/breakout run build",
     "build": "npm run build:core && npm run build:box2d && npm run build:rapier && npm run build:particles && npm run build:audio && npm run build:splines && npm run build:terrain && npm run build:observer && npm run build:tools && npm run build:unity && npm run build:editor",
     "build:core": "npm --prefix packages/core run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && npm --prefix examples/breakout run check && npm --prefix examples/home run check && npm --prefix examples/race run check && npm --prefix examples/td run check && npm --prefix packages/create/template run check && npm --prefix examples/subway run check",
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm --prefix examples/breakout run check && npm --prefix examples/home run check && npm --prefix examples/race run check && npm --prefix examples/td run check && npm --prefix packages/create/template run check && npm --prefix examples/subway run check && npm --prefix examples/eggy run check",
     "typecheck:core": "npm --prefix packages/core run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",

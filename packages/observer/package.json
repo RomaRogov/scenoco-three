@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/observer",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "The running SceNoCo game from a test: observe(page) holds and steps the game clock, drives input, waits for conditions and reads behaviours back on any Playwright or Puppeteer page.",
   "keywords": [
     "three",

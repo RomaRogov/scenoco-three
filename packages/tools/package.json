@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/tools",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "SceNoCo's tools: `scenoco check` (a .tsx scene only declares), the `scenoco()` Vite plugin, and the read/edit layer the editor uses on scene files.",
   "keywords": [
     "three",
@@ -55,7 +55,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/editor": "^0.9.5",
+    "@scenoco-three/editor": "^0.9.6",
     "launch-editor": "^2.14.2",
     "rolldown": "^1.0.3"
   },

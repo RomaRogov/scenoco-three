@@ -35,6 +35,8 @@ and a production build never contains it.
   degrees, colours, flags, strings, and one-of-a-few values as a list — `alignTo="world"`, three's
   `side={DoubleSide}` (imported for you when the file lacks it). What each field is comes from its
   declared type, as the project's TypeScript (7 or later) reads it; `private` fields are not shown.
+  A behaviour lists every public field, those the file leaves out greyed at their defaults; a
+  three.js tag lists what the file writes, besides a node's name and transform.
   Drag a number sideways to scrub it. A value with focus
   shows what the file says; a value changed and not saved, or moved by the game, has a reset
   button at the end of its line that puts back what the file says — or, for one the file does not

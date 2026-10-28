@@ -58,6 +58,8 @@ try {
     // A cache or an install left in a package folder ships with it: create@0.7.0 carried 5 MB of Vite's.
     const stray = info.files.find((f) => f.path.includes('node_modules/'));
     if (stray) fail(`${manifest.name} would publish ${stray.path} — exclude it in "files"`);
+    // The rules card, for an agent in a project the starter did not make: written by core's prepack.
+    if (dir === 'core' && !info.files.some((f) => f.path === 'AGENTS.md')) fail('core would publish no AGENTS.md — its prepack writes it');
     packed.set(manifest.name, join(tarballs, info.filename));
     console.log(`  ${manifest.name}@${manifest.version}  ${info.files.length} files`);
   }

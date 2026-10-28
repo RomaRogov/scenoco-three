@@ -33,7 +33,7 @@ not memory.
 - `packages/core` — the kernel (`Behaviour`, the per-scene `Runtime`, coroutines, `Time`, events,
   destruction), the TSX runtime (`jsx.ts`), `play`, `SceneManager`, `Input`, assets, and the
   dev-only bridge a browser drives the game through (`observe.ts`).
-- Packages (`rapier`, `box2d`, `particles`, `audio`) attach through core's package seam: a private
+- Packages (`rapier`, `box2d`, `particles`, `audio`, `splines`, `terrain`) attach through core's package seam: a private
   per-scene `System` reached with `service(node, Type)`, Unity's message names declared with
   `declareMessages`, and Unity's static facades (`Physics.gravity`) for anything a game sets.
 - `packages/tools` — `scenoco check` (the scene rule) and `scene-edit.ts`, the editor's
@@ -65,7 +65,7 @@ not memory.
 ```bash
 npm install
 npm run build        # every package in dependency order
-npm run typecheck    # tsc over every package and the tests, then breakout's own check
+npm run typecheck    # tsc over every package and the tests, then each example's and the starter's own check
 npm test             # vitest — lean suite in zone folders under tests/
 npm run examples:dev # the breakout example
 npm run smoke:pack   # the packed tarballs, installed outside the workspace and played
@@ -75,10 +75,16 @@ npm run discovery    # context7.json again, after the root package.json's descri
 
 `context7.json`, `llms.txt` and the site's meta description take their words from the root
 `package.json`'s `description` and the starter's rules card (`scripts/discovery.mjs`); nothing there
-is written a second time. The README is free to read as a letter.
+is written a second time. Core ships the card's "How SceNoCo works" as its own `AGENTS.md`, written by its
+`prepack` (`scripts/core-card.mjs`) — edit the starter's card, never that copy. The README is free to read as a letter.
 
 Tests live in the root `tests/` in zone folders (`core/`, `packages/`, `tooling/`); one test per
-behaviour. `tests/core/api.test.ts` fails when a game-facing export is missing from `API.md`.
+behaviour. Test files run in parallel: one that writes files keeps them in its own
+`.tmp/<name>-${process.pid}/` and removes only that. `tests/core/api.test.ts` fails when a game-facing export is missing from `API.md`.
+
+A release is a tag: `git tag vX.Y.Z && git push origin vX.Y.Z` runs `.github/workflows/release.yml`,
+which checks everything again and publishes every package at the version in its `package.json`. All
+packages share one version; bump them together.
 
 ## Done means
 

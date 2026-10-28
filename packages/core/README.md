@@ -5,6 +5,7 @@ Part of [SceNoCo](https://github.com/RomaRogov/scenoco-three).
 
 ```bash
 npm install @scenoco-three/core three
+npm install -D @scenoco-three/tools vite
 ```
 
 ```ts
@@ -23,7 +24,8 @@ export class Spinner extends Behaviour<Mesh> {
 
 export const Main = () => (
   <Scene>
-    <PerspectiveCamera position={[0, 2, 5]} />
+    <PerspectiveCamera position={[0, 2, 5]} rotation={[-0.4, 0, 0]} />
+    <DirectionalLight position={[3, 8, 5]} intensity={2} />
     <Mesh>
       <BoxGeometry />
       <MeshStandardMaterial color="orange" />
@@ -50,3 +52,7 @@ play(Main);
   [the editor](../editor) over the running game.
 
 **Every signature is in [API.md](API.md)** — one page, test-enforced to name every export.
+How the pieces fit — scenes, behaviours, refs, prefabs, assets, physics, the other packages — is the
+rules card a model reads, shipped beside this README: point an agent at
+`node_modules/@scenoco-three/core/AGENTS.md`. A project `npm create @scenoco-three` makes has it as its
+own `AGENTS.md` ([the card](https://github.com/RomaRogov/scenoco-three/blob/main/packages/create/template/AGENTS.md)).

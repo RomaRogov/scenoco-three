@@ -17,3 +17,6 @@ The rule exists so a tool can edit a scene. `readScene`, `setAttribute`, `insert
 `removeElement` and friends read a scene file without running it and write by splicing exactly the
 text that changed — everything else, comments and layout included, stays byte for byte. Elements are
 found by the line and column the runtime's `sourceOf` reports, so a picked object leads to its tag.
+
+`@scenoco-three/tools/vite` is the project's Vite plugin, `scenoco()`: TSX through core's runtime and,
+while serving, [the editor](../editor) with the endpoints it reads and writes scene files through.
