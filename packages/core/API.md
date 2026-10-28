@@ -14,6 +14,7 @@ is three.js, as three.js documents it.
 //   <Spinner speed={2} />        a Behaviour becomes a component of its parent; its props are its public fields
 //   ref={hero}                   const hero = ref<Mesh>() inside the scene function; a behaviour field takes it too,
 //                                and holds the object itself: target: Mesh | null = null, never a Ref
+//   <Rigidbody2D ref={wheel} />  a behaviour's tag takes ref too: the component, for a field such as connectedBody
 //   <Tower projectile={Arrow} /> a prefab as a setting: projectile: Prefab | null = null
 //   <Pad position={[4, 0, 2]} /> a prefab(…) returns one root; its tag's position, rotation, scale and name are
 //                                that root's, as a Unity instance's Transform — the prefab's props are the rest

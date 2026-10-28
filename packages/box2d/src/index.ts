@@ -16,6 +16,7 @@
 import { declareMessages } from '@scenoco-three/core';
 import type { Collider2D } from './Collider2D.js';
 import type { Collision2D } from './Collision2D.js';
+import type { Joint2D } from './joints.js';
 
 // The hooks exist — typed — only where this package is imported.
 declare module '@scenoco-three/core' {
@@ -29,9 +30,11 @@ declare module '@scenoco-three/core' {
     onTriggerEnter2D?(other: Collider2D): void;
     onTriggerStay2D?(other: Collider2D): void;
     onTriggerExit2D?(other: Collider2D): void;
+    /** A joint on this node broke, past its `breakForce` or `breakTorque`; it is destroyed after. */
+    onJointBreak2D?(joint: Joint2D): void;
   }
 }
-declareMessages(['onCollisionEnter2D', 'onCollisionStay2D', 'onCollisionExit2D', 'onTriggerEnter2D', 'onTriggerStay2D', 'onTriggerExit2D']);
+declareMessages(['onCollisionEnter2D', 'onCollisionStay2D', 'onCollisionExit2D', 'onTriggerEnter2D', 'onTriggerStay2D', 'onTriggerExit2D', 'onJointBreak2D']);
 
 export { Physics2D } from './Physics2D.js';
 export { Rigidbody2D, RigidbodyType2D, RigidbodyConstraints2D, ForceMode2D, CollisionDetectionMode2D } from './Rigidbody2D.js';
@@ -43,3 +46,20 @@ export { CircleCollider2D } from './CircleCollider2D.js';
 export { CapsuleCollider2D, CapsuleDirection2D } from './CapsuleCollider2D.js';
 export { EdgeCollider2D } from './EdgeCollider2D.js';
 export { PolygonCollider2D } from './PolygonCollider2D.js';
+export {
+  Joint2D,
+  AnchoredJoint2D,
+  FixedJoint2D,
+  HingeJoint2D,
+  DistanceJoint2D,
+  SpringJoint2D,
+  SliderJoint2D,
+  WheelJoint2D,
+  FrictionJoint2D,
+  RelativeJoint2D,
+  TargetJoint2D,
+  type JointMotor2D,
+  type JointAngleLimits2D,
+  type JointTranslationLimits2D,
+  type JointSuspension2D,
+} from './joints.js';

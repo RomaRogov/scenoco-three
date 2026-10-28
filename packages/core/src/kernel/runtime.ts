@@ -329,7 +329,7 @@ export function declareMessages(names: readonly string[]): void {
 
 const HOOKS = ['awake', 'onEnable', 'start', 'fixedUpdate', 'update', 'lateUpdate', 'onDisable', 'onDestroy', 'onValidate'];
 /** Unity messages nothing sends until an extension declares them — a method by one of these names would silently never run. */
-const NOT_SENT = new Set(['onTriggerEnter', 'onTriggerExit', 'onTriggerStay', 'onCollisionEnter', 'onCollisionExit', 'onCollisionStay', 'onControllerColliderHit', 'onTriggerEnter2D', 'onTriggerExit2D', 'onTriggerStay2D', 'onCollisionEnter2D', 'onCollisionExit2D', 'onCollisionStay2D', 'onMouseDown', 'onMouseUp']);
+const NOT_SENT = new Set(['onTriggerEnter', 'onTriggerExit', 'onTriggerStay', 'onCollisionEnter', 'onCollisionExit', 'onCollisionStay', 'onControllerColliderHit', 'onTriggerEnter2D', 'onTriggerExit2D', 'onTriggerStay2D', 'onCollisionEnter2D', 'onCollisionExit2D', 'onCollisionStay2D', 'onJointBreak2D', 'onMouseDown', 'onMouseUp']);
 const checked = new WeakSet<Function>();
 
 /** A Unity habit that compiles and then does nothing gets said out loud, once per class. */

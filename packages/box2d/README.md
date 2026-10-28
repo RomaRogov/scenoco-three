@@ -36,9 +36,14 @@ const bouncy = new PhysicsMaterial2D({ friction: 0, bounciness: 1 });
 - Contact messages on any behaviour of the collider's node and its body's:
   `onCollisionEnter2D/Stay2D/Exit2D(collision)` — `collision.node`, `.contacts`,
   `.relativeVelocity` — and `onTriggerEnter2D/Stay2D/Exit2D(other)`. Destroying in a handler is safe.
+- Unity's 2D joints, on the body's node, to `connectedBody` or the world: `HingeJoint2D`,
+  `FixedJoint2D`, `DistanceJoint2D`, `SpringJoint2D`, `SliderJoint2D`, `WheelJoint2D`,
+  `FrictionJoint2D`, `RelativeJoint2D`, `TargetJoint2D` — anchors, limits, motors and auto-configure
+  as Unity has them; `breakForce`/`breakTorque` send `onJointBreak2D(joint)`, then destroy it. Link the
+  other body with a ref on its tag: `<Rigidbody2D ref={wheel} />`, `connectedBody={wheel}`.
 - Unity's queries: `Physics2D.raycast(origin, direction)` returning a `RaycastHit2D` or null,
   `raycastAll`, `overlapPoint`, `overlapCircle(All)`, `overlapBox(All)`, each taking a `layerMask`
   (`1 << layer`); `Physics2D.queriesHitTriggers`, `queriesStartInColliders`.
 - `Physics2D.ignoreLayerCollision(a, b)` has two layers (0 to 15) pass through each other.
 - `Physics2D.gravity` sets gravity. Everything else is planck's, used as planck documents it:
-  `Physics2D.world` is its world, `rb.planckBody` and `collider.planckFixtures` its objects.
+  `Physics2D.world` is its world, `rb.planckBody`, `collider.planckFixtures` and `joint.planckJoint` its objects.

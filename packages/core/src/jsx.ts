@@ -34,6 +34,7 @@ interface BehaviourMarker {
   readonly [MARKER]: true;
   readonly type: ConstructableBehaviour;
   readonly init: Record<string, unknown>;
+  readonly link: Ref<unknown> | undefined;
 }
 
 function isBehaviourClass(type: unknown): type is ConstructableBehaviour {
@@ -45,9 +46,9 @@ function isMarker(value: unknown): value is BehaviourMarker {
 }
 
 function marker(type: ConstructableBehaviour, props: Record<string, unknown>): BehaviourMarker {
-  const { children, key: _key, ...init } = props;
+  const { children, key: _key, ref: link, ...init } = props;
   if (children !== undefined) throw new Error(`<${type.name}> is a behaviour and takes no children.`);
-  return { [MARKER]: true, type, init };
+  return { [MARKER]: true, type, init, link: link as Ref<unknown> | undefined };
 }
 
 // A destroyed node takes what its elements built with it.
@@ -260,6 +261,7 @@ export function applyProp(target: Record<string, unknown>, key: string, value: u
 function addChild(parent: Record<string, unknown>, child: unknown, tag: string): void {
   if (isMarker(child)) {
     const behaviour = addDormant(parent as never, child.type, child.init);
+    if (child.link) child.link.current = behaviour;
     // Where it was written and what it said, for the editor: `jsxDEV` records them, `jsx` does not.
     if (import.meta.env?.DEV) {
       const source = sources.get(child);
@@ -384,7 +386,7 @@ export declare namespace ThreeJSX {
   }
   type LibraryManagedAttributes<C, P> = C extends abstract new (...args: never) => infer I
     ? I extends AnyBehaviour
-      ? BehaviourInit<I> & { key?: string | number }
+      ? BehaviourInit<I> & { key?: string | number; ref?: Ref<I> }
       : C extends AnyClass
         ? ClassProps<C>
         : P

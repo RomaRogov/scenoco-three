@@ -374,6 +374,7 @@ namespace SceNoCo
                 }
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
+            Physics.WireJoints(n, go, root, warnings.Add);
             if (n.ContainsKey("prefab")) return; // a nested prefab is wired in its own asset
             var children = List(n["children"]).Select(Obj).ToList();
             for (var i = 0; i < children.Count && i < go.transform.childCount; i++) Wire(children[i], go.transform.GetChild(i).gameObject, root);
@@ -581,8 +582,146 @@ namespace SceNoCo
                         SetCollider2D(c, f);
                         return true;
                     }
+                    // Joints: `connectedBody` is another node's, set by `WireJoints` once every node is built.
+                    case "FixedJoint2D":
+                    {
+                        var j = go.AddComponent<FixedJoint2D>();
+                        SetAnchored(j, f, true);
+                        j.frequency = Num(f, "frequency", 0);
+                        j.dampingRatio = Num(f, "dampingRatio", 0);
+                        return true;
+                    }
+                    case "HingeJoint2D":
+                    {
+                        var j = go.AddComponent<HingeJoint2D>();
+                        SetAnchored(j, f, true);
+                        j.useLimits = Bool(f, "useLimits", false);
+                        if (f.ContainsKey("limits")) { var l = Fields(f["limits"]); j.limits = new JointAngleLimits2D { min = Num(l, "min", 0), max = Num(l, "max", 359) }; }
+                        j.useMotor = Bool(f, "useMotor", false);
+                        if (f.ContainsKey("motor")) j.motor = Motor(f["motor"]);
+                        return true;
+                    }
+                    case "DistanceJoint2D":
+                    {
+                        var j = go.AddComponent<DistanceJoint2D>();
+                        SetAnchored(j, f, false);
+                        j.autoConfigureDistance = Bool(f, "autoConfigureDistance", true);
+                        if (f.ContainsKey("distance")) j.distance = Num(f, "distance", 1);
+                        j.maxDistanceOnly = Bool(f, "maxDistanceOnly", false);
+                        return true;
+                    }
+                    case "SpringJoint2D":
+                    {
+                        var j = go.AddComponent<SpringJoint2D>();
+                        SetAnchored(j, f, false);
+                        j.autoConfigureDistance = Bool(f, "autoConfigureDistance", true);
+                        if (f.ContainsKey("distance")) j.distance = Num(f, "distance", 1);
+                        j.dampingRatio = Num(f, "dampingRatio", 0);
+                        j.frequency = Num(f, "frequency", 1);
+                        return true;
+                    }
+                    case "SliderJoint2D":
+                    {
+                        var j = go.AddComponent<SliderJoint2D>();
+                        SetAnchored(j, f, true);
+                        j.autoConfigureAngle = Bool(f, "autoConfigureAngle", false);
+                        j.angle = Num(f, "angle", 0);
+                        j.useLimits = Bool(f, "useLimits", false);
+                        if (f.ContainsKey("limits")) { var l = Fields(f["limits"]); j.limits = new JointTranslationLimits2D { min = Num(l, "min", 0), max = Num(l, "max", 0) }; }
+                        j.useMotor = Bool(f, "useMotor", false);
+                        if (f.ContainsKey("motor")) j.motor = Motor(f["motor"]);
+                        return true;
+                    }
+                    case "WheelJoint2D":
+                    {
+                        var j = go.AddComponent<WheelJoint2D>();
+                        SetAnchored(j, f, true);
+                        if (f.ContainsKey("suspension"))
+                        {
+                            var s = Fields(f["suspension"]);
+                            j.suspension = new JointSuspension2D { dampingRatio = Num(s, "dampingRatio", 0.7f), frequency = Num(s, "frequency", 2), angle = Num(s, "angle", 90) };
+                        }
+                        j.useMotor = Bool(f, "useMotor", false);
+                        if (f.ContainsKey("motor")) j.motor = Motor(f["motor"]);
+                        return true;
+                    }
+                    case "FrictionJoint2D":
+                    {
+                        var j = go.AddComponent<FrictionJoint2D>();
+                        SetAnchored(j, f, true);
+                        j.maxForce = Num(f, "maxForce", 1);
+                        j.maxTorque = Num(f, "maxTorque", 1);
+                        return true;
+                    }
+                    case "RelativeJoint2D":
+                    {
+                        var j = go.AddComponent<RelativeJoint2D>();
+                        SetJoint(j, f);
+                        j.maxForce = Num(f, "maxForce", 10000);
+                        j.maxTorque = Num(f, "maxTorque", 10000);
+                        j.correctionScale = Num(f, "correctionScale", 0.3f);
+                        j.autoConfigureOffset = Bool(f, "autoConfigureOffset", true);
+                        if (f.ContainsKey("linearOffset")) j.linearOffset = V2(f["linearOffset"]);
+                        if (f.ContainsKey("angularOffset")) j.angularOffset = Num(f, "angularOffset", 0);
+                        return true;
+                    }
+                    case "TargetJoint2D":
+                    {
+                        var j = go.AddComponent<TargetJoint2D>();
+                        SetJoint(j, f);
+                        if (f.ContainsKey("anchor")) j.anchor = V2(f["anchor"]);
+                        j.autoConfigureTarget = Bool(f, "autoConfigureTarget", true);
+                        if (f.ContainsKey("target")) j.target = V2(f["target"]);
+                        j.maxForce = Num(f, "maxForce", 1000);
+                        j.dampingRatio = Num(f, "dampingRatio", 1);
+                        j.frequency = Num(f, "frequency", 5);
+                        return true;
+                    }
                 }
                 return false;
+            }
+
+            static void SetJoint(Joint2D j, Dictionary<string, object> f)
+            {
+                j.enableCollision = Bool(f, "enableCollision", false);
+                if (f.ContainsKey("breakForce")) j.breakForce = Num(f, "breakForce", float.PositiveInfinity);
+                if (f.ContainsKey("breakTorque")) j.breakTorque = Num(f, "breakTorque", float.PositiveInfinity);
+            }
+
+            /** `autoConfigureConnectedAnchor` before `connectedAnchor`: Unity overwrites the anchor while it is on. */
+            static void SetAnchored(AnchoredJoint2D j, Dictionary<string, object> f, bool autoByDefault)
+            {
+                SetJoint(j, f);
+                if (f.ContainsKey("anchor")) j.anchor = V2(f["anchor"]);
+                j.autoConfigureConnectedAnchor = Bool(f, "autoConfigureConnectedAnchor", autoByDefault);
+                if (f.ContainsKey("connectedAnchor")) j.connectedAnchor = V2(f["connectedAnchor"]);
+            }
+
+            /** A settings object's fields: `{ object: { fields } }`. */
+            static Dictionary<string, object> Fields(object v) => Obj(Obj(Obj(v)["object"])["fields"]);
+
+            static JointMotor2D Motor(object v)
+            {
+                var m = Fields(v);
+                return new JointMotor2D { motorSpeed = Num(m, "motorSpeed", 0), maxMotorTorque = Num(m, "maxMotorTorque", 10000) };
+            }
+
+            /** Each joint's `connectedBody`: the Rigidbody2D on the node it names, joints matched by type in order. */
+            public static void WireJoints(Dictionary<string, object> n, GameObject go, GameObject root, Action<string> warn)
+            {
+                var seen = new Dictionary<string, int>();
+                foreach (var comp in List(n["components"]).Select(Obj).Where(c => !(bool)c["game"]))
+                {
+                    var type = Str(comp, "type");
+                    var t = typeof(Joint2D).Assembly.GetType("UnityEngine." + type);
+                    if (t == null || !typeof(Joint2D).IsAssignableFrom(t)) continue;
+                    seen[type] = seen.TryGetValue(type, out var i) ? i + 1 : 0;
+                    if (!Obj(comp["fields"]).TryGetValue("connectedBody", out var link) || !(link is Dictionary<string, object> l) || !l.TryGetValue("node", out var path)) continue;
+                    var joint = (Joint2D)go.GetComponents(t)[seen[type]];
+                    var target = Find(root, (string)path);
+                    joint.connectedBody = target != null ? target.GetComponent<Rigidbody2D>() : null;
+                    if (joint.connectedBody == null) warn($"{type} on {go.name}: its connectedBody was not found");
+                }
             }
 
             static void SetCollider3D(Collider c, Dictionary<string, object> f)

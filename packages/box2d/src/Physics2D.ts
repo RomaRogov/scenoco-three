@@ -1,8 +1,9 @@
 import { AABB, CircleShape, PolygonShape, Transform, Vec2, World, testOverlap, type Body, type Contact, type Fixture, type Shape } from 'planck';
 import { MathUtils, Vector2, type Object3D } from 'three';
-import { Runtime, System, sendMessage, service } from '@scenoco-three/core';
+import { Runtime, System, destroy, sendMessage, service } from '@scenoco-three/core';
 import { Collision2D, type ContactPoint2D, type RaycastHit2D } from './Collision2D.js';
 import type { Collider2D } from './Collider2D.js';
+import type { Joint2D } from './joints.js';
 import { RigidbodyConstraints2D, RigidbodyType2D, type Rigidbody2D } from './Rigidbody2D.js';
 import { applyWorldPose, sameFrame, shapeFrame, worldPose } from './transform.js';
 
@@ -114,12 +115,18 @@ export class Physics2D extends System {
   private readonly events: { touch: Touch; phase: 'Enter' | 'Exit' }[] = [];
   /** This step's normal impulses, by contact. */
   private readonly impulses = new Map<Contact, number[]>();
+  /** @internal every made joint, set before each step and measured after. */
+  readonly joints = new Set<Joint2D>();
+  /** The world's own body, for joints with no connected body. */
+  private ground: Body | null = null;
 
   override awake(): void {
     this.world = new World({ gravity: new Vec2(Physics2D.gravity.x, Physics2D.gravity.y) });
     this.world.on('begin-contact', (contact) => this.touch(contact, 1));
     this.world.on('end-contact', (contact) => this.touch(contact, -1));
     this.world.on('post-solve', (contact, impulse) => this.impulses.set(contact, [...impulse.normalImpulses]));
+    // A body destroyed takes its joints with it.
+    this.world.on('remove-joint', (joint) => (joint.getUserData() as Joint2D | null)?._lost(joint));
     worlds.add(this);
   }
 
@@ -130,6 +137,7 @@ export class Physics2D extends System {
       collider._body = null;
       collider._fixtures = [];
     }
+    for (const joint of this.joints) joint._lost(joint.planckJoint!);
     this.bodies.clear();
     this.colliders.clear();
     this.poses.clear();
@@ -207,6 +215,11 @@ export class Physics2D extends System {
     this.colliders.delete(collider);
   }
 
+  /** @internal a static body at the origin, holding the world's side of a joint with no connected body. */
+  _ground(): Body {
+    return (this.ground ??= this.world.createBody({ type: 'static' }));
+  }
+
   /** @internal the colliders shaping a body. */
   collidersOn(body: Body): Set<Collider2D> {
     const found = new Set<Collider2D>();
@@ -272,9 +285,12 @@ export class Physics2D extends System {
       if (!sameFrame(collider._frame, shapeFrame(collider.node, owner))) collider._rebuild();
     }
 
+    for (const joint of [...this.joints]) joint._sync();
+
     this.world.setGravity(new Vec2(Physics2D.gravity.x, Physics2D.gravity.y));
     this.impulses.clear();
     this.world.step(dt, Physics2D.velocityIterations, Physics2D.positionIterations);
+    const broken = [...this.joints].filter((joint) => joint._measure(1 / dt));
 
     for (const [body, x, y] of frozen) {
       const p = body.getPosition();
@@ -299,6 +315,11 @@ export class Physics2D extends System {
     for (const [rigidbody, pose] of this.poses) if (rigidbody._body && rigidbody.isActiveAndEnabled) advance(pose, rigidbody._body, dt);
 
     this.dispatchContacts();
+    // As in Unity, a broken joint tells its node, then is destroyed.
+    for (const joint of broken) {
+      sendMessage(joint.node, 'onJointBreak2D', joint);
+      destroy(joint);
+    }
   }
 
   /** Dynamic bodies are drawn between their last two fixed poses, so motion is smooth at any frame rate. */

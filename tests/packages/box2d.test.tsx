@@ -5,6 +5,16 @@ import {
   BoxCollider2D,
   CircleCollider2D,
   Collision2D,
+  DistanceJoint2D,
+  FixedJoint2D,
+  FrictionJoint2D,
+  HingeJoint2D,
+  RelativeJoint2D,
+  SliderJoint2D,
+  SpringJoint2D,
+  TargetJoint2D,
+  WheelJoint2D,
+  type Joint2D,
   ForceMode2D,
   Physics2D,
   PolygonCollider2D,
@@ -174,6 +184,136 @@ describe('box2d', () => {
     expect(ball.position.y).toBeCloseTo(0.9, 1); // on the cup's floor at 0.5
     expect(Math.abs(ball.position.x)).toBeLessThan(1.5);
     expect(scene.getObjectByName('cup')!.getComponent(PolygonCollider2D)!.planckFixtures.length).toBeGreaterThan(1);
+  });
+});
+
+class Snapped extends Behaviour {
+  broke: Joint2D | null = null;
+  override onJointBreak2D(joint: Joint2D) { this.broke = joint; }
+}
+
+describe('box2d joints', () => {
+  it("hinges about the anchor, the motor turning as Unity's does, within the limits", () => {
+    const scene = (
+      <Scene>
+        <Group name="pendulum" position={[2, 0, 0]}><Rigidbody2D /><CircleCollider2D radius={0.2} /><HingeJoint2D anchor={[-2, 0]} /></Group>
+        <Group name="flipper" position={[0, 10, 0]}><Rigidbody2D gravityScale={0} /><BoxCollider2D size={[2, 0.2]} /><HingeJoint2D useMotor motor={{ motorSpeed: 90, maxMotorTorque: 1000 }} /></Group>
+        <Group name="gate" position={[11, 10, 0]}><Rigidbody2D /><BoxCollider2D size={[2, 0.2]} /><HingeJoint2D anchor={[-1, 0]} useLimits limits={{ min: -20, max: 20 }} /></Group>
+      </Scene>
+    ) as Scene;
+    run(scene, 1);
+    const pendulum = scene.getObjectByName('pendulum')!;
+    expect(pendulum.position.length()).toBeCloseTo(2, 2);
+    expect(pendulum.position.y).toBeLessThan(-1);
+    expect(pendulum.getComponent(HingeJoint2D)!.connectedAnchor.toArray()).toEqual([0, 0]); // the world point it hangs from
+    // The angle is the connected side's turn against this body: a positive speed turns this one clockwise.
+    const flipper = scene.getObjectByName('flipper')!;
+    expect(flipper.getComponent(Rigidbody2D)!.rotation).toBeCloseTo(-90, -1);
+    expect(flipper.getComponent(HingeJoint2D)!.jointAngle).toBeCloseTo(90, -1);
+    expect(Math.abs(scene.getObjectByName('gate')!.getComponent(Rigidbody2D)!.rotation)).toBeLessThan(21);
+  });
+
+  it('holds a distance as a rod, at most as a rope, and springs back to it', () => {
+    Physics2D.gravity.set(0, 0);
+    const scene = (
+      <Scene>
+        <Group name="rod" position={[0, -1, 0]}><Rigidbody2D /><CircleCollider2D radius={0.1} /><DistanceJoint2D /></Group>
+        <Group name="rope" position={[10, -1, 0]}><Rigidbody2D /><CircleCollider2D radius={0.1} /><DistanceJoint2D connectedAnchor={[10, 0]} maxDistanceOnly /></Group>
+        <Group name="spring" position={[20, -1, 0]}><Rigidbody2D /><CircleCollider2D radius={0.1} /><SpringJoint2D connectedAnchor={[20, 0]} frequency={2} dampingRatio={1} /></Group>
+      </Scene>
+    ) as Scene;
+    run(scene, 0);
+    for (const name of ['rod', 'rope', 'spring']) scene.getObjectByName(name)!.getComponent(Rigidbody2D)!.addForce(new Vector2(0, 3), ForceMode2D.Impulse);
+    run(scene, 0.3);
+    expect(scene.getObjectByName('rod')!.position.length()).toBeCloseTo(1, 2);
+    expect(scene.getObjectByName('rope')!.position.y).toBeGreaterThan(-0.5); // slack: it went up
+    expect(scene.getObjectByName('rope')!.getComponent(DistanceJoint2D)!.distance).toBeCloseTo(1, 5);
+    scene.getObjectByName('rod')!.getComponent(Rigidbody2D)!.addForce(new Vector2(0, -50), ForceMode2D.Impulse);
+    scene.getObjectByName('rope')!.getComponent(Rigidbody2D)!.addForce(new Vector2(0, -50), ForceMode2D.Impulse);
+    run(scene, 3);
+    expect(scene.getObjectByName('rope')!.position.y).toBeGreaterThan(-1.01);
+    expect(scene.getObjectByName('spring')!.position.y).toBeCloseTo(-1, 1); // back where it rests
+  });
+
+  it('glues two bodies, and breaks past breakForce: onJointBreak2D, then the joint is gone', () => {
+    const anchor = { current: null as Rigidbody2D | null };
+    const scene = (
+      <Scene>
+        <Group name="crate" position={[0, 5, 0]}><Rigidbody2D gravityScale={0} ref={anchor} /><BoxCollider2D /></Group>
+        <Group name="lid" position={[0, 6, 0]} rotation={[0, 0, 0.3]}><Rigidbody2D /><BoxCollider2D /><FixedJoint2D connectedBody={anchor} /></Group>
+        <Group name="sign" position={[5, 5, 0]}><Rigidbody2D mass={10} /><BoxCollider2D /><FixedJoint2D breakForce={50} /><Snapped /></Group>
+      </Scene>
+    ) as Scene;
+    run(scene, 1);
+    const crate = scene.getObjectByName('crate')!;
+    const lid = scene.getObjectByName('lid')!;
+    expect(lid.position.y - crate.position.y).toBeCloseTo(1, 2);
+    expect(lid.rotation.z - crate.rotation.z).toBeCloseTo(0.3, 2);
+    const sign = scene.getObjectByName('sign')!;
+    expect(sign.getComponent(Snapped)!.broke).toBeInstanceOf(FixedJoint2D);
+    expect(sign.getComponent(FixedJoint2D)).toBeNull();
+    expect(sign.position.y).toBeLessThan(2);
+  });
+
+  it('slides, rolls on a wheel, follows a target, holds an offset and drags by friction', () => {
+    const wheel = { current: null as Rigidbody2D | null };
+    const leader = { current: null as Rigidbody2D | null };
+    const scene = (
+      <Scene>
+        <Group name="ground" position={[0, -0.5, 0]}><BoxCollider2D size={[200, 1]} /></Group>
+        <Group name="lift" position={[0, 20, 0]}><Rigidbody2D /><BoxCollider2D /><SliderJoint2D angle={90} useLimits limits={{ min: -3, max: 3 }} useMotor motor={{ motorSpeed: -2, maxMotorTorque: 1000 }} /></Group>
+        <Group name="car" position={[30, 1.5, 0]}><Rigidbody2D /><BoxCollider2D size={[3, 0.5]} /><WheelJoint2D anchor={[-1, -0.9]} connectedBody={wheel} useMotor motor={{ motorSpeed: 360, maxMotorTorque: 500 }} /></Group>
+        <Group name="wheel" position={[29, 0.6, 0]}><Rigidbody2D ref={wheel} /><CircleCollider2D radius={0.6} /></Group>
+        <Group name="dragged" position={[60, 10, 0]}><Rigidbody2D /><BoxCollider2D /><TargetJoint2D /></Group>
+        <Group name="leader" position={[80, 10, 0]}><Rigidbody2D bodyType={RigidbodyType2D.Kinematic} ref={leader} /></Group>
+        <Group name="follower" position={[82, 10, 0]}><Rigidbody2D gravityScale={0} /><BoxCollider2D /><RelativeJoint2D connectedBody={leader} /></Group>
+        <Group name="puck" position={[100, 10, 0]}><Rigidbody2D gravityScale={0} /><CircleCollider2D /><FrictionJoint2D maxForce={2} /></Group>
+      </Scene>
+    ) as Scene;
+    run(scene, 0);
+    scene.getObjectByName('puck')!.getComponent(Rigidbody2D)!.linearVelocity = new Vector2(3, 0);
+    scene.getObjectByName('dragged')!.getComponent(TargetJoint2D)!.target.set(64, 12);
+    scene.getObjectByName('leader')!.position.x += 1;
+    run(scene, 3);
+    const lift = scene.getObjectByName('lift')!;
+    expect(lift.position.x).toBeCloseTo(0, 3);
+    expect(lift.position.y).toBeCloseTo(23, 1); // driven up to its upper limit, against gravity
+    expect(lift.getComponent(SliderJoint2D)!.jointTranslation).toBeCloseTo(-3, 1); // measured from the connected side, as the angle is
+    expect(scene.getObjectByName('car')!.position.x).toBeLessThan(25); // a positive speed turns the wheel counter-clockwise: it rolls left
+    const dragged = scene.getObjectByName('dragged')!;
+    expect(dragged.position.x).toBeCloseTo(64, 1);
+    expect(dragged.position.y).toBeCloseTo(12, 0);
+    expect(scene.getObjectByName('follower')!.position.x).toBeCloseTo(83, 1);
+    const puck = scene.getObjectByName('puck')!.getComponent(Rigidbody2D)!;
+    expect(puck.linearVelocity.length()).toBeLessThan(0.01);
+    expect(puck.position.x).toBeGreaterThan(101);
+  });
+
+  it('makes the joint again when its placement changes or it is enabled, and lets go of a destroyed body', () => {
+    Physics2D.gravity.set(0, 0);
+    const other = { current: null as Rigidbody2D | null };
+    const scene = (
+      <Scene>
+        <Group name="other" position={[2, 0, 0]}><Rigidbody2D ref={other} /><CircleCollider2D radius={0.2} /></Group>
+        <Group name="self"><Rigidbody2D /><CircleCollider2D radius={0.2} /><DistanceJoint2D connectedBody={other} /></Group>
+      </Scene>
+    ) as Scene;
+    run(scene, 0.1);
+    const joint = scene.getObjectByName('self')!.getComponent(DistanceJoint2D)!;
+    const first = joint.planckJoint;
+    expect(joint.distance).toBeCloseTo(2, 5);
+    joint.maxDistanceOnly = true;
+    run(scene, 0.1);
+    expect(joint.planckJoint).not.toBe(first);
+    expect(joint.planckJoint!.getType()).toBe('rope-joint');
+    joint.enabled = false;
+    expect(joint.planckJoint).toBeNull();
+    joint.enabled = true;
+    expect(joint.planckJoint).not.toBeNull();
+    destroy(scene.getObjectByName('other')!);
+    run(scene, 0.1);
+    expect(joint.planckJoint).toBeNull();
+    expect(Physics2D.world!.getJointCount()).toBe(0);
   });
 });
 

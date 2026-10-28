@@ -35,7 +35,8 @@ it is attached as a TSX child of its node: `<Mesh><Spinner speed={2} /></Mesh>`.
 
 **Links.** A typed ref made in the scene function links two objects: `const paddle = ref<Group>()`,
 `<Group ref={paddle}>`, `<Follow target={paddle} />` — the field holds the object itself,
-`target: Group | null = null`. In code, behaviours find each other as in Unity — `getComponent(T)`,
+`target: Group | null = null`. A behaviour's tag takes `ref` too, linking that component:
+`<Rigidbody2D ref={wheel} />`, `<WheelJoint2D connectedBody={wheel} />`. In code, behaviours find each other as in Unity — `getComponent(T)`,
 `getComponentInChildren(T)`, `findObjectOfType(T)`, `findObjectsOfType(T)` — and can talk through
 `Event<T>` fields and `this.listen(event, fn)`. Unity's tags are empty behaviours —
 `class Enemy extends Behaviour {}`, `<Enemy />` on the node: `other.getComponent(Enemy)` is
@@ -66,11 +67,12 @@ pointer are Unity's: `Input.getKeyDown(KeyCode.Space)`, `Input.getAxis('Horizont
 
 **Physics** is a package: `npm install @scenoco-three/rapier` (3D) or `@scenoco-three/box2d` (2D).
 Bodies and colliders are Unity's components — `<Rigidbody />` plus a collider on the same element, and
-with rapier colliders on elements under it too, one compound body; a
+colliders on elements under it too, one compound body; a
 collider alone is static and still follows its node — and contacts arrive as
 `onCollisionEnter(collision)` / `onTriggerEnter(other)`. Unity's `Physics.raycast`, `CharacterController`
 and joints are there as Unity has them; everything else is Rapier's own API, used directly:
-`Physics.world`, `rb.rapierBody`, `collider.rapierCollider`. With rapier, `main.ts` starts with
+`Physics.world`, `rb.rapierBody`, `collider.rapierCollider`. box2d's are the same in 2D:
+`Physics2D.raycast`, the nine 2D joints, `Physics2D.world` and `rb.planckBody` for planck's own. With rapier, `main.ts` starts with
 `await initRapier();`.
 
 **Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so a
