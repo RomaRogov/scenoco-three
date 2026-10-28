@@ -28,3 +28,6 @@ agentic/
 .aider.conf.yml
 .clinerules
 
+
+# Test scratch folders, removed when their test file finishes
+tests/**/.tmp/

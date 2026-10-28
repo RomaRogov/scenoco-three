@@ -19,7 +19,7 @@ import { Bob } from '../fixtures';
 // a shared material from code, attributes one per line, bare flags, self-closing tags, a behaviour.
 const SCENE = `/** @jsxImportSource @scenoco-three/core */
 import { BoxGeometry, DirectionalLight, Group, Mesh, MeshStandardMaterial, Scene, SphereGeometry } from 'three';
-import { Bob } from '../../fixtures';
+import { Bob } from '../../../fixtures';
 
 const LANE = 2.2;
 const shared = new MeshStandardMaterial();
@@ -46,7 +46,8 @@ export const Main = () => (
 );
 `;
 
-const DIR = new URL('./.tmp/', import.meta.url);
+// Its own folder, per run: test files run side by side, and each removes only what it made.
+const DIR = new URL(`./.tmp/scene-edit-${process.pid}/`, import.meta.url);
 afterAll(() => rmSync(DIR, { recursive: true, force: true }));
 
 let builds = 0;

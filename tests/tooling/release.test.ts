@@ -2,7 +2,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { build, type Rollup } from 'vite';
 
-const root = new URL('./.tmp/release/', import.meta.url).pathname;
+// Its own folder, per run: test files run side by side, and each removes only what it made.
+const root = new URL(`./.tmp/release-${process.pid}/`, import.meta.url).pathname;
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe('a release build', () => {

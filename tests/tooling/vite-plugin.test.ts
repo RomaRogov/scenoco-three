@@ -5,7 +5,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { handle, scenesIn } from '@scenoco-three/tools/vite';
 import { Definitions } from '../../packages/tools/src/definitions.js';
 
-const root = new URL('./.tmp/plugin/', import.meta.url).pathname;
+// Its own folder, per run: test files run side by side, and each removes only what it made.
+const root = new URL(`./.tmp/plugin-${process.pid}/`, import.meta.url).pathname;
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 /** A request as Node's server hands it over: a stream with a method and a URL. */
