@@ -23,7 +23,9 @@ const track = ref<Group>();
 
 - `SplineContainer` — `knots`, `closed`; `evaluatePosition/Tangent/UpVector(t)` in world space and
   `calculateLength()`. `t` runs 0..1 along the length. A knot is a position, its tangents smoothed
-  from its neighbours, or `{ position, tangentIn, tangentOut, roll }`; `roll` banks the turn.
+  from its neighbours, or `{ position, tangentIn, tangentOut, roll }`; `roll` banks the turn. Or
+  `knots={points}`, a ref to a node whose children are the knots: move one with the editor's gizmo
+  and the spline, and all that is built along it, follows.
 - `SplineMesh` — bends a modelled piece (a road section with its kerbs, a rail, a fence) along the
   spline, repeated end to end; a `Model` keeps its materials. The piece runs along +Z with +Y up and
   bends where it has edge loops. Compressed glTF (gltfpack `-cc`) is fine.
@@ -37,5 +39,7 @@ const track = ref<Group>();
   a car is on the track, how far it is from the centre line.
 
 The components find their spline through `container={ref}`, a ref to the node holding the
-`SplineContainer`, or use the one on their own node. `SplineMesh`, `SplineExtrude` and
-`SplineInstantiate` build once in `start`; call `rebuild()` after changing the knots.
+`SplineContainer`, or use the one on their own node. `SplineMesh`, `SplineExtrude`,
+`SplineInstantiate` and `SplineAnimate` build in `start` and again on the container's `changed`
+event: when its knots or `closed` are assigned anew, a knot node moves, or its node moves — and in
+`onValidate`, at once, when the editor changes any of them.

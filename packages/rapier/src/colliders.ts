@@ -1,13 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Box3, BufferGeometry, Matrix4, Vector3, type Mesh, type Object3D } from 'three';
+import { Box3, BufferGeometry, Matrix4, Quaternion, Vector3, type Mesh, type Object3D } from 'three';
 import { Behaviour, service, writtenOf, type Event } from '@scenoco-three/core';
-import { Physics } from './Physics.js';
+import { Physics, checkLayer, collisionGroups } from './Physics.js';
 import { PhysicsMaterialCombine, type PhysicsMaterial } from './PhysicsMaterial.js';
 import { Rigidbody } from './Rigidbody.js';
 
 /**
- * Unity's `Collider`: a shape. With a `Rigidbody` on the same node it shapes that body; without
- * one it is static — a floor, a wall, a coin — and moving its node still moves it, as in Unity.
+ * Unity's `Collider`: a shape. With a `Rigidbody` on its node or a parent's it shapes that body —
+ * colliders on child nodes make one compound body with it, as in Unity; without one it is static — a floor, a wall, a coin — and moving its node still moves it, as in Unity.
  * Sizes are scaled by the node's world scale, as Unity scales them, so `<BoxCollider />` on a
  * mesh scaled to 4 is 4 wide.
  *
@@ -22,8 +22,26 @@ export abstract class Collider extends Behaviour {
   /** Kilograms per cubic metre: with the size, the body's mass. */
   density = 1;
 
+  private _layer = 0;
+
+  /**
+   * Its physics layer, 0 to 15 — Unity's `gameObject.layer`, as the colliders see it. Two layers
+   * `Physics.ignoreLayerCollision` names pass through each other.
+   */
+  get layer(): number {
+    return this._layer;
+  }
+  set layer(value: number) {
+    checkLayer(value);
+    this._layer = value;
+    this._collider?.setCollisionGroups(collisionGroups(value));
+  }
+
   /** @internal */ _collider: RAPIER.Collider | null = null;
+  /** @internal the node's world scale the shape was made at. */ readonly _builtScale = new Vector3();
   /** @internal */ _physics: Physics | null = null;
+  /** @internal on a child of its body's node: its pose in the body, as last given to Rapier. */
+  readonly _mount = { p: new Vector3(), q: new Quaternion() };
 
   private _friction = 0.5;
   private _bounciness = 0;
@@ -86,13 +104,21 @@ export abstract class Collider extends Behaviour {
     return this._collider;
   }
 
-  /** The body this collider shapes, or null for a static collider. */
+  /** The body this collider shapes — the nearest `Rigidbody` on its node or above — or null for a static collider. */
   get attachedRigidbody(): Rigidbody | null {
-    return this._node ? this.getComponent(Rigidbody) : null;
+    return this._node ? this.getComponentInParent(Rigidbody) : null;
   }
 
   /** @internal the shape at this world scale. */
   abstract shape(scale: Vector3): RAPIER.ColliderDesc;
+
+  /**
+   * @internal the live shape resized to this world scale, in place — what a shape with a size of a
+   * few numbers can do. False when it cannot, and the shape is made again instead.
+   */
+  _resize(_created: RAPIER.Collider, _scale: Vector3): boolean {
+    return false;
+  }
 
   // `start`, not `awake`: by then every behaviour on the node is awake, so a Rigidbody written
   // after its collider already has its body, and a model shown in `awake` is there to fit.
@@ -135,7 +161,12 @@ export abstract class Collider extends Behaviour {
     if (rigidbody) return rigidbody.attach(this);
     if (this._collider) return;
     this._physics = service(this.node, Physics);
-    this._collider = this._physics.createCollider(this, null);
+    this._collider = this._physics.createCollider(this, this._ownBody(this._physics));
+  }
+
+  /** @internal a body this collider carries itself, with no `Rigidbody`: a `CharacterController`'s. */
+  _ownBody(_physics: Physics): RAPIER.RigidBody | null {
+    return null;
   }
 
   private remove(): void {
@@ -160,6 +191,11 @@ export class BoxCollider extends Collider {
   shape(scale: Vector3): RAPIER.ColliderDesc {
     return RAPIER.ColliderDesc.cuboid((this.size.x * scale.x) / 2, (this.size.y * scale.y) / 2, (this.size.z * scale.z) / 2);
   }
+
+  override _resize(created: RAPIER.Collider, scale: Vector3): boolean {
+    created.setHalfExtents({ x: (this.size.x * scale.x) / 2, y: (this.size.y * scale.y) / 2, z: (this.size.z * scale.z) / 2 });
+    return true;
+  }
 }
 
 export class SphereCollider extends Collider {
@@ -175,6 +211,11 @@ export class SphereCollider extends Collider {
 
   shape(scale: Vector3): RAPIER.ColliderDesc {
     return RAPIER.ColliderDesc.ball(this.radius * Math.max(scale.x, scale.y, scale.z));
+  }
+
+  override _resize(created: RAPIER.Collider, scale: Vector3): boolean {
+    created.setRadius(this.radius * Math.max(scale.x, scale.y, scale.z));
+    return true;
   }
 }
 
@@ -193,10 +234,22 @@ export class CapsuleCollider extends Collider {
   }
 
   shape(scale: Vector3): RAPIER.ColliderDesc {
-    const radius = this.radius * Math.max(scale.x, scale.z);
-    const half = Math.max((this.height * scale.y) / 2 - radius, 0);
+    const { half, radius } = capsuleSize(this.radius, this.height, scale);
     return RAPIER.ColliderDesc.capsule(half, radius);
   }
+
+  override _resize(created: RAPIER.Collider, scale: Vector3): boolean {
+    const { half, radius } = capsuleSize(this.radius, this.height, scale);
+    created.setRadius(radius);
+    created.setHalfHeight(half);
+    return true;
+  }
+}
+
+/** @internal an upright capsule's half height between its caps, and its radius, at a world scale. */
+export function capsuleSize(radius: number, height: number, scale: Vector3): { half: number; radius: number } {
+  const r = radius * Math.max(scale.x, scale.z);
+  return { half: Math.max((height * scale.y) / 2 - r, 0), radius: r };
 }
 
 /**

@@ -1,18 +1,20 @@
 import { BoxShape, type Shape } from 'planck';
-import { Vector2 } from 'three';
+import { Vector2, type Box3 } from 'three';
 import { Collider2D } from './Collider2D.js';
+import { placePoint, type ShapeFrame } from './transform.js';
 
-/** A 2D box collision shape. */
+/** Unity's `BoxCollider2D`: a rectangle `size` wide and high — full size, not half. Left out, the mesh's. */
 export class BoxCollider2D extends Collider2D {
-  /**
-   * Half the box's size — half the *visible* size, if it is meant to match the mesh.
-   *
-   * A collider never infers its size from the geometry beside it. The two are separate assets
-   * now, and a collider that guessed would be wrong the moment either changed.
-   */
-  halfExtents = new Vector2(0.5, 0.5);
+  size = new Vector2(1, 1);
 
-  override toShape(): Shape {
-    return new BoxShape(this.halfExtents.x, this.halfExtents.y);
+  protected override fit(bounds: Box3, written: ReadonlySet<string>): void {
+    if (written.has('size')) return;
+    this.size.set(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
+    this.fitOffset(bounds, written);
+  }
+
+  shapes(frame: ShapeFrame): Shape[] {
+    const centre = placePoint(frame, this.offset.x, this.offset.y);
+    return [new BoxShape(Math.abs((this.size.x * frame.scaleX) / 2), Math.abs((this.size.y * frame.scaleY) / 2), centre, frame.angle)];
   }
 }

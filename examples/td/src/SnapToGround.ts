@@ -9,6 +9,15 @@ export class SnapToGround extends Behaviour {
   offset = 0;
 
   override start() {
+    this.snap();
+  }
+
+  /** `radius` or `offset` changed in the editor: seated again. */
+  override onValidate() {
+    this.snap();
+  }
+
+  private snap() {
     const terrain = findObjectOfType(Terrain);
     if (!terrain) return;
     const world = this.node.getWorldPosition(new Vector3());

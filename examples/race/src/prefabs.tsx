@@ -1,9 +1,10 @@
 import {
   BoxGeometry, ConeGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry,
 } from 'three';
+import { prefab } from '@scenoco-three/core';
 
 /** A car, its nose at +Z as `SplineAnimate` faces it. */
-export const Car = () => (
+export const Car = prefab(() => (
   <Group>
     <Mesh position={[0, 0.65, 0]} castShadow>
       <BoxGeometry args={[1.9, 0.6, 4.2]} />
@@ -30,10 +31,10 @@ export const Car = () => (
       <MeshStandardMaterial color="#111" />
     </Mesh>
   </Group>
-);
+));
 
 /** A lamp post. */
-export const Lamp = () => (
+export const Lamp = prefab(() => (
   <Group>
     <Mesh position={[0, 2.5, 0]} castShadow>
       <CylinderGeometry args={[0.08, 0.12, 5, 8]} />
@@ -44,10 +45,10 @@ export const Lamp = () => (
       <MeshStandardMaterial color="#fff6d6" emissive="#ffe8a3" emissiveIntensity={1.5} />
     </Mesh>
   </Group>
-);
+));
 
 /** A pine. */
-export const Tree = () => (
+export const Tree = prefab(() => (
   <Group>
     <Mesh position={[0, 0.8, 0]} castShadow>
       <CylinderGeometry args={[0.18, 0.25, 1.6, 7]} />
@@ -58,4 +59,4 @@ export const Tree = () => (
       <MeshStandardMaterial color="#2f6b3a" roughness={0.9} flatShading />
     </Mesh>
   </Group>
-);
+));

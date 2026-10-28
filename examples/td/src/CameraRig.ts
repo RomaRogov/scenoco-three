@@ -2,19 +2,24 @@ import { MathUtils, type PerspectiveCamera, Vector3 } from 'three';
 import { Behaviour, Event, Input } from '@scenoco-three/core';
 
 /**
- * The level's camera, tilted over the map. It frames `width` units across whatever the screen's
- * shape — a phone held upright sees the whole play area — and the player drags to pan, pinches or
- * scrolls to zoom. A tap (a touch that barely moved) is reported through `onTap` for picking.
+ * The level's camera, tilted over the map. Held upright it frames `width` units across; on a wide
+ * screen it turns the map on its side — the lair on the left, the castle on the right — and frames
+ * `span`, the map's length, across. Either way the whole play area is in view. The player drags to
+ * pan, pinches or scrolls to zoom. A tap (a touch that barely moved) is reported through `onTap`.
  */
 export class CameraRig extends Behaviour<PerspectiveCamera> {
   /** Degrees below the horizon. */
   pitch = 52;
-  /** Units across the screen at the focus, zoomed out. */
+  /** Units of the map's width across the screen at the focus, zoomed out, held upright. */
   width = 30;
-  /** And at most this much of the map's length, top to bottom, on a wide screen. */
+  /** And units of its length top to bottom: held upright both fit, on a phone or a tablet. */
   length = 72;
-  /** Where it looks, zoomed out: a little towards the castle, so the HUD covers sky, not the keep. */
+  /** Units of the map's length across a wide screen, which sees the map on its side. */
+  span = 66;
+  /** Where it looks, zoomed out and held upright: a little towards the castle, so the HUD covers sky, not the keep. */
   centre: [number, number] = [0, 2.5];
+  /** And on a wide screen, x and z: where the map turned on its side is centred. */
+  wideCentre: [number, number] = [0, 0];
   /** How far the focus may wander from `centre`, x and z, zoomed all the way in. */
   bounds: [number, number] = [12, 22];
   /** Ground height the camera looks at. */
@@ -58,22 +63,36 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
   override lateUpdate(dt: number) {
     const scroll = Input.mouseScrollDelta.y;
     if (scroll) this.zoom = MathUtils.clamp(this.zoom * Math.exp(-scroll * 0.0015), 1, this.maxZoom);
+    this.place(dt);
+  }
 
+  /** A field changed in the editor: the camera moves at once, paused or not. */
+  override onValidate() {
+    this.place(0);
+  }
+
+  private place(dt: number) {
     const camera = this.node;
     const tanHalf = Math.tan(MathUtils.degToRad(camera.fov / 2));
     const pitch = MathUtils.degToRad(this.pitch);
-    // Distance at which `width` fits across, capped so a wide screen still sees no more than `length`.
+    // Upright: far enough for `width` to fit across and `length` top to bottom — a phone's narrow
+    // screen is held back by the width, a tablet's by the length. Wide: the map turned a quarter,
+    // its length (`span`) across.
+    const wide = camera.aspect > 1;
     const fitWidth = this.width / (2 * tanHalf * camera.aspect);
     const fitLength = (this.length * Math.sin(pitch)) / (2 * tanHalf);
-    const distance = Math.min(fitWidth, fitLength) / this.zoom;
+    const fitSpan = this.span / (2 * tanHalf * camera.aspect);
+    const distance = (wide ? fitSpan : Math.max(fitWidth, fitLength)) / this.zoom;
 
     // Zoomed out, the whole area is in view: the focus may only wander as far as the zoom allows.
     const room = 1 - 1 / this.zoom;
-    const [cx, cz] = this.centre;
+    const [cx, cz] = wide ? this.wideCentre : this.centre;
     this.focus.x = MathUtils.clamp(this.focus.x, cx - this.bounds[0] * room, cx + this.bounds[0] * room);
     this.focus.z = MathUtils.clamp(this.focus.z, cz - this.bounds[1] * room, cz + this.bounds[1] * room);
 
-    camera.position.set(this.focus.x, this.ground + Math.sin(pitch) * distance, this.focus.z + Math.cos(pitch) * distance);
+    // Upright it looks towards -z (the lair at the top); wide, towards +x (the lair on the left).
+    const back = Math.cos(pitch) * distance;
+    camera.position.set(this.focus.x - (wide ? back : 0), this.ground + Math.sin(pitch) * distance, this.focus.z + (wide ? 0 : back));
     if (this.shakeLeft > 0) {
       this.shakeLeft -= dt;
       const s = this.shakeStrength * Math.max(0, this.shakeLeft / 0.35);
@@ -112,8 +131,15 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
     // Drag the ground: a screen pixel is this many units at the focus.
     const camera = this.node;
     const perPixel = (2 * this.node.position.distanceTo(new Vector3(this.focus.x, this.ground, this.focus.z)) * Math.tan(MathUtils.degToRad(camera.fov / 2))) / window.innerHeight;
-    this.focus.x -= dx * perPixel;
-    this.focus.z -= (dy * perPixel) / Math.sin(MathUtils.degToRad(this.pitch));
+    const across = dx * perPixel;
+    const along = (dy * perPixel) / Math.sin(MathUtils.degToRad(this.pitch));
+    if (camera.aspect > 1) {
+      this.focus.z -= across;
+      this.focus.x += along;
+    } else {
+      this.focus.x -= across;
+      this.focus.z -= along;
+    }
   };
 
   private up = (e: PointerEvent) => {

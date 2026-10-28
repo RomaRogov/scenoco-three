@@ -1,4 +1,4 @@
-import { CircleGeometry, MeshBasicMaterial, RingGeometry, SpriteMaterial } from 'three';
+import { CanvasTexture, ClampToEdgeWrapping, MeshBasicMaterial, MeshStandardMaterial, RingGeometry, SRGBColorSpace, SpriteMaterial } from 'three';
 import { sharedModel, sharedTexture, type Loadable } from '@scenoco-three/core';
 import { TerrainData } from '@scenoco-three/terrain';
 
@@ -66,6 +66,29 @@ export const allAssets: Loadable[] = [...Object.values(models), ...Object.values
 
 const star = sharedTexture('ui/star.png');
 
+/** A tower's reach as a picture: a faint disc with a brighter rim, clear past it — what the marker projects. */
+function reachTexture(): CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d')!;
+  const r = size / 2 - 2;
+  g.fillStyle = 'rgba(255, 255, 255, 0.16)';
+  g.beginPath();
+  g.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  g.lineWidth = r * 0.03;
+  g.beginPath();
+  g.arc(size / 2, size / 2, r - g.lineWidth / 2, 0, Math.PI * 2);
+  g.stroke();
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  // Scaled up past its edge as it grows in: what lies outside the picture is clear.
+  texture.wrapS = texture.wrapT = ClampToEdgeWrapping;
+  return texture;
+}
+
 /** Shared by every health bar, ring and badge. */
 export const paint = {
   hpBack: new SpriteMaterial({ color: '#2b1a0c', depthTest: false }),
@@ -73,13 +96,13 @@ export const paint = {
   hpArmor: new SpriteMaterial({ color: '#ffd23f', depthTest: false }),
   star: new SpriteMaterial({ map: star, depthTest: false }),
   ring: new MeshBasicMaterial({ color: '#ffe066', transparent: true, opacity: 0.85, depthWrite: false }),
-  range: new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.16, depthWrite: false }),
-  rangeEdge: new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6, depthWrite: false }),
+  /** Projected on the ground: drawn over it, pulled towards the camera so it never fights it for depth. */
+  reach: new MeshBasicMaterial({ map: reachTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
   water: new MeshBasicMaterial({ color: '#3aa8d8', transparent: true, opacity: 0.55, depthWrite: false }),
+  /** A river's: its colour and opacity come from each vertex's depth (River), the sun glints on it. */
+  river: new MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: false, roughness: 0.15, metalness: 0 }),
 };
 
 export const shapes = {
   ring: new RingGeometry(1.25, 1.45, 48).rotateX(-Math.PI / 2),
-  disc: new CircleGeometry(1, 64).rotateX(-Math.PI / 2),
-  edge: new RingGeometry(0.975, 1, 96).rotateX(-Math.PI / 2),
 };

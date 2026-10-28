@@ -2,7 +2,7 @@
 The tower defense's hand-scripted props, one per output file: the file's name picks the prop.
 
     lab blender props.py --out ../src/models/pad.glb      # pad, arrow, cannonball, shard, pine,
-                                                          # pine_snow, tree, rock, lantern, bridge
+                                                          # pine_snow, tree, rock, lantern, bridge, castle
 
 Sizes are game units (a tower stands about 3.5 high, the path is about 2.25 wide). Blender is Z-up;
 glTF's +Z (the way a projectile flies) is Blender's -Y.
@@ -186,5 +186,95 @@ elif NAME == "bridge":
             slope = math.atan((arch(y1) - arch(y0)) / (y1 - y0))
             box((0.09, (y1 - y0) * 1.02 / math.cos(slope), 0.09), (x, mid, (arch(y0) + arch(y1)) / 2 + 0.58), wood, rot=(slope, 0, 0), bevel_width=0.01, segments=1)
 
+elif NAME == "castle":
+    # The keep at the end of the path, after the concept (out/td/castle.png in the asset lab) with
+    # a tower at every corner: a walled courtyard, four round towers with blue cone roofs, a tall
+    # keep with a spire, and a gatehouse with an arched door. The gate faces glTF +Z (Blender -Y).
+    wall = material("castle wall", (0.74, 0.69, 0.6), 0.9)
+    wall_dark = material("castle wall dark", (0.56, 0.52, 0.46), 0.9)
+    roof = material("castle roof", (0.13, 0.42, 0.86), 0.55)
+    roof_dark = material("castle roof dark", (0.09, 0.3, 0.68), 0.6)
+    window = material("castle window", (0.12, 0.08, 0.06), 0.9)
+    gold = material("castle gold", (0.95, 0.72, 0.2), 0.4, 0.6)
+    red = material("castle red", (0.85, 0.16, 0.12), 0.7)
+    half_x, half_y, wall_h = 1.25, 1.05, 1.35
+
+    def merlons(points, z, size=0.22):
+        """A row of battlements along a list of (x, y, facing angle)."""
+        for x, y, a in points:
+            box((size, size * 0.8, size), (x, y, z + size / 2), wall if random.random() > 0.3 else wall_dark, rot=(0, 0, a), bevel_width=0.015, segments=1)
+
+    # The curtain walls, and battlements on top of them.
+    for x, y, sx, sy in ((0, -half_y, 2 * half_x, 0.32), (0, half_y, 2 * half_x, 0.32), (-half_x, 0, 0.32, 2 * half_y), (half_x, 0, 0.32, 2 * half_y)):
+        box((sx, sy, wall_h), (x, y, wall_h / 2), wall, bevel_width=0.03)
+        along_x = sx > sy
+        count = 6 if along_x else 5
+        span = (sx if along_x else sy) - 0.7
+        merlons([(x + (span * (i / (count - 1) - 0.5) if along_x else 0), y + (0 if along_x else span * (i / (count - 1) - 0.5)), 0 if along_x else math.pi / 2) for i in range(count)], wall_h)
+    box((2 * half_x - 0.2, 2 * half_y - 0.2, 0.08), (0, 0, wall_h - 0.2), wall_dark, bevel_width=0)
+
+    # Four round towers, one at each corner: a shaft, a wider parapet, a cone roof, windows.
+    for i, (sx, sy) in enumerate(((-1, -1), (1, -1), (-1, 1), (1, 1))):
+        x, y = sx * half_x, sy * half_y
+        height = 2.05 + (0.15 if sy > 0 else 0)
+        cylinder(0.5, 0.46, height, (x, y, height / 2), 16, wall)
+        cylinder(0.6, 0.6, 0.32, (x, y, height + 0.16), 16, wall_dark)
+        for k in range(8):
+            a = k / 8 * math.tau
+            box((0.16, 0.12, 0.16), (x + math.cos(a) * 0.55, y + math.sin(a) * 0.55, height + 0.4), wall, rot=(0, 0, a), bevel_width=0.01, segments=1)
+        cylinder(0.68, 0.02, 1.15, (x, y, height + 0.32 + 0.575), 16, roof if i % 2 == 0 else roof_dark, smooth=False)
+        cylinder(0.025, 0.025, 0.35, (x, y, height + 1.6), 6, wood_dark)
+        # Two narrow windows on the shaft, facing out.
+        for z in (0.75, 1.45):
+            a = math.atan2(sy, sx)
+            box((0.12, 0.08, 0.26), (x + math.cos(a) * 0.47, y + math.sin(a) * 0.47, z), window, rot=(0, 0, a + math.pi / 2), bevel_width=0)
+
+    # The keep: a tall square tower behind the gate, its spire roof, a dormer window.
+    keep_h = 2.9
+    box((1.15, 1.05, keep_h), (0, 0.25, keep_h / 2), wall, bevel_width=0.04)
+    merlons([(x, y, a) for x, y, a in ((-0.42, -0.27, 0), (0, -0.27, 0), (0.42, -0.27, 0), (-0.42, 0.77, 0), (0, 0.77, 0), (0.42, 0.77, 0), (-0.57, 0.25, math.pi / 2), (0.57, 0.25, math.pi / 2))], keep_h, 0.2)
+    spire = cylinder(0.92, 0.02, 1.7, (0, 0.25, keep_h + 0.2 + 0.85), 4, roof, smooth=False, rot=(0, 0, math.pi / 4))
+    box((0.3, 0.3, 0.38), (0, -0.25, keep_h + 0.55), wall, bevel_width=0.02)
+    box((0.18, 0.06, 0.24), (0, -0.41, keep_h + 0.55), window, bevel_width=0)
+    cylinder(0.24, 0.02, 0.3, (0, -0.25, keep_h + 0.89), 4, roof_dark, smooth=False, rot=(0, 0, math.pi / 4))
+    for z in (1.6, 2.3):
+        for x in (-0.3, 0.3):
+            box((0.14, 0.06, 0.24), (x, -0.31, z), window, bevel_width=0)
+
+    # The gatehouse in front: a block over the wall, an arched wooden door, a small blue roof, a shield.
+    box((1.0, 0.5, 1.75), (0, -half_y - 0.12, 0.875), wall, bevel_width=0.03)
+    merlons([(x, -half_y - 0.32, 0) for x in (-0.36, 0, 0.36)], 1.75, 0.2)
+    box((0.52, 0.06, 0.62), (0, -half_y - 0.38, 0.31), wood_dark, bevel_width=0.01, segments=1)
+    cylinder(0.26, 0.26, 0.06, (0, -half_y - 0.38, 0.62), 16, wood_dark, rot=(math.pi / 2, 0, 0))
+    for x in (-0.13, 0.13):
+        box((0.03, 0.07, 0.8), (x, -half_y - 0.4, 0.42), iron, bevel_width=0)
+    gable = cylinder(0.62, 0.02, 0.5, (0, -half_y - 0.08, 1.75 + 0.45), 4, roof, smooth=False, rot=(0, 0, math.pi / 4))
+    gable.scale = (1.0, 0.7, 1.0)
+    cylinder(0.14, 0.12, 0.04, (0, -half_y - 0.39, 1.05), 12, gold, rot=(math.pi / 2, 0, 0))
+    cylinder(0.09, 0.07, 0.05, (0, -half_y - 0.42, 1.05), 12, red, rot=(math.pi / 2, 0, 0))
+
+    # Flags on the keep and the two back towers.
+    for (x, y, z), colour in (((0, 0.25, keep_h + 2.0), red), ((-half_x, half_y, 3.95), gold), ((half_x, half_y, 3.95), red)):
+        cylinder(0.02, 0.02, 0.7, (x, y, z + 0.35), 6, wood_dark)
+        box((0.36, 0.02, 0.2), (x + 0.19, y, z + 0.58), colour, bevel_width=0)
+
 else:
     raise SystemExit(f"props.py: no prop named {NAME!r}")
+
+# Shaded smooth wherever faces meet gently — bevels, a cone's sides, a canopy — and sharp where they
+# turn more than SMOOTH_ANGLE, so a box keeps its corners and a crystal its edges. The bevels are
+# applied first, so what they add is smoothed too. (Blender's operators for this need a window.)
+SMOOTH_ANGLE = math.radians(50)
+depsgraph = bpy.context.evaluated_depsgraph_get()
+for o in [o for o in bpy.context.scene.objects if o.type == "MESH"]:
+    mesh = bpy.data.meshes.new_from_object(o.evaluated_get(depsgraph))
+    o.modifiers.clear()
+    o.data = mesh
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    for face in bm.faces:
+        face.smooth = True
+    for edge in bm.edges:
+        edge.smooth = edge.is_manifold and edge.calc_face_angle(0) <= SMOOTH_ANGLE
+    bm.to_mesh(mesh)
+    bm.free()

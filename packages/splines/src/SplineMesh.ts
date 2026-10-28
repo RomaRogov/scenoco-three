@@ -38,6 +38,12 @@ export class SplineMesh extends Behaviour<Mesh> {
 
   override start(): void {
     this.rebuild();
+    this.listen(containerFor(this, this.container, 'SplineMesh').changed, () => this.rebuild());
+  }
+
+  /** A setting changed in the editor, or the spline's node moved: built again. */
+  override onValidate(): void {
+    this.rebuild();
   }
 
   /** Bend again, after the spline or the piece changed. */

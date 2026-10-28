@@ -88,12 +88,17 @@ export abstract class Behaviour<N extends Object3D = Object3D> {
   }
 
   /**
-   * The camera the scene is drawn with — Unity's `Camera.main`. Move it, aim it, change its `fov`
-   * and call `updateProjectionMatrix()`, as in three.js.
+   * The camera the scene is drawn with — Unity's `Camera.main`: `game.camera`, the scene's first
+   * visible camera unless `play` was told `autoCamera: false`. Move it, aim it, change its `fov` (or
+   * an orthographic one's `top`/`bottom`) and call `updateProjectionMatrix()`, as in three.js.
    */
   get camera(): RenderCamera {
     const camera = cameraOf(runtimeOf(this.node));
-    if (!camera) throw new Error('`this.camera` is the camera the scene is drawn with: it exists once this behaviour is in a running scene.');
+    if (!camera) {
+      throw new Error(
+        '`this.camera` is the camera the scene is drawn with, and there is none: this behaviour is not in a running scene, the scene has no camera, or play() was given autoCamera: false and game.camera is not set.',
+      );
+    }
     return camera;
   }
 

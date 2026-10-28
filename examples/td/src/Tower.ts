@@ -27,6 +27,12 @@ export class Tower extends Behaviour {
   flash: Prefab | null = null;
   /** The burst each upgrade makes. */
   upgradeBurst: Prefab | null = null;
+  /** Turns its body to face its target, easing round, and fires only once it does: the cannon. */
+  turns = false;
+  /** How quickly it eases round: higher is snappier. */
+  turnRate = 8;
+  /** Degrees between the model's front and +z, the way it is turned to face. */
+  facing = 0;
 
   level = 1;
   /** Gold spent on it so far: what selling refunds a share of. */
@@ -49,11 +55,25 @@ export class Tower extends Behaviour {
 
   override update(dt: number) {
     this.cooldown -= dt;
-    if (this.cooldown > 0) return;
-    const target = this.pickTarget();
-    if (!target) return;
+    const target = this.turns || this.cooldown <= 0 ? this.pickTarget() : null;
+    // Turning goes on between shots, so the barrel follows its target round.
+    const off = target && this.turns ? this.turnTowards(target, dt) : 0;
+    if (this.cooldown > 0 || !target || Math.abs(off) > AIMED) return;
     this.cooldown = 1 / this.stats.rate;
     this.fire(target);
+  }
+
+  /** Eases the body round towards the target: what is left to turn, in radians, after this frame. */
+  private turnTowards(target: Enemy, dt: number): number {
+    const body = this.body;
+    if (!body) return 0;
+    const to = target.node.position;
+    const here = this.node.position;
+    const heading = Math.atan2(to.x - here.x, to.z - here.z) - this.node.rotation.y + (this.facing * Math.PI) / 180;
+    const off = Math.atan2(Math.sin(heading - body.rotation.y), Math.cos(heading - body.rotation.y));
+    const step = off * (1 - Math.exp(-dt * this.turnRate));
+    body.rotation.y += step;
+    return off - step;
   }
 
   upgrade() {
@@ -95,3 +115,6 @@ export class Tower extends Behaviour {
     if (this.aura) this.aura.visible = this.level === 3;
   }
 }
+
+/** Radians short of its target a turning tower may still fire at it. */
+const AIMED = 0.2;

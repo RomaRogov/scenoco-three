@@ -28,6 +28,19 @@ describe('Input', () => {
     pointer('up', null, 2);
     Input.advance(1 / 60);
     expect(Input.getButtonDown('Pause')).toBe(true);
+
+    // Enter on a focused button, or a script's button.click(): a click no pointer made presses it
+    // once; a pointer's own click, already pressed at pointerdown, adds nothing.
+    const click = (detail: number) =>
+      (Input as unknown as Record<string, (event: object) => void>).onPageClick!({ target: { closest: () => ({ getAttribute: () => 'Pause' }) }, detail });
+    Input.advance(1 / 60);
+    click(0);
+    Input.advance(1 / 60);
+    expect(Input.getButtonDown('Pause')).toBe(true);
+    Input.advance(1 / 60);
+    click(1);
+    Input.advance(1 / 60);
+    expect(Input.getButtonDown('Pause')).toBe(false);
   });
 
   it('fires a named button once for a key tapped within one frame', () => {

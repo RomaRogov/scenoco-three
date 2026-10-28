@@ -5,6 +5,7 @@ import { sourceOf } from '@scenoco-three/core';
 import {
   elementAt,
   elements,
+  ensureImport,
   insertChild,
   readScene,
   removeAttribute,
@@ -68,13 +69,16 @@ const tag = (code: string, name: string, n = 0): Element =>
   elements(readScene('scene.tsx', code)).filter((e) => e.tag === name)[n]!;
 
 describe('editing a TSX scene', () => {
-  it('reads every value it can work out, and names what it cannot', () => {
+  it('reads each attribute as written, and a list item by item', () => {
     const group = tag(SCENE, 'Group');
-    expect(group.attributes[0]).toMatchObject({ name: 'position', value: { kind: 'value', value: [2.2, 0, -4] } });
+    expect(group.attributes[0]).toMatchObject({ name: 'position', text: '{[LANE, 0, -4]}' });
     const box = tag(SCENE, 'Mesh');
-    expect(box.attributes.find((a) => a.name === 'rotation')!.value).toEqual({ kind: 'value', value: [-Math.PI / 2, 0, 0] });
-    expect(box.attributes.find((a) => a.name === 'castShadow')).toMatchObject({ text: null, value: { value: true } });
-    expect(box.attributes.find((a) => a.name === 'material')!.value).toEqual({ kind: 'reference', text: 'shared' });
+    expect(box.attributes.find((a) => a.name === 'rotation')!.text).toBe('{[-Math.PI / 2, 0, 0]}');
+    expect(box.attributes.find((a) => a.name === 'castShadow')!.text).toBeNull();
+    expect(box.attributes.find((a) => a.name === 'material')!.text).toBe('{shared}');
+    // A list written out keeps each item's text, so one can be replaced and the rest kept as written.
+    expect(tag(SCENE, 'BoxGeometry').attributes[0]!.items).toEqual(['1', '2', '3']);
+    expect(group.attributes[0]!.items).toEqual(['LANE', '0', '-4']);
   });
 
   it('edits only what a person touched — move, rotate, recolour, a new attribute, a flag, a behaviour field', async () => {
@@ -127,6 +131,13 @@ describe('editing a TSX scene', () => {
     const group = scene.children[1] as Group;
     expect(group.children).toHaveLength(3);
     expect((scene.children[0] as DirectionalLight).intensity).toBe(1); // back to three's default
+  });
+
+  it('imports a constant it writes, into the braces already there or on a line of its own', () => {
+    const code = "import { Mesh } from 'three';\nimport { Bob } from './bob';\n";
+    expect(ensureImport('a.tsx', code, 'DoubleSide', 'three')).toBe("import { Mesh, DoubleSide } from 'three';\nimport { Bob } from './bob';\n");
+    expect(ensureImport('a.tsx', code, 'Mesh', 'three')).toBe(code);
+    expect(ensureImport('a.tsx', code, 'Spin', './spin')).toBe(`${code.trimEnd()}\nimport { Spin } from "./spin";\n`);
   });
 
   it('finds the element that made a picked object, by where jsxDEV says it was written', async () => {

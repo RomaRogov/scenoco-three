@@ -44,6 +44,45 @@ describe('lifecycle', () => {
     expect(b.log).toEqual(['awake', 'onEnable', 'start', 'update', 'lateUpdate', 'update', 'lateUpdate']);
   });
 
+  it('calls onValidate after the editor changes a field, as Unity does — and lets the change through when it throws', async () => {
+    const { setField } = await import('../../packages/core/src/editor/index.js');
+    class Placer extends Behaviour {
+      t = 0;
+      placedAt = -1;
+      override onValidate() {
+        this.placedAt = this.t;
+        if (this.t > 1) throw new Error('off the path');
+      }
+    }
+    const { scene } = world();
+    const node = new Object3D();
+    scene.add(node);
+    const placer = node.addComponent(Placer);
+    setField(placer, 't', 0.4);
+    expect(placer.placedAt).toBe(0.4);
+    const quiet = console.error;
+    console.error = () => {};
+    setField(placer, 't', 2);
+    console.error = quiet;
+    expect(placer.t).toBe(2);
+  });
+
+  it('holds behaviours short of a hook when told to — the editor\'s reset — and goes on from there', () => {
+    const { scene, runtime } = world();
+    runtime.reach = 'none';
+    const node = new Object3D();
+    scene.add(node);
+    const b = node.addComponent(Log);
+    runtime.update(1 / 60);
+    expect(b.log).toEqual([]);
+    runtime.reach = 'start';
+    runtime.update(1 / 60);
+    expect(b.log).toEqual(['awake', 'onEnable', 'start']);
+    runtime.reach = 'frame';
+    runtime.update(1 / 60);
+    expect(b.log).toEqual(['awake', 'onEnable', 'start', 'update', 'lateUpdate']);
+  });
+
   it('gives one made mid-frame no update until its start, next frame', () => {
     const { scene, runtime } = world();
     let made: Log | null = null;

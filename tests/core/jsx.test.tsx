@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BoxGeometry, Color, DirectionalLight, Fog, Group, Mesh, MeshStandardMaterial, Object3D, Scene, Vector3 } from 'three';
 import { Runtime, wake } from '@scenoco-three/core';
-import { Behaviour, instantiate, ref, type Prefab, type Ref } from '@scenoco-three/core';
+import { Behaviour, instantiate, prefab, ref, type Prefab, type Ref } from '@scenoco-three/core';
 import { jsx } from '@scenoco-three/core/jsx-runtime';
 
 const runtimes: Runtime[] = [];
@@ -78,11 +78,11 @@ describe('TSX on three.js', () => {
   });
 
   it('instantiates a prefab by calling it: a fresh tree each time, awake before it returns', () => {
-    const Prefab = () => (
+    const Prefab = prefab(() => (
       <Group>
         <Aim />
       </Group>
-    );
+    ));
     const scene = new Scene();
     run(scene);
     const a = instantiate(Prefab, { position: [1, 0, 0] });
@@ -93,8 +93,30 @@ describe('TSX on three.js', () => {
     expect(a.getComponent(Aim)).not.toBe(b.getComponent(Aim));
   });
 
+  it('places and names a prefab tag’s root as a Unity instance; a plain function is a component, all props', () => {
+    const seen: object[] = [];
+    const Tower = prefab((props: { level: number }) => (seen.push(props), <Group name="tower" />));
+    const tower = (<Tower level={2} position={[1, 0, 2]} name="north tower" />) as unknown as Group;
+    expect(tower.position.toArray()).toEqual([1, 0, 2]);
+    expect(tower.name).toBe('north tower');
+    expect(seen).toEqual([{ level: 2 }]);
+
+    const Pair = prefab(() => (
+      <>
+        <Group />
+        <Group />
+      </>
+    ));
+    expect(() => <Pair />).toThrow('returns 2 elements: a prefab is one whole thing — wrap them in one <Group>.');
+
+    const Label = (props: { name: string }) => (seen.push(props), <Group />);
+    expect((<Label name="HUD" />) as unknown as Group).toMatchObject({ name: '' });
+    expect(seen.at(-1)).toEqual({ name: 'HUD' });
+    expect(() => instantiate(Label as never)).toThrow('instantiate(Label): Label is a plain function, not a prefab — make it one where it is declared: export const Label = prefab(() => …).');
+  });
+
   it('takes a prefab as a field, as Unity takes a prefab in the inspector', () => {
-    const Shot = () => <Group name="shot" />;
+    const Shot = prefab(() => <Group name="shot" />);
     const scene = (
       <Scene>
         <Group>
@@ -114,5 +136,32 @@ describe('TSX on three.js', () => {
     // @ts-expect-error a field holds the object a ref points at, never the ref
     const holder = <Holder target={target} />;
     expect(() => jsx(Group, { children: holder })).toThrow(/declare it as target: Mesh \| null = null/);
+  });
+});
+
+describe('development builds', () => {
+  it('remember the attributes each element was written with — a behaviour’s too — for the editor to put back', async () => {
+    // From the sources: what the editor reads lives beside jsxDEV, in the same module.
+    const { jsxDEV, givenOf } = await import('../../packages/core/src/jsx.js');
+    const { Behaviour: SourceBehaviour, behavioursOn } = await import('../../packages/core/src/kernel/index.js');
+    class Spin extends SourceBehaviour {
+      speed = 1;
+    }
+    const at = { fileName: 'scene.tsx', lineNumber: 1, columnNumber: 1 };
+    const spin = jsxDEV(Spin, { speed: 3 }, undefined, false, at);
+    const mesh = jsxDEV(Mesh, { position: [0, 1, 0], castShadow: true, children: spin }, undefined, false, at) as Mesh;
+    expect(givenOf(mesh)).toEqual({ position: [0, 1, 0], castShadow: true });
+    expect(givenOf(behavioursOn(mesh)[0]!)).toEqual({ speed: 3 });
+  });
+
+  it('keep a prefab root’s own element apart from the tag that placed it: the prefab’s own, and the copy’s overrides', async () => {
+    const { jsxDEV, givenOf, ownOf, prefab: makePrefab, sourceOf } = await import('../../packages/core/src/jsx.js');
+    const inside = { fileName: 'prefabs.tsx', lineNumber: 2, columnNumber: 3 };
+    const tagAt = { fileName: 'scene.tsx', lineNumber: 9, columnNumber: 5 };
+    const Coin = makePrefab(() => jsxDEV(Group, { name: 'coin', visible: false }, undefined, false, inside));
+    const copy = jsxDEV(Coin, { position: [2, 0, 0] }, undefined, false, tagAt) as Group;
+    expect(sourceOf(copy)).toBe(tagAt);
+    expect(givenOf(copy)).toEqual({ position: [2, 0, 0] });
+    expect(ownOf(copy)).toEqual({ source: inside, given: { name: 'coin', visible: false } });
   });
 });

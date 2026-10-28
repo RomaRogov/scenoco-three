@@ -45,7 +45,8 @@ That is the whole model:
 - **A `Behaviour` is a component**, with Unity's hooks (`awake`, `start`, `update`, `fixedUpdate`,
   `onDestroy`, …), coroutines, `Time`, `Input`, `instantiate`, `destroy`, `findObjectOfType`,
   `SceneManager`.
-- **A prefab is a function** returning TSX; `instantiate(Prefab)` calls it.
+- **A prefab is `prefab(() => …)`** around a function returning TSX; `instantiate(Prefab)` calls it,
+  and its tag places and names it like a Unity instance.
 - **A scene only declares.** Logic lives in behaviours. `scenoco check` refuses loops, branches and
   calls in a `.tsx` file and says what to write instead — which is what keeps a scene editable by a
   tool as well as by hand.
@@ -79,7 +80,7 @@ running game from its browser tool.
 | [`@scenoco-three/unity`](packages/unity) | `scenoco-unity`: a game's prefabs, scenes, meshes and materials written into a Unity project. |
 | [`@scenoco-three/tools`](packages/tools) | `scenoco check` — a scene only declares — and the read/edit layer an editor uses on scene files. |
 | [`@scenoco-three/create`](packages/create) | The starter `npm create @scenoco-three` copies. |
-| [`@scenoco-three/editor`](packages/editor) | A visual editor that runs on the game's own dev server (`?edit`) and writes edits back into the `.tsx` files byte for byte. |
+| [`@scenoco-three/editor`](packages/editor) | A visual editor over the running game in development — a button on the page — that writes edits back into the `.tsx` files byte for byte. |
 | [`@scenoco-three/observer`](packages/observer) | `observe(page)`: a Playwright or Puppeteer test holds the game's clock, drives it and reads its behaviours back. |
 
 ## Testing it, or letting an agent look
@@ -93,13 +94,13 @@ rest; `@scenoco-three/observer` is the same calls, typed, for a test.
 ## Editing a scene by hand, visually
 
 ```bash
-npm run dev            # the game, as always
-npx scenoco-editor     # then open the game with ?edit
+npm run dev            # the game, as always — then Edit on the bar along its top
 ```
 
-The game's own code builds the scene and holds it still; a tree, an inspector and gizmos edit it,
-and each change is written into the `.tsx` file it came from, one attribute at a time, everything
-else byte for byte. See [`packages/editor`](packages/editor).
+The editor opens over the running game: pause it, step it, or reset to its first frame; the scene's
+nodes, and the selected one shown as its TSX with live values and a gizmo. Save writes the changes
+into the `.tsx` files they came from, one attribute at a time, everything else byte for byte. See
+[`packages/editor`](packages/editor).
 
 ## Examples
 

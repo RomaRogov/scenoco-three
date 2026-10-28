@@ -1,3 +1,4 @@
+import { Vector3 } from 'three';
 import { Behaviour, findObjectOfType } from '@scenoco-three/core';
 import { SplineContainer } from '@scenoco-three/splines';
 import { Terrain } from '@scenoco-three/terrain';
@@ -9,15 +10,26 @@ import { groundAt, groundUnder } from './ground';
  */
 export class PlaceOnPath extends Behaviour {
   t = 0;
-  /** Moved this far along the path's direction, after placing. */
-  ahead = 0;
+  /**
+   * Moved after placing, in the path's own axes there — as `SplineInstantiate`'s `positionOffset`:
+   * x to the path's right, y up from the ground, z ahead along it.
+   */
+  offset = new Vector3();
   /** Degrees added to the path's heading. */
   yaw = 0;
   /** Seated on the highest ground within this radius. */
   radius = 0;
-  offset = 0;
 
   override start() {
+    this.place();
+  }
+
+  /** `t` and the rest changed in the editor: placed again, so the node slides along the path. */
+  override onValidate() {
+    this.place();
+  }
+
+  private place() {
     const path = findObjectOfType(SplineContainer);
     const terrain = findObjectOfType(Terrain);
     if (!path || !terrain) return;
@@ -25,8 +37,9 @@ export class PlaceOnPath extends Behaviour {
     const forward = path.evaluateTangent(this.t);
     forward.y = 0;
     forward.normalize();
-    at.addScaledVector(forward, this.ahead);
-    at.y = (this.radius > 0 ? groundUnder(terrain, at.x, at.z, this.radius) : groundAt(terrain, at.x, at.z)) + this.offset;
+    const right = new Vector3(-forward.z, 0, forward.x);
+    at.addScaledVector(right, this.offset.x).addScaledVector(forward, this.offset.z);
+    at.y = (this.radius > 0 ? groundUnder(terrain, at.x, at.z, this.radius) : groundAt(terrain, at.x, at.z)) + this.offset.y;
     this.node.position.copy(this.node.parent ? this.node.parent.worldToLocal(at) : at);
     this.node.rotation.y = Math.atan2(forward.x, forward.z) + (this.yaw * Math.PI) / 180;
   }

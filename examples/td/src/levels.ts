@@ -60,7 +60,8 @@ export const LEVELS: Record<LevelId, LevelSpec> = {
     toughness: 1.1,
     growth: 0.09,
     path: [[-20, 0, -130], [-25, 0, -92], [25, 0, -72], [35, 0, -38], [-10, 0, -18], [-35, 0, 18], [-30, 0, 48], [20, 0, 62], [30, 0, 88], [0, 0, 112]],
-    river: [[-128, 0, -5], [-60, 0, 5], [0, 0, -8], [60, 0, 6], [128, 0, -4]],
+    // The lab's river, and on past the map's edges where the ground carries its channel on.
+    river: [[-256, 0, -5], [-128, 0, -5], [-60, 0, 5], [0, 0, -8], [60, 0, 6], [128, 0, -4], [256, 0, -4]],
     waves: [
       [g('goblin', 10, 1)],
       [g('wolf', 10, 0.7), g('goblin', 6, 1, 3)],

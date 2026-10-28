@@ -6,8 +6,8 @@ import { Menu } from './scenes/Menu';
 import { sounds } from './Sfx';
 
 /**
- * PowerVR's driver (the Pixel 10's DXT-48) crashes linking three's shadow depth shader, and takes
- * the WebGL context with it. Without shadows everything else draws fine. `?shadows=1` or `=0` forces it.
+ * PowerVR's GLES driver (the Pixel 10's DXT-48) crashes in a draw when shadows meet several textured
+ * materials, and takes the WebGL context with it — three.js#34311. `?shadows=1` or `=0` forces it.
  */
 function shadowsWork(gl: WebGLRenderingContext | WebGL2RenderingContext): boolean {
   const forced = new URLSearchParams(location.search).get('shadows');

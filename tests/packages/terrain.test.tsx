@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3 } from 'three';
 import { Runtime, loadAssets, wake } from '@scenoco-three/core';
-import { Terrain, TerrainData } from '@scenoco-three/terrain';
+import { Terrain, TerrainData, type TerrainMaterial } from '@scenoco-three/terrain';
 import { provideCamera } from '../../packages/core/src/kernel/camera';
 
 const runtimes: Runtime[] = [];
@@ -83,6 +83,29 @@ describe('terrain', () => {
     expect(terrain.sampleHeight(new Vector3(102.5, 0, 0))).toBeCloseTo(4.375, 5);
   });
 
+  it('scales every layer\'s tiling by tileScale, and turns side projection off, while it runs', async () => {
+    const data = new TerrainData(await terrainFile(ramp, 20, [[[255]]]));
+    await loadAssets(data);
+    // The layers' textures as drawn need a canvas: stand-ins, since only the tiling is looked at.
+    Object.defineProperty(data, 'textures', { get: () => ({ splats: {}, diffuse: {}, normal: {} }) });
+    const scene = new Scene();
+    const node = new Group();
+    const terrain = node.addComponent(Terrain, { terrainData: data, tileScale: 2 });
+    scene.add(node);
+    start(scene);
+    const material = (node.children[0] as Mesh).material as TerrainMaterial;
+    expect(material.tileScale).toBe(2);
+    terrain.tileScale = 3;
+    terrain.onValidate();
+    expect(material.tileScale).toBe(3);
+    // Off is another shader: compiled again, under its own key.
+    const sides = material.customProgramCacheKey();
+    terrain.sideProjection = false;
+    terrain.onValidate();
+    expect(material.sideProjection).toBe(false);
+    expect(material.customProgramCacheKey()).not.toBe(sides);
+  });
+
   it('draws fewer triangles where the camera is far and the ground is flat', async () => {
     // 257 samples over 256 m: flat, with one hill in the middle — four chunks a side.
     const hills = Array.from({ length: 257 }, (_, r) => Array.from({ length: 257 }, (_, c) => 20 * Math.exp(-((r - 128) ** 2 + (c - 128) ** 2) / 800)));
@@ -106,6 +129,40 @@ describe('terrain', () => {
     // Full detail would be 256² × 2 = 131k triangles; flat ground needs few even up close.
     expect(near).toBeLessThan(40_000);
     expect(far).toBeLessThan(near / 4);
+  });
+
+  it('meets without cracks where chunks of different detail touch', async () => {
+    const hills = Array.from({ length: 257 }, (_, r) => Array.from({ length: 257 }, (_, c) => 20 * Math.exp(-((r - 128) ** 2 + (c - 128) ** 2) / 800)));
+    const data = new TerrainData(await terrainFile(hills, 256, [[[255]]]));
+    await loadAssets(data);
+    const scene = new Scene();
+    const node = new Group();
+    node.addComponent(Terrain, { terrainData: data, materialTemplate: new MeshStandardMaterial() });
+    scene.add(node);
+    // Low over one corner: near chunks full detail, the far ones coarse.
+    const camera = new PerspectiveCamera(50);
+    camera.position.set(-120, 10, -120);
+    start(scene, camera);
+    const chunks = node.children as Mesh[];
+    expect(new Set(chunks.map((c) => c.geometry.attributes.position!.count)).size).toBeGreaterThan(1);
+    /** The points of a chunk on the line where its x (or z) is `at`, as text. */
+    const on = (chunk: Mesh, axis: 'x' | 'z', at: number) => {
+      const p = chunk.geometry.attributes.position!;
+      const out: string[] = [];
+      for (let i = 0; i < p.count; i++) {
+        const [along, across] = axis === 'x' ? [p.getX(i), p.getZ(i)] : [p.getZ(i), p.getX(i)];
+        if (Math.abs(along - at) < 1e-4) out.push(`${across},${p.getY(i).toFixed(4)}`);
+      }
+      return out.sort();
+    };
+    // Every pair of neighbours: the same points on the line they share.
+    for (const chunk of chunks) {
+      const [column, row] = chunk.name.split(' ')[1]!.split(',').map(Number) as [number, number];
+      const right = chunks.find((c) => c.name === `chunk ${column + 1},${row}`);
+      const far = chunks.find((c) => c.name === `chunk ${column},${row + 1}`);
+      if (right) expect(on(right, 'x', -128 + (column + 1) * 64)).toEqual(on(chunk, 'x', -128 + (column + 1) * 64));
+      if (far) expect(on(far, 'z', -128 + (row + 1) * 64)).toEqual(on(chunk, 'z', -128 + (row + 1) * 64));
+    }
   });
 
   it('is made in code, as in Unity, and the ground follows every change', () => {

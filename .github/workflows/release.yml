@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes every package at the version in its `package.json`. Tag and push to fire it:
-#   git tag v0.9.1 && git push origin v0.9.1
+#   git tag v0.9.5 && git push origin v0.9.5
 #
 # No token: npm trusts this workflow (trusted publishing, OIDC). Each package names
 # RomaRogov/scenoco-three and this file, release.yml, as its publisher on npmjs.com, and npm adds a

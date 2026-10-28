@@ -40,7 +40,7 @@ export const Main = () => {
       <Group name="terrain">
         <TerrainMesh startTex={textures.start} endTex={textures.end} terrainData={slope} ground={ground} floor={floor} />
         <Group name="ground" ref={ground}>
-          <Terrain terrainData={slope} castShadows={true} />
+          <Terrain terrainData={slope} castShadows={true} sideProjection={false} />
           <TerrainCollider terrainData={slope} friction={0.6} />
         </Group>
         <Group name="level">

@@ -12,7 +12,7 @@ TSX and no React. A TypeScript npm workspace monorepo.
 > A scene is a `.tsx` file that only declares. An element is `new Tag(...args)` of the class it
 > imports; an attribute sets the property of that name the way R3F does. A child that is an
 > `Object3D` is added, a `Behaviour` becomes a component, anything else is attached (`attach`).
-> A prefab is a function, a reference is `ref<T>()`, logic lives in behaviours. Everything else is
+> A prefab is `prefab(() => <Tsx />)`, a reference is `ref<T>()`, logic lives in behaviours. Everything else is
 > three.js and Unity, as their own declarations describe them — `npm run check` reports any mistake
 > at the line it was written on.
 
@@ -46,8 +46,9 @@ not memory.
   Unity project. Core's `snapshot` (dev only) describes what the TSX declares; the package mirrors it
   into Unity's space and a C# importer builds it with Unity's API.
 - `packages/editor` — the editor's interface: one self-contained module (React bundled in) the
-  game's page loads in `?edit` mode. The live half is core's `edit.ts` (built scene, held still,
-  gizmos); the file half is `scenoco()` in `packages/tools/src/vite.ts`.
+  running game's page loads from a button in development. The live half is core's `editor/` (pause,
+  step, reset, the editor's camera and gizmo); the file half is `scenoco()` in `packages/tools/src/vite.ts`,
+  which also serves the module.
 
 ## What good looks like here
 

@@ -10,7 +10,8 @@ describe('a .tsx file is a scene', () => {
       export const Main = () => {
         const hero = ref<Mesh>();
         return <Group><Rigidbody constraints={RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY} /><Mesh ref={hero} rotation={[-Math.PI / 2, 0, 0]} position={[LANES[0] ?? 0, 1, 0]} /></Group>;
-      };`;
+      };
+      export const Coin = prefab(() => <Mesh />);`;
     expect(checkScene('fine.tsx', fine.replace('LANES[0] ?? 0', '0'))).toEqual([]);
 
     const bad = `export const Bad = () => <Group>{[0, 1].map((i) => <Mesh key={i} />)}{on && <Mesh />}<Mesh onClick={() => 1} /><Mesh args={[new Box3()]} /></Group>;`;

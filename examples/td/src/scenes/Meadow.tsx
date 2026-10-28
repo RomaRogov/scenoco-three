@@ -14,7 +14,7 @@ export const Meadow = () => (
       shadow-camera-top={36} shadow-camera-bottom={-36} shadow-camera-far={90} shadow-bias={-0.0005}
     />
     <PerspectiveCamera fov={40}>
-      <CameraRig ground={1} />
+      <CameraRig ground={1} wideCentre={[-2.798, -2.072]} />
     </PerspectiveCamera>
     <MeadowWorld />
     <LevelRules level="meadow" />

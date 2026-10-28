@@ -44,6 +44,12 @@ export class SplineExtrude extends Behaviour<Mesh> {
 
   override start(): void {
     this.rebuild();
+    this.listen(containerFor(this, this.container, 'SplineExtrude').changed, () => this.rebuild());
+  }
+
+  /** A setting changed in the editor, or the spline's node moved: built again. */
+  override onValidate(): void {
+    this.rebuild();
   }
 
   /** Build the geometry again, after the spline or a setting changed. */

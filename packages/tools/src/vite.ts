@@ -1,19 +1,30 @@
 /**
  * `scenoco()` — the Vite plugin a SceNoCo project uses: TSX through core's JSX runtime, and, while
- * serving, what the editor needs to read and write scene files.
+ * serving, the editor: its interface, and what it needs to read and write scene files.
  *
  * ```ts
  * // vite.config.ts
  * export default defineConfig({ plugins: [scenoco()] });
  * ```
  *
- * The editor runs in the game's own page (`?edit`), so it asks this server, never the disk:
+ * The editor opens over the running game, from a button `play()` puts on the page in development,
+ * so it asks this server, never the disk:
  *
+ * - `GET /__scenoco/editor.js` — its interface, `@scenoco-three/editor`'s one module.
+ * - `POST /__scenoco/open` — `{ file, line, col, how }`: a project file in the code editor (`open.ts`);
+ *   `GET` answers whether the project set a custom command for it.
+ * - `GET /__scenoco/scenes` — the project's scenes: every exported constant written as a `<Scene>`,
+ *   `{ file, name }` with `file` from the project's root — what the dev server serves it at.
+ * - `GET /__scenoco/links?file=…` — every name in the file's attribute values that the project
+ *   declares, and where, from the project's TypeScript (`definitions.ts`): the editor's links.
+ * - `GET /__scenoco/types?file=…` — each element's fields and constructor arguments as declared:
+ *   how the editor edits them, and which are private.
  * - `GET /__scenoco/scene?file=…` — a scene file read without running it: every element in
- *   document order, with its attributes' values where they can be worked out.
+ *   document order, with its attributes' texts.
  * - `POST /__scenoco/set` — `{ file, index, expect, name, value }`: one attribute of one element,
  *   written by splicing its text (`scene-edit.ts`); everything else in the file stays byte for byte.
- *   `text` in place of `value` writes the attribute's text exactly as given — what undo puts back.
+ *   `text` in place of `value` writes the attribute's text exactly as given — what undo puts back —
+ *   and `import: { name, from }` adds the constant it names to the file's imports if missing.
  * - `POST /__scenoco/remove` — `{ file, index, expect, name }`.
  *
  * An element is addressed by its index in document order, which an attribute edit never changes.
@@ -22,11 +33,14 @@
  * A file the editor just wrote does not reload the page: the editor has already changed the live
  * object, and a reload would lose the camera and the selection.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { version, type Plugin } from 'vite';
-import { elements, readScene, removeAttribute, setAttribute, setAttributeText, type Value } from './scene-edit.js';
+import { Definitions } from './definitions.js';
+import { customEditor, openFile, type OpenHow } from './open.js';
+import { elements, ensureImport, ownersOf, readScene, removeAttribute, setAttribute, setAttributeText } from './scene-edit.js';
 
 /** A scene file as the editor sees it: its elements, flat, in document order. */
 export interface SceneJson {
@@ -37,8 +51,17 @@ export interface SceneJson {
     column: number;
     /** Index of the enclosing element, or -1 for a root. */
     parent: number;
-    attributes: { name: string; text: string | null; value: Value }[];
+    /** The top-level constant it is written in — the scene's or prefab's name — if any. */
+    owner?: string;
+    /** `items`: a list's item texts, as written. */
+    attributes: { name: string; text: string | null; items?: string[] }[];
   }[];
+}
+
+/** A scene the editor can open: `export const <name> = () => <Scene>…` in `file`, from the project's root. */
+export interface SceneEntry {
+  file: string;
+  name: string;
 }
 
 /** A write from the editor. */
@@ -49,12 +72,25 @@ interface Write {
   name?: string;
   value?: unknown;
   text?: string | null;
+  /** A constant the text names, imported if the file does not yet: `{DoubleSide}` from `three`. */
+  import?: { name: string; from: string };
 }
 
-export function scenoco(): Plugin {
+export interface ScenocoOptions {
+  /**
+   * How the editor's source links open a file, when the code editor is not found by itself: a
+   * command with `{file}`, `{line}`, `{col}` and `{project}` — `'zed {file}:{line}:{col}'`,
+   * `'code --goto {file}:{line}:{col}'`. `SCENOCO_EDITOR` says the same.
+   */
+  editor?: string;
+}
+
+export function scenoco(options: ScenocoOptions = {}): Plugin {
   let root = process.cwd();
+  const custom = customEditor(options.editor);
   /** Files this server just wrote for the editor: their next change is not a reload. */
   const written = new Set<string>();
+  let definitions: Definitions | null = null;
   return {
     name: 'scenoco',
     config: () => ({
@@ -69,6 +105,32 @@ export function scenoco(): Plugin {
       root = config.root;
     },
     configureServer(server) {
+      server.middlewares.use('/__scenoco/editor.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.end(readFileSync(createRequire(import.meta.url).resolve('@scenoco-three/editor/dist/editor.js')));
+      });
+      server.middlewares.use('/__scenoco/open', (req, res) => {
+        if (req.method !== 'POST') return send(res, 200, { custom });
+        text(req)
+          .then((body) => {
+            const { file = '', line = 1, col = 1, how = 'auto' } = JSON.parse(body) as { file?: string; line?: number; col?: number; how?: OpenHow };
+            return openFile(root, file, line, col, how, custom);
+          })
+          .then(() => send(res, 200, { opened: true }))
+          .catch((error: unknown) => send(res, 400, { error: error instanceof Error ? error.message : String(error) }));
+      });
+      server.middlewares.use('/__scenoco/scenes', (_req, res) => send(res, 200, scenesIn(root)));
+      definitions = new Definitions(root);
+      server.httpServer?.on('close', () => void definitions?.close());
+      // What the project's TypeScript knows: each name's declaration, each element's declared fields.
+      for (const what of ['links', 'types'] as const) {
+        server.middlewares.use(`/__scenoco/${what}`, (req, res) => {
+          Promise.resolve()
+            .then((): Promise<unknown> => definitions![what](sceneFile(root, new URL(req.url ?? '/', 'http://x').searchParams.get('file'))))
+            .then((found) => send(res, 200, found))
+            .catch((error: unknown) => send(res, 400, { error: error instanceof Error ? error.message : String(error) }));
+        });
+      }
       server.middlewares.use('/__scenoco/', (req, res) => {
         handle(root, req, written)
           .then((body) => send(res, 200, body))
@@ -76,6 +138,7 @@ export function scenoco(): Plugin {
       });
     },
     handleHotUpdate({ file }) {
+      definitions?.touched(file);
       if (written.delete(file)) return [];
     },
   };
@@ -105,6 +168,11 @@ export async function handle(root: string, req: IncomingMessage, written: Set<st
   else if (url.pathname === '/set') next = setAttribute(code, element, body.name, body.value);
   else if (url.pathname === '/remove') next = removeAttribute(code, element, body.name);
   else throw new Error(`no POST ${url.pathname}`);
+  if (body.import) {
+    const { name, from } = body.import;
+    if (!/^[A-Za-z_$][\w$]*$/.test(name) || typeof from !== 'string' || !from) throw new Error(`not an import: ${JSON.stringify(body.import)}`);
+    next = ensureImport(file, next, name, from);
+  }
   // Text from the page is checked before it lands: the file must still parse, element for element.
   let parsed: number;
   try {
@@ -130,8 +198,38 @@ function sceneFile(root: string, file: string | null): string {
   return path;
 }
 
+/** @internal every exported constant of the project's `.tsx` files whose element is a `<Scene>`. Exported for the test. */
+export function scenesIn(root: string): SceneEntry[] {
+  const out: SceneEntry[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith('.tsx')) out.push(...scenesOf(root, path));
+    }
+  };
+  walk(root);
+  return out.sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name));
+}
+
+function scenesOf(root: string, file: string): SceneEntry[] {
+  try {
+    const code = readFileSync(file, 'utf8');
+    const owners = ownersOf(file, code).filter((o) => o.exported);
+    const scenes = readScene(file, code).roots.filter((e) => e.tag === 'Scene');
+    const names = new Set(scenes.map((e) => owners.find((o) => o.start <= e.start && e.end <= o.end)?.name).filter((n): n is string => !!n));
+    return [...names].map((name) => ({ file: `/${relative(root, file).split('\\').join('/')}`, name }));
+  } catch {
+    // A file that does not parse right now is being written: it has no scenes to offer yet.
+    return [];
+  }
+}
+
 function sceneJson(file: string): SceneJson {
-  const all = elements(readScene(file, readFileSync(file, 'utf8')));
+  const code = readFileSync(file, 'utf8');
+  const all = elements(readScene(file, code));
+  const owners = ownersOf(file, code);
   const parents = new Map<object, number>();
   all.forEach((element, i) => element.children.forEach((child) => parents.set(child, i)));
   return {
@@ -141,7 +239,8 @@ function sceneJson(file: string): SceneJson {
       line: element.line,
       column: element.column,
       parent: parents.get(element) ?? -1,
-      attributes: element.attributes.map(({ name, text, value }) => ({ name, text, value })),
+      owner: owners.find((o) => o.start <= element.start && element.end <= o.end)?.name,
+      attributes: element.attributes.map(({ name, text, items }) => ({ name, text, ...(items && { items }) })),
     })),
   };
 }

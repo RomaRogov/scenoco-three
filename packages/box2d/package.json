@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/box2d",
-  "version": "0.9.0",
-  "description": "2D physics for SceNoCo on planck (Box2D), in Unity's shape: Rigidbody2D, the 2D colliders, and the contact messages.",
+  "version": "0.9.5",
+  "description": "2D physics for SceNoCo on planck (Box2D), in Unity's shape: Rigidbody2D, the 2D colliders, PhysicsMaterial2D, Physics2D queries and layers, and the contact messages.",
   "keywords": [
     "three",
     "threejs",
@@ -42,7 +42,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "//sideEffects": "contacts.ts merges the Unity-style contact hooks onto Component — a declaration-only import a bundler could otherwise elide. Everything else is pure.",
+  "//sideEffects": "index.ts declares the 2D contact messages to core at import (declareMessages), so a bundler must keep it.",
   "sideEffects": true,
   "scenoco": {},
   "scripts": {
@@ -51,7 +51,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.9.0",
+    "@scenoco-three/core": "^0.9.5",
     "planck": "^1.5.0"
   },
   "peerDependencies": {

@@ -1,167 +1,113 @@
 /**
- * The editor's look, carried in the bundle: the game's page loads one script, so there is no
- * stylesheet to link. The game's own page elements — its HUD — are hidden while editing.
+ * The editor's look, injected once: the bundle is one module, with no stylesheet to link.
+ *
+ * The panel takes a side of the screen and the game the rest (`fit` in main.tsx). The body has a
+ * transform, so what the game pins with `position: fixed` — its canvas, its HUD — is pinned to the
+ * body, not the window, and stays clear of the panel.
  */
 export const STYLE = `
-body.scenoco-editing > *:not(canvas):not(#scenoco-editor):not(script):not(style) { display: none !important; }
-body.scenoco-editing > canvas { position: fixed; inset: 0; touch-action: none; }
+:root { --se-w: min(380px, 42vw); --se-h: 52dvh; }
+body.scenoco-editing { position: fixed !important; margin: 0 !important; overflow: hidden !important; }
+/* What shows beside the game when it keeps its shape: the editor's, not the page's own background. */
+html:has(> body.scenoco-editing) { background: #020617 !important; }
+/* Only the game's canvas — three.js marks its own — for editing the 3D without the HUD in the way. */
+body.scenoco-canvas-only * { visibility: hidden !important; }
+body.scenoco-canvas-only canvas[data-engine^="three"] { visibility: visible !important; }
 
-#scenoco-editor {
-  /* Translucent: a panel floats over the scene, and the scene behind it is context. */
-  --panel: rgba(20, 24, 32, 0.92);
-  --line: #2a3344;
-  --edge: #3d4b64;
-  --accent: #4af0e0;
-  position: fixed; inset: 0; z-index: 1000; pointer-events: none;
-  color-scheme: dark; color: #d6e2f0;
-  font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  -webkit-tap-highlight-color: transparent;
+#scenoco-editor { position: fixed; z-index: 2147483000; top: 0; right: 0; bottom: 0; width: var(--se-w); font: 13px/1.45 ui-sans-serif, system-ui, sans-serif; color: #e2e8f0; -webkit-text-size-adjust: 100%; }
+@media (orientation: portrait) {
+  #scenoco-editor { top: auto; left: 0; width: auto; height: var(--se-h); }
 }
 #scenoco-editor * { box-sizing: border-box; }
-#scenoco-editor button { font: inherit; }
+.se-mount { height: 100%; }
+.se-grip { position: absolute; z-index: 1; top: 0; bottom: 0; left: -4px; width: 9px; cursor: ew-resize; touch-action: none; }
+.se-grip::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background 0.15s; }
+.se-grip:hover::after, .se-grip:active::after { background: #38bdf8; width: 2px; }
+@media (orientation: portrait) {
+  .se-grip { top: -6px; bottom: auto; left: 0; right: 0; width: auto; height: 13px; cursor: ns-resize; }
+  .se-grip::after { top: 6px; bottom: auto; left: 0; right: 0; width: auto; height: 1px; }
+  .se-grip:hover::after, .se-grip:active::after { width: auto; height: 2px; }
+}
+#scenoco-editor svg { width: 18px; height: 18px; }
 
-/* ── top bar ── */
-#scenoco-editor .se-topbar {
-  position: fixed; z-index: 3; top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; margin: 0 auto;
-  width: max-content; max-width: calc(100% - 16px);
-  display: flex; align-items: center; gap: 2px; padding: 5px; border-radius: 12px;
-  background: var(--panel); border: 1px solid var(--edge); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px); pointer-events: auto;
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch;
-}
-#scenoco-editor .se-topbar::-webkit-scrollbar { display: none; }
-#scenoco-editor .se-tbtn {
-  flex: 0 0 auto; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-  padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #cfe0f2; cursor: pointer;
-}
-#scenoco-editor .se-tbtn svg { width: 21px; height: 21px; }
-#scenoco-editor .se-tbtn:hover:not(:disabled) { background: rgba(74, 240, 224, 0.12); color: #eafdff; }
-#scenoco-editor .se-tbtn.se-active { background: rgba(74, 240, 224, 0.2); border-color: var(--accent); color: #eafdff; }
-#scenoco-editor .se-tbtn:disabled { opacity: 0.3; cursor: default; }
-#scenoco-editor .se-sep { flex: 0 0 auto; width: 1px; height: 24px; background: var(--line); margin: 0 3px; }
+.se-panel { height: 100%; display: flex; flex-direction: column; background: #0f172a; border-left: 1px solid #1e293b; padding-bottom: env(safe-area-inset-bottom); }
+@media (orientation: portrait) { .se-panel { border-left: 0; border-top: 1px solid #1e293b; } }
 
-#scenoco-editor .se-status {
-  position: fixed; z-index: 3; top: calc(62px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; margin: 0 auto;
-  width: max-content; max-width: calc(100% - 16px); padding: 6px 12px; border-radius: 9px;
-  background: var(--panel); border: 1px solid var(--edge); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-  pointer-events: none; font-size: 12px; line-height: 1.4; color: #cfe0f5; white-space: pre-wrap; text-align: center;
-}
-#scenoco-editor .se-status.se-error { color: #ffb4b4; border-color: #7f1d1d; }
+.se-bar { display: flex; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid #1e293b; }
+.se-gap { width: 10px; }
+.se-fill { flex: 1; }
+.se-button { position: relative; display: grid; place-items: center; min-width: 36px; height: 36px; border: 0; border-radius: 6px; background: none; color: inherit; cursor: pointer; touch-action: manipulation; }
+.se-button:hover:not(:disabled) { background: #1e293b; }
+.se-button:disabled { opacity: 0.35; cursor: default; }
+.se-pressed, .se-pressed:hover:not(:disabled) { background: #075985; }
+.se-badge { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 2px #0f172a; }
+.se-panel { position: relative; }
+.se-backdrop { position: fixed; inset: 0; z-index: 3; display: grid; place-items: center; padding: 16px; background: #02061799; }
+.se-popup { width: min(360px, 100%); max-height: calc(100dvh - 32px); overflow: auto; padding: 6px 16px 14px; border: 1px solid #334155; border-radius: 10px; background: #111c33; box-shadow: 0 16px 48px #000a; }
+.se-popupHead { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 14px; }
+.se-popup section { padding-top: 8px; }
+.se-popup h3 { margin: 6px 0 2px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; }
+.se-popup p { margin: 0 0 4px; color: #94a3b8; font-size: 12px; }
+.se-choice { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.se-choice input { margin-top: 3px; accent-color: #38bdf8; }
+.se-choice small { display: block; color: #94a3b8; font-size: 11.5px; overflow-wrap: anywhere; }
+.se-choice code { font: 11.5px ui-monospace, monospace; color: #e2e8f0; }
+.se-status { padding: 4px 10px; font-size: 12px; color: #94a3b8; border-bottom: 1px solid #1e293b; overflow-wrap: anywhere; }
+.se-error { color: #fecaca; background: #450a0a; }
 
-/* ── launchers ── */
-#scenoco-editor .se-launcher {
-  position: fixed; z-index: 1; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
-  padding: 0; border-radius: 14px; cursor: pointer; pointer-events: auto;
-  background: var(--panel); border: 1px solid var(--edge); color: #cfe0f2;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px);
-}
-#scenoco-editor .se-launcherLeft { left: 12px; }
-#scenoco-editor .se-launcherRight { right: 12px; }
-#scenoco-editor .se-launcher:hover { color: #eafdff; border-color: var(--accent); }
-#scenoco-editor .se-launcher svg { width: 24px; height: 24px; }
+.se-tree { flex: 0 0 38%; overflow: auto; padding: 4px 0; border-bottom: 1px solid #1e293b; }
+.se-row { display: flex; align-items: center; gap: 2px; min-height: 28px; padding-right: 8px; white-space: nowrap; cursor: pointer; }
+.se-row:hover { background: #1e293b; }
+.se-selected, .se-selected:hover { background: #075985; }
+.se-dim { opacity: 0.55; font-style: italic; }
+.se-caret { display: grid; place-items: center; width: 22px; height: 28px; flex: none; color: #64748b; }
+.se-caret svg { width: 14px; height: 14px; }
+.se-made { color: #7dd3fc; font-family: ui-monospace, monospace; }
+.se-chips { margin-left: 8px; color: #a78bfa; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
 
-/* ── sheets: bottom-docked upright, one at a time; side columns sideways ── */
-#scenoco-editor .se-sheet {
-  position: fixed; z-index: 2; display: flex; flex-direction: column;
-  left: 0; right: 0; bottom: 0; height: min(50vh, 460px); border-radius: 16px 16px 0 0;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--panel); border: 1px solid var(--edge); backdrop-filter: blur(10px);
-  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.55); pointer-events: auto;
-  animation: se-in 0.18s ease;
-}
-@keyframes se-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
-@media (orientation: landscape) {
-  /* Below the toolbar, which sits over the gap between the columns on a wide screen but not on a phone. */
-  #scenoco-editor .se-sheet { top: 64px; bottom: 12px; height: auto; border-radius: 16px; width: min(380px, 42vw); padding-bottom: 0; }
-  #scenoco-editor .se-sheetLeft { left: 12px; right: auto; }
-  #scenoco-editor .se-sheetRight { right: 12px; left: auto; }
-}
-#scenoco-editor .se-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 14px; border-bottom: 1px solid var(--line); }
-#scenoco-editor .se-title {
-  flex: 0 1 auto; min-width: 0; font: 700 11px/1 ui-monospace, monospace; color: #9fe7ff;
-  letter-spacing: 0.08em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-#scenoco-editor .se-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-#scenoco-editor .se-headBtn {
-  flex: 0 0 auto; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
-  padding: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #cfe0f2; cursor: pointer;
-}
-#scenoco-editor .se-headBtn svg { width: 18px; height: 18px; }
-#scenoco-editor .se-headBtn:hover:not(:disabled) { background: rgba(74, 240, 224, 0.12); color: #eafdff; }
-#scenoco-editor .se-headBtn:disabled { opacity: 0.32; cursor: default; }
-#scenoco-editor .se-body { container-type: inline-size; flex: 1 1 auto; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.se-code { flex: 1; overflow: auto; padding: 6px 10px 16px; font: 12.5px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.se-empty { color: #64748b; font-family: inherit; }
+.se-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.se-note { margin: 2px 0 6px; padding: 4px 8px; border-radius: 4px; background: #1e293b; color: #94a3b8; font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; }
+.se-line { white-space: nowrap; }
+.se-tag { color: #7dd3fc; }
+.se-name { color: #c4b5fd; }
+.se-string, .se-string input { color: #fcd34d; }
+.se-text { color: #94a3b8; }
+.se-muted { color: #64748b; }
+.se-where { margin-left: 10px; font-size: 11px; }
+.se-link { color: #94a3b8; text-decoration: none; }
+.se-link:hover { color: #e2e8f0; text-decoration: underline; }
+.se-ref { color: inherit; text-decoration: underline dotted #64748b; text-underline-offset: 2px; }
+.se-ref:hover { color: #7dd3fc; text-decoration-color: #7dd3fc; }
+.se-unwritten .se-name, .se-unwritten .se-token { opacity: 0.55; }
+.se-unsaved .se-name { color: #fbbf24; }
+.se-unsaved .se-name::after { content: '*'; color: #fbbf24; }
 
-/* ── tree ── */
-#scenoco-editor .se-tree { height: 100%; padding: 4px 4px 0; overflow: hidden; }
-#scenoco-editor .se-node {
-  display: flex; align-items: center; gap: 4px; height: 100%; padding-right: 8px; cursor: pointer; white-space: nowrap;
-  font: 12px/1.4 ui-monospace, monospace; color: #d6e2f0; border-radius: 6px;
-}
-#scenoco-editor .se-node:hover { background: rgba(74, 240, 224, 0.08); }
-#scenoco-editor .se-node.se-sel { background: rgba(74, 240, 224, 0.18); color: #eafdff; }
-#scenoco-editor .se-node.se-made { color: #6f8099; }
-#scenoco-editor .se-caret { flex: 0 0 24px; height: 100%; display: flex; align-items: center; justify-content: center; color: #6f93b8; }
-#scenoco-editor .se-caret svg { width: 14px; height: 14px; }
-#scenoco-editor .se-nodeName { overflow: hidden; text-overflow: ellipsis; }
-#scenoco-editor .se-nodeType { color: #6f93b8; margin-left: 6px; }
+.se-token { field-sizing: content; font: inherit; color: #86efac; background: none; border: 0; border-bottom: 1px dashed #334155; padding: 0 1px; margin: 0; min-width: 1ch; touch-action: pan-y; cursor: ew-resize; }
+.se-token:focus { outline: none; background: #1e293b; border-bottom-color: #38bdf8; cursor: text; }
+.se-bool { cursor: pointer; color: #fda4af; }
+.se-option { cursor: pointer; color: #86efac; appearance: none; -webkit-appearance: none; }
+.se-string .se-option { color: #fcd34d; }
+.se-option option { color: #e2e8f0; background: #0f172a; }
+.se-swatch { width: 1.6em; height: 1.1em; padding: 0; margin: 0 4px -2px 0; border: 1px solid #334155; border-radius: 3px; background: none; vertical-align: baseline; }
 
-/* ── inspector ── */
-#scenoco-editor .se-inspector { padding: 6px 12px 16px; font: 12px/1.5 ui-monospace, monospace; }
-#scenoco-editor .se-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 6px 0 4px; }
-#scenoco-editor .se-identityName { font-weight: 700; color: #eafdff; }
-#scenoco-editor .se-source { color: #6f8099; }
-#scenoco-editor .se-hint, #scenoco-editor .se-empty { color: #6f8099; padding: 4px 0; }
-#scenoco-editor .se-empty { padding: 16px 4px; }
-#scenoco-editor .se-section { margin-top: 4px; }
-#scenoco-editor .se-secHead {
-  display: flex; align-items: center; gap: 4px; margin: 10px 0 4px; padding-bottom: 3px;
-  color: #9fe7ff; font-weight: 700; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none;
-  text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px;
-}
-#scenoco-editor .se-secCaret { flex: 0 0 14px; display: inline-flex; color: #6f93b8; }
-#scenoco-editor .se-secCaret svg { width: 13px; height: 13px; }
-
-/* A name and its widget; a vector's axes share the widget's column equally. */
-#scenoco-editor .se-row { display: grid; grid-template-columns: minmax(64px, 30%) minmax(0, 1fr); align-items: center; gap: 8px; min-height: 36px; padding: 2px 0; }
-#scenoco-editor .se-k { color: #8fa6c4; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#scenoco-editor .se-v { color: #e7f0fb; display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
-#scenoco-editor .se-unset .se-k { color: #61708a; }
-#scenoco-editor .se-unset .se-input, #scenoco-editor .se-unset .se-swatch, #scenoco-editor .se-unset .se-toggle { opacity: 0.45; }
-#scenoco-editor .se-unset:focus-within .se-input, #scenoco-editor .se-unset:focus-within .se-swatch { opacity: 1; }
-#scenoco-editor .se-locked { cursor: help; }
-#scenoco-editor .se-locked .se-k { color: #6f8099; }
-#scenoco-editor .se-lockVal { color: #fbbf24; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
-#scenoco-editor .se-lockIcon { width: 12px; height: 12px; color: #6f8099; flex: 0 0 auto; }
-#scenoco-editor .se-clear {
-  flex: 0 0 auto; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
-  padding: 0; border: 0; border-radius: 6px; background: transparent; color: #6f8099; cursor: pointer;
-}
-#scenoco-editor .se-clearSlot { flex: 0 0 26px; }
-#scenoco-editor .se-clear:hover { background: rgba(255, 120, 120, 0.14); color: #ff9b9b; }
-#scenoco-editor .se-clear svg { width: 13px; height: 13px; }
-
-/* 16px: smaller, and iOS zooms the page on every tap. */
-#scenoco-editor .se-input {
-  background: #0e1219; color: #e7f0fb; border: 1px solid var(--line); border-radius: 5px;
-  padding: 3px 6px; font: 16px ui-monospace, monospace; min-height: 30px; min-width: 0;
-}
-#scenoco-editor .se-input:focus { outline: none; border-color: var(--accent); }
-#scenoco-editor .se-num { width: 88px; text-align: right; }
-#scenoco-editor .se-text { flex: 1 1 auto; width: 100%; }
-#scenoco-editor .se-axes { flex: 1 1 auto; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
-/* A narrow column — a phone on its side — puts a vector's name above its axes, so a number fits. */
-@container (max-width: 360px) {
-  #scenoco-editor .se-wide { grid-template-columns: minmax(0, 1fr); gap: 0; }
-}
-#scenoco-editor .se-axis { display: flex; align-items: center; min-width: 0; }
-#scenoco-editor .se-axis .se-num { flex: 1 1 auto; width: 100%; padding-left: 3px; }
-/* The letter is the drag handle: wide enough for a finger. */
-#scenoco-editor .se-axisK { flex: 0 0 18px; color: #6f93b8; font-size: 11px; width: 18px; height: 30px; display: flex; align-items: center; justify-content: center; }
-#scenoco-editor .se-scrub { cursor: ew-resize; touch-action: none; user-select: none; }
-#scenoco-editor .se-toggle { width: 24px; height: 24px; accent-color: var(--accent); }
-#scenoco-editor .se-color { display: flex; align-items: center; gap: 5px; }
-#scenoco-editor .se-swatch { width: 34px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
-#scenoco-editor .se-hex { width: 96px; }
-#scenoco-editor .se-color { flex: 0 1 auto; }
+.se-layer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 2px; padding-top: 6px; border-top: 1px dashed #334155; color: #94a3b8; font: 11.5px/1.4 ui-sans-serif, system-ui, sans-serif; }
+.se-layer:first-of-type { border-top: 0; margin-top: 2px; padding-top: 0; }
+.se-layer b { color: #e2e8f0; font-weight: 600; }
+.se-prefab { opacity: 0.8; }
+.se-enter { flex: none; padding: 3px 9px; border: 1px solid #0369a1; border-radius: 5px; background: #0c4a6e; color: #e0f2fe; font: 600 11.5px system-ui, sans-serif; cursor: pointer; }
+.se-note .se-enter { margin-left: 8px; }
+.se-stage { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #0c4a6e; border-bottom: 1px solid #0369a1; }
+.se-crumbs { flex: 1; min-width: 0; }
+.se-crumbs b { font-family: ui-monospace, monospace; color: #e0f2fe; }
+.se-crumbs small { display: block; color: #bae6fd; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.se-outside { opacity: 0.35; }
+.se-tip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 4px; padding: 4px 8px; border-radius: 4px; background: #1e293b; color: #94a3b8; font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; white-space: normal; }
+.se-tip code { color: #e2e8f0; font: 12px ui-monospace, monospace; }
+.se-revert { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 6px; padding: 0; border: 0; border-radius: 4px; background: none; color: #fbbf24; vertical-align: -5px; cursor: pointer; touch-action: manipulation; }
+.se-revert:hover { background: #1e293b; }
+#scenoco-editor .se-revert svg { width: 14px; height: 14px; }
+.se-scenes { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid #1e293b; color: #94a3b8; font-size: 12px; }
+.se-scenes select { flex: 1; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid #334155; border-radius: 5px; background: #111c33; color: #e2e8f0; font: 13px system-ui, sans-serif; }
 `;

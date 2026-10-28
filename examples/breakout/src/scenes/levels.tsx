@@ -6,7 +6,7 @@ import { Arena } from './Arena';
 
 interface LevelProps {
   /** Shown on the HUD. */
-  name: string;
+  title: string;
   /** How fast the ball travels here. */
   ballSpeed: number;
   /** The wall, one string per row: a digit is a brick taking that many hits, anything else a gap. */
@@ -16,12 +16,12 @@ interface LevelProps {
 }
 
 /** A level: the shared arena, the level's own rules, and its wall of bricks. */
-const Level = ({ name, ballSpeed, rows, wallY }: LevelProps) => (
+const Level = ({ title, ballSpeed, rows, wallY }: LevelProps) => (
   <Scene>
     <Color attach="background" args={['#05070d']} />
     {/* A haze at the far end of the field. */}
     <Fog attach="fog" args={['#05070d', 20, 46]} />
-    <GameState levelName={name} />
+    <GameState levelName={title} />
 
     {/* Key light from the front-right, a cool rim from behind-left: enough shape on a flat field
         of boxes to read as depth without hiding anything. */}
@@ -41,12 +41,12 @@ const Level = ({ name, ballSpeed, rows, wallY }: LevelProps) => (
   </Scene>
 );
 
-export const Level1 = () => <Level name="NEON GRID" ballSpeed={14} wallY={13.9} rows={['1111111', '1111111', '.11111.']} />;
+export const Level1 = () => <Level title="NEON GRID" ballSpeed={14} wallY={13.9} rows={['1111111', '1111111', '.11111.']} />;
 
 export const Level2 = () => (
-  <Level name="FORTRESS" ballSpeed={16} wallY={14.4} rows={['.22222.', '2111112', '2133312', '2111112', '.22222.']} />
+  <Level title="FORTRESS" ballSpeed={16} wallY={14.4} rows={['.22222.', '2111112', '2133312', '2111112', '.22222.']} />
 );
 
 export const Level3 = () => (
-  <Level name="GAUNTLET" ballSpeed={18} wallY={14.4} rows={['3.3.3.3', '.2.2.2.', '1111111', '.2.2.2.', '3.3.3.3']} />
+  <Level title="GAUNTLET" ballSpeed={18} wallY={14.4} rows={['3.3.3.3', '.2.2.2.', '1111111', '.2.2.2.', '3.3.3.3']} />
 );

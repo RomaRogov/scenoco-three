@@ -45,9 +45,12 @@ export const meadow = new TerrainData(meadowUrl, import.meta.glob('./meadow/laye
   channel can carry the layer's height.
 - `Terrain` — draws the data under its node in chunks, each as detailed as `heightmapPixelError`
   asks from where the camera is (Martini), rebuilt once a frame after a change;
-  `sampleHeight(worldPosition)`, `castShadows`, `materialTemplate`.
-- `TerrainMaterial` — the layers blended by weight and by height, tiling broken up, steep slopes
-  projected from the side; three's standard material underneath, so lights and shadows are three's.
+  `sampleHeight(worldPosition)`, `castShadows`, `materialTemplate`, `tileScale` — every
+  layer's tile size times it — and `sideProjection`, both changeable while the game runs.
+- `TerrainMaterial` — the two heaviest layers of each pixel blended by height, tiling broken up,
+  ground steeper than 45° textured from the side instead of from above, with no extra reads (off
+  with `sideProjection`); a small, fixed amount of work per pixel, so it suits phones. Three's standard
+  material underneath, so lights and shadows are three's.
 
 A `.terrain` file is small: the heights are predicted from their neighbours and gzipped, the weights
 are a byte each. Its layout is written down above `decode` in

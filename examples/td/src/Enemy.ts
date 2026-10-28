@@ -63,14 +63,19 @@ export class Enemy extends Behaviour {
     return this.distance / this.length;
   }
 
-  override start() {
+  // On the path in awake, which instantiate runs: by start the frame it was made in has been drawn,
+  // with it wherever the prefab put it.
+  override awake() {
     this.path = findObjectOfType(SplineContainer);
     this.terrain = findObjectOfType(Terrain);
     this.length = this.path?.calculateLength() ?? 1;
-    this.maxHp = this.hp = Math.round(this.spec.hp * this.toughness);
     // A lane of its own across the road, so a crowd spreads out instead of stacking up.
     this.lane = (Math.random() * 2 - 1) * 0.45;
-    this.place(0);
+    if (this.path) this.place(0);
+  }
+
+  override start() {
+    this.maxHp = this.hp = Math.round(this.spec.hp * this.toughness);
   }
 
   override update(dt: number) {

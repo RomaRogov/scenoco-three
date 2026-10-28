@@ -37,15 +37,16 @@ play(Main);
 
 - A tag is the three.js class you import; attributes follow React Three Fiber's rules (`args`,
   `set`/`copy`, dashed paths, `attach`). TSX builds the objects once — there is no reconciler.
-- A `Behaviour` has Unity's lifecycle and lookups; a prefab is a function and `instantiate` calls
-  it; `SceneManager.load(Level2)` swaps scenes and `dontDestroyOnLoad` keeps what outlives them.
+- A `Behaviour` has Unity's lifecycle and lookups; a prefab is `prefab(() => …)` and `instantiate`
+  calls it; `SceneManager.load(Level2)` swaps scenes and `dontDestroyOnLoad` keeps what outlives them.
 - `Time`, `Input` (named axes, and `<button data-button="Pause">` as a virtual button), coroutines
   with Unity's yield instructions, typed `Event`s, `Mathf`, a seeded `Random` and `PlayerPrefs`.
-- The scene's first camera draws it — a scene puts its camera and lights in, as in Unity. A node with
+- The scene's first visible camera draws it — a scene puts its camera and lights in, as in Unity;
+  hiding it hands over to the next. A node with
   `attach` is both a child and that property: `<Object3D attach="target" />` is where a light shines.
 - In development `play()` installs `window.__scenoco`, the bridge a browser tool or
   `@scenoco-three/observer` drives the game through, and every object
-  remembers where its tag was written (`sourceOf`). With `?edit` in the URL it builds the scene,
-  holds it still and loads [the editor](../editor) instead of playing.
+  remembers where its tag was written (`sourceOf`). A button on the page opens
+  [the editor](../editor) over the running game.
 
 **Every signature is in [API.md](API.md)** — one page, test-enforced to name every export.

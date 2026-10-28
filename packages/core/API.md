@@ -15,21 +15,27 @@ is three.js, as three.js documents it.
 //   ref={hero}                   const hero = ref<Mesh>() inside the scene function; a behaviour field takes it too,
 //                                and holds the object itself: target: Mesh | null = null, never a Ref
 //   <Tower projectile={Arrow} /> a prefab as a setting: projectile: Prefab | null = null
+//   <Pad position={[4, 0, 2]} /> a prefab(…) returns one root; its tag's position, rotation, scale and name are
+//                                that root's, as a Unity instance's Transform — the prefab's props are the rest
 // A scene file only declares: no loops, branches, handlers or calls — `scenoco check` says what to write instead.
 
 function play(scene: () => JSX.Element, options?: {
   container?: HTMLElement;
   fixedDelta?: number;
   renderer?: WebGLRenderer;         // your own, for what only its constructor sets: new WebGLRenderer({ antialias: false })
+  autoCamera?: boolean;             // false: play picks and fits no camera — set game.camera and size it yourself
 }): Game;
 interface Game {
   readonly scene: Scene;            // the one scene that draws; SceneManager swaps what is in it
-  readonly camera: PerspectiveCamera | null;   // the loaded scene's first camera; null, and nothing drawn, without one
+  camera: PerspectiveCamera | OrthographicCamera | null;   // the loaded scene's first visible camera, fitted to the canvas;
+                                    // hidden or removed, the next one draws. Settable; with autoCamera: false, only what you set
   readonly renderer: WebGLRenderer; // shadows, tone mapping: set them as three.js documents
   render: () => void;               // replace to draw another way: game.render = () => composer.render()
 }
 function ref<T>(): { current: T | null };
-type Prefab<T extends Object3D = Object3D> = () => JSX.Element;    // a function returning TSX, as a field's type
+function prefab<F extends (props: P) => JSX.Element>(build: F): F;  // export const Coin = prefab(() => <Mesh>…</Mesh>): one root;
+                                                                    // a function not wrapped is a plain component — its tag is its props
+type Prefab<T extends Object3D = Object3D>;   // what prefab() makes, taking no props — as a field's type, or instantiate's
 function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: {   // a prefab, or a loaded model
   parent?: Object3D;                                  // default: the active scene — the next load destroys it, as in Unity
   position?: Vector3 | [number, number, number];
@@ -51,12 +57,13 @@ abstract class Behaviour<N extends Object3D = Object3D> {   // Behaviour<Mesh>: 
   enabled: boolean;                     // false: no hooks; toggling calls onEnable/onDisable
   readonly isActiveAndEnabled: boolean; // receiving hooks now
   readonly isDestroyed: boolean;
-  readonly camera: PerspectiveCamera;   // the camera the scene is drawn with — Unity's Camera.main
+  readonly camera: PerspectiveCamera | OrthographicCamera;   // the camera the scene is drawn with — Unity's Camera.main
 
   // hooks — all optional, camelCase Unity names
   awake?(): void;  onEnable?(): void;  start?(): void;
   fixedUpdate?(dt: number): void;  update?(dt: number): void;  lateUpdate?(dt: number): void;
   onDisable?(): void;  onDestroy?(): void;
+  onValidate?(): void;                  // Unity's OnValidate: after the editor changed a field, or moved its node or one it was given — redo what start did
 
   getComponent<T>(type: Class<T>): T | null;            // same node
   getComponents<T>(type: Class<T>): T[];

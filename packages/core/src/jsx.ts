@@ -12,7 +12,8 @@
 import { addDormant, afterNodeDestroyed } from './kernel/runtime.js';
 import { disposeBuilt, ownedBy } from './dispose.js';
 import { Behaviour } from './kernel/Behaviour.js';
-import type { BehaviourInit, ConstructableBehaviour, RefLike } from './kernel/types.js';
+import type { BehaviourInit, ConstructableBehaviour, PrefabMarkKey, RefLike } from './kernel/types.js';
+import type { Object3D } from 'three';
 
 /** A typed link to an element, set when the element is made: `const hero = ref<Mesh>()`, `<Mesh ref={hero}>`. */
 export interface Ref<T> {
@@ -64,14 +65,32 @@ export function jsx(type: unknown, props: Props | null, _key?: unknown): unknown
   if (isBehaviourClass(type)) return marker(type, all);
   if (typeof type !== 'function') throw new TypeError(`<${String(type)}> is not a class: a tag is a class you import — <Mesh>, not <mesh>.`);
 
-  if (!isClass(type)) {
-    // A function returning TSX — a prefab. Remember which one made the node, and whether it was given
-    // anything, so an export can keep `<ArrowBase />` a nested prefab rather than copy what it built.
+  if (!isClass(type) && !prefabs.has(type)) {
+    // A plain function returning TSX: a component, as anywhere TSX is written. Its tag is its props.
     const made = (type as (p: Props) => unknown)(all);
-    if (made && typeof made === 'object' && !Array.isArray(made)) {
-      const { children: _c, key: _k2, ...given } = all;
-      madeBy.set(made, { prefab: type as () => unknown, given: Object.keys(given).length > 0 });
+    remember(made, type, all);
+    return made;
+  }
+
+  if (!isClass(type)) {
+    // A prefab: one whole thing, whose tag places and names its root as a Unity instance's
+    // Transform and name do. The rest of the tag is the function's props.
+    const own: Props = {};
+    const instance: [string, unknown][] = [];
+    for (const [key, value] of Object.entries(all)) {
+      if ((INSTANCE as readonly string[]).includes(key)) instance.push([key, value]);
+      else own[key] = value;
     }
+    const name = type.name || 'prefab';
+    const made = (type as (p: Props) => unknown)(own);
+    if (Array.isArray(made)) {
+      throw new Error(`<${name}> returns ${made.length} elements: a prefab is one whole thing — wrap them in one <Group>.`);
+    }
+    if (instance.length && (made as { isObject3D?: boolean } | null)?.isObject3D !== true) {
+      throw new Error(`<${name} ${instance[0]![0]}>: ${name} returns no node to place — only a prefab whose root is an Object3D takes ${INSTANCE.join(', ')}.`);
+    }
+    for (const [key, value] of instance) applyProp(made as Record<string, unknown>, key, value, name);
+    remember(made, type, all);
     return made;
   }
 
@@ -85,6 +104,53 @@ export function jsx(type: unknown, props: Props | null, _key?: unknown): unknown
 }
 export const jsxs = jsx;
 
+/** Functions `prefab()` made prefabs. */
+const prefabs = new WeakSet<Function>();
+
+/**
+ * Unity's prefab: one whole thing, built by a function returning TSX with one root. Its tag places
+ * and names that root as an instance's Transform and name — `<Coin position={[2, 0, 0]} name="bonus" />`
+ * — and it is what `instantiate` and a `Prefab` field take. A function not made one is a plain TSX
+ * component: its tag's attributes are its props, and nothing else.
+ */
+export function prefab<F extends (props: never) => unknown>(build: F): F & { readonly [K in PrefabMarkKey]: true } {
+  prefabs.add(build);
+  return build as F & { readonly [K in PrefabMarkKey]: true };
+}
+
+/** Whether `prefab()` made this function a prefab. */
+export function isPrefab(value: unknown): boolean {
+  return typeof value === 'function' && prefabs.has(value);
+}
+
+/**
+ * Which function made a node, and with what, so an export can keep `<ArrowBase />` a nested prefab
+ * rather than copy what it built, and the editor can call it again.
+ */
+function remember(made: unknown, type: Function, all: Props): void {
+  if (!made || typeof made !== 'object') return;
+  const { children: _c, key: _k, ...given } = all;
+  madeBy.set(made, { prefab: type as () => unknown, given: Object.keys(given).length > 0, props: all });
+}
+
+/**
+ * The prefab function whose element made a node, whether that element passed it attributes, and
+ * the props it was called with — what the editor calls it with again when one of them changes.
+ */
+interface MadeBy {
+  prefab: () => unknown;
+  given: boolean;
+  props: Props;
+}
+const madeBy = new WeakMap<object, MadeBy>();
+
+/** @internal What an export reads: the prefab that made `node`, if a `<Prefab />` element did. */
+export function prefabOf(node: object): MadeBy | undefined {
+  return madeBy.get(node);
+}
+
+// --- development records: where each element was written, and with what, for the editor -------
+
 /** Where an element was written: what `jsxDEV` is told in development, 1-based, at the `<`. */
 export interface Source {
   fileName: string;
@@ -92,15 +158,6 @@ export interface Source {
   columnNumber: number;
 }
 const sources = new WeakMap<object, Source>();
-
-/** The prefab function whose element made a node, and whether that element passed it attributes. */
-const madeBy = new WeakMap<object, { prefab: () => unknown; given: boolean }>();
-
-/** @internal What an export reads: the prefab that made `node`, if a `<Prefab />` element did. */
-export function prefabOf(node: object): { prefab: () => unknown; given: boolean } | undefined {
-  return madeBy.get(node);
-}
-
 
 /**
  * Where the element that made this object — a node, a material, a behaviour — was written. Development
@@ -110,12 +167,56 @@ export function sourceOf(made: object): Source | undefined {
   return sources.get(made);
 }
 
-/** Development's entry: the same as `jsx`, and it remembers where each element was written. */
+/**
+ * The attributes the element that made this object was written with — what the editor puts back
+ * when a value is reset. Development builds only.
+ */
+export function givenOf(made: object): Readonly<Record<string, unknown>> | undefined {
+  return given.get(made);
+}
+
+/** @internal what the editor wrote into an element: the next reset puts this back. */
+export function setGiven(made: object, name: string, value: unknown): void {
+  given.set(made, { ...given.get(made), [name]: value });
+}
+
+/** @internal an object made again by the editor still stands for what the file says, not what made it again. */
+export function keepGiven(from: object, to: object): void {
+  const was = given.get(from);
+  if (was) given.set(to, was);
+  const inner = own.get(from);
+  if (inner) own.set(to, inner);
+}
+
+const given = new WeakMap<object, Record<string, unknown>>();
+
+/**
+ * A node a function's tag made — a prefab's root — is its tag's, as far as `sourceOf` and `givenOf`
+ * say: the tag places it. Its own element, inside the function, is what this answers: where it is
+ * written and with what — the prefab's own, which the tag overrides. Development builds only.
+ */
+export function ownOf(made: object): { source?: Source; given?: Readonly<Record<string, unknown>> } | undefined {
+  return own.get(made);
+}
+
+const own = new WeakMap<object, { source?: Source; given?: Record<string, unknown> }>();
+
+/** Development's entry: the same as `jsx`, and it remembers where each element was written, and with what. */
 export function jsxDEV(type: unknown, props: Props | null, key?: unknown, _static?: boolean, source?: Source): unknown {
   const made = jsx(type, props, key);
-  if (source && made && typeof made === 'object' && !Array.isArray(made)) sources.set(made, source);
+  if (made && typeof made === 'object' && !Array.isArray(made)) {
+    // A function's tag takes its root over: what the root's own element said is kept apart first.
+    if (typeof type === 'function' && !isClass(type) && sources.has(made) && !own.has(made)) {
+      own.set(made, { source: sources.get(made), given: given.get(made) });
+    }
+    if (source) sources.set(made, source);
+    const { children: _c, key: _k, ref: _r, ...attributes } = props ?? {};
+    given.set(made, attributes);
+  }
   return made;
 }
+
+// --- an element's properties and children -----------------------------------------------------
 
 function isClass(fn: Function): boolean {
   return /^class[\s{]/.test(Function.prototype.toString.call(fn));
@@ -126,8 +227,7 @@ function flatten(children: unknown): unknown[] {
   return Array.isArray(children) ? children.flatMap(flatten) : [children];
 }
 
-/** `key` on `target`, R3F's way: a dashed name walks in, then the property's own `set`/`copy` takes the value. */
-/** @internal */
+/** @internal `key` on `target`, R3F's way: a dashed name walks in, then the property's own `set`/`copy` takes the value. */
 export function applyProp(target: Record<string, unknown>, key: string, value: unknown, tag: string): void {
   let owner = target;
   let name = key;
@@ -160,8 +260,12 @@ export function applyProp(target: Record<string, unknown>, key: string, value: u
 function addChild(parent: Record<string, unknown>, child: unknown, tag: string): void {
   if (isMarker(child)) {
     const behaviour = addDormant(parent as never, child.type, child.init);
-    const source = sources.get(child);
-    if (source) sources.set(behaviour, source);
+    // Where it was written and what it said, for the editor: `jsxDEV` records them, `jsx` does not.
+    if (import.meta.env?.DEV) {
+      const source = sources.get(child);
+      if (source) sources.set(behaviour, source);
+      if (given.has(child)) given.set(behaviour, child.init);
+    }
     return;
   }
   if (!child || typeof child !== 'object') {
@@ -230,6 +334,28 @@ type CtorArgs<C> = C extends {
     ? A
     : never;
 
+/** What every prefab's tag takes for its root, as a Unity instance has its own Transform and name. */
+export const INSTANCE = ['position', 'rotation', 'scale', 'name'] as const;
+type InstanceKey = (typeof INSTANCE)[number];
+
+/**
+ * A prefab's tag: the function's props, and its root's transform and name. A prefab that declares
+ * one of those itself is told where it belongs, at every tag that uses it.
+ */
+export type PrefabProps<P> = [Extract<keyof P, InstanceKey>] extends [never]
+  ? P & Pick<PropsOf<Object3D>, InstanceKey>
+  : Omit<P, InstanceKey> & {
+      [K in Extract<keyof P, InstanceKey>]: `${K} belongs to the tag, as a Unity instance's Transform and name do: take it out of the prefab's props, and <Prefab ${K}={…} /> sets its root's.`;
+    };
+
+/**
+ * A plain function's tag: its props, as anywhere TSX is written. Placing or naming it as an instance
+ * is a prefab's, and is told so — unless the function takes that prop itself.
+ */
+export type PlainProps<P> = P & {
+  [K in Exclude<InstanceKey, keyof P>]?: `${K} is a prefab tag's: this function is a plain component, whose attributes are its props — make it a prefab where it is declared, prefab(() => …), or give it a ${K} prop.`;
+};
+
 /** Names the element itself uses, never one of the instance's properties — `children` is three's own field too. */
 type Reserved = 'children' | 'args' | 'attach' | 'ref' | 'key';
 
@@ -262,7 +388,9 @@ export declare namespace ThreeJSX {
       : C extends AnyClass
         ? ClassProps<C>
         : P
-    : P;
+    : C extends { readonly [K in PrefabMarkKey]: true }
+      ? PrefabProps<P>
+      : PlainProps<P>;
   interface IntrinsicAttributes {
     key?: string | number;
   }

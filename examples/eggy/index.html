@@ -5,14 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Eggy Roll</title>
     <style>
-      /* Unity's canvas is 1080 x 1920: --u is one of its units, so every size below is Unity's own. */
-      :root { --u: min(100vw / 1080, 100dvh / 1920); --ink: #371e70; }
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #2a1030; touch-action: none; user-select: none; -webkit-user-select: none; }
+      /* Unity's UI was set in Chalkboard, which Apple's systems have and may not be shipped: anywhere
+         else, Comic Neue Bold (SIL Open Font License, fonts/ComicNeue-OFL.txt) stands in. */
+      @font-face { font-family: 'Comic Neue'; font-weight: 700; font-display: block; src: url(/fonts/ComicNeue-Bold.woff2) format('woff2'); }
+      /* Unity's canvas is 1080 x 1920, turned on its side on a wide screen: --u is one of its units,
+         so every size below is Unity's own. It is measured on #frame (cq units), which fills the page
+         body rather than the window: the editor lays the body out wider than the window, paused. */
+      :root { --u: min(max(100cqw, 100cqh) / 1920, min(100cqw, 100cqh) / 1080); --ink: #371e70; }
+      html, body { margin: 0; height: 100%; height: 100dvh; overflow: hidden; background: #fff; touch-action: none; user-select: none; -webkit-user-select: none; }
       #frame {
-        position: relative; margin: 0 auto; height: 100dvh; width: min(100vw, 100dvh * 9 / 16); overflow: hidden;
+        position: relative; height: 100%; width: 100%; overflow: hidden; container-type: size;
         /* UIGradient: color1 at the top, color2 at the bottom. */
         background: linear-gradient(#fffecb, #d6007b);
-        font-family: 'Chalkboard SE', 'Chalkboard', 'Comic Sans MS', cursive; color: var(--ink);
+        font-family: 'Chalkboard SE', 'Chalkboard', 'Comic Neue', cursive; color: var(--ink);
       }
       #frame canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
       #title { position: absolute; left: 0; right: 0; top: 20%; transform: translateY(-50%); text-align: center; font-size: calc(200 * var(--u)); font-weight: bold; }
@@ -20,9 +25,9 @@
         background: url(/textures/play.png) center / 100% 100% no-repeat; border: 0; padding: 0; cursor: pointer; }
       #level { position: absolute; left: 0; right: 0; bottom: calc(-84.8 * var(--u) - 25 * var(--u)); text-align: center; color: white; font-size: calc(93 * var(--u)); font-weight: bold; pointer-events: none; }
       #stars { position: absolute; left: 0; right: 0; top: 0; height: 10%; display: flex; align-items: center; justify-content: center; gap: calc(10 * var(--u)); pointer-events: none; }
-      #stars img { width: calc(258.3 * var(--u) * 0.6); }
-      #count { font-size: calc(80 * var(--u)); font-weight: bold; }
-      #fade { position: absolute; inset: 0; background: #000; opacity: 1; pointer-events: none; }
+      #stars img { width: calc(258.3 * var(--u) * 0.95); }
+      #count { font-size: calc(100 * var(--u)); font-weight: bold; }
+      #fade { position: absolute; inset: 0; background: #fff; opacity: 1; pointer-events: none; }
       .hidden { display: none !important; }
     </style>
   </head>

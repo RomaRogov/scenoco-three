@@ -5,14 +5,13 @@
  * - `index.html` — `examples/home`, a SceNoCo scene: the word falls onto a grid, and a letter can be
  *   picked up and moved as in the editor. One button leads to the README, another shows its source.
  * - `<example>/` — every other example's production build, playable, in a folder of its own name.
- * - `editor.js` — the editor's interface, for a game opened with `?edit=<site>/editor.js`.
  * - `llms.txt`, `llms-full.txt` and the markdown they link to — what coding agents read.
  * - What search engines read: the home page's title, description, preview card and structured data,
  *   the same in text for a crawler that does not run the scene, and `sitemap.xml` — submitted in the
  *   search consoles, since a project site under github.io cannot have a robots.txt of its own.
  *   `GOOGLE_SITE_VERIFICATION` and `BING_SITE_VERIFICATION`, when set, add the search consoles' tags.
  *
- * Run after `npm run build`: the examples import the built packages, and the editor is its build.
+ * Run after `npm run build`: the examples import the built packages.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -109,10 +108,6 @@ writeFileSync(
     .join('\n')}\n</urlset>\n`,
 );
 
-const editor = join(ROOT, 'packages/editor/dist/editor.js');
-if (!existsSync(editor)) throw new Error('packages/editor/dist/editor.js is missing — run `npm run build` first.');
-copyFileSync(editor, join(OUT, 'editor.js'));
-
 // What agents read: llms.txt, the full text, and each document it links to, at its repo path.
 writeFileSync(join(OUT, 'llms.txt'), llmsTxt());
 writeFileSync(join(OUT, 'llms-full.txt'), llmsFullTxt());
@@ -121,4 +116,4 @@ for (const [path] of documents()) {
   copyFileSync(join(ROOT, path), join(OUT, path));
 }
 writeFileSync(join(OUT, '.nojekyll'), '');
-console.log(`site/ built: the home page, ${examples.map((e) => e.name).join(', ')}, the editor, llms.txt and ${documents().length} documents.`);
+console.log(`site/ built: the home page, ${examples.map((e) => e.name).join(', ')}, llms.txt and ${documents().length} documents.`);

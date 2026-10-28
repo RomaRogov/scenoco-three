@@ -66,9 +66,20 @@ export class SplineAnimate extends Behaviour {
   }
 
   override start(): void {
+    this.read();
+    this.listen(containerFor(this, this.container, 'SplineAnimate').changed, () => this.read());
+    if (this.playOnAwake) this.play();
+  }
+
+  /** A setting changed in the editor, or the spline's node moved: put where it now belongs. */
+  override onValidate(): void {
+    this.read();
+  }
+
+  /** The spline read again — it, or where it stands, changed — and the node put on it. */
+  private read(): void {
     this.reader = new FrameReader(containerFor(this, this.container, 'SplineAnimate'), this.node.parent);
     this.apply();
-    if (this.playOnAwake) this.play();
   }
 
   play(): void {

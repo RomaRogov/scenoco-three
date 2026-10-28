@@ -28,7 +28,8 @@ inside a `DirectionalLight` is where it shines, and moves with it.
 
 **Behaviours.** What lives in the scene and changes over time — moves, reacts, animates — is
 Unity's MonoBehaviour: `class X extends Behaviour<Mesh>` in a `.ts` file, with the same hooks in
-camelCase (awake, onEnable, start, fixedUpdate, update(dt), lateUpdate, onDisable, onDestroy).
+camelCase (awake, onEnable, start, fixedUpdate, update(dt), lateUpdate, onDisable, onDestroy;
+onValidate after the editor changed a field or moved a node it holds, to redo what start built).
 `this.node` is the three.js object it is on. Public fields are its settings, set as attributes when
 it is attached as a TSX child of its node: `<Mesh><Spinner speed={2} /></Mesh>`.
 
@@ -36,13 +37,18 @@ it is attached as a TSX child of its node: `<Mesh><Spinner speed={2} /></Mesh>`.
 `<Group ref={paddle}>`, `<Follow target={paddle} />` — the field holds the object itself,
 `target: Group | null = null`. In code, behaviours find each other as in Unity — `getComponent(T)`,
 `getComponentInChildren(T)`, `findObjectOfType(T)`, `findObjectsOfType(T)` — and can talk through
-`Event<T>` fields and `this.listen(event, fn)`.
+`Event<T>` fields and `this.listen(event, fn)`. Unity's tags are empty behaviours —
+`class Enemy extends Behaviour {}`, `<Enemy />` on the node: `other.getComponent(Enemy)` is
+`CompareTag`, `findObjectsOfType(Enemy)` is `FindGameObjectsWithTag`.
 
-**Prefabs.** A prefab is a function returning TSX: `export const Coin = () => <Mesh>…</Mesh>`.
-`instantiate(Coin, { position })` builds a fresh one each call, and a prefab can be used as a tag
-inside another. A behaviour can take one as a field, as Unity's inspector does —
-`shot: Prefab | null = null`, `<Gun shot={Bullet} />`. A scene is a prefab too:
-`SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a node across loads. A glTF model is
+**Prefabs.** A prefab is made with `prefab()` around a function returning TSX with one root:
+`export const Coin = prefab(() => <Mesh>…</Mesh>)`. Its tag places and names that root as a Unity
+instance's Transform does — `<Coin position={[2, 0, 0]} name="bonus" />` — so a prefab never declares
+`position`, `rotation`, `scale` or `name` itself. Only a prefab is instantiated —
+`instantiate(Coin, { position })` builds a fresh one each call — or taken by a field, as Unity's
+inspector does: `shot: Prefab | null = null`, `<Gun shot={Bullet} />`. A function not wrapped is a
+plain TSX component, reused markup whose tag is its props: `<Arena ballSpeed={16} />`. A scene is a
+plain function returning `<Scene>`: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a node across loads. A glTF model is
 loaded with `const hero = sharedModel('/hero.glb')` and `await loadAssets(hero)` in `main.ts`, then
 `instantiate(hero, { parent: this.node })`; its clips play through an `Animator`
 (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)`).
@@ -59,14 +65,18 @@ pointer are Unity's: `Input.getKeyDown(KeyCode.Space)`, `Input.getAxis('Horizont
 `Input.getMouseButtonDown(MouseButton.Left)`, `Input.pointer`.
 
 **Physics** is a package: `npm install @scenoco-three/rapier` (3D) or `@scenoco-three/box2d` (2D).
-Bodies and colliders are Unity's components — `<Rigidbody />` plus a collider on the same element; a
+Bodies and colliders are Unity's components — `<Rigidbody />` plus a collider on the same element, and
+with rapier colliders on elements under it too, one compound body; a
 collider alone is static and still follows its node — and contacts arrive as
-`onCollisionEnter(collision)` / `onTriggerEnter(other)`. Everything else is Rapier's own API:
+`onCollisionEnter(collision)` / `onTriggerEnter(other)`. Unity's `Physics.raycast`, `CharacterController`
+and joints are there as Unity has them; everything else is Rapier's own API, used directly:
 `Physics.world`, `rb.rapierBody`, `collider.rapierCollider`. With rapier, `main.ts` starts with
 `await initRapier();`.
 
-**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first camera draws it, so a
-scene puts its camera in, as in Unity — one without draws nothing. `game.renderer` is three's WebGLRenderer,
+**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so a
+scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands over to
+the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and widens with the screen. `play(Main, { autoCamera: false })`
+leaves cameras to you: set `game.camera` and size it. `game.renderer` is three's WebGLRenderer,
 configured as three.js documents it — `game.renderer.shadowMap.enabled = true`.
 
 From Unity: gameObject/transform → `this.node` · transform.localPosition → `this.node.position`

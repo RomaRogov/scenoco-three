@@ -9,8 +9,8 @@ const IN_BACK = 'cubic-bezier(0.36, 0, 0.66, -0.56)';
 const IN_EXPO = 'cubic-bezier(0.7, 0, 0.84, 0)';
 
 const element = (id: string) => document.getElementById(id) as HTMLElement;
-/** One of Unity's canvas units, in CSS pixels now. */
-const unit = () => parseFloat(getComputedStyle(element('frame')).height) / 1920;
+/** One of Unity's canvas units, in CSS pixels now: the title is 200 of them (index.html's --u). */
+const unit = () => parseFloat(getComputedStyle(element('title')).fontSize) / 200;
 
 /**
  * The title, the play button, the star counter and the fade — the Unity game's `UIController`, on

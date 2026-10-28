@@ -2,6 +2,7 @@ import {
   Color, DirectionalLight, Fog, GridHelper, Group, HemisphereLight, Mesh, MeshStandardMaterial,
   PerspectiveCamera, PlaneGeometry, Scene,
 } from 'three';
+import { prefab } from '@scenoco-three/core';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { Font } from 'three/addons/loaders/FontLoader.js';
 import helvetiker from 'three/examples/fonts/helvetiker_bold.typeface.json';
@@ -14,15 +15,15 @@ import { Selector } from '../Selector';
 const letter = { font: new Font(helvetiker), size: 1.6, depth: 0.6, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.035 };
 
 /** One letter: it falls and lands on the box its collider fits around it; it may tip sideways, never turn away. */
-const Letter = ({ char, color, position }: { char: string; color: string; position: [number, number, number] }) => (
-  <Mesh name={char} position={position} castShadow receiveShadow>
+const Letter = prefab(({ char, color }: { char: string; color: string }) => (
+  <Mesh name={char} castShadow receiveShadow>
     <TextGeometry args={[char, letter]} />
     <MeshStandardMaterial color={color} roughness={0.35} metalness={0.1} />
     <Rigidbody angularDamping={0.4} constraints={RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY} />
     <BoxCollider friction={0.9} bounciness={0.1} />
     <Respawn />
   </Mesh>
-);
+));
 
 /** The word falls onto a grid; tap a letter to move it. */
 export const Home = () => (

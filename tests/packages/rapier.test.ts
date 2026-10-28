@@ -1,10 +1,16 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, Mesh, Object3D, Scene, SphereGeometry, Vector3 } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, Mesh, Object3D, Quaternion, Ray, Scene, SphereGeometry, Vector3 } from 'three';
 import { Behaviour, Event, Runtime, destroy, service } from '@scenoco-three/core';
 import {
   BoxCollider,
   CapsuleCollider,
+  CharacterController,
+  CollisionFlags,
+  FixedJoint,
+  HingeJoint,
+  QueryTriggerInteraction,
+  SpringJoint,
   MeshCollider,
   ForceMode,
   Physics,
@@ -17,6 +23,7 @@ import {
   initRapier,
   type Collider,
   type Collision,
+  type ControllerColliderHit,
 } from '@scenoco-three/rapier';
 
 beforeAll(() => initRapier());
@@ -223,12 +230,105 @@ describe('rapier', () => {
     run(0.05);
     expect(box.size.toArray()).toEqual([2, 1, 4]);
     expect(box.center.toArray()).toEqual([1, 0.5, 0]);
-    const half = box.rapierCollider!.halfExtents();
+    const half = box.rapierCollider!.halfExtents()!;
     expect([half.x, half.y, half.z]).toEqual([1, 0.5, 2]);
     expect(sphere.radius).toBeCloseTo(1.5);
     expect(sphere.rapierCollider!.radius()).toBeCloseTo(3); // the node's scale on top, as for every size
     expect([capsule.radius, capsule.height]).toEqual([0.2, 3]);
     expect(kept.size.toArray()).toEqual([1, 2, 3]);
+  });
+
+  it('passes through a layer it ignores, as Unity does, and meets it again when told', () => {
+    const { scene, run } = world();
+    const ground = floor(scene);
+    const { node, ears } = ball(scene, 3);
+    node.getComponent(SphereCollider)!.layer = 3;
+    Physics.ignoreLayerCollision(0, 3);
+    try {
+      expect(Physics.getIgnoreLayerCollision(3, 0)).toBe(true);
+      run(1);
+      expect(node.position.y).toBeLessThan(-1);
+      expect(ears.heard).toEqual([]);
+      expect(ground.heard).toEqual([]);
+      Physics.ignoreLayerCollision(0, 3, false);
+      node.position.set(0, 3, 0);
+      node.getComponent(Rigidbody)!.rapierBody!.setTranslation({ x: 0, y: 3, z: 0 }, true);
+      node.getComponent(Rigidbody)!.rapierBody!.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      run(2);
+      expect(node.position.y).toBeCloseTo(1, 1);
+      expect(ears.heard).toEqual(['collisionEnter:floor']);
+      expect(() => (node.getComponent(SphereCollider)!.layer = 16)).toThrow(/0 to 15/);
+    } finally {
+      Physics.ignoreLayerCollision(0, 3, false);
+    }
+  });
+
+  it("follows its node's scale, as Unity's colliders follow their transform", () => {
+    const { scene, run } = world();
+    const node = new Object3D();
+    scene.add(node);
+    node.addComponent(Rigidbody, { useGravity: false });
+    const box = node.addComponent(BoxCollider, { size: new Vector3(1, 1, 1) });
+    run(0.05);
+    expect(box.rapierCollider!.halfExtents()!.x).toBeCloseTo(0.5);
+    node.scale.set(4, 1, 2);
+    run(1 / 60);
+    const half = box.rapierCollider!.halfExtents()!;
+    expect([half.x, half.y, half.z].map((v) => +v.toFixed(3))).toEqual([2, 0.5, 1]);
+    expect(box.rapierCollider!.parent()).toBe(node.getComponent(Rigidbody)!.rapierBody); // the same collider, resized
+
+    // Colliders on child nodes follow their parent's scale too: their size and where they sit.
+    const parent = new Object3D();
+    scene.add(parent);
+    parent.addComponent(Rigidbody, { useGravity: false });
+    const arm = new Object3D();
+    arm.position.set(1, 0, 0);
+    parent.add(arm);
+    const ball = arm.addComponent(SphereCollider, { radius: 0.5 });
+    const leg = new Object3D();
+    leg.position.set(0, -1, 0);
+    parent.add(leg);
+    const capsule = leg.addComponent(CapsuleCollider, { radius: 0.25, height: 1 });
+    run(0.05);
+    const ballBefore = ball.rapierCollider!;
+    parent.scale.setScalar(2);
+    run(1 / 60);
+    expect(ball.rapierCollider).toBe(ballBefore);
+    expect(ball.rapierCollider!.radius()).toBeCloseTo(1, 3);
+    expect(ball.rapierCollider!.translationWrtParent()!.x).toBeCloseTo(2, 3);
+    expect(capsule.rapierCollider!.radius()).toBeCloseTo(0.5, 3);
+    expect(capsule.rapierCollider!.halfHeight()).toBeCloseTo(0.5, 3); // a 2 m capsule: 1 m between caps
+    expect(capsule.rapierCollider!.translationWrtParent()!.y).toBeCloseTo(-2, 3);
+  });
+
+  it('makes one body of the colliders on child nodes, as Unity compounds them', () => {
+    const { scene, run } = world();
+    floor(scene);
+    const cart = new Object3D();
+    cart.name = 'cart';
+    cart.position.set(0, 4, 0);
+    scene.add(cart);
+    cart.addComponent(Rigidbody);
+    const ears = cart.addComponent(Ears);
+    // Two wheels under it, and no collider on the cart itself: they are its shape.
+    const wheels = [-1, 1].map((x) => {
+      const wheel = new Object3D();
+      wheel.name = 'wheel';
+      wheel.position.set(x, -0.5, 0);
+      cart.add(wheel);
+      return wheel.addComponent(SphereCollider, { radius: 0.5 });
+    });
+    run(2);
+    expect(wheels.every((w) => w.attachedRigidbody?.node === cart && w.rapierCollider!.parent() !== null)).toBe(true);
+    // It fell, and rests on its wheels: the floor's top is at 0.5, the wheels' centres 0.5 above it.
+    expect(cart.position.y).toBeCloseTo(1.5, 1);
+    expect(ears.heard).toContain('collisionEnter:floor');
+    // A child moved within its body takes its collider along.
+    const apart = () => new Vector3().copy(wheels[0]!.rapierCollider!.translation()).distanceTo(wheels[1]!.rapierCollider!.translation());
+    expect(apart()).toBeCloseTo(2, 2);
+    wheels[0]!.node.position.y = -1.5;
+    run(1 / 60);
+    expect(apart()).toBeCloseTo(Math.hypot(2, 1), 2);
   });
 
   it('holds a body that lands exactly on a peak, of a terrain or of a mesh', () => {
@@ -437,6 +537,144 @@ describe("Rapier's own API, for everything that is not a component or a message"
     run(1);
     expect(hero.position.y).toBeCloseTo(1.4, 1); // capsule half-height 0.9 on a floor whose top is 0.5
     expect(hero.position.x).toBeGreaterThan(0.8);
+  });
+
+  it("answers Unity's queries: raycast, raycastAll, sphereCast, the overlaps, by layer and trigger", () => {
+    const { scene, run } = world();
+    floor(scene); // top at 0.5
+    const box = (name: string, x: number, options: { layer?: number; isTrigger?: boolean } = {}) => {
+      const node = new Object3D();
+      node.name = name;
+      node.position.set(x, 1, 0);
+      scene.add(node);
+      return node.addComponent(BoxCollider, options);
+    };
+    const near = box('near', 3);
+    box('far', 6, { layer: 3 });
+    box('zone', 9, { isTrigger: true });
+    run(1 / 60);
+
+    // Along +x from the left: the first box's face, at x 2.5.
+    const hit = Physics.raycast(new Vector3(0, 1, 0), new Vector3(1, 0, 0))!;
+    expect(hit.collider).toBe(near);
+    expect(hit.distance).toBeCloseTo(2.5, 3);
+    expect(hit.normal.toArray().map((v) => Math.round(v))).toEqual([-1, 0, 0]);
+    expect(Physics.raycast(new Ray(new Vector3(0, 1, 0), new Vector3(1, 0, 0)), 2)).toBeNull(); // too short
+    expect(Physics.raycast(new Vector3(0, 1, 0), new Vector3(1, 0, 0), Infinity, 1 << 3)!.node.name).toBe('far');
+    expect(Physics.raycastAll(new Vector3(0, 1, 0), new Vector3(1, 0, 0)).map((h) => h.node.name)).toEqual(['near', 'far', 'zone']);
+    expect(Physics.raycastAll(new Vector3(0, 1, 0), new Vector3(1, 0, 0), Infinity, Physics.AllLayers, QueryTriggerInteraction.Ignore).map((h) => h.node.name)).toEqual(['near', 'far']);
+    // Straight down onto the floor.
+    expect(Physics.raycast(new Vector3(0, 5, 0), new Vector3(0, -1, 0))!.point.y).toBeCloseTo(0.5, 3);
+
+    // A ball of radius 0.4 swept along +x stops with its centre that far short of the face.
+    const swept = Physics.sphereCast(new Vector3(0, 1, 0), 0.4, new Vector3(1, 0, 0))!;
+    expect(swept.collider).toBe(near);
+    expect(swept.distance).toBeCloseTo(2.1, 2);
+    expect(swept.point.x).toBeCloseTo(2.5, 2);
+
+    expect(Physics.overlapSphere(new Vector3(3, 1, 0), 1).map((c) => c.node.name).sort()).toEqual(['floor', 'near']);
+    expect(Physics.overlapBox(new Vector3(6, 3, 0), new Vector3(1, 1, 1), new Quaternion())).toEqual([]);
+    expect(Physics.checkSphere(new Vector3(9, 1, 0), 0.2)).toBe(true);
+    expect(Physics.checkSphere(new Vector3(9, 1, 0), 0.2, Physics.AllLayers, QueryTriggerInteraction.Ignore)).toBe(false);
+  });
+
+  it('sends Stay while a contact lasts, with where it touches and which way', () => {
+    const { scene, run } = world();
+    floor(scene);
+    const b = ball(scene, 1.2);
+    const stays: Collision[] = [];
+    class Feel extends Behaviour {
+      override onCollisionStay(c: Collision) { stays.push(c); }
+    }
+    b.node.addComponent(Feel);
+    run(2);
+    expect(stays.length).toBeGreaterThan(10); // and then none: it fell asleep, as Unity's bodies do
+    const last = stays.at(-1)!;
+    expect(last.node.name).toBe('floor');
+    const contact = last.getContact(0);
+    expect(contact.normal.y).toBeCloseTo(1, 3); // out of the floor, towards the ball
+    expect(contact.point.y).toBeCloseTo(0.5, 1);
+    expect(contact.thisCollider.node).toBe(b.node);
+    // Resting, the floor holds up about its weight each 1/50 s step — Rapier's soft contacts a little more.
+    const weight = ((4 / 3) * Math.PI * 0.125 * 9.81) / 50;
+    expect(last.impulse.y).toBeGreaterThan(weight * 0.9);
+    expect(last.impulse.y).toBeLessThan(weight * 1.4);
+  });
+
+  it("walks a CharacterController as Unity's: stopped by walls, up steps it can take, and told what it hit", () => {
+    const { scene, run, runtime } = world();
+    floor(scene); // top at 0.5
+    const block = (name: string, x: number, width: number, height: number) => {
+      const node = new Object3D();
+      node.name = name;
+      node.position.set(x, 0.5 + height / 2, 0);
+      node.scale.set(width, height, 4);
+      scene.add(node);
+      node.addComponent(BoxCollider);
+    };
+    block('step', 4.5, 3, 0.2); // from x 3 to 6, under stepOffset 0.3
+    block('wall', 6.5, 1, 1.5); // its face at x 6
+    const hero = new Object3D();
+    hero.position.set(0, 2, 0);
+    scene.add(hero);
+    const controller = hero.addComponent(CharacterController);
+    const hits: string[] = [];
+    class Bumper extends Behaviour {
+      override onControllerColliderHit(hit: ControllerColliderHit) { hits.push(hit.node.name); }
+    }
+    hero.addComponent(Bumper);
+    class Walk extends Behaviour {
+      override update() { controller.simpleMove(new Vector3(3, 0, 0)); }
+    }
+    hero.addComponent(Walk);
+    run(0.5);
+    expect(controller.isGrounded).toBe(true);
+    expect(hero.position.y).toBeCloseTo(1.5 + controller.skinWidth, 1); // half its height above the floor
+    run(3);
+    expect(hero.position.y).toBeCloseTo(1.7 + controller.skinWidth, 1); // up on the step
+    expect(hero.position.x).toBeCloseTo(6 - 0.5 - controller.skinWidth, 1); // against the wall
+    expect(controller.collisionFlags & CollisionFlags.Sides).toBeTruthy();
+    expect(hits).toContain('wall');
+    // Put somewhere else by its node, it starts from there.
+    hero.position.set(-5, 2, 0);
+    runtime.update(1 / 60);
+    expect(hero.position.x).toBeCloseTo(-5 + 3 / 60, 2);
+  });
+
+  it('joins bodies: a fixed pair falls as one, a hinge keeps its limits from where it started, a spring pulls back', () => {
+    const { scene, run } = world();
+    floor(scene);
+    const body = (name: string, x: number, y: number) => {
+      const node = new Object3D();
+      node.name = name;
+      node.position.set(x, y, 0);
+      scene.add(node);
+      node.addComponent(Rigidbody);
+      node.addComponent(BoxCollider, { size: new Vector3(0.5, 0.5, 0.5) });
+      return node;
+    };
+    // Fixed: a block glued beside another, held off the ground by nothing.
+    const a = body('a', -10, 4);
+    const b = body('b', -9, 4);
+    b.addComponent(FixedJoint, { connectedBody: a.getComponent(Rigidbody) });
+    // Hinge: a door already turned 40° about y, on a hinge in the world, ±30° from there, pushed open.
+    const door = body('door', 10, 3);
+    door.getComponent(Rigidbody)!.useGravity = false;
+    door.rotation.y = (40 * Math.PI) / 180;
+    door.addComponent(HingeJoint, { axis: new Vector3(0, 1, 0), useLimits: true, limits: { min: -30, max: 30 } });
+    // Spring: a weight hung 1 m under a point in the world.
+    const weight = body('weight', 20, 3);
+    weight.addComponent(SpringJoint, { spring: 200, damper: 20 });
+    run(0.1);
+    door.getComponent(Rigidbody)!.angularVelocity = new Vector3(0, 5, 0);
+    run(2);
+    expect(b.position.x - a.position.x).toBeCloseTo(1, 2);
+    expect(a.position.y).toBeLessThan(1); // fell, together
+    expect((door.rotation.y * 180) / Math.PI).toBeCloseTo(70, 0); // 40° + its 30° limit
+    door.getComponent(Rigidbody)!.angularVelocity = new Vector3(0, -5, 0);
+    run(2);
+    expect((door.rotation.y * 180) / Math.PI).toBeCloseTo(10, 0); // 40° − 30°
+    expect(weight.position.y).toBeGreaterThan(2.7); // hangs near where it started, not on the floor
   });
 
   it('says so when a collider made with the raw API touches one of ours', () => {

@@ -1,5 +1,5 @@
 import { BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, Object3D, PerspectiveCamera } from 'three';
-import { Behaviour, ref } from '@scenoco-three/core';
+import { Behaviour, instantiate, prefab, ref } from '@scenoco-three/core';
 import { Bob, Spawner } from '../fixtures';
 
 /** Typecheck-only: every line marked @ts-expect-error must stay an error. */
@@ -45,4 +45,32 @@ export function addsToTypedNodes() {
   // @ts-expect-error a node typed Object3D cannot carry a Behaviour<Group>
   new Object3D().addComponent(Swarm);
   return swarm;
+}
+
+const Tower = prefab(({ level }: { level: number }) => <Group name="tower" userData={{ level }} />);
+const Placed = prefab(({ position }: { position: [number, number, number] }) => <Group position={position} />);
+const Crate = prefab(() => <Group />);
+const Plain = ({ name }: { name: string }) => <Group userData={{ name }} />;
+
+/**
+ * Typecheck-only: a prefab's tag places and names its root, and a prefab declaring those is told
+ * where they belong; a plain function's tag is its props, and only a prefab is instantiated.
+ */
+export const Prefabs = () => (
+  <Group>
+    <Tower level={2} position={[1, 0, 2]} rotation={[0, Math.PI, 0]} scale={2} name="north tower" />
+    {/* @ts-expect-error a prop the prefab does not take */}
+    <Tower level={2} colour="red" />
+    {/* @ts-expect-error position belongs to the tag, not the prefab's props */}
+    <Placed position={[0, 0, 0]} />
+    <Plain name="HUD" />
+    {/* @ts-expect-error a plain function's tag cannot place it */}
+    <Plain name="HUD" position={[0, 1, 0]} />
+  </Group>
+);
+
+export function instantiatesPrefabsOnly() {
+  instantiate(Crate);
+  // @ts-expect-error a plain function is not a prefab
+  instantiate(() => <Group />);
 }

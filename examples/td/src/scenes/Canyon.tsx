@@ -14,7 +14,7 @@ export const Canyon = () => (
       shadow-camera-top={36} shadow-camera-bottom={-36} shadow-camera-far={100} shadow-bias={-0.0005}
     />
     <PerspectiveCamera fov={40}>
-      <CameraRig ground={2} />
+      <CameraRig ground={2} wideCentre={[0, -3.4]} span={69.621} />
     </PerspectiveCamera>
     <CanyonWorld />
     <LevelRules level="canyon" />

@@ -532,20 +532,23 @@ namespace SceNoCo
                     }
                     case "Rigidbody2D":
                     {
+                        // SceNoCo's enums carry Unity's own values.
                         var rb = go.AddComponent<Rigidbody2D>();
-                        var body = f.TryGetValue("bodyType", out var b) ? (string)b : "dynamic";
-                        rb.bodyType = body == "static" ? RigidbodyType2D.Static : body == "kinematic" ? RigidbodyType2D.Kinematic : RigidbodyType2D.Dynamic;
-                        rb.linearDamping = Num(f, "linearDamping", 0);
-                        rb.angularDamping = Num(f, "angularDamping", 0);
-                        rb.freezeRotation = Bool(f, "fixedRotation", false);
+                        rb.bodyType = (RigidbodyType2D)(int)Num(f, "bodyType", 0);
+                        rb.useAutoMass = Bool(f, "useAutoMass", false);
+                        if (!rb.useAutoMass) rb.mass = Num(f, "mass", 1);
                         rb.gravityScale = Num(f, "gravityScale", 1);
-                        if (Bool(f, "bullet", false)) rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+                        rb.linearDamping = Num(f, "linearDamping", 0);
+                        rb.angularDamping = Num(f, "angularDamping", 0.05f);
+                        rb.constraints = (RigidbodyConstraints2D)(int)Num(f, "constraints", 0);
+                        if (Bool(f, "freezeRotation", false)) rb.freezeRotation = true;
+                        rb.collisionDetectionMode = (CollisionDetectionMode2D)(int)Num(f, "collisionDetectionMode", 0);
                         return true;
                     }
                     case "BoxCollider2D":
                     {
                         var c = go.AddComponent<BoxCollider2D>();
-                        if (f.ContainsKey("halfExtents")) { var h = Floats(Obj(f["halfExtents"])["v2"]); c.size = new Vector2(h[0] * 2, h[1] * 2); }
+                        if (f.ContainsKey("size")) c.size = V2(f["size"]);
                         SetCollider2D(c, f);
                         return true;
                     }
@@ -559,8 +562,8 @@ namespace SceNoCo
                     case "CapsuleCollider2D":
                     {
                         var c = go.AddComponent<CapsuleCollider2D>();
-                        if (f.ContainsKey("size")) { var s = Floats(Obj(f["size"])["v2"]); c.size = new Vector2(s[0], s[1]); }
-                        c.direction = f.TryGetValue("direction", out var d) && (string)d == "horizontal" ? CapsuleDirection2D.Horizontal : CapsuleDirection2D.Vertical;
+                        if (f.ContainsKey("size")) c.size = V2(f["size"]);
+                        c.direction = (CapsuleDirection2D)(int)Num(f, "direction", 0);
                         SetCollider2D(c, f);
                         return true;
                     }
@@ -572,21 +575,9 @@ namespace SceNoCo
                         return true;
                     }
                     case "EdgeCollider2D":
-                    case "ChainCollider2D":
                     {
                         var c = go.AddComponent<EdgeCollider2D>();
-                        if (type == "EdgeCollider2D" && f.ContainsKey("from") && f.ContainsKey("to"))
-                        {
-                            var a = Floats(Obj(f["from"])["v2"]);
-                            var b2 = Floats(Obj(f["to"])["v2"]);
-                            c.points = new[] { new Vector2(a[0], a[1]), new Vector2(b2[0], b2[1]) };
-                        }
-                        else if (f.ContainsKey("points"))
-                        {
-                            var pts = Points(f["points"]).ToList();
-                            if (Bool(f, "loop", false) && pts.Count > 0) pts.Add(pts[0]);
-                            c.points = pts.ToArray();
-                        }
+                        if (f.ContainsKey("points")) c.points = Points(f["points"]);
                         SetCollider2D(c, f);
                         return true;
                     }
@@ -613,10 +604,16 @@ namespace SceNoCo
 
             static void SetCollider2D(Collider2D c, Dictionary<string, object> f)
             {
-                c.isTrigger = Bool(f, "isSensor", false);
-                if (!f.ContainsKey("friction") && !f.ContainsKey("restitution")) return;
-                var friction = Num(f, "friction", 0.3f);
-                var bounce = Num(f, "restitution", 0);
+                c.isTrigger = Bool(f, "isTrigger", false);
+                if (f.ContainsKey("offset")) c.offset = V2(f["offset"]);
+                if (f.ContainsKey("density")) c.density = Num(f, "density", 1);
+                // A shared PhysicsMaterial2D, or the collider's own friction and bounciness: one asset per pair.
+                var surface = f.TryGetValue("material", out var mv) && mv is Dictionary<string, object> mo && mo.TryGetValue("object", out var ov)
+                    ? Obj(Obj(ov)["fields"])
+                    : f;
+                if (!surface.ContainsKey("friction") && !surface.ContainsKey("bounciness")) return;
+                var friction = Num(surface, "friction", 0.4f);
+                var bounce = Num(surface, "bounciness", 0);
                 var path = $"Assets/Materials/Physics/Friction{friction:0.##}_Bounce{bounce:0.##}_2D.asset".Replace(',', '.');
                 var m = AssetDatabase.LoadAssetAtPath<PhysicsMaterial2D>(path);
                 if (m == null)
@@ -626,6 +623,12 @@ namespace SceNoCo
                     AssetDatabase.CreateAsset(m, path);
                 }
                 c.sharedMaterial = m;
+            }
+
+            static Vector2 V2(object v)
+            {
+                var p = Floats(Obj(v)["v2"]);
+                return new Vector2(p[0], p[1]);
             }
 
             static Vector2[] Points(object v) =>

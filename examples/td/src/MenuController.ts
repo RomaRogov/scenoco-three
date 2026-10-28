@@ -28,9 +28,22 @@ export class MenuController extends Behaviour {
         <div class="info"><b>${i + 1}. ${spec.name}</b><small>${spec.blurb}</small>
           <div class="stars">${[1, 2, 3].map((s) => `<img src="ui/star.png" class="${s <= got ? '' : 'off'}" alt="" />`).join('')}</div></div>
         <div class="go"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg></div>`;
-      const onClick = () => (locked ? this.refuse(card) : this.play(id));
+      // Only a tap that began on the card: the finger that pressed Map is still down when this
+      // menu appears, and a touch's click goes to whatever is under it when it lifts.
+      let pressed = false;
+      const onDown = () => (pressed = true);
+      const onClick = () => {
+        if (!pressed) return;
+        pressed = false;
+        if (locked) this.refuse(card);
+        else this.play(id);
+      };
+      card.addEventListener('pointerdown', onDown);
       card.addEventListener('click', onClick);
-      this.cleanup.push(() => card.removeEventListener('click', onClick));
+      this.cleanup.push(() => {
+        card.removeEventListener('pointerdown', onDown);
+        card.removeEventListener('click', onClick);
+      });
       list.appendChild(card);
     });
   }

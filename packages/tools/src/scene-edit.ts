@@ -3,11 +3,10 @@
  * remove an element — by splicing the text of exactly what changed. Everything else in the file,
  * comments and layout included, stays byte for byte.
  *
- * Reading is generous: a value is shown when it can be worked out without running anything —
- * literals, arithmetic, `Math.PI`, a constant of this file — and as a named reference otherwise
- * (`paint.grass`, a ref, a prefab). Writing is plain: the new value replaces the old text as a
- * literal, so a dragged `rotation={[-Math.PI / 2, 0, 0]}` comes back as numbers. That loss is the
- * price of a person's edit, and only of the attribute they touched.
+ * Reading gives each attribute's text as written; the values are the live objects'. Writing is
+ * plain: the new value replaces the old text as a literal, so a dragged
+ * `rotation={[-Math.PI / 2, 0, 0]}` comes back as numbers. That loss is the price of a person's
+ * edit, and only of the attribute they touched.
  *
  * Elements are found by where they were written — the same line and column `jsxDEV` gives the
  * runtime (see `sourceOf`), so a picked object leads straight to its tag.
@@ -16,11 +15,6 @@ import { parseSync } from 'rolldown/utils';
 
 type Node = { type: string; start: number; end: number; [key: string]: unknown };
 
-/** What an attribute holds, as far as reading it without running anything can tell. */
-export type Value =
-  | { kind: 'value'; value: unknown } // worked out: a number, string, list, object…
-  | { kind: 'reference'; text: string }; // a name it cannot see through — shown and replaced, not edited inside
-
 export interface Attribute {
   name: string;
   /** The whole attribute, `name={…}`, in the file. */
@@ -28,7 +22,10 @@ export interface Attribute {
   end: number;
   /** Its value's text as written, or null for a bare flag (`castShadow`). */
   text: string | null;
-  value: Value;
+  /** A list written out, `{[a, b, c]}`: each item's text, so one can be replaced and the rest kept as written. */
+  items?: string[];
+  /** Every name in the value — `terrains`, `meadow` in `{terrains.meadow}` — as offsets into the file. */
+  names?: { start: number; end: number }[];
 }
 
 export interface Element {
@@ -69,26 +66,6 @@ export function readScene(file: string, code: string): SceneDocument {
     return { line: lo + 1, column: offset - lineStarts[lo]! + 1 };
   };
 
-  const constants = new Map<string, unknown>();
-  const evaluate = (node: Node): Value => {
-    const seen = staticValue(node, constants);
-    return seen === UNKNOWN ? { kind: 'reference', text: code.slice(node.start, node.end) } : { kind: 'value', value: seen };
-  };
-
-  // Constants of this file whose values can be worked out, so `position={[LANE, 0, 0]}` reads as numbers.
-  for (const statement of program.body as Node[]) {
-    const declaration = (statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement) as Node | null;
-    if (declaration?.type !== 'VariableDeclaration' || declaration.kind !== 'const') continue;
-    for (const d of declaration.declarations as Node[]) {
-      const id = d.id as Node;
-      const init = d.init as Node | null;
-      if (id.type === 'Identifier' && init) {
-        const value = staticValue(init, constants);
-        if (value !== UNKNOWN) constants.set(id.name as string, value);
-      }
-    }
-  }
-
   const element = (node: Node): Element => {
     const opening = node.openingElement as Node;
     const selfClosing = opening.selfClosing === true;
@@ -98,11 +75,14 @@ export function readScene(file: string, code: string): SceneDocument {
       const name = code.slice((attr.name as Node).start, (attr.name as Node).end);
       const raw = attr.value as Node | null;
       if (!raw) {
-        attributes.push({ name, start: attr.start, end: attr.end, text: null, value: { kind: 'value', value: true } });
+        attributes.push({ name, start: attr.start, end: attr.end, text: null });
         continue;
       }
       const inner = raw.type === 'JSXExpressionContainer' ? (raw.expression as Node) : raw;
-      attributes.push({ name, start: attr.start, end: attr.end, text: code.slice(raw.start, raw.end), value: evaluate(inner) });
+      const list = inner.type === 'ArrayExpression' ? (inner.elements as (Node | null)[]) : null;
+      const items = list && list.every((e) => e && e.type !== 'SpreadElement') ? list.map((e) => code.slice(e!.start, e!.end)) : undefined;
+      const names = namesIn(inner);
+      attributes.push({ name, start: attr.start, end: attr.end, text: code.slice(raw.start, raw.end), ...(items && { items }), ...(names.length && { names }) });
     }
     const children: Element[] = [];
     for (const child of node.children as Node[]) {
@@ -134,6 +114,25 @@ export function readScene(file: string, code: string): SceneDocument {
   };
   visit(program);
   return { code, roots };
+}
+
+/**
+ * The module's top-level constants and where each is written: what an element is inside of —
+ * `Keep` for the elements of `export const Keep = prefab(() => …)`, whose function has no name.
+ */
+export function ownersOf(file: string, code: string): { name: string; start: number; end: number; exported: boolean }[] {
+  const { program } = parseSync(file, code, { lang: 'tsx' }) as unknown as { program: Node };
+  const out: { name: string; start: number; end: number; exported: boolean }[] = [];
+  for (const statement of program.body as Node[]) {
+    const exported = statement.type === 'ExportNamedDeclaration';
+    const declaration = (exported ? statement.declaration : statement) as Node | null;
+    if (declaration?.type !== 'VariableDeclaration') continue;
+    for (const d of declaration.declarations as Node[]) {
+      const id = d.id as Node;
+      if (id.type === 'Identifier') out.push({ name: id.name as string, start: d.start, end: d.end, exported });
+    }
+  }
+  return out;
 }
 
 /** Every element of the document, depth first. */
@@ -173,6 +172,25 @@ export function setAttributeText(code: string, element: Element, name: string, t
   // On the tag's line: `<Group>` → `<Group a={1}>`, `<Mesh b />` → `<Mesh b a={1} />`.
   const spaced = /\s$/.test(code.slice(0, element.attributesEnd));
   return splice(code, element.attributesEnd, element.attributesEnd, spaced ? `${written} ` : ` ${written}`);
+}
+
+/**
+ * `name` imported from `from`, if the file does not import it yet: added to the braces of an import
+ * from that module already there, or as an import of its own after the last one.
+ */
+export function ensureImport(file: string, code: string, name: string, from: string): string {
+  const { program } = parseSync(file, code, { lang: 'tsx' }) as unknown as { program: Node };
+  const imports = (program.body as Node[]).filter((n) => n.type === 'ImportDeclaration');
+  const named = (n: Node) => (n.specifiers as Node[]).filter((sp) => sp.type === 'ImportSpecifier');
+  if (imports.some((n) => (n.specifiers as Node[]).some((sp) => (sp.local as Node).name === name))) return code;
+  const same = imports.find((n) => (n.source as Node).value === from && n.importKind !== 'type' && named(n).length > 0);
+  if (same) {
+    const last = named(same).at(-1)!;
+    return splice(code, last.end, last.end, `, ${name}`);
+  }
+  const after = imports.at(-1);
+  const line = `import { ${name} } from ${JSON.stringify(from)};`;
+  return after ? splice(code, after.end, after.end, `\n${line}`) : `${line}\n${code}`;
 }
 
 /** Remove an attribute, with the space before it. */
@@ -244,69 +262,16 @@ function splice(code: string, start: number, end: number, text: string): string 
   return code.slice(0, start) + text + code.slice(end);
 }
 
-const UNKNOWN = Symbol('unknown');
-
-/** A value worked out without running anything, or UNKNOWN. */
-function staticValue(node: Node, constants: Map<string, unknown>): unknown {
-  switch (node.type) {
-    case 'Literal':
-      return node.value;
-    case 'TemplateLiteral':
-      return (node.expressions as Node[]).length ? UNKNOWN : ((node.quasis as Node[])[0]!.value as { cooked: string }).cooked;
-    case 'ParenthesizedExpression':
-    case 'TSAsExpression':
-    case 'TSNonNullExpression':
-      return staticValue(node.expression as Node, constants);
-    case 'Identifier':
-      return constants.has(node.name as string) ? constants.get(node.name as string) : UNKNOWN;
-    case 'UnaryExpression': {
-      const v = staticValue(node.argument as Node, constants);
-      if (typeof v !== 'number') return UNKNOWN;
-      return node.operator === '-' ? -v : node.operator === '+' ? v : UNKNOWN;
-    }
-    case 'BinaryExpression': {
-      const a = staticValue(node.left as Node, constants);
-      const b = staticValue(node.right as Node, constants);
-      if (typeof a !== 'number' || typeof b !== 'number') return UNKNOWN;
-      switch (node.operator) {
-        case '+': return a + b;
-        case '-': return a - b;
-        case '*': return a * b;
-        case '/': return a / b;
-        case '%': return a % b;
-        default: return UNKNOWN;
-      }
-    }
-    case 'MemberExpression': {
-      const object = node.object as Node;
-      const property = node.property as Node;
-      if (!node.computed && object.type === 'Identifier' && object.name === 'Math' && property.type === 'Identifier') {
-        const v = (Math as unknown as Record<string, unknown>)[property.name as string];
-        return typeof v === 'number' ? v : UNKNOWN;
-      }
-      return UNKNOWN;
-    }
-    case 'ArrayExpression': {
-      const out: unknown[] = [];
-      for (const item of node.elements as Node[]) {
-        const v = item ? staticValue(item, constants) : UNKNOWN;
-        if (v === UNKNOWN) return UNKNOWN;
-        out.push(v);
-      }
-      return out;
-    }
-    case 'ObjectExpression': {
-      const out: Record<string, unknown> = {};
-      for (const prop of node.properties as Node[]) {
-        if (prop.type !== 'Property' || prop.computed) return UNKNOWN;
-        const key = prop.key as Node;
-        const v = staticValue(prop.value as Node, constants);
-        if (v === UNKNOWN) return UNKNOWN;
-        out[(key.name ?? key.value) as string] = v;
-      }
-      return out;
-    }
-    default:
-      return UNKNOWN;
-  }
+/** Every identifier under a node: the names a value refers to, and the members it reads off them. */
+function namesIn(node: Node): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (!value || typeof value !== 'object') return;
+    const n = value as Node;
+    if (n.type === 'Identifier') out.push({ start: n.start, end: n.end });
+    for (const [key, child] of Object.entries(n)) if (key !== 'start' && key !== 'end') visit(child);
+  };
+  visit(node);
+  return out;
 }

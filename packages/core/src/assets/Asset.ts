@@ -1,8 +1,7 @@
 /**
- * A resource whose bytes arrive later — a model, an audio clip.
- *
- * Await it in `onLoad` and the scene is not live until it is ready. A texture is not one of
- * these: three.js hands that back at once and fills in the image when it lands.
+ * A resource whose bytes arrive later — a model, an audio clip. `await loadAssets(…)` in `main.ts`,
+ * before `play`, and it is ready when the scene is built. A texture is not one of these: three.js
+ * hands that back at once and fills in the image when it lands.
  */
 export abstract class Asset<T> {
   /** Where the data comes from. */
@@ -89,10 +88,8 @@ export function trackLoad(value: object, load: Promise<unknown>): void {
 export type Loadable = Asset<unknown> | object;
 
 /**
- * Wait for every asset in the list — call it at the top of `onLoad`.
- *
- * Takes textures as well as `Asset`s, loads them in parallel, and costs nothing for one that
- * is already loaded.
+ * Wait for every asset in the list — `await loadAssets(hero, music)` in `main.ts`, before `play`.
+ * Takes textures as well as `Asset`s, loads them in parallel, and costs nothing for one already loaded.
  */
 export async function loadAssets(...assets: readonly Loadable[]): Promise<void> {
   await Promise.all(

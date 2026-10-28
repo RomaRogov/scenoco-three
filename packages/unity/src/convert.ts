@@ -33,7 +33,9 @@ export type UnityValue =
   | { array: UnityValue[] }
   | { node: string }
   | { component: string; node: string }
-  | { asset: string };
+  | { asset: string }
+  /** A plain settings object — a physics material — which the importer reads as it is. */
+  | { object: { type: string; fields: Record<string, number | boolean | string> } };
 
 export interface UnityComponent {
   type: string;

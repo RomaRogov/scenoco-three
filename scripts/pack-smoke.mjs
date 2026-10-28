@@ -62,6 +62,17 @@ try {
     console.log(`  ${manifest.name}@${manifest.version}  ${info.files.length} files`);
   }
   const tarball = (name) => packed.get(name) ?? fail(`${name} was not packed`);
+  /**
+   * Every `@scenoco-three` dependency points at its tarball, and so — through `overrides` — does
+   * every one a package has of its own (tools needs editor), or npm fetches that one from the
+   * registry: the version being released, which is not there yet.
+   */
+  const onTarballs = (manifest) => {
+    for (const deps of [manifest.dependencies, manifest.devDependencies]) {
+      for (const name of Object.keys(deps ?? {})) if (packed.has(name)) deps[name] = `file:${tarball(name)}`;
+    }
+    manifest.overrides = Object.fromEntries([...packed.keys()].map((name) => [name, `file:${tarball(name)}`]));
+  };
 
   // --- 2. the starter, as `npm create` makes it -----------------------------------------------
   step('npm create @scenoco-three, from the packed starter');
@@ -72,9 +83,7 @@ try {
   const starter = join(work, 'starter');
   run(process.execPath, [join(bootstrap, 'node_modules', '@scenoco-three', 'create', 'index.js'), starter], work);
   const starterManifest = JSON.parse(readFileSync(join(starter, 'package.json'), 'utf8'));
-  for (const deps of [starterManifest.dependencies, starterManifest.devDependencies]) {
-    for (const name of Object.keys(deps)) if (packed.has(name)) deps[name] = `file:${tarball(name)}`;
-  }
+  onTarballs(starterManifest);
   writeFileSync(join(starter, 'package.json'), `${JSON.stringify(starterManifest, null, 2)}\n`);
   run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error'], starter, false);
   run(npm, ['run', 'check'], starter, false);
@@ -123,11 +132,9 @@ try {
       vite: workspace.devDependencies.vite,
     },
   };
-  // Every `@scenoco-three` dependency points at its tarball; nothing else changes, so npm
-  // resolves the rest — three, vite, typescript — the way it will for a user.
-  for (const deps of [appManifest.dependencies, appManifest.devDependencies]) {
-    for (const name of Object.keys(deps)) if (packed.has(name)) deps[name] = `file:${tarball(name)}`;
-  }
+  // Every `@scenoco-three` package from its tarball; nothing else changes, so npm resolves the
+  // rest — three, vite, typescript — the way it will for a user.
+  onTarballs(appManifest);
   writeFileSync(join(app, 'package.json'), `${JSON.stringify(appManifest, null, 2)}\n`);
 
   step('npm install, then npm run check');

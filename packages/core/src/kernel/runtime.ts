@@ -55,6 +55,13 @@ export class Runtime {
   /** True while `update` runs the frame, so a host can tell game code from a DOM handler. */
   updating = false;
 
+  /**
+   * @internal How far into the lifecycle behaviours go — `awake`, then `onEnable`, then `start`, then
+   * the frame's own hooks, each needing the one before. A host holds a scene short of one to show it
+   * as written.
+   */
+  reach: Reach = 'frame';
+
   /** @internal */ readonly live = new Set<Behaviour>();
   /** @internal */ readonly pendingStart: Behaviour[] = [];
   private readonly systems: System[] = [];
@@ -94,9 +101,9 @@ export class Runtime {
     this.frame++;
   }
 
-  private tick(dt: number, unscaled: number): void {
-    for (const host of hosts) reconcileHost(host, this);
-
+  /** @internal `start` for every behaviour waiting for it: each frame, and after an edit made while the clock is held. */
+  startPending(): void {
+    if (!reaches(this, 'start')) return;
     for (const b of this.pendingStart.splice(0)) {
       if (this.isLive(b) && !b._started) {
         b._started = true;
@@ -105,6 +112,14 @@ export class Runtime {
         b.start?.();
       }
     }
+  }
+
+  private tick(dt: number, unscaled: number): void {
+    for (const host of hosts) reconcileHost(host, this);
+
+    if (!reaches(this, 'start')) return flushDestroyed();
+    this.startPending();
+    if (!reaches(this, 'frame')) return flushDestroyed();
 
     // Scaled, as in Unity: at timeScale 0 no fixedUpdate runs, and physics holds still.
     this.accumulator += dt;
@@ -171,6 +186,14 @@ export class Runtime {
   }
 }
 
+/** @internal how far a runtime lets behaviours go: none at all, or up to and including a hook. */
+export type Reach = 'none' | 'awake' | 'onEnable' | 'start' | 'frame';
+const REACH: readonly Reach[] = ['none', 'awake', 'onEnable', 'start', 'frame'];
+
+function reaches(runtime: Runtime, hook: Exclude<Reach, 'none'>): boolean {
+  return REACH.indexOf(runtime.reach) >= REACH.indexOf(hook);
+}
+
 /** Bring one host's behaviours in line with where its node is now, as seen by `runtime`. */
 function reconcileHost(host: Node, runtime: Runtime): void {
   const list = behavioursOf.get(host);
@@ -178,12 +201,15 @@ function reconcileHost(host: Node, runtime: Runtime): void {
   const where = runtimeOf(host);
   for (const b of list.slice()) {
     if (b._pendingDestroy || (where !== runtime && b._live !== runtime)) continue;
+    // Held short of a hook, a behaviour waits there: the next reconcile past the limit goes on.
+    if (where === runtime && !reaches(runtime, 'awake')) continue;
     if (where === runtime && !b._awoken) {
       b._awoken = true;
       resolveRefs(b);
       b.awake?.();
       if (b._pendingDestroy) continue;
     }
+    if (where === runtime && !reaches(runtime, 'onEnable')) continue;
     setLive(b, where === runtime && b._enabled ? runtime : null);
   }
 }
@@ -301,9 +327,9 @@ export function declareMessages(names: readonly string[]): void {
   for (const name of names) NOT_SENT.delete(name);
 }
 
-const HOOKS = ['awake', 'onEnable', 'start', 'fixedUpdate', 'update', 'lateUpdate', 'onDisable', 'onDestroy'];
+const HOOKS = ['awake', 'onEnable', 'start', 'fixedUpdate', 'update', 'lateUpdate', 'onDisable', 'onDestroy', 'onValidate'];
 /** Unity messages nothing sends until an extension declares them — a method by one of these names would silently never run. */
-const NOT_SENT = new Set(['onTriggerEnter', 'onTriggerExit', 'onTriggerStay', 'onCollisionEnter', 'onCollisionExit', 'onCollisionStay', 'onMouseDown', 'onMouseUp']);
+const NOT_SENT = new Set(['onTriggerEnter', 'onTriggerExit', 'onTriggerStay', 'onCollisionEnter', 'onCollisionExit', 'onCollisionStay', 'onControllerColliderHit', 'onTriggerEnter2D', 'onTriggerExit2D', 'onTriggerStay2D', 'onCollisionEnter2D', 'onCollisionExit2D', 'onCollisionStay2D', 'onMouseDown', 'onMouseUp']);
 const checked = new WeakSet<Function>();
 
 /** A Unity habit that compiles and then does nothing gets said out loud, once per class. */

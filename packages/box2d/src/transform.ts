@@ -42,3 +42,49 @@ export function applyWorldPose(node: Object3D, x: number, y: number, angle: numb
   ANGLES.setFromQuaternion(parent.getWorldQuaternion(ROTATION));
   node.rotation.z = angle - ANGLES.z;
 }
+
+/**
+ * Where a collider's own space sits in its body's: offset, turn and scale. A collider on the body's
+ * node is at the origin, scaled by the node's world scale; one on a node under it — a compound
+ * body — is placed where that node is, relative to the body's node.
+ */
+export interface ShapeFrame {
+  x: number;
+  y: number;
+  angle: number;
+  scaleX: number;
+  scaleY: number;
+}
+
+const SCALE = new Vector3();
+
+export function shapeFrame(node: Object3D, owner: Object3D): ShapeFrame {
+  node.getWorldScale(SCALE);
+  const scaleX = SCALE.x;
+  const scaleY = SCALE.y;
+  if (node === owner) return { x: 0, y: 0, angle: 0, scaleX, scaleY };
+  const at = worldPose(node);
+  const from = worldPose(owner);
+  const dx = at.x - from.x;
+  const dy = at.y - from.y;
+  const cos = Math.cos(-from.angle);
+  const sin = Math.sin(-from.angle);
+  return { x: dx * cos - dy * sin, y: dx * sin + dy * cos, angle: at.angle - from.angle, scaleX, scaleY };
+}
+
+/** A point of the collider's own space, in its body's. */
+export function placePoint(frame: ShapeFrame, x: number, y: number): { x: number; y: number } {
+  const sx = x * frame.scaleX;
+  const sy = y * frame.scaleY;
+  const cos = Math.cos(frame.angle);
+  const sin = Math.sin(frame.angle);
+  return { x: frame.x + sx * cos - sy * sin, y: frame.y + sx * sin + sy * cos };
+}
+
+/** Whether two frames place a shape the same way — within what float noise moves. */
+export function sameFrame(a: ShapeFrame, b: ShapeFrame): boolean {
+  return (
+    Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.scaleX - b.scaleX) + Math.abs(a.scaleY - b.scaleY) < 1e-5 &&
+    Math.abs(Math.atan2(Math.sin(a.angle - b.angle), Math.cos(a.angle - b.angle))) < 1e-5
+  );
+}

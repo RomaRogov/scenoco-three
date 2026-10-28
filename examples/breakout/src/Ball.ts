@@ -1,13 +1,13 @@
-import type { Mesh, Object3D } from 'three';
+import { Vector2, type Mesh, type Object3D } from 'three';
 import { Behaviour, Input, KeyCode, MouseButton, findObjectOfType } from '@scenoco-three/core';
-import { Rigidbody2D } from '@scenoco-three/box2d';
+import { Rigidbody2D, type Collision2D } from '@scenoco-three/box2d';
 import { Brick } from './Brick.js';
 import { GameState } from './GameState.js';
 
 /**
  * The ball: rests on the paddle, launches, and never changes pace.
  *
- * Box2D does the bouncing — every surface here has restitution 1 — but a physics ball is not a
+ * Box2D does the bouncing — every surface here has bounciness 1 — but a physics ball is not a
  * Breakout ball. Two rules are enforced on top of it every step: the speed is held constant, so
  * a glancing hit cannot bleed the rally to a crawl, and the angle is kept away from horizontal,
  * because a ball travelling sideways between two walls never comes back and the game is over
@@ -65,7 +65,7 @@ export class Ball extends Behaviour<Mesh> {
 
   /** Keep the speed constant and the path off the horizontal. */
   private hold(): void {
-    const [x, y] = this.body.getVelocity();
+    const { x, y } = this.body.linearVelocity;
     const length = Math.hypot(x, y);
     if (length < 1e-4) return this.launch();
 
@@ -80,13 +80,13 @@ export class Ball extends Behaviour<Mesh> {
       dirX /= renormalise;
       dirY /= renormalise;
     }
-    this.body.setVelocity(dirX * this.speed, dirY * this.speed);
+    this.body.linearVelocity = new Vector2(dirX * this.speed, dirY * this.speed);
   }
 
   private follow(): void {
     this.node.position.set(this.paddle.position.x, this.paddle.position.y + this.restHeight, 0);
-    this.body.setPosition(this.node.position.x, this.node.position.y);
-    this.body.setVelocity(0, 0);
+    this.body.position = new Vector2(this.node.position.x, this.node.position.y);
+    this.body.linearVelocity = new Vector2(0, 0);
   }
 
   private launch(): void {
@@ -94,7 +94,7 @@ export class Ball extends Behaviour<Mesh> {
     // player's rather than the same shot every time.
     const lean = (this.paddle.position.x / 8) * 0.5;
     const angle = Math.atan(lean);
-    this.body.setVelocity(Math.sin(angle) * this.speed, Math.cos(angle) * this.speed);
+    this.body.linearVelocity = new Vector2(Math.sin(angle) * this.speed, Math.cos(angle) * this.speed);
     this.game.launched();
   }
 
@@ -104,7 +104,8 @@ export class Ball extends Behaviour<Mesh> {
 
   // --- what it runs into ----------------------------------------------------------------
 
-  override onCollisionEnter2D(other: Object3D): void {
+  override onCollisionEnter2D(collision: Collision2D): void {
+    const other = collision.node;
     if (other === this.paddle) return this.steerOffPaddle();
     const brick = other.getComponent(Brick);
     if (brick) brick.hit();
@@ -122,7 +123,7 @@ export class Ball extends Behaviour<Mesh> {
   private steerOffPaddle(): void {
     const offset = clamp((this.node.position.x - this.paddle.position.x) / 1.7, -1, 1);
     const angle = (offset * this.steer * Math.PI) / 180;
-    this.body.setVelocity(Math.sin(angle) * this.speed, Math.abs(Math.cos(angle)) * this.speed);
+    this.body.linearVelocity = new Vector2(Math.sin(angle) * this.speed, Math.abs(Math.cos(angle)) * this.speed);
   }
 }
 

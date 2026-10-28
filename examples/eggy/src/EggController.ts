@@ -20,6 +20,8 @@ export class EggController extends Behaviour {
   topPart: Prefab | null = null;
   bottomPart: Prefab | null = null;
   fried: Prefab | null = null;
+  /** How big the fried egg spreads, as a share of its model's size. */
+  friedSize = 0.6;
 
   private static instance: EggController;
   private rb!: Rigidbody;
@@ -56,8 +58,9 @@ export class EggController extends Behaviour {
 
   override fixedUpdate() {
     if (this.isDead) return;
-    // Unity scaled the drag by the screen's width over 400: a phone's width of drag is the same push anywhere.
-    const scale = window.innerWidth / 400;
+    // Unity scaled the drag by the screen's width over 400: a phone's width of drag is the same push
+    // anywhere. Its screen stood upright, so that width is the short side, turned or not.
+    const scale = Math.min(window.innerWidth, window.innerHeight) / 400;
     const rb = this.rb;
     rb.addTorque(unityTorque(this.speed.x * scale * 20, 0, 0));
     rb.addTorque(unityTorque(0, 0, Math.min(this.speed.y * scale, 0) * 20));
@@ -144,7 +147,7 @@ export class EggController extends Behaviour {
   }
 
   private *spread(fried: Object3D): Generator<Yieldable> {
-    yield* tween(3, Ease.outExpo, (t) => fried.scale.setScalar(0.1 + 0.9 * t));
+    yield* tween(3, Ease.outExpo, (t) => fried.scale.setScalar(0.1 + (this.friedSize - 0.1) * t));
     UIController.gameOver(true);
   }
 }

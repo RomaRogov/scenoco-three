@@ -211,6 +211,7 @@ class InputClass {
     // A HUD button is an element of the page: `<button data-button="Pause">`. Its press is a
     // virtual button, sampled per frame like a key — not a handler firing between frames.
     document.addEventListener('pointerdown', this.onPagePointerDown, true);
+    document.addEventListener('click', this.onPageClick, true);
   }
 
   /** @internal */
@@ -227,6 +228,7 @@ class InputClass {
     element.removeEventListener('wheel', this.onWheel);
     element.removeEventListener('contextmenu', this.onContextMenu);
     document.removeEventListener('pointerdown', this.onPagePointerDown, true);
+    document.removeEventListener('click', this.onPageClick, true);
     this.element = null;
     this.clear();
   }
@@ -285,32 +287,28 @@ class InputClass {
     const element = this.element;
     if (!element) return;
     const bounds = element.getBoundingClientRect();
-    const x = event.clientX - bounds.left;
-    const y = event.clientY - bounds.top;
+    const [x, y] = local(element, bounds, event);
     if (this.hasMouseSample) {
       this.mouseDelta.set(x - this.lastMouse.x, y - this.lastMouse.y);
     }
     this.hasMouseSample = true;
     this.lastMouse.set(x, y);
     this.mousePosition.set(x, y);
-    this.pointer.set((x / bounds.width) * 2 - 1, -(y / bounds.height) * 2 + 1);
+    this.pointer.set((x / element.clientWidth) * 2 - 1, -(y / element.clientHeight) * 2 + 1);
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     const button = event.button as MouseButton;
     this.buttonsHeld.add(button);
     this.buttonsPressed.add(button);
-    // A press is where a drag starts from. A finger has no hover — it lands on the glass with no
-    // move before it — so the last position known was wherever the *previous* touch lifted, and
-    // the first move of this one read as a jump across the screen: a steered thing leapt on
-    // every new touch. The delta starts here instead.
+    // A drag's movement counts from its press: a finger has no hover, so its first move would
+    // otherwise read as a jump from wherever the previous touch lifted.
     const bounds = this.element?.getBoundingClientRect();
     if (bounds) {
-      const x = event.clientX - bounds.left;
-      const y = event.clientY - bounds.top;
+      const [x, y] = local(this.element!, bounds, event);
       this.lastMouse.set(x, y);
       this.mousePosition.set(x, y);
-      this.pointer.set((x / bounds.width) * 2 - 1, -(y / bounds.height) * 2 + 1);
+      this.pointer.set((x / this.element!.clientWidth) * 2 - 1, -(y / this.element!.clientHeight) * 2 + 1);
       this.hasMouseSample = true;
       this.mouseDelta.set(0, 0);
     }
@@ -323,6 +321,18 @@ class InputClass {
     this.pageNames.add(name);
     this.pagePressed.add(name);
     this.pagePointers.set(event.pointerId, name);
+  };
+
+  /**
+   * A click no pointer made — Enter or Space on a focused button, or a script's `button.click()` —
+   * presses it for one frame. A pointer's own click was already its press.
+   */
+  private readonly onPageClick = (event: MouseEvent): void => {
+    if (event.detail !== 0) return;
+    const name = (event.target as Element | null)?.closest?.('[data-button]')?.getAttribute('data-button');
+    if (!name) return;
+    this.pageNames.add(name);
+    this.pagePressed.add(name);
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
@@ -344,3 +354,10 @@ class InputClass {
 
 export const Input = new InputClass();
 export type { InputClass };
+
+/** Where an event is on the element, in its own CSS pixels — the same numbers when a transform scales the page. */
+function local(element: HTMLElement, bounds: DOMRect, event: PointerEvent): [number, number] {
+  const sx = element.clientWidth / (bounds.width || 1);
+  const sy = element.clientHeight / (bounds.height || 1);
+  return [(event.clientX - bounds.left) * sx, (event.clientY - bounds.top) * sy];
+}

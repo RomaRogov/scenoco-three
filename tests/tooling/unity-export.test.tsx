@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { BoxGeometry, DirectionalLight, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene } from 'three';
-import { Behaviour, ref } from '@scenoco-three/core';
+import { Behaviour, prefab, ref } from '@scenoco-three/core';
 import { snapshot, type SnapshotNode } from '@scenoco-three/core/snapshot';
 import { convert } from '../../packages/unity/src/convert.js';
 import { snapshotProject } from '../../packages/unity/src/export.js';
@@ -17,7 +17,7 @@ class Spawner extends Behaviour {
   grid: Grid | null = null;
 }
 
-const Crate = () => <Mesh geometry={box} material={paint.stone} position={[1, 2, 3]} rotation={[0.5, 0.25, 0]} />;
+const Crate = prefab(() => <Mesh geometry={box} material={paint.stone} position={[1, 2, 3]} rotation={[0.5, 0.25, 0]} />);
 const Main = () => {
   const grid = ref<Group>();
   return (
@@ -77,7 +77,7 @@ describe('unity export', () => {
     // breakout, through its own Vite and a headless Chrome: what `scenoco-unity` reads.
     const snap = await snapshotProject(fileURLToPath(new URL('../../examples/breakout', import.meta.url)));
     expect(snap.warnings).toEqual([]);
-    expect(snap.prefabs.map((p) => p.name).sort()).toEqual(['Arena', 'BrickPrefab', 'Level1', 'Level2', 'Level3', 'Run']);
+    expect(snap.prefabs.map((p) => p.name).sort()).toEqual(['BrickPrefab', 'Level1', 'Level2', 'Level3', 'Run']);
     // The walls share one geometry and one material, as assets.ts made them.
     const all = (n: SnapshotNode): SnapshotNode[] => [n, ...n.children.flatMap(all)];
     const walls = all(snap.prefabs.find((p) => p.name === 'Level1')!.root).filter((n) => /^wall(Left|Right)$/.test(n.name));

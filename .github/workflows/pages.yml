@@ -1,5 +1,5 @@
-# The project's site: the README as its front page, the examples playable, llms.txt for coding
-# agents, and the editor's interface for a game page opened with ?edit=<this site>/editor.js.
+# The project's site: the README as its front page, the examples playable, and llms.txt for coding
+# agents.
 # Runs by hand: publishing is the maintainer's call.
 name: pages
 on:

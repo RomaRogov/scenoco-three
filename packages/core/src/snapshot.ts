@@ -28,7 +28,7 @@ import {
   type Texture,
 } from 'three';
 import { Behaviour, behavioursOn } from './kernel/index.js';
-import { prefabOf, sourceOf } from './jsx.js';
+import { isPrefab, prefabOf, sourceOf } from './jsx.js';
 import { writtenOf } from './kernel/index.js';
 
 /** A value a behaviour's field holds, as data. Vectors are three.js's, untouched: right-handed, Y up. */
@@ -49,6 +49,8 @@ export type SnapshotValue =
   | { component: string; node: string }
   | { prefab: string }
   | { material: string }
+  /** A plain settings object — a physics material — as its class and its own values. */
+  | { object: { type: string; fields: Record<string, number | boolean | string> } }
   | { geometry: string };
 
 export interface SnapshotComponent {
@@ -194,7 +196,7 @@ export function snapshot(modules: Record<string, Module>): Snapshot {
   const gameClasses = new Map<Function, string>();
   const names = new Map<object, string>();
 
-  // What the modules export: prefabs (functions in .tsx), behaviour classes, and the names shared
+  // What the modules export: prefabs and scenes (functions in .tsx), behaviour classes, and the names shared
   // materials and geometries go by.
   for (const [file, mod] of Object.entries(modules)) {
     for (const [name, value] of Object.entries(mod)) {
@@ -202,7 +204,8 @@ export function snapshot(modules: Record<string, Module>): Snapshot {
         if (!gameClasses.has(value)) gameClasses.set(value, file);
         classes[value.name] ??= { file, defaults: {} };
       } else if (typeof value === 'function' && file.endsWith('.tsx') && !isClass(value)) {
-        prefabIds.set(value, `${file}#${name}`);
+        // A prefab, or a scene; any other function is a component, copied in where it is used.
+        if (isPrefab(value) || (build(value, '', []) as Scene | null)?.isScene) prefabIds.set(value, `${file}#${name}`);
       } else if (value && typeof value === 'object') {
         if (isNamed(value)) names.has(value) || names.set(value, name);
         else if (Object.getPrototypeOf(value) === Object.prototype) {
@@ -435,7 +438,9 @@ class Walk {
       this.links.push({ holder, key, node: v.node, component: v.constructor.name, where });
       return null;
     }
-    this.warnings.push(`${where}: a ${(o.constructor as Function | undefined)?.name ?? 'value'} is not exported — numbers, strings, vectors, colours, nodes, prefabs, materials and lists of them are.`);
+    const plain = plainFields(o);
+    if (plain) return { object: { type: (o.constructor as Function).name, fields: plain } };
+    this.warnings.push(`${where}: a ${(o.constructor as Function | undefined)?.name ?? 'value'} is not exported — numbers, strings, vectors, colours, nodes, prefabs, materials, settings objects and lists of them are.`);
     return undefined;
   }
 
@@ -572,4 +577,11 @@ function plain(v: unknown): SnapshotValue | undefined {
   if (o.isVector3) return { v3: list(v as Vector3) };
   if (o.isColor) return { color: hex(v as Color) };
   return undefined;
+}
+
+/** An object's own values, when every one is a number, a boolean or a string — a settings object; else null. */
+function plainFields(o: Record<string, unknown>): Record<string, number | boolean | string> | null {
+  const entries = Object.entries(o).filter(([key]) => !key.startsWith('_'));
+  if (entries.length === 0 || !entries.every(([, v]) => typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string')) return null;
+  return Object.fromEntries(entries) as Record<string, number | boolean | string>;
 }

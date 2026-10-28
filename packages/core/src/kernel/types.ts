@@ -41,6 +41,12 @@ export interface BehaviourHooks {
   onDisable?(): void;
   /** Once, at the end of the frame it was destroyed in. */
   onDestroy?(): void;
+  /**
+   * Unity's `OnValidate`: in the editor, after one of its fields was changed there — or a node it
+   * was given moved, or its own did. Do again what `start` did from them, so the change shows:
+   * `onValidate() { this.place(); }`.
+   */
+  onValidate?(): void;
 }
 
 // --- authorable fields ------------------------------------------------------------------------
@@ -51,12 +57,19 @@ type IsIdentical<X, Y, Then, Else> =
 declare const prefab: unique symbol;
 
 /**
- * A prefab as a field's type, Unity's `public GameObject prefab`: `projectile: Prefab | null = null`,
- * set in TSX as `<Tower projectile={Arrow} />`, built with `instantiate(this.projectile)`. Any
- * function returning TSX is one. Typed this way, the field is a setting; typed `() => Object3D`,
- * tsc cannot tell it from a method, and it would not be.
+ * What `prefab()` stamps on a function's type, worded as the fix: tsc prints it when a plain function
+ * is given where a prefab belongs. Spelled out where it is used, never behind a name, so the
+ * message is what tsc shows rather than the name.
  */
-export type Prefab<T extends Object3D = Object3D> = (() => unknown) & { readonly [prefab]?: T };
+export type PrefabMarkKey = 'a prefab is made with prefab(): export const Coin = prefab(() => <Mesh>...</Mesh>)';
+
+/**
+ * A prefab as a field's type, Unity's `public GameObject prefab`: `projectile: Prefab | null = null`,
+ * set in TSX as `<Tower projectile={Arrow} />`, built with `instantiate(this.projectile)`. What
+ * `prefab()` makes, taking no props. Typed this way, the field is a setting; typed
+ * `() => Object3D`, tsc cannot tell it from a method, and it would not be.
+ */
+export type Prefab<T extends Object3D = Object3D> = (() => unknown) & { readonly [K in PrefabMarkKey]: true } & { readonly [prefab]?: T };
 
 /** True for data, false for methods — a class (a behaviour type) and a `Prefab` count as data. */
 type IsValue<V> = V extends Function

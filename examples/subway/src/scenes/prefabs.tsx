@@ -1,18 +1,19 @@
 import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial } from 'three';
+import { prefab } from '@scenoco-three/core';
 import { Coin } from '../Coin';
 import { Obstacle } from '../Obstacle';
 import { Scroll } from '../Scroll';
 import { trackTexture } from '../textures';
 
 /** Everything that arrives in one wave: obstacles and coins are its children. */
-export const Row = () => (
+export const Row = prefab(() => (
   <Group name="row">
     <Scroll killZ={22} />
   </Group>
-);
+));
 
 /** A 20 m stretch of track, platforms and an overhead gantry. */
-export const Segment = () => (
+export const Segment = prefab(() => (
   <Group name="segment">
     <Scroll killZ={32} />
     <Mesh position={[0, -0.27, 0]} receiveShadow>
@@ -87,18 +88,18 @@ export const Segment = () => (
       <MeshBasicMaterial color="#fff0c8" />
     </Mesh>
   </Group>
-);
+));
 
 /** Unit box; the spawner scales it into a tower and gives it windows. */
-export const Building = () => (
+export const Building = prefab(() => (
   <Mesh>
     <BoxGeometry />
     <MeshStandardMaterial roughness={0.85} emissive="#ffffff" emissiveIntensity={1.1} />
   </Mesh>
-);
+));
 
 /** A parked train, 10 m long, front toward the runner. Crash on contact. */
-export const Train = () => (
+export const Train = prefab(() => (
   <Group>
     <Obstacle kind="train" yMin={0} yMax={3.3} halfX={1.05} halfZ={5} />
     <Mesh name="body" position={[0, 1.7, 0]} castShadow receiveShadow>
@@ -134,10 +135,10 @@ export const Train = () => (
       <MeshBasicMaterial color="#fff7d6" />
     </Mesh>
   </Group>
-);
+));
 
 /** Waist-high striped block: jump over it. */
-export const LowBarrier = () => (
+export const LowBarrier = prefab(() => (
   <Group>
     <Obstacle kind="low" yMin={0} yMax={0.95} halfX={1.0} halfZ={0.45} />
     <Mesh position={[0, 0.45, 0]} castShadow receiveShadow>
@@ -157,10 +158,10 @@ export const LowBarrier = () => (
       <MeshStandardMaterial color="#fcd34d" emissive="#fbbf24" emissiveIntensity={0.8} />
     </Mesh>
   </Group>
-);
+));
 
 /** A beam at head height on two posts: roll under it. */
-export const HighBarrier = () => (
+export const HighBarrier = prefab(() => (
   <Group>
     <Obstacle kind="high" yMin={1.05} yMax={1.9} halfX={1.0} halfZ={0.35} />
     <Mesh position={[-0.95, 0.95, 0]} castShadow>
@@ -188,9 +189,9 @@ export const HighBarrier = () => (
       <MeshStandardMaterial color="#1f1d2b" />
     </Mesh>
   </Group>
-);
+));
 
-export const CoinPickup = () => (
+export const CoinPickup = prefab(() => (
   <Group>
     <Coin />
     <Mesh rotation={[Math.PI / 2, 0, 0]}>
@@ -198,4 +199,4 @@ export const CoinPickup = () => (
       <MeshStandardMaterial color="#ffc533" emissive="#ff9d00" emissiveIntensity={0.7} metalness={0.8} roughness={0.25} />
     </Mesh>
   </Group>
-);
+));

@@ -15,7 +15,7 @@ Arrows or WASD (or swipes): change lane, jump, roll. Enter or Space to run.
 | | |
 | --- | --- |
 | `src/scenes/Main.tsx` | the city, the track, the runner, the camera — declared |
-| `src/scenes/prefabs.tsx` | trains, barriers, coins, buildings — functions returning TSX |
+| `src/scenes/prefabs.tsx` | trains, barriers, coins, buildings — `prefab(() => …)` |
 | `src/Spawner.ts` | spawns ahead of the runner with `instantiate`, removes what is behind |
 | `src/Player.ts` `src/Game.ts` | lanes, jumping and rolling; the run, the score and the HTML HUD |
 | `src/textures.ts` | canvas textures, made once and named from the scenes |

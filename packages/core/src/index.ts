@@ -22,8 +22,7 @@ import './augment.js';
 
 export { play, instantiate, type Game, type PlayOptions, type InstantiateOptions } from './play.js';
 export { SceneManager, dontDestroyOnLoad } from './scenes.js';
-export { ref, sourceOf, type Ref, type Source } from './jsx.js';
-export type { EditHost } from './edit.js';
+export { prefab, ref, sourceOf, type Ref, type Source } from './jsx.js';
 export {
   Behaviour,
   Event,
@@ -82,3 +81,7 @@ export {
   type ConstructableBehaviour,
   type NodeOf,
 } from './kernel/index.js';
+
+// For the editor's interface, `@scenoco-three/editor`: what it reaches the running game through.
+export type { EditHost, OpenedScene, Transform } from './editor/EditHost.js';
+export type { Reach } from './kernel/runtime.js';

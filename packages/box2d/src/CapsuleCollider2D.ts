@@ -1,49 +1,56 @@
-import { PolygonShape, Vec2, type Shape } from 'planck';
-import { Vector2 } from 'three';
+import { PolygonShape, type Shape } from 'planck';
+import { Vector2, type Box3 } from 'three';
 import { Collider2D } from './Collider2D.js';
+import { placePoint, type ShapeFrame } from './transform.js';
 
-/** A 2D capsule's long axis, as Unity's `CapsuleDirection2D` names it. */
-export type CapsuleDirection2D = 'vertical' | 'horizontal';
+/** Which way a capsule's long axis runs — Unity's `CapsuleDirection2D`. */
+export const CapsuleDirection2D = {
+  Vertical: 0,
+  Horizontal: 1,
+} as const;
+export type CapsuleDirection2D = (typeof CapsuleDirection2D)[keyof typeof CapsuleDirection2D];
 
 /**
- * A 2D capsule collision shape.
- *
- * Box2D has no capsule primitive, so this is a convex **stadium** polygon — a rectangle with
- * semicircular caps — which is the approximation every Box2D-based engine uses. Mirrors Unity's
- * `CapsuleCollider2D`: a `size` box with rounded ends along `direction`.
+ * Unity's `CapsuleCollider2D`: the box `size` with round ends along `direction`. Box2D has no
+ * capsule, so it is a stadium-shaped polygon, as every Box2D engine makes one. Left out, the mesh's size.
  */
 export class CapsuleCollider2D extends Collider2D {
-  /** The box the capsule is inscribed in. */
   size = new Vector2(0.5, 1);
-  /** Which way the long axis runs. */
-  direction: CapsuleDirection2D = 'vertical';
+  direction: CapsuleDirection2D = CapsuleDirection2D.Vertical;
 
-  override toShape(): Shape {
-    return new PolygonShape(stadium(this.size.x, this.size.y, this.direction === 'vertical'));
+  protected override fit(bounds: Box3, written: ReadonlySet<string>): void {
+    if (written.has('size')) return;
+    this.size.set(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
+    this.fitOffset(bounds, written);
+  }
+
+  shapes(frame: ShapeFrame): Shape[] {
+    const width = Math.abs(this.size.x * frame.scaleX);
+    const height = Math.abs(this.size.y * frame.scaleY);
+    const vertical = this.direction === CapsuleDirection2D.Vertical;
+    // Built in the frame's turn but at its scale already, so the caps stay round.
+    const unscaled = { ...frame, scaleX: 1, scaleY: 1 };
+    const centre = placePoint(frame, this.offset.x, this.offset.y);
+    const at = { ...unscaled, x: centre.x, y: centre.y };
+    return [new PolygonShape(stadium(width, height, vertical).map(([x, y]) => placePoint(at, x, y)))];
   }
 }
 
-/**
- * The stadium outline inscribed in a `width × height` box: caps of radius `across / 2` at each
- * end of the long axis. Twelve vertices, which is planck's maximum for a polygon.
- */
-function stadium(width: number, height: number, vertical: boolean): Vec2[] {
+/** The stadium inscribed in a `width × height` box: round caps at the ends of the long axis. Twelve points, planck's most. */
+function stadium(width: number, height: number, vertical: boolean): [number, number][] {
   const SEGMENTS = 5;
   const [along, across] = vertical ? [height, width] : [width, height];
   const radius = across / 2;
-  const halfStraight = Math.max(0, along / 2 - radius);
-  const points: Vec2[] = [];
-  // Built in a vertical frame — long axis on y — and swapped for the horizontal case.
-  const push = (x: number, y: number): number =>
-    points.push(vertical ? new Vec2(x, y) : new Vec2(y, x));
-
+  const straight = Math.max(0, along / 2 - radius);
+  const points: [number, number][] = [];
+  const push = (x: number, y: number) => points.push(vertical ? [x, y] : [y, -x]);
   for (let i = 0; i <= SEGMENTS; i++) {
-    const angle = (Math.PI * i) / SEGMENTS; // top cap, 0 → π
-    push(Math.cos(angle) * radius, halfStraight + Math.sin(angle) * radius);
+    const angle = (Math.PI * i) / SEGMENTS;
+    push(Math.cos(angle) * radius, straight + Math.sin(angle) * radius);
   }
   for (let i = 0; i <= SEGMENTS; i++) {
-    const angle = Math.PI + (Math.PI * i) / SEGMENTS; // bottom cap, π → 2π
-    push(Math.cos(angle) * radius, -halfStraight + Math.sin(angle) * radius);
+    const angle = Math.PI + (Math.PI * i) / SEGMENTS;
+    push(Math.cos(angle) * radius, -straight + Math.sin(angle) * radius);
   }
   return points;
 }

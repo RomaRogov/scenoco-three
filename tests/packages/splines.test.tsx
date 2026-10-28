@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BoxGeometry, BufferAttribute, Group, Mesh, MeshStandardMaterial, Scene, Vector3, type Material } from 'three';
-import { Model, Runtime, loadAssets, ref, wake } from '@scenoco-three/core';
+import { Model, Runtime, loadAssets, prefab, ref, wake } from '@scenoco-three/core';
 import { SplineAnimate, SplineContainer, SplineExtrude, SplineInstantiate, SplineMesh, Spline, SplineUtility } from '@scenoco-three/splines';
 
 const runtimes: Runtime[] = [];
@@ -78,7 +78,7 @@ describe('splines', () => {
   });
 
   it('places prefabs by spacing, facing along the spline, offset to its right', () => {
-    const Post = () => <Group />;
+    const Post = prefab(() => <Group />);
     const holder = ref<Group>();
     const scene = (
       <Scene>
@@ -94,6 +94,73 @@ describe('splines', () => {
     // Along -Z, the right is +X; the copy's +Z faces along the spline.
     close(posts[1]!.position, 1, 0, -4);
     close(new Vector3(0, 0, 1).applyQuaternion(posts[1]!.quaternion), 0, 0, -1);
+  });
+
+  it('says changed when its knots are assigned anew or its node moves, and what is built along it follows', () => {
+    const Post = prefab(() => <Group />);
+    const track = ref<Group>();
+    const holder = ref<Group>();
+    const scene = (
+      <Scene>
+        <Group ref={track}>
+          <SplineContainer knots={[[0, 0, 0], [0, 0, -12]]} />
+        </Group>
+        <Group ref={holder}>
+          <SplineInstantiate container={track} itemsToInstantiate={[Post]} spacing={4} />
+        </Group>
+      </Scene>
+    ) as Scene;
+    const runtime = run(scene);
+    const container = track.current!.getComponent(SplineContainer)!;
+    const placer = holder.current!.getComponent(SplineInstantiate)!;
+    let changes = 0;
+    container.changed.on(() => changes++);
+
+    runtime.update(1 / 60);
+    expect(changes).toBe(0);
+    container.knots = [[0, 0, 0], [0, 0, -20]];
+    runtime.update(1 / 60);
+    expect(placer.instances).toHaveLength(6);
+    track.current!.position.x = 3;
+    runtime.update(1 / 60);
+    expect(changes).toBe(2);
+    close(placer.instances[1]!.position, 3, 0, -4);
+  });
+
+  it('takes its knots from a node\'s children, follows them as they move, and rebuilds at once in onValidate', () => {
+    const Post = prefab(() => <Group />);
+    const track = ref<Group>();
+    const points = ref<Group>();
+    const holder = ref<Group>();
+    const scene = (
+      <Scene>
+        <Group ref={track} scale={2}>
+          <SplineContainer knots={points} />
+          <Group ref={points}>
+            <Group position={[0, 0, 0]} />
+            <Group position={[0, 0, -5]} />
+          </Group>
+        </Group>
+        <Group ref={holder}>
+          <SplineInstantiate container={track} itemsToInstantiate={[Post]} spacing={4} />
+        </Group>
+      </Scene>
+    ) as Scene;
+    const runtime = run(scene);
+    const container = track.current!.getComponent(SplineContainer)!;
+    const placer = holder.current!.getComponent(SplineInstantiate)!;
+    // In the container's space, so its scale counts: 5 apart is 10 in the world.
+    expect(container.calculateLength()).toBeCloseTo(10, 3);
+    expect(placer.instances).toHaveLength(3);
+
+    points.current!.children[1]!.position.z = -10;
+    runtime.update(1 / 60);
+    expect(placer.instances).toHaveLength(6);
+
+    // In the editor, the clock held: no frame comes, onValidate says so at once.
+    points.current!.children[1]!.position.z = -2;
+    container.onValidate();
+    expect(placer.instances.length).toBe(2);
   });
 
   it('moves along the spline at its speed, and stops at the end once', () => {

@@ -1,8 +1,8 @@
-import type { PerspectiveCamera } from 'three';
+import type { OrthographicCamera, PerspectiveCamera } from 'three';
 import type { Runtime } from './runtime.js';
 
-/** The camera a scene is drawn with. A perspective camera unless the scene says otherwise. */
-export type RenderCamera = PerspectiveCamera;
+/** The camera a scene is drawn with: the one the scene put in, perspective or orthographic. */
+export type RenderCamera = PerspectiveCamera | OrthographicCamera;
 
 /** Per runtime: the camera it renders with now. Whatever drives the frame says. */
 const cameras = new WeakMap<Runtime, () => RenderCamera | null>();

@@ -35,8 +35,8 @@ A few things carry most of the weight:
 - **The HUD is the page.** `Progress` writes `textContent` into `index.html`'s elements. The banner
   between rounds is `<div data-button="Continue">`: a tap on it is `Input.getButtonDown('Continue')`
   on the next frame, sampled like a key rather than handled between frames.
-- **A level is a scene function with props.** `<Level name="FORTRESS" ballSpeed={16} rows={…} />`;
-  the arena is a prefab function too, and `<Arena ballSpeed={ballSpeed} />` is how level three is
+- **A level is a scene function with props.** `<Level title="FORTRESS" ballSpeed={16} rows={…} />`;
+  the arena is a plain component, and `<Arena ballSpeed={ballSpeed} />` is how level three is
   faster than level one.
 - **A wall is data and a loop.** `<BrickField rows={['.22222.', '2111112', …]} />`: a scene only
   declares, so repetition is a behaviour's job. `BrickField` spawns `BrickPrefab` and sets

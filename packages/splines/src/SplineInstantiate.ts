@@ -1,9 +1,9 @@
 import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three';
-import { Behaviour, destroy, instantiate, type Model } from '@scenoco-three/core';
+import { Behaviour, destroy, instantiate, type Model, type Prefab as PrefabFn } from '@scenoco-three/core';
 import { containerFor, type SplineContainer } from './SplineContainer.js';
 import { FrameReader } from './frames.js';
 
-type Prefab = (() => unknown) | Model;
+type Prefab = PrefabFn | Model;
 
 /**
  * Places copies of prefabs along a spline, as children of its node — Unity's `SplineInstantiate`:
@@ -40,6 +40,12 @@ export class SplineInstantiate extends Behaviour {
   }
 
   override start(): void {
+    this.rebuild();
+    this.listen(containerFor(this, this.container, 'SplineInstantiate').changed, () => this.rebuild());
+  }
+
+  /** A setting changed in the editor, or the spline's node moved: built again. */
+  override onValidate(): void {
     this.rebuild();
   }
 

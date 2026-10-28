@@ -38,7 +38,8 @@ export type RigidbodyConstraints = number;
 
 /**
  * Unity's `Rigidbody`: makes its node a physics body. Its shape comes from the colliders on the
- * same node, in either order.
+ * same node, in either order, and on nodes under it that have no body of their own — one compound
+ * body, as in Unity.
  *
  * A dynamic body moves its node — set velocity or add force, not `node.position`. A kinematic
  * one follows its node: move the node, and the body pushes whatever it meets. `isKinematic` may
@@ -155,7 +156,7 @@ export class Rigidbody extends Behaviour {
     this._body.applyTorqueImpulse(SCRATCH_V.copy(torque).multiplyScalar(scale), true);
   }
 
-  /** Teleport — a respawn. For a kinematic body, moving its node is the usual way. */
+  /** Teleport to a world position — a respawn. For a kinematic body, moving its node is the usual way. */
   movePosition(position: Vector3): void {
     if (!this._body) return;
     if (this.isKinematic) this._body.setNextKinematicTranslation(position);
@@ -177,8 +178,14 @@ export class Rigidbody extends Behaviour {
     this._physics = service(this.node, Physics);
     this._body = this._physics.createBody(this);
     this.applyConstraints();
-    // A collider that started before this body existed has nothing else to attach it.
-    for (const collider of this.getComponents(Collider)) if (collider._started && collider.enabled) this.attach(collider);
+    // A collider that started before this body existed has nothing else to attach it; one under
+    // it that was static until now becomes part of it.
+    for (const collider of this.getComponentsInChildren(Collider)) {
+      if (!collider._started || !collider.enabled || collider.attachedRigidbody !== this) continue;
+      if (collider._collider) this._physics.destroyCollider(collider._collider);
+      collider._collider = null;
+      this.attach(collider);
+    }
   }
 
   override onEnable(): void {

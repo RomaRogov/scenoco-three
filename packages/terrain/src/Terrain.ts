@@ -1,4 +1,4 @@
-import Martini from '@mapbox/martini';
+import Martini, { type MartiniTile } from '@mapbox/martini';
 import {
   BufferAttribute,
   BufferGeometry,
@@ -22,7 +22,7 @@ const LEVEL_ERRORS = [0.02, 0.08, 0.32, 1.28, 5.12, 20.48];
 interface Chunk {
   mesh: Mesh;
   /** Martini's error tree over this chunk's samples, made once. */
-  tile: ReturnType<Martini['createTile']>;
+  tile: MartiniTile;
   /** Built on first use, one geometry per level. */
   levels: (BufferGeometry | undefined)[];
   /** Where the chunk is, in the terrain's space. */
@@ -35,8 +35,8 @@ interface Chunk {
  * Draws a `TerrainData` under its node — Unity's `Terrain`. The ground is split into chunks of 64
  * cells, and every frame each chunk draws the coarsest mesh whose error stays under
  * `heightmapPixelError` pixels on screen from where the camera is: full detail near it, a few
- * triangles far away and on flat ground (Martini's right-triangulated irregular networks). Chunks
- * of different detail meet behind short skirts, so no cracks show between them.
+ * triangles far away and on flat ground (Martini's right-triangulated irregular networks). A
+ * chunk's edges are drawn as full detail draws them at every level, so neighbours meet exactly.
  *
  * ```tsx
  * <Group scale={0.25}>
@@ -55,6 +55,14 @@ export class Terrain extends Behaviour {
   heightmapPixelError = 5;
   /** Whether the ground casts shadows. It always receives them. */
   castShadows = true;
+  /** Every layer's tile size times this — above 1 each texture repeats less often. Not for a `materialTemplate`. */
+  tileScale = 1;
+  /**
+   * Whether ground steeper than 45° is textured from the side, so cliffs are not stretched. It reads
+   * no more textures than flat ground — the cost is a few sums a pixel — so it is on unless a seam
+   * where a slope crosses 45° shows.
+   */
+  sideProjection = true;
 
   private chunks: Chunk[] = [];
   private ownMaterial: TerrainMaterial | null = null;
@@ -63,7 +71,8 @@ export class Terrain extends Behaviour {
   override awake() {
     const data = this.terrainData;
     if (!data) throw new Error('Terrain needs terrainData={…}: a TerrainData, loaded with loadAssets.');
-    this.ownMaterial = this.materialTemplate ? null : new TerrainMaterial(data);
+    this.ownMaterial = this.materialTemplate ? null : new TerrainMaterial(data, { sideProjection: this.sideProjection });
+    this.applyLook();
     this.makeChunks();
     // Heights, size or layers changed in code: the ground is made again, as Unity's terrain follows
     // its data — once, before the next frame is drawn, however many changes came first.
@@ -115,6 +124,7 @@ export class Terrain extends Behaviour {
         });
       }
     }
+    sealEdges(this.chunks, cells / chunk, chunk + 1);
     this.lateUpdate();
   }
 
@@ -127,7 +137,19 @@ export class Terrain extends Behaviour {
     this.chunks = [];
   }
 
+  /** `tileScale` and `sideProjection` onto the material: they can change while the game runs. */
+  private applyLook() {
+    if (!this.ownMaterial) return;
+    this.ownMaterial.tileScale = this.tileScale;
+    this.ownMaterial.sideProjection = this.sideProjection;
+  }
+
+  override onValidate() {
+    this.applyLook();
+  }
+
   override lateUpdate() {
+    this.applyLook();
     if (this.dirty) {
       this.dirty = false;
       this.ownMaterial?.refresh();
@@ -179,7 +201,7 @@ export class Terrain extends Behaviour {
     }
   }
 
-  /** A chunk's mesh at a level: Martini's triangles, normals from the full heights, skirts inside the map. */
+  /** A chunk's mesh at a level: Martini's triangles, normals from the full heights. */
   private build(chunk: Chunk, level: number): BufferGeometry {
     const data = this.terrainData!;
     const n = data.heightmapResolution;
@@ -190,21 +212,8 @@ export class Terrain extends Behaviour {
     const stepZ = sizeZ / cells;
     const { vertices, triangles } = chunk.tile.getMesh(LEVEL_ERRORS[level]);
     const count = vertices.length / 2;
-    // Skirts on the inside edges: a strip hanging down to where a coarser neighbour's edge may be.
-    const depth = LEVEL_ERRORS[Math.min(level + 2, LEVEL_ERRORS.length - 1)]! + 0.1;
-    const edges: number[][] = [];
-    const inside = [chunk.row > 0, chunk.column < cells / size - 1, chunk.row < cells / size - 1, chunk.column > 0];
-    const onEdge = (x: number, y: number) => [y === 0, x === size, y === size, x === 0];
-    for (let side = 0; side < 4; side++) {
-      if (!inside[side]) continue;
-      const along: number[] = [];
-      for (let i = 0; i < count; i++) if (onEdge(vertices[i * 2]!, vertices[i * 2 + 1]!)[side]) along.push(i);
-      along.sort((a, b) => (side % 2 === 0 ? vertices[a * 2]! - vertices[b * 2]! : vertices[a * 2 + 1]! - vertices[b * 2 + 1]!));
-      edges.push(along);
-    }
-    const skirtVertices = edges.reduce((sum, e) => sum + e.length, 0);
-    const positions = new Float32Array((count + skirtVertices) * 3);
-    const normals = new Float32Array((count + skirtVertices) * 3);
+    const positions = new Float32Array(count * 3);
+    const normals = new Float32Array(count * 3);
     const height = (gx: number, gy: number) => data.heights[Math.min(Math.max(gy, 0), cells) * n + Math.min(Math.max(gx, 0), cells)]!;
     for (let i = 0; i < count; i++) {
       const gx = chunk.column * size + vertices[i * 2]!;
@@ -217,24 +226,10 @@ export class Terrain extends Behaviour {
       normals.set([nx / length, 1 / length, nz / length], i * 3);
     }
     // Martini's grid y is the terrain's z, which makes its triangles face up as they are.
-    const index: number[] = Array.from(triangles);
-    let next = count;
-    for (const along of edges) {
-      along.forEach((top, k) => {
-        positions.set([positions[top * 3]!, positions[top * 3 + 1]! - depth, positions[top * 3 + 2]!], (next + k) * 3);
-        normals.set(normals.subarray(top * 3, top * 3 + 3), (next + k) * 3);
-        if (k > 0) {
-          const a = along[k - 1]!;
-          // Both windings: which side faces out depends on the edge, and a skirt is seen from either.
-          index.push(a, top, next + k - 1, top, next + k, next + k - 1, a, next + k - 1, top, top, next + k - 1, next + k);
-        }
-      });
-      next += along.length;
-    }
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new BufferAttribute(normals, 3));
-    geometry.setIndex(index);
+    geometry.setIndex(new BufferAttribute(triangles, 1));
     geometry.computeBoundingSphere();
     return geometry;
   }
@@ -243,6 +238,31 @@ export class Terrain extends Behaviour {
 const scratch = new Vector3();
 const scratch2 = new Vector3();
 const martinis = new Map<number, Martini>();
+
+/**
+ * Neighbours of different detail meet exactly: on an edge two chunks share, a sample is kept at
+ * every level when full detail keeps it on either side, and dropped at every level otherwise — so
+ * both draw the same edge, whatever their levels. Errors are only raised, then carried up by
+ * Martini's own pass again, so each chunk's triangles still fit together.
+ */
+function sealEdges(chunks: Chunk[], perSide: number, side: number): void {
+  const last = side - 1;
+  const at = (column: number, row: number) => chunks[row * perSide + column]?.tile;
+  const seal = (a: MartiniTile, b: MartiniTile, inA: (i: number) => number, inB: (i: number) => number) => {
+    for (let i = 1; i < last; i++) {
+      if (Math.max(a.errors[inA(i)]!, b.errors[inB(i)]!) > LEVEL_ERRORS[0]!) a.errors[inA(i)] = b.errors[inB(i)] = Infinity;
+    }
+  };
+  for (let row = 0; row < perSide; row++) {
+    for (let column = 0; column < perSide; column++) {
+      const tile = at(column, row)!;
+      // Its right edge is the next one's left; its far edge, the next row's near one.
+      if (column + 1 < perSide) seal(tile, at(column + 1, row)!, (i) => i * side + last, (i) => i * side);
+      if (row + 1 < perSide) seal(tile, at(column, row + 1)!, (i) => last * side + i, (i) => i);
+    }
+  }
+  for (const chunk of chunks) chunk.tile.update();
+}
 
 function martiniFor(gridSize: number): Martini {
   let martini = martinis.get(gridSize);

@@ -19,5 +19,5 @@ body:
     id: version
     attributes:
       label: Version
-      placeholder: "@scenoco-three/core 0.9.0, three 0.184.0, node 22"
+      placeholder: "@scenoco-three/core 0.9.5, three 0.184.0, node 22"
     validations: { required: true }

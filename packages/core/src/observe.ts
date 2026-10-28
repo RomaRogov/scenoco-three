@@ -35,6 +35,18 @@ export function viewOf(runtime: Runtime): THREE.Camera | null {
   return viewing.get(runtime) ?? null;
 }
 
+/** @internal hold the clock, or let it run — what the bridge's `pause` and `play` do, for the editor. */
+export function setHeld(runtime: Runtime, hold: boolean): void {
+  if (hold) held.add(runtime);
+  else held.delete(runtime);
+}
+
+/** @internal draw from `camera` instead of the game's, or from the game's again with null. */
+export function setView(runtime: Runtime, camera: THREE.Camera | null): void {
+  if (camera) viewing.set(runtime, camera);
+  else viewing.delete(runtime);
+}
+
 /** @internal */
 export function installObserverBridge(
   runtime: Runtime,
@@ -447,7 +459,7 @@ Clock — a held clock moves only when stepped, so every reading lands on an exa
 Reading — code is JavaScript where Player.lane is the first live Player's lane, #runner the node named "runner",
 and find(Type) / findAll(Type) / node(name) / destroy / scene / camera / Time / Input / SceneManager / THREE are in scope:
   eval(code)                            the body of an async function: eval("return findAll(Coin).length")
-  find(name)  findAll(name)  node(name) the live objects themselves, to read or change
+  find(Type)  findAll(Type)  node(name) the live objects themselves, to read or change
   outline(depth = 4)                    the scene as text, with every behaviour's fields
   telemetry("Player" | "Player.lane" | "#name")
 Input — as the player's, stepped while the clock is held; x, y in pixels from the window's top-left:

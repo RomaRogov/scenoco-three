@@ -1,5 +1,5 @@
 import { Group, Mesh, Sprite } from 'three';
-import { ref } from '@scenoco-three/core';
+import { prefab, ref } from '@scenoco-three/core';
 import { ParticleSystem } from '@scenoco-three/particles';
 import { models, paint, shapes } from '../assets';
 import { AutoDestroy } from '../AutoDestroy';
@@ -19,7 +19,7 @@ import { vfx } from '../vfx';
 
 // ── effects: one-off bursts that clean up after themselves ──────────────────────────────────
 
-export const Explosion = () => (
+export const Explosion = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.explosion} />
     <Group>
@@ -27,100 +27,100 @@ export const Explosion = () => (
     </Group>
     <AutoDestroy seconds={1.6} />
   </Group>
-);
+));
 
-export const ArrowHit = () => (
+export const ArrowHit = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.arrowHit} />
     <AutoDestroy seconds={0.6} />
   </Group>
-);
+));
 
-export const MagicHit = () => (
+export const MagicHit = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.magicHit} />
     <AutoDestroy seconds={0.8} />
   </Group>
-);
+));
 
-export const FrostHit = () => (
+export const FrostHit = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.frostHit} />
     <AutoDestroy seconds={0.8} />
   </Group>
-);
+));
 
-export const DeathPuff = () => (
+export const DeathPuff = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.death} />
     <AutoDestroy seconds={1} />
   </Group>
-);
+));
 
-export const CoinBurst = () => (
+export const CoinBurst = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.coins} />
     <AutoDestroy seconds={1} />
   </Group>
-);
+));
 
-export const BuildDust = () => (
+export const BuildDust = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.dust} />
     <AutoDestroy seconds={1.2} />
   </Group>
-);
+));
 
-export const UpgradeBurst = () => (
+export const UpgradeBurst = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.upgrade} />
     <AutoDestroy seconds={1.4} />
   </Group>
-);
+));
 
-export const Muzzle = () => (
+export const Muzzle = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.muzzle} />
     <AutoDestroy seconds={0.5} />
   </Group>
-);
+));
 
-export const CastleHit = () => (
+export const CastleHit = prefab(() => (
   <Group>
     <ParticleSystem effect={vfx.castleHit} />
     <AutoDestroy seconds={1} />
   </Group>
-);
+));
 
 // ── projectiles ─────────────────────────────────────────────────────────────────────────────
 
-export const Arrow = () => (
+export const Arrow = prefab(() => (
   <Group>
     <Projectile flight="lob" speed={17} arc={0.1} hit={ArrowHit} hitSound="hit" />
     <ModelView model={models.arrow} seat={false} castShadow={false} />
   </Group>
-);
+));
 
-export const Cannonball = () => (
+export const Cannonball = prefab(() => (
   <Group>
     <Projectile flight="lob" speed={9} arc={0.32} spin={9} hit={Explosion} hitSound="boom" shake={0.12} />
     <ModelView model={models.cannonball} seat={false} castShadow={false} />
   </Group>
-);
+));
 
-export const MagicBolt = () => (
+export const MagicBolt = prefab(() => (
   <Group>
     <Projectile flight="homing" speed={10} hit={MagicHit} />
     <ParticleSystem effect={vfx.orbTrail} />
   </Group>
-);
+));
 
-export const IceShard = () => (
+export const IceShard = prefab(() => (
   <Group>
     <Projectile flight="homing" speed={13} hit={FrostHit} hitSound="frost" />
     <ModelView model={models.shard} seat={false} castShadow={false} />
   </Group>
-);
+));
 
 // ── enemies ─────────────────────────────────────────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ const Chill = ({ link }: { link: { current: Group | null } }) => (
   </Group>
 );
 
-export const Goblin = () => {
+export const Goblin = prefab(() => {
   const body = ref<Group>();
   const chill = ref<Group>();
   return (
@@ -156,9 +156,9 @@ export const Goblin = () => {
       <Chill link={chill} />
     </Group>
   );
-};
+});
 
-export const Wolf = () => {
+export const Wolf = prefab(() => {
   const body = ref<Group>();
   const chill = ref<Group>();
   return (
@@ -171,9 +171,9 @@ export const Wolf = () => {
       <Chill link={chill} />
     </Group>
   );
-};
+});
 
-export const Orc = () => {
+export const Orc = prefab(() => {
   const body = ref<Group>();
   const chill = ref<Group>();
   return (
@@ -186,9 +186,9 @@ export const Orc = () => {
       <Chill link={chill} />
     </Group>
   );
-};
+});
 
-export const Troll = () => {
+export const Troll = prefab(() => {
   const body = ref<Group>();
   const chill = ref<Group>();
   return (
@@ -201,7 +201,7 @@ export const Troll = () => {
       <Chill link={chill} />
     </Group>
   );
-};
+});
 
 // ── towers ──────────────────────────────────────────────────────────────────────────────────
 
@@ -224,7 +224,7 @@ const Aura = ({ link }: { link: { current: Group | null } }) => (
   </Group>
 );
 
-export const ArcherTower = () => {
+export const ArcherTower = prefab(() => {
   const body = ref<Group>();
   const stars = ref<Group>();
   const aura = ref<Group>();
@@ -239,15 +239,15 @@ export const ArcherTower = () => {
       <Aura link={aura} />
     </Group>
   );
-};
+});
 
-export const CannonTower = () => {
+export const CannonTower = prefab(() => {
   const body = ref<Group>();
   const stars = ref<Group>();
   const aura = ref<Group>();
   return (
     <Group name="cannon tower">
-      <Tower kind="cannon" projectile={Cannonball} flash={Muzzle} upgradeBurst={UpgradeBurst} body={body} stars={stars} aura={aura} sound="cannon" muzzle={1.9} />
+      <Tower kind="cannon" projectile={Cannonball} flash={Muzzle} upgradeBurst={UpgradeBurst} body={body} stars={stars} aura={aura} sound="cannon" muzzle={1.9} turns facing={180} />
       <Group ref={body}>
         <Punch popIn />
         <ModelView model={models.cannon} width={2.4} />
@@ -256,9 +256,9 @@ export const CannonTower = () => {
       <Aura link={aura} />
     </Group>
   );
-};
+});
 
-export const MageTower = () => {
+export const MageTower = prefab(() => {
   const body = ref<Group>();
   const stars = ref<Group>();
   const aura = ref<Group>();
@@ -273,9 +273,9 @@ export const MageTower = () => {
       <Aura link={aura} />
     </Group>
   );
-};
+});
 
-export const FrostTower = () => {
+export const FrostTower = prefab(() => {
   const body = ref<Group>();
   const stars = ref<Group>();
   const aura = ref<Group>();
@@ -290,70 +290,63 @@ export const FrostTower = () => {
       <Aura link={aura} />
     </Group>
   );
-};
+});
 
 // ── the map's pieces ────────────────────────────────────────────────────────────────────────
 
 /** A stone pad a tower can be built on, seated on the ground. */
-export const Pad = ({ position }: { position: [number, number, number] }) => {
+export const Pad = prefab(() => {
   const ring = ref<Mesh>();
   return (
-    <Group position={position}>
-      <SnapToGround radius={1.1} offset={-0.05} />
+    <Group>
+      <SnapToGround radius={1.1} offset={0.099} />
       <BuildPad ring={ring} />
       <ModelView model={models.pad} width={2.5} castShadow={false} receiveShadow />
       <Mesh ref={ring} geometry={shapes.ring} material={paint.ring} position={[0, 0.24, 0]} visible={false} />
     </Group>
   );
-};
+});
 
-export const Lantern = () => (
+export const Lantern = prefab(() => (
   <Group>
     <SnapToGround />
     <ModelView model={models.lantern} height={1.7} />
   </Group>
-);
+));
 
 /** The castle at the end of the path. */
-export const Keep = () => (
+export const Keep = prefab(() => (
   <Group name="castle">
-    <PlaceOnPath t={1} ahead={-1.2} yaw={180} radius={2.2} offset={-0.1} />
+    <PlaceOnPath t={1} offset={[0, -0.1, 0.205]} yaw={180} radius={2.2} />
     <Castle flare={CastleHit} />
     <Group>
       <Punch />
       <ModelView model={models.castle} height={5.2} />
     </Group>
   </Group>
-);
+));
 
 /** The cave the enemies come out of. */
-export const Lair = () => (
+export const Lair = prefab(() => (
   <Group name="cave">
-    <PlaceOnPath t={0.012} ahead={-1.6} radius={1.6} offset={-0.2} />
+    <PlaceOnPath t={0.022} offset={[0, -0.08, -1.6]} radius={1.6} />
     <ModelView model={models.cave} height={3.4} />
     <Group position={[0, 0.6, 1]}>
       <ParticleSystem effect={vfx.embers} />
     </Group>
   </Group>
-);
+));
 
-export const Bridge = ({ t }: { t: number }) => (
+export const Bridge = prefab(({ t }: { t: number }) => (
   <Group name="bridge">
-    <PlaceOnPath t={t} offset={0.02} />
+    <PlaceOnPath t={0.533} offset={[-0.684, 0.292, -0.124]} yaw={-1.408} radius={0} />
     <ModelView model={models.bridge} receiveShadow />
   </Group>
-);
+));
 
 /** The selected tower's reach. */
-export const RangeMarker = () => {
-  const range = ref<Group>();
-  return (
-    <Group name="range">
-      <SelectionMarker range={range} />
-      <Group ref={range}>
-        <Mesh geometry={shapes.disc} material={paint.range} renderOrder={2} />
-        <Mesh geometry={shapes.edge} material={paint.rangeEdge} renderOrder={3} />
-      </Group>
-    </Group>
-  );
-};
+export const RangeMarker = prefab(() => (
+  <Group name="range">
+    <SelectionMarker material={paint.reach} />
+  </Group>
+));

@@ -2,7 +2,8 @@
  * Every `.tsx` file is a scene, and a scene only declares.
  *
  * A scene file may import, define constants — plain data, or objects made from it with `new`
- * (`const font = new Font(json)`) — and export functions that make refs and return TSX. Inside the
+ * (`const font = new Font(json)`) — and export functions that make refs and return TSX, plain or made
+ * prefabs with `prefab(() => …)`. Inside the
  * TSX a value is a literal, a list or object of them, arithmetic on them (`-Math.PI / 2`), flags
  * combined with `|` (`RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ`), or a name. Anything that runs — a loop, a branch, a handler, a call, a hook — is
  * a component's job, in a `.ts` file. Each refusal says where and what to write instead.
@@ -137,7 +138,9 @@ export function checkScene(file: string, code: string): string[] {
       if (node.kind !== 'const') return at(node, 'a scene declares constants only — const');
       for (const d of node.declarations as Node[]) {
         const init = d.init as Node | null;
+        const wrapped = init?.type === 'CallExpression' && ((init.callee as Node).name as string) === 'prefab' ? ((init.arguments as Node[])[0] ?? null) : null;
         if (init && /Function/.test(init.type)) factory(init);
+        else if (wrapped && /Function/.test(wrapped.type)) factory(wrapped);
         else if (init?.type === 'CallExpression' && ((init.callee as Node).name as string) === 'ref') {
           at(init, 'make a ref inside the function that uses it — one at module level is shared by every copy');
         } else {
