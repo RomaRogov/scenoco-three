@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { Input } from '@scenoco-three/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Input, KeyCode } from '@scenoco-three/core';
 
-afterEach(() => Input.clear());
+afterEach(() => {
+  Input.clear();
+  vi.unstubAllGlobals();
+});
 
 /** A pointer event on a page element, as the document-level listener receives it. */
 function pointer(type: 'down' | 'up', name: string | null, pointerId = 1): void {
@@ -59,5 +62,51 @@ describe('Input', () => {
     expect(Input.getAxis('Horizontal')).toBe(0.5);
     Input.setAxis('Horizontal', null);
     expect(Input.getAxis('Horizontal')).toBe(0);
+  });
+
+  it("reads a gamepad as Unity does: its buttons are keys, its left stick and d-pad feed the named axes", () => {
+    // A standard-layout pad, as navigator.getGamepads hands it out: polled, never pushed.
+    const pad = { id: 'Xbox Wireless Controller', connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    vi.stubGlobal('navigator', { getGamepads: () => [null, pad] });
+    const frame = () => {
+      Input.endFrame();
+      Input.advance(1 / 60);
+    };
+    frame();
+    expect(Input.getJoystickNames()).toEqual(['Xbox Wireless Controller']);
+
+    // A: its key, and the named buttons Unity binds to it, on the frame it went down only.
+    pad.buttons[0]!.pressed = true;
+    frame();
+    expect(Input.getKeyDown(KeyCode.JoystickButton0)).toBe(true);
+    expect(Input.getButtonDown('Fire1')).toBe(true);
+    expect(Input.getButtonDown('Submit')).toBe(true);
+    frame();
+    expect(Input.getKeyDown(KeyCode.JoystickButton0)).toBe(false);
+    expect(Input.getKey(KeyCode.JoystickButton0)).toBe(true);
+    pad.buttons[0]!.pressed = false;
+    frame();
+    expect(Input.getKeyUp(KeyCode.JoystickButton0)).toBe(true);
+    expect(Input.getButtonUp('Fire1')).toBe(true);
+
+    // The stick: analog and unsmoothed, nothing inside the dead zone, full travel still 1; up is +1.
+    pad.axes[0] = 0.1;
+    frame();
+    expect(Input.getAxis('Horizontal')).toBe(0);
+    pad.axes[0] = 1;
+    pad.axes[1] = -0.595; // halfway between the dead zone and full, upward
+    frame();
+    expect(Input.getAxis('Horizontal')).toBe(1);
+    expect(Input.getAxisRaw('Vertical')).toBeCloseTo(0.5);
+    // A virtual stick on the page still wins while it is held.
+    Input.setAxis('Horizontal', -0.25);
+    expect(Input.getAxis('Horizontal')).toBe(-0.25);
+    Input.setAxis('Horizontal', null);
+
+    // The d-pad steps like a key.
+    pad.axes[0] = 0;
+    pad.buttons[14]!.pressed = true;
+    frame();
+    expect(Input.getAxisRaw('Horizontal')).toBe(-1);
   });
 });

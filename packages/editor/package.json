@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/editor",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "The SceNoCo editor: opened from a button on the running game in development — pause, step, reset, the scene's nodes, and the selected one as its TSX, written back to the .tsx files byte for byte.",
   "keywords": [
     "three",

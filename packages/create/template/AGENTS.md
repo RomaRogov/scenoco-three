@@ -65,7 +65,11 @@ instance's Transform does — `<Coin position={[2, 0, 0]} name="bonus" />` — s
 `position`, `rotation`, `scale` or `name` itself. Only a prefab is instantiated —
 `instantiate(Coin, { position })` builds a fresh one each call — or taken by a field, as Unity's
 inspector does: `shot: Prefab | null = null`, `<Gun shot={Bullet} />`. A function not wrapped is a
-plain TSX component, reused markup whose tag is its props: `<Arena ballSpeed={16} />`. A scene is a
+plain TSX component, reused markup whose tag is its props: `<Arena ballSpeed={16} />`. Anything
+placed more than once — a wall, a tree, a crate, static or not — is a prefab, with what differs as
+its props: `export const Wall = prefab(({ width = 1 }) => …)`, `<Wall position={[-9, 0, 0]} width={0.5} />`.
+The editor edits a prefab once for every copy and each copy's props on its tag; inside a plain
+component placed twice it edits nothing, since one edit there would change every use. A scene is a
 plain function returning `<Scene>`: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a
 node across loads.
 
@@ -92,7 +96,10 @@ done with setTimeout or Date.now does not pause with it.
 one, labelled — `<button data-button="Jump">Jump</button>` — beside its key: a phone has no keys, and
 a browser tool that cannot click the canvas or press keys can still press a button. Keys, axes and the
 pointer are Unity's: `Input.getKeyDown(KeyCode.Space)`, `Input.getAxis('Horizontal')`,
-`Input.getMouseButtonDown(MouseButton.Left)`, `Input.pointer`.
+`Input.getMouseButtonDown(MouseButton.Left)`, `Input.pointer`. A gamepad is too: its left stick and
+d-pad move the same axes, its buttons are `KeyCode.JoystickButton0…` and Unity's named buttons (A is
+`Fire1`/`Submit`), and `Input.getJoystickNames()` says whether one is there. A stick drawn on the page
+drives an axis with `Input.setAxis('Horizontal', x)`, and `null` when let go.
 
 **Space.** three.js is right-handed — x right, y up, z towards the viewer — where Unity is
 left-handed, z away; a camera looks down its own -z. Rotations are radians —

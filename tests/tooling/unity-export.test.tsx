@@ -80,15 +80,14 @@ describe('unity export', () => {
     expect(snap.warnings.filter((w) => !w.includes('<ParticleSystem effect>'))).toEqual([]);
     expect(snap.prefabs.map((p) => p.name).sort()).toEqual([
       'BallPrefab', 'BoltPrefab', 'BrickPrefab', 'FirmBurst', 'HardBurst', 'LaserPickup', 'Level1', 'Level2', 'Level3',
-      'MultiPickup', 'Run', 'SlimPickup', 'SoftBurst', 'Spark', 'WidePickup',
+      'MultiPickup', 'Run', 'SlimPickup', 'SoftBurst', 'Spark', 'WallPrefab', 'WidePickup',
     ]);
-    // The walls share one geometry and one material, as assets.ts made them.
+    // Geometry and materials written inside a prefab come across too; two walls of one shape are one mesh asset.
     const all = (n: SnapshotNode): SnapshotNode[] => [n, ...n.children.flatMap(all)];
     const walls = all(snap.prefabs.find((p) => p.name === 'Level1')!.root).filter((n) => /^wall(Left|Right)$/.test(n.name));
     expect(walls).toHaveLength(2);
-    expect(walls[0]!.geometry).toBeDefined();
-    expect(walls[0]!.geometry).toBe(walls[1]!.geometry);
-    expect(walls[0]!.materials).toEqual(walls[1]!.materials);
-    expect(snap.materials[walls[0]!.materials![0]!]).toMatchObject({ name: 'wall', shared: true });
+    const body = (wall: SnapshotNode) => all(wall).find((n) => n.geometry !== undefined && n.materials?.length)!;
+    expect(body(walls[0]!).geometry).toBe(body(walls[1]!).geometry);
+    expect(snap.materials[body(walls[0]!).materials![0]!]).toMatchObject({ color: '#1b2540', shared: false });
   }, 60_000);
 });

@@ -1,6 +1,6 @@
 import { Vector3, type Camera, type Group, type Mesh, type MeshStandardMaterial, type Object3D } from 'three';
 import { Behaviour, Input, MouseButton, findObjectOfType, instantiate, type Prefab } from '@scenoco-three/core';
-import type { Bonus } from './assets.js';
+import type { Bonus } from './bonus.js';
 import { GameState } from './GameState.js';
 
 /** A bonus running on the paddle, and how much of it is left — what the HUD draws. */

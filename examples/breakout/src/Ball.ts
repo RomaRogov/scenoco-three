@@ -53,7 +53,8 @@ export class Ball extends Behaviour<Object3D> {
     if (this.game.phase === 'playing') return;
     this.follow();
     if (this.game.phase !== 'ready') return;
-    if (Input.getMouseButtonDown(MouseButton.Left) || Input.getKeyDown(KeyCode.Space)) {
+    // A click or tap, Space, or a gamepad's A.
+    if (Input.getMouseButtonDown(MouseButton.Left) || Input.getKeyDown(KeyCode.Space) || Input.getKeyDown(KeyCode.JoystickButton0)) {
       // Always upward, leaning the way the paddle is off-centre, so the first shot is the player's.
       this.send(Math.atan(this.paddle.node.position.x / 16));
       this.game.launched();

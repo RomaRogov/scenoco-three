@@ -62,6 +62,10 @@
         position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%);
         display: flex; gap: 8px; pointer-events: none;
       }
+      .chip[data-bonus='laser'] { --tint: #ff3b6b; }
+      .chip[data-bonus='multi'] { --tint: #ffd23f; }
+      .chip[data-bonus='wide'] { --tint: #3bff9a; }
+      .chip[data-bonus='slim'] { --tint: #b18cff; }
       .chip {
         --left: 1; min-width: 74px; padding: 6px 10px 7px; border-radius: 10px; text-align: center;
         background: rgb(8 12 28 / 0.75); border: 1px solid var(--tint);
@@ -237,7 +241,7 @@
     <div id="splash">
       <div id="title">BREAKOUT<small>NEON · FM · SCENOCO</small></div>
       <button id="play" data-button="Play">PLAY</button>
-      <div id="how">MOUSE, FINGER OR ARROWS TO STEER · TAP OR SPACE TO LAUNCH<br />M FOR SOUND</div>
+      <div id="how">MOUSE, FINGER OR ARROWS TO STEER · TAP OR SPACE TO LAUNCH<br />GAMEPAD: STICK STEERS · A LAUNCHES · M OR BACK FOR SOUND</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

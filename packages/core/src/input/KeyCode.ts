@@ -2,7 +2,8 @@
  * Unity's `KeyCode` names mapped onto DOM `KeyboardEvent.code` values.
  *
  * These are *physical* key positions, not the characters they produce: `KeyCode.W` is the same
- * key on QWERTY and AZERTY, which is what movement bindings want.
+ * key on QWERTY and AZERTY, which is what movement bindings want. A gamepad's buttons are keys too,
+ * as in Unity: `KeyCode.JoystickButton0`.
  */
 export const KeyCode = {
   A: 'KeyA', B: 'KeyB', C: 'KeyC', D: 'KeyD', E: 'KeyE', F: 'KeyF', G: 'KeyG',
@@ -40,6 +41,17 @@ export const KeyCode = {
   Semicolon: 'Semicolon', Quote: 'Quote', BackQuote: 'Backquote',
   LeftBracket: 'BracketLeft', RightBracket: 'BracketRight',
   Minus: 'Minus', Equals: 'Equal',
+
+  /**
+   * A gamepad's buttons, numbered as the browser's standard layout numbers them: 0 A, 1 B, 2 X, 3 Y
+   * (on an Xbox pad; cross, circle, square, triangle on a PlayStation one), 4 LB, 5 RB, 6 LT, 7 RT,
+   * 8 Back, 9 Start, 10 and 11 the sticks pressed, 12–15 the d-pad up, down, left, right. Any pad's.
+   */
+  JoystickButton0: 'JoystickButton0', JoystickButton1: 'JoystickButton1', JoystickButton2: 'JoystickButton2', JoystickButton3: 'JoystickButton3',
+  JoystickButton4: 'JoystickButton4', JoystickButton5: 'JoystickButton5', JoystickButton6: 'JoystickButton6', JoystickButton7: 'JoystickButton7',
+  JoystickButton8: 'JoystickButton8', JoystickButton9: 'JoystickButton9', JoystickButton10: 'JoystickButton10', JoystickButton11: 'JoystickButton11',
+  JoystickButton12: 'JoystickButton12', JoystickButton13: 'JoystickButton13', JoystickButton14: 'JoystickButton14', JoystickButton15: 'JoystickButton15',
+  JoystickButton16: 'JoystickButton16', JoystickButton17: 'JoystickButton17', JoystickButton18: 'JoystickButton18', JoystickButton19: 'JoystickButton19',
 } as const;
 
 /** The union of every value in {@link KeyCode}. This is what `Input` methods accept. */

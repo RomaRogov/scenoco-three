@@ -145,6 +145,8 @@ export interface View {
   prefab?: { name: string; where?: Where; own: Tag; behaviours: Tag[]; root: Object3D };
   /** The prefab this node is a part of, to edit in prefab mode. */
   enter?: { root: Object3D; name: string };
+  /** What to write instead, when the note is a refusal with a way out. */
+  advice?: string;
 }
 
 interface ElementJson {
@@ -290,6 +292,16 @@ export class Model {
     if (part && part !== stage?.root) {
       const name = this.prefabName(part);
       return { ...(await this.plain(node, { locked: true })), note: `part of the prefab <${name}>`, enter: { root: part, name } };
+    }
+    const shared = this.sharedBy(node);
+    if (shared) {
+      return {
+        ...(await this.plain(node, { locked: true })),
+        note: `part of <${shared.name}>, a plain component placed ${shared.count} times`,
+        advice:
+          `Its markup is written once, so an edit here would change every <${shared.name}>. Make it a prefab — ` +
+          `export const ${shared.name} = prefab((props) => …) — to edit it in prefab mode and set each copy's props on its tag.`,
+      };
     }
     const wide = !!stage;
     const liveOnly = !stage && host.spawned(node) ? 'spawned while the game ran' : undefined;
@@ -531,6 +543,23 @@ export class Model {
   /** The prefab copy a node is part of — the nearest one above it — or null. */
   private partOf(node: Object3D): Object3D | null {
     for (let up = node.parent; up; up = up.parent) if (this.host.madeBy(up)?.prefab) return up;
+    return null;
+  }
+
+  /**
+   * The plain component a node is inside of that is placed more than once — a function not made a
+   * prefab, whose markup every use shares — or null. Looked for up to the prefab copy the node is
+   * in, which prefab mode already guards.
+   */
+  private sharedBy(node: Object3D): { name: string; count: number } | null {
+    for (let up = node.parent; up; up = up.parent) {
+      const made = this.host.madeBy(up);
+      if (made?.prefab || up === this.stage?.root) return null;
+      if (!made) continue;
+      let count = 0;
+      this.host.scene.traverse((n) => void (this.host.madeBy(n)?.fn === made.fn && count++));
+      if (count > 1) return { name: made.name || this.tagName(up), count };
+    }
     return null;
   }
 

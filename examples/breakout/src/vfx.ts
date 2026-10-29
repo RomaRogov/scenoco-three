@@ -21,7 +21,7 @@ function shatter(color: string): ParticleEffect {
 }
 
 export const vfx = {
-  /** By a brick's tier: the same colours as `paint.tiers`. */
+  /** By a brick's tier: the same colours as `Brick`'s `tints` in the prefab. */
   shatterSoft: shatter('#16d9ff'),
   shatterFirm: shatter('#ff3dd8'),
   shatterHard: shatter('#ffaa1c'),

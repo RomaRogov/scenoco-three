@@ -163,12 +163,17 @@ const Input: {
   setAxis(axis: AxisName, value: number | null): void;      // a virtual stick; null hands it back to the keys
   setButton(name: ButtonName, down: boolean | null): void;
   readonly overriddenAxes: AxisName[];
+  getJoystickNames(): string[];        // connected gamepads; empty until a button is pressed on one, as browsers show them
+  // A gamepad, as Unity's Input Manager has it: its buttons are keys (KeyCode.JoystickButton0…19, the
+  //   browser's standard layout: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 Back, 9 Start, 12–15 d-pad);
+  //   the left stick and d-pad feed 'Horizontal'/'Vertical' beside the keys; A is Fire1 and Submit,
+  //   B Fire2 and Cancel, X Fire3, Y Jump. Read once a frame; any pad counts.
   readonly mousePosition: Vector2;     // CSS pixels on the canvas
   readonly pointer: Vector2;           // normalized device coordinates, for Raycaster.setFromCamera
   readonly mouseDelta: Vector2;  readonly mouseScrollDelta: Vector2;
 };
 const KeyCode: { A … Z; Alpha0 … Alpha9; F1 … F12; LeftArrow; RightArrow; UpArrow; DownArrow;
-  Space; Return; Escape; Tab; Backspace; LeftShift; LeftControl; … };   // Unity's names: KeyCode.A, KeyCode.LeftArrow, KeyCode.Return
+  Space; Return; Escape; Tab; Backspace; LeftShift; LeftControl; …; JoystickButton0 … JoystickButton19 };   // Unity's names: KeyCode.A, KeyCode.LeftArrow, KeyCode.Return
 const MouseButton: { Left: 0; Middle: 1; Right: 2 };
 const AXES: Record<AxisName, …>;  const AXIS_NAMES: AxisName[];   // Unity's default axes and their keys
 

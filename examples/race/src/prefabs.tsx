@@ -1,34 +1,40 @@
-import {
-  BoxGeometry, ConeGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry,
-} from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry } from 'three';
 import { prefab } from '@scenoco-three/core';
+import { BoxCollider, Rigidbody, RigidbodyConstraints } from '@scenoco-three/rapier';
+import { ArcadeCar } from './ArcadeCar';
+import { models } from './assets';
+import { CarModel } from './CarModel';
+import { CarDriver } from './CarDriver';
+import { TrackPosition } from './TrackPosition';
 
-/** A car, its nose at +Z as `SplineAnimate` faces it. */
-export const Car = prefab(() => (
+/**
+ * A racing car, its nose at +Z. Rapier moves it and resolves the bumps; `ArcadeCar` decides how it
+ * drives, from what `CarDriver` asks — the player's keys when `human`, the spline otherwise, keeping
+ * to `lane` at `pace`. Each copy sets its own on its tag: colour, who drives, lane and pace.
+ */
+export const Car = prefab(
+  ({ color = '#e2412f', human = false, lane = 0, pace = 0.9 }: { color?: string; human?: boolean; lane?: number; pace?: number }) => (
+    <Group>
+      <Rigidbody useGravity={false} constraints={RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ} />
+      <BoxCollider size={[2, 0.9, 4.4]} center={[0, 0.65, 0]} friction={0.1} />
+      <TrackPosition />
+      <ArcadeCar />
+      <CarModel model={models.car} color={color} />
+      <CarDriver human={human} lane={lane} pace={pace} />
+    </Group>
+  ),
+);
+
+/** A camera drone circling over the track: the spline drives it with `SplineAnimate`, high above. */
+export const Drone = prefab(() => (
   <Group>
-    <Mesh position={[0, 0.65, 0]} castShadow>
-      <BoxGeometry args={[1.9, 0.6, 4.2]} />
-      <MeshStandardMaterial color="#e2412f" roughness={0.4} metalness={0.3} />
+    <Mesh position={[0, 14, 0]} castShadow>
+      <BoxGeometry args={[1.2, 0.3, 1.2]} />
+      <MeshStandardMaterial color="#2b2f36" metalness={0.6} roughness={0.35} />
     </Mesh>
-    <Mesh position={[0, 1.2, -0.3]} castShadow>
-      <BoxGeometry args={[1.5, 0.5, 2]} />
-      <MeshStandardMaterial color="#1b2633" roughness={0.2} />
-    </Mesh>
-    <Mesh position={[0.95, 0.38, 1.35]} rotation={[0, 0, Math.PI / 2]}>
-      <CylinderGeometry args={[0.38, 0.38, 0.3, 14]} />
-      <MeshStandardMaterial color="#111" />
-    </Mesh>
-    <Mesh position={[-0.95, 0.38, 1.35]} rotation={[0, 0, Math.PI / 2]}>
-      <CylinderGeometry args={[0.38, 0.38, 0.3, 14]} />
-      <MeshStandardMaterial color="#111" />
-    </Mesh>
-    <Mesh position={[0.95, 0.38, -1.35]} rotation={[0, 0, Math.PI / 2]}>
-      <CylinderGeometry args={[0.38, 0.38, 0.3, 14]} />
-      <MeshStandardMaterial color="#111" />
-    </Mesh>
-    <Mesh position={[-0.95, 0.38, -1.35]} rotation={[0, 0, Math.PI / 2]}>
-      <CylinderGeometry args={[0.38, 0.38, 0.3, 14]} />
-      <MeshStandardMaterial color="#111" />
+    <Mesh position={[0, 13.8, 0.65]}>
+      <SphereGeometry args={[0.18, 10, 8]} />
+      <MeshStandardMaterial color="#ff3030" emissive="#ff3030" emissiveIntensity={2} />
     </Mesh>
   </Group>
 ));
@@ -43,20 +49,6 @@ export const Lamp = prefab(() => (
     <Mesh position={[0, 5.1, 0]}>
       <SphereGeometry args={[0.3, 12, 8]} />
       <MeshStandardMaterial color="#fff6d6" emissive="#ffe8a3" emissiveIntensity={1.5} />
-    </Mesh>
-  </Group>
-));
-
-/** A pine. */
-export const Tree = prefab(() => (
-  <Group>
-    <Mesh position={[0, 0.8, 0]} castShadow>
-      <CylinderGeometry args={[0.18, 0.25, 1.6, 7]} />
-      <MeshStandardMaterial color="#6b4a2e" roughness={1} />
-    </Mesh>
-    <Mesh position={[0, 3, 0]} castShadow>
-      <ConeGeometry args={[1.4, 3.6, 8]} />
-      <MeshStandardMaterial color="#2f6b3a" roughness={0.9} flatShading />
     </Mesh>
   </Group>
 ));

@@ -22,7 +22,7 @@ Drag or use ←/→ (or A/D) to move the paddle, click or press space to launch.
 | `src/scenes/levels.tsx` | one `Level` scene function, and three levels, every brick placed by hand |
 | `src/scenes/Arena.tsx` | what every level shares: backdrop, walls and their neon, the paddle, the ball, the floor |
 | `src/scenes/prefabs.tsx` | brick, ball, laser bolt, the four pickups, and the sparks things break into |
-| `src/assets.ts` `src/vfx.ts` | geometries, materials and canvas-drawn neon maps made once; particle effects as data |
+| `src/textures.ts` `src/vfx.ts` | canvas-drawn neon maps, as texture tags; particle effects as data |
 | `src/Progress.ts` `src/GameState.ts` | the run and the HUD; one level's rules, balls and combo |
 | `src/Ball.ts` `src/Paddle.ts` `src/Brick.ts` `src/Pickup.ts` `src/Bolt.ts` | the moving parts |
 | `src/CameraRig.ts` | the camera behind the paddle: parallax, fov fitted to the field, trauma shake |
@@ -49,7 +49,7 @@ A few things carry most of the weight:
   file says what they did. `GridSnap`'s `onValidate` keeps a dragged brick on the wall's grid;
   `snap={false}` on one brick lets it sit between cells.
 - **A scene declares, a behaviour chooses.** The brick prefab hands `Brick` its tables —
-  `looks={paint.tiers}`, `bursts={bursts}`, `drops={pickups}` — and the brick picks from them by its
+  `tints={[…]}`, `bursts={bursts}`, `drops={pickups}` — and the brick picks from them by its
   `hits` and `bonus`: picking is logic, and logic is a behaviour's.
 - **The camera keeps the field's width, not a fov.** `CameraRig` sits behind the paddle, fits its fov
   so the walls stay on screen at the paddle's line on any window, drifts after the paddle and the

@@ -14,6 +14,11 @@ export interface AxisBinding {
   readonly positive?: readonly KeyCode[];
   /** A mouse button that also counts as pressed, for the `Fire` entries. */
   readonly mouse?: MouseButton;
+  /**
+   * A gamepad stick's axis that also drives it, by its index in the browser's standard layout — 0 the
+   * left stick across, 1 down it — `invert` for up as +1. Read as it is, not eased: a stick is analog.
+   */
+  readonly stick?: { readonly axis: number; readonly invert?: boolean };
   /** How fast the value moves toward the key's target, in units per second. */
   readonly sensitivity: number;
   /** How fast it falls back to 0 once nothing is held, in units per second. */
@@ -22,24 +27,28 @@ export interface AxisBinding {
 
 /** @internal the default bindings behind every named axis; read them through `Input.getAxis`. */
 export const AXES = {
+  // Unity's, with a gamepad's left stick and — not Unity's, but where a thumb goes — its d-pad.
   Horizontal: {
-    negative: [KeyCode.A, KeyCode.LeftArrow],
-    positive: [KeyCode.D, KeyCode.RightArrow],
+    negative: [KeyCode.A, KeyCode.LeftArrow, KeyCode.JoystickButton14],
+    positive: [KeyCode.D, KeyCode.RightArrow, KeyCode.JoystickButton15],
+    stick: { axis: 0 },
     sensitivity: 3,
     gravity: 3,
   },
   Vertical: {
-    negative: [KeyCode.S, KeyCode.DownArrow],
-    positive: [KeyCode.W, KeyCode.UpArrow],
+    negative: [KeyCode.S, KeyCode.DownArrow, KeyCode.JoystickButton13],
+    positive: [KeyCode.W, KeyCode.UpArrow, KeyCode.JoystickButton12],
+    stick: { axis: 1, invert: true },
     sensitivity: 3,
     gravity: 3,
   },
-  Fire1: { positive: [KeyCode.LeftControl], mouse: MouseButton.Left, sensitivity: 1000, gravity: 1000 },
-  Fire2: { positive: [KeyCode.LeftAlt], mouse: MouseButton.Right, sensitivity: 1000, gravity: 1000 },
-  Fire3: { positive: [KeyCode.LeftCommand], mouse: MouseButton.Middle, sensitivity: 1000, gravity: 1000 },
-  Jump: { positive: [KeyCode.Space], sensitivity: 1000, gravity: 1000 },
-  Submit: { positive: [KeyCode.Return, KeyCode.Space], sensitivity: 1000, gravity: 1000 },
-  Cancel: { positive: [KeyCode.Escape], sensitivity: 1000, gravity: 1000 },
+  // Unity's joystick buttons for each: A fires and submits, B is the second fire and cancels.
+  Fire1: { positive: [KeyCode.LeftControl, KeyCode.JoystickButton0], mouse: MouseButton.Left, sensitivity: 1000, gravity: 1000 },
+  Fire2: { positive: [KeyCode.LeftAlt, KeyCode.JoystickButton1], mouse: MouseButton.Right, sensitivity: 1000, gravity: 1000 },
+  Fire3: { positive: [KeyCode.LeftCommand, KeyCode.JoystickButton2], mouse: MouseButton.Middle, sensitivity: 1000, gravity: 1000 },
+  Jump: { positive: [KeyCode.Space, KeyCode.JoystickButton3], sensitivity: 1000, gravity: 1000 },
+  Submit: { positive: [KeyCode.Return, KeyCode.Space, KeyCode.JoystickButton0], sensitivity: 1000, gravity: 1000 },
+  Cancel: { positive: [KeyCode.Escape, KeyCode.JoystickButton1], sensitivity: 1000, gravity: 1000 },
 } as const satisfies Record<string, AxisBinding>;
 
 /**
@@ -47,6 +56,9 @@ export const AXES = {
  * {@link MOUSE_SENSITIVITY} and never smoothed. Smoothing a delta is how a look control gets soggy.
  */
 export const MOUSE_AXES = ['Mouse X', 'Mouse Y', 'Mouse ScrollWheel'] as const;
+
+/** A stick's travel read as 0, from the middle, as a share of full: Unity's `dead` for joystick axes. */
+export const STICK_DEAD_ZONE = 0.19;
 
 /** How much of a mouse movement one unit of axis is. Unity's default sensitivity for these. */
 export const MOUSE_SENSITIVITY = 0.1;

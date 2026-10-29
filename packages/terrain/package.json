@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/terrain",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Terrain for SceNoCo: Unity-shaped Terrain and TerrainData on three.js — a compact heightmap and ground layers splatted by weight, blended by height.",
   "keywords": [
     "three",
@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "@mapbox/martini": "^0.2.0",
-    "@scenoco-three/core": "^0.9.8"
+    "@scenoco-three/core": "^0.9.9"
   },
   "peerDependencies": {
     "three": ">=0.160.0"

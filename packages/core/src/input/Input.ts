@@ -1,12 +1,16 @@
 import { Vector2 } from 'three';
 import { MouseButton, type KeyCode } from './KeyCode.js';
-import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, type AxisName, type AxisBinding, type ButtonName as BuiltInButton } from './axes.js';
+import { AXES, BUTTON_NAMES, MOUSE_SENSITIVITY, STICK_DEAD_ZONE, type AxisName, type AxisBinding, type ButtonName as BuiltInButton } from './axes.js';
 
 /** Unity's built-in buttons, or any name a page element gives itself with `data-button="…"`. */
 export type ButtonName = BuiltInButton | (string & {});
 
 /**
- * Keyboard, mouse and wheel state, sampled per frame. Mirrors Unity's `Input`.
+ * Keyboard, mouse, wheel and gamepad state, sampled per frame. Mirrors Unity's `Input`.
+ *
+ * Gamepads are read once a frame, as the browser only lets them be: their buttons are keys
+ * (`KeyCode.JoystickButton0`…), their sticks feed the named axes beside the keys, and every pad
+ * counts — whichever pushes further.
  *
  * Edges (`getKeyDown`/`getKeyUp`) roll over in `endFrame`, so every component sees the same
  * input for a frame regardless of update order.
@@ -40,6 +44,12 @@ class InputClass {
   private readonly pageNames = new Set<string>();
   /** Pressed since the last frame — so a tap shorter than a frame still goes down for one. */
   private readonly pagePressed = new Set<string>();
+
+  /** The connected gamepads' names, and their sticks' axes past the dead zone, the largest of any pad's. */
+  private pads: string[] = [];
+  private readonly sticks: number[] = [];
+  /** The gamepad buttons held, as the keys they count as. */
+  private readonly padHeld = new Set<KeyCode>();
 
   private element: HTMLElement | null = null;
   private readonly lastMouse = new Vector2();
@@ -87,17 +97,22 @@ class InputClass {
     if (axis === 'Mouse X') return this.mouseDelta.x * MOUSE_SENSITIVITY;
     if (axis === 'Mouse Y') return this.mouseDelta.y * MOUSE_SENSITIVITY;
     if (axis === 'Mouse ScrollWheel') return this.mouseScrollDelta.y * MOUSE_SENSITIVITY;
-    return this.smoothed.get(axis) ?? 0;
+    return further(this.smoothed.get(axis) ?? 0, this.stickAxis(axis));
   }
 
-  /** The same axis without the easing: -1, 0 or 1 for a keyboard entry — Unity's `GetAxisRaw`. */
+  /** The same axis without the easing: -1, 0 or 1 for a key, a stick's own value — Unity's `GetAxisRaw`. */
   getAxisRaw(axis: AxisName): number {
     const override = this.overrides.get(axis);
     if (override !== undefined) return override;
     if (axis === 'Mouse X' || axis === 'Mouse Y' || axis === 'Mouse ScrollWheel') {
       return this.getAxis(axis);
     }
-    return this.rawAxis(axis);
+    return further(this.rawAxis(axis), this.stickAxis(axis));
+  }
+
+  /** The connected gamepads' names — Unity's `GetJoystickNames`. Empty with none, or before one has been touched: the browser shows a pad only once a button is pressed on it. */
+  getJoystickNames(): string[] {
+    return [...this.pads];
   }
 
   /** True while a named button is held — Unity's `GetButton`. `getButton('Jump')`. */
@@ -146,6 +161,48 @@ class InputClass {
     return (binding.positive ?? []).some((key) => this.pressed.has(key)) || (binding.mouse !== undefined && this.buttonsPressed.has(binding.mouse));
   }
 
+  /** A named axis's gamepad stick, past the dead zone: 0 where it has none. */
+  private stickAxis(axis: AxisName): number {
+    const stick = (AXES[axis as keyof typeof AXES] as AxisBinding | undefined)?.stick;
+    if (!stick) return 0;
+    const value = this.sticks[stick.axis] ?? 0;
+    return stick.invert ? -value : value;
+  }
+
+  /**
+   * Read the gamepads, as the browser has them only when asked. A button going down or up is a key
+   * going down or up this frame; each stick axis is the furthest any pad pushes it, past the dead
+   * zone and stretched so it still reaches 1.
+   */
+  private pollGamepads(): void {
+    const pads =
+      typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function'
+        ? [...navigator.getGamepads()].filter((pad): pad is Gamepad => !!pad && pad.connected)
+        : [];
+    this.pads = pads.map((pad) => pad.id);
+    this.sticks.length = 0;
+    const down = new Set<KeyCode>();
+    for (const pad of pads) {
+      pad.buttons.forEach((button, i) => void (i < 20 && button.pressed && down.add(`JoystickButton${i}` as KeyCode)));
+      pad.axes.forEach((value, i) => {
+        const past = Math.max(0, Math.abs(value) - STICK_DEAD_ZONE) / (1 - STICK_DEAD_ZONE);
+        this.sticks[i] = further(this.sticks[i] ?? 0, Math.sign(value) * Math.min(1, past));
+      });
+    }
+    for (const code of [...this.padHeld]) {
+      if (down.has(code)) continue;
+      this.padHeld.delete(code);
+      this.held.delete(code);
+      this.released.add(code);
+    }
+    for (const code of down) {
+      if (this.padHeld.has(code)) continue;
+      this.padHeld.add(code);
+      this.held.add(code);
+      this.pressed.add(code);
+    }
+  }
+
   /** The instantaneous -1/0/1 of a keyboard entry, before smoothing and before any override. */
   private rawAxis(axis: AxisName): number {
     // Through the interface rather than the literal: the entries differ in which keys they
@@ -166,6 +223,7 @@ class InputClass {
    * @internal
    */
   advance(deltaTime: number): void {
+    this.pollGamepads();
     for (const [name, binding] of Object.entries(AXES) as Array<[AxisName, AxisBinding]>) {
       const target = this.rawAxis(name);
       const current = this.smoothed.get(name) ?? 0;
@@ -263,6 +321,9 @@ class InputClass {
     this.buttonsUpNamed.clear();
     this.buttonsWereDown.clear();
     this.pagePointers.clear();
+    // A pad still held is read again, and pressed again, at the next frame.
+    this.padHeld.clear();
+    this.sticks.length = 0;
   }
 
   // The boundary where the DOM's strings and numbers become KeyCode / MouseButton, and the only
@@ -364,4 +425,9 @@ function local(element: HTMLElement, bounds: DOMRect, event: PointerEvent): [num
   const sx = element.clientWidth / (bounds.width || 1);
   const sy = element.clientHeight / (bounds.height || 1);
   return [(event.clientX - bounds.left) * sx, (event.clientY - bounds.top) * sy];
+}
+
+/** Whichever of two inputs is pushed further: the keys or a stick, one pad or another. */
+function further(a: number, b: number): number {
+  return Math.abs(b) > Math.abs(a) ? b : a;
 }

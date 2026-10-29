@@ -60,7 +60,7 @@ export class Music extends Behaviour {
   }
 
   override update(): void {
-    if (Input.getButtonDown('Sound') || Input.getKeyDown(KeyCode.M)) this.toggle();
+    if (Input.getButtonDown('Sound') || Input.getKeyDown(KeyCode.M) || Input.getKeyDown(KeyCode.JoystickButton8)) this.toggle();
     this.follow();
   }
 

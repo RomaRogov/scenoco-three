@@ -293,6 +293,7 @@ function Code({ model, selected, tick }: { model: Model; selected: Object3D | nu
         <div className="se-note">
           {view.enter ? `${view.note}: what it is made of is the prefab's own.` : model.stage && !view.prefab ? view.note : `${view.note}: changes here are live only.`}
           {view.enter && <EnterButton model={model} root={view.enter.root} name={view.enter.name} />}
+          {view.advice && <div>{view.advice}</div>}
         </div>
       )}
       {view.prefab && <div className="se-layer">this copy — its tag’s overrides</div>}
@@ -654,12 +655,15 @@ function Braced({ children }: { children: ReactNode }): React.JSX.Element {
 /**
  * A number: typed, or dragged sideways to scrub it — the scene follows the drag and the file is
  * written once, when it ends. Sideways only, so a finger can still scroll the panel up and down.
+ * A press does nothing yet: a drag scrubs, and a release that did not move focuses it to type — a
+ * press that focused at once would start selecting text under a drag. Once typing, a press is a
+ * text field's own: it places the caret.
  */
 function NumberField({ value, step, live, commit }: { value: number; step: number; live: (n: number) => void; commit: (n: number) => void }): React.JSX.Element {
   const [text, setText] = useState<string | null>(null);
   /** The value when focused: typing sets it live, so the end compares against where it began. */
   const began = useRef(value);
-  const drag = useRef<{ x: number; from: number; on: boolean; last: number } | null>(null);
+  const drag = useRef<{ x: number; from: number; on: boolean; last: number; typing: boolean } | null>(null);
   /** A touch selecting the text brings up the system's copy-and-paste menu: only a mouse or keys select it. */
   const touched = useRef(false);
   const shown = text ?? String(value);
@@ -675,26 +679,29 @@ function NumberField({ value, step, live, commit }: { value: number; step: numbe
       value={shown}
       onPointerDown={(event) => {
         touched.current = event.pointerType === 'touch';
-        drag.current = { x: event.clientX, from: value, on: false, last: value };
+        const typing = document.activeElement === event.currentTarget;
+        // Captured from the press: a field is a few pixels wide, and the pointer leaves it before a drag begins.
+        if (!typing) {
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        drag.current = { x: event.clientX, from: value, on: false, last: value, typing };
       }}
       onPointerMove={(event) => {
         const d = drag.current;
-        if (!d) return;
+        if (!d || d.typing) return;
         const dx = event.clientX - d.x;
         if (!d.on && Math.abs(dx) < 4) return;
-        if (!d.on) {
-          d.on = true;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          event.currentTarget.blur();
-        }
+        d.on = true;
         const per = step || Math.max(0.01, Math.abs(d.from) * 0.01);
         d.last = Math.round((d.from + dx * per) * 1000) / 1000;
         live(d.last);
       }}
-      onPointerUp={() => {
+      onPointerUp={(event) => {
         const d = drag.current;
         drag.current = null;
         if (d?.on) commit(d.last);
+        else if (d && !d.typing) event.currentTarget.focus();
       }}
       onFocus={(event) => {
         began.current = value;

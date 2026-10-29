@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@scenoco-three/core": "*",
-    "@scenoco-three/splines": "*"
+    "@scenoco-three/splines": "*",
+    "@scenoco-three/rapier": "*",
+    "@scenoco-three/terrain": "*"
   },
   "devDependencies": {
     "@scenoco-three/tools": "*"

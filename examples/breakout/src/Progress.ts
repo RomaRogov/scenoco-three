@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Behaviour, Input, KeyCode, SceneManager, WaitForSecondsRealtime, dontDestroyOnLoad, findObjectOfType } from '@scenoco-three/core';
-import { bonuses } from './assets.js';
 import { Paddle } from './Paddle.js';
+import type { Bonus } from './bonus.js';
 import type { GameState } from './GameState.js';
 
 /**
@@ -74,13 +74,16 @@ export class Progress extends Behaviour {
   override update(): void {
     const phase = this.game?.phase;
     if (phase === 'title' || phase === 'ready' || phase === 'playing' || this.fading) return;
-    if (Input.getButtonDown('Continue') || Input.getKeyDown(KeyCode.Space)) this.advance();
+    if (Input.getButtonDown('Continue') || Input.getKeyDown(KeyCode.Space) || Input.getKeyDown(KeyCode.JoystickButton0)) this.advance();
   }
 
   /** Every frame, what moves on its own: the combo, and the bonuses' timers running down. */
   override lateUpdate(): void {
     // After every update has run, so the press that leaves the splash cannot also launch the ball.
-    const start = Input.getButtonDown('Play') || Input.getKeyDown(KeyCode.Space) || Input.getKeyDown(KeyCode.Return);
+    // PLAY, Space or Enter — or a gamepad's A or Start.
+    const start =
+      Input.getButtonDown('Play') || Input.getKeyDown(KeyCode.Space) || Input.getKeyDown(KeyCode.Return) ||
+      Input.getKeyDown(KeyCode.JoystickButton0) || Input.getKeyDown(KeyCode.JoystickButton9);
     if (this.game?.phase === 'title' && start) {
       this.begun = true;
       this.game.phase = 'ready';
@@ -104,8 +107,9 @@ export class Progress extends Behaviour {
           const chip = document.createElement('div');
           // Only a bonus new since the last drawing pops in; the others are redrawn as they were.
           chip.className = this.shownBonuses.has(e.bonus) ? 'chip' : 'chip new';
-          chip.style.setProperty('--tint', bonuses[e.bonus].color);
-          chip.innerHTML = `<span>${bonuses[e.bonus].label}</span><i></i>`;
+          // Its colour is the page's CSS, by `data-bonus`.
+          chip.dataset.bonus = e.bonus;
+          chip.innerHTML = `<span>${LABELS[e.bonus]}</span><i></i>`;
           return chip;
         }),
       );
@@ -233,6 +237,9 @@ export class Progress extends Behaviour {
     this.hud.popups.append(label);
   }
 }
+
+/** The word on a running bonus's chip. */
+const LABELS: Record<Exclude<Bonus, 'none'>, string> = { laser: 'LASER', multi: '×3', wide: 'WIDE', slim: 'SLIM' };
 
 /** What the banner says, or `null` where there is no banner. */
 const MESSAGES: Record<GameState['phase'], { headline: string; hint: string; mood: string } | null> = {
