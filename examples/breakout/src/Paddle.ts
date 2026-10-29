@@ -11,7 +11,8 @@ export interface Effect {
 }
 
 /**
- * The paddle: moves by keyboard or by dragging, and wears the bonuses it catches.
+ * The paddle: follows the mouse, a finger, or the keys — whichever moved last — and wears the bonuses
+ * it catches.
  *
  * Its node is the physics body — `scale.x` is its width, and the collider follows it. What is seen
  * is `body`, a child it animates on its own: it leans into a move, squashes when the ball lands, and
@@ -47,6 +48,8 @@ export class Paddle extends Behaviour<Group> {
   private cooldown = 0;
   private readonly point = new Vector3();
   private readonly eye = new Vector3();
+  /** Following the pointer, until a key takes over; the pointer's next move takes it back. */
+  private pointing = false;
 
   override awake(): void {
     this.game = findObjectOfType(GameState)!;
@@ -95,8 +98,12 @@ export class Paddle extends Behaviour<Group> {
   private move(dt: number): void {
     const limit = this.wall - this.halfWidth * this.node.scale.x;
     let x = this.node.position.x;
-    if (Input.getMouseButton(MouseButton.Left)) x = this.pointerX(this.camera);
-    else x += Input.getAxisRaw('Horizontal') * this.speed * dt; // raw: a paddle stops the instant the key comes up
+    const keys = Input.getAxisRaw('Horizontal'); // raw: a paddle stops the instant the key comes up
+    // A mouse moves the pointer with no button held; a finger only while it touches — either takes over.
+    if (Input.mouseDelta.lengthSq() > 0 || Input.getMouseButton(MouseButton.Left)) this.pointing = true;
+    else if (keys !== 0) this.pointing = false;
+    if (this.pointing) x = this.pointerX(this.camera);
+    else x += keys * this.speed * dt;
     this.node.position.x = Math.max(-limit, Math.min(limit, x));
   }
 
