@@ -12,11 +12,25 @@ read it instead of the package's source. Three's classes import from `three`, Sc
 `play`, `prefab`, `ref`, `Input`, `Time`, …) from `@scenoco-three/core`.
 
 **Checking it.** `scenoco check src`, from `@scenoco-three/tools`, checks that every `.tsx` file only
-declares; `tsc` checks the rest. In development the page drives the running game from
+declares; `tsc` checks the rest. The game's rules are tested in Vitest, in Node or jsdom, with no
+canvas: `const game = simulate(Main)` builds the scene and runs nothing until the test steps it —
+`game.press(KeyCode.Space)`, `game.step(60)`,
+`expect(game.until(() => findObjectOfType(GameState)!.phase === 'over')).toBe(true)`, then
+`game.dispose()`. Frames have a fixed `dt`, so the answer is the same every run. In development the page drives the running game from
 `window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock, press keys, click, swipe,
 read behaviours by class. Evaluate in the page with any browser tool —
-`async () => { await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
-— then take its screenshot; in a Playwright test, `observe(page)` from `@scenoco-three/observer`.
+`async () => { await __scenoco.ready(); await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
+— then take its screenshot; in a Playwright test, `observe(page)` from `@scenoco-three/observer`. A
+tool that can only open an address, read the console and take a screenshot puts the same calls in
+the address, driving the game to the moment it needs to see:
+`/?drive=press('Space');until(GameState.phase == 'over');read(count(Brick))` logs one console line
+per call and holds the clock there for the screenshot (`#` is `%23` in an address). It reads data,
+not code — behaviours' fields and getters, `#node`s, `Time`, `count`/`find`/`findAll(Type)` — so a
+check it can't say goes in the game: a getter (`get bricksLeft()`), or a starting point the game
+reads itself (`/?level=3&drive=…`, read in `main.ts`).
+A behaviour that throws is logged once and the game goes on, as in Unity — read the console. Log
+each change of the game's state with `console.info` — `phase: playing`, `score: 3` — so the console
+alone shows the rules working.
 
 **Scenes.** A `.tsx` file is a scene or a prefab, and it only declares — no hooks, loops, branches
 or handlers; `scenoco check` points at them. An object made from data with `new` — a font, a curve — is
@@ -55,6 +69,13 @@ plain TSX component, reused markup whose tag is its props: `<Arena ballSpeed={16
 plain function returning `<Scene>`: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a
 node across loads.
 
+**Levels are the user's to edit.** What a designer arranges — a level, a puzzle, a wave, where the
+pickups are — is one element per object in a scene, `<Brick position={[2.55, -1, 0]} hits={2} />`,
+never a string map, an array or a loop: the editor moves them and edits their props, and the file
+says what it did. A prefab's props show in the editor at their defaults. Give such objects help for
+placing them by hand, as behaviours: snap to a grid in `onValidate` — with a `snap = true` field to
+turn it off — clamp a value, keep to a path.
+
 **Assets.** A glTF model is `const hero = sharedModel('/hero.glb')`, awaited with
 `await loadAssets(hero)` in `main.ts`, then `instantiate(hero, { parent: this.node })`; its clips play
 through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)`). A texture is
@@ -67,7 +88,9 @@ through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)
 done with setTimeout or Date.now does not pause with it.
 
 **Input and UI.** UI is HTML and CSS in `index.html`, read and written with DOM APIs. A
-`<button data-button="Pause">` reads like a key: `Input.getButtonDown('Pause')`. Keys, axes and the
+`<button data-button="Pause">` reads like a key: `Input.getButtonDown('Pause')`. Give every control
+one, labelled — `<button data-button="Jump">Jump</button>` — beside its key: a phone has no keys, and
+a browser tool that cannot click the canvas or press keys can still press a button. Keys, axes and the
 pointer are Unity's: `Input.getKeyDown(KeyCode.Space)`, `Input.getAxis('Horizontal')`,
 `Input.getMouseButtonDown(MouseButton.Left)`, `Input.pointer`.
 
@@ -96,7 +119,10 @@ a scene puts its camera in, as in Unity — one without draws nothing; `visible 
 over to the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and
 widens with the screen. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
 and size it. `game.renderer` is three's WebGLRenderer, configured as three.js documents it —
-`game.renderer.shadowMap.enabled = true`.
+`game.renderer.shadowMap.enabled = true`. Inside a React app the game is one element of the page:
+`play(Main, { container })` in an effect, `game.dispose()` in its cleanup, and
+`scenoco({ include: 'src/game/**' })` beside `react({ exclude: /src\/game\// })` in `vite.config.ts`
+keeps the app's own TSX React's.
 
 From Unity: gameObject/transform → `this.node` · transform.localPosition → `this.node.position`
 (three's position is in the parent's space) · transform.position → `this.node.getWorldPosition(v)` ·

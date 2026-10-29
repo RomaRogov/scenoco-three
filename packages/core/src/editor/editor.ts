@@ -240,7 +240,7 @@ export async function startEditor(
     written(target, name, value) {
       setGiven(host.current(target), name, value);
     },
-    apply(target, name, value) {
+    apply(target, name, value, declared = false) {
       target = host.current(target);
       if (name === 'args' && !(target instanceof Behaviour)) {
         applyArguments(target as Record<string, unknown>, value as unknown[]);
@@ -251,8 +251,8 @@ export async function startEditor(
       const made = target instanceof Object3D ? prefabOf(target) : undefined;
       // A prefab's tag places and names its root; every other attribute of a function's tag is a prop.
       const prop = made && !(isPrefab(made.prefab) && (INSTANCE as readonly string[]).includes(name));
-      // Only a prop the element passed, and not one with children: they were built already.
-      if (made && prop && name in made.props && made.props.children === undefined) rebuild(target as Object3D, { ...made.props, [name]: value });
+      // A prop the element passed, or one the function declares, and not on a tag with children: they were built already.
+      if (made && prop && (declared || name in made.props) && made.props.children === undefined) rebuild(target as Object3D, { ...made.props, [name]: value });
       else if (target instanceof Behaviour) setField(target, name, value);
       else {
         applyProp(target as Record<string, unknown>, name, value, target.constructor.name);

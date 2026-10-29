@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ChevronDown, ChevronRight, Crosshair, Focus, PanelsTopLeft, Pause, Play, Redo2, RotateCcw, Save, Settings, StepForward, Undo2, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Copy, Crosshair, Focus, PanelsTopLeft, Pause, Play, Redo2, RotateCcw, Save, Settings, StepForward, Trash2, Undo2, X } from 'lucide-react';
 import type { Object3D } from 'three';
 import type { Reach } from '@scenoco-three/core';
 import { codeOf, type Attr, type CodeEditor, type Model, type Tag, type TextLink, type View } from '../model.js';
@@ -281,6 +281,12 @@ function Code({ model, selected, tick }: { model: Model; selected: Object3D | nu
         <Where model={model} tag={view.tag} />
         <button className="se-button" title="Look at it (F)" aria-label="Look at it" onClick={() => model.host.frame(selected)}>
           <Crosshair />
+        </button>
+        <button className="se-button" title="Duplicate (⌘D): a copy of its element, next to it in the file" aria-label="Duplicate" onClick={() => void model.restructure(selected, true)}>
+          <Copy />
+        </button>
+        <button className="se-button" title="Delete (⌫): take its element out of the file" aria-label="Delete" onClick={() => void model.restructure(selected, false)}>
+          <Trash2 />
         </button>
       </div>
       {view.note && (

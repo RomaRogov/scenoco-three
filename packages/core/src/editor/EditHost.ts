@@ -57,9 +57,10 @@ export interface EditHost {
    * Set `name` on a live object the way an element does — a behaviour's field, R3F's rules for the
    * rest. A prop of a function's tag calls the function again with it, and the new node takes the
    * old one's place: `current` follows it there. `args` is the constructor's arguments, set as if it
-   * had been built with them (see `parameters`).
+   * had been built with them (see `parameters`). `prop`: the name is a prop of the function's tag
+   * the target's element did not write, called again with it all the same.
    */
-  apply(target: object, name: string, value: unknown): void;
+  apply(target: object, name: string, value: unknown, prop?: boolean): void;
   /**
    * For what an element built with `args`, whether a change to each argument can be made on the live
    * object — through the property it sets, or, for what is not a node (a geometry, a material), by

@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
 import { afterAll, describe, expect, it } from 'vitest';
-import { handle, scenesIn } from '@scenoco-three/tools/vite';
+import { build, type Rollup } from 'vite';
+import { handle, scenesIn, scenoco } from '@scenoco-three/tools/vite';
 import { Definitions } from '../../packages/tools/src/definitions.js';
 
 // Its own folder, per run: test files run side by side, and each removes only what it made.
@@ -44,6 +45,27 @@ describe('the editor endpoints of scenoco()', () => {
 
     await expect(handle(root, request('GET', '/scene?file=/../outside.tsx'), written)).rejects.toThrow(/not a scene file of this project/);
     await expect(handle(root, request('GET', '/scene?file=/src/main.ts'), written)).rejects.toThrow(/not a scene file/);
+  });
+});
+
+describe('duplicating and deleting from the editor', () => {
+  it("copies an element with what it holds onto the next line, takes one out, and refuses a scene's root", async () => {
+    mkdirSync(`${root}src`, { recursive: true });
+    const scene = `${root}src/Level.tsx`;
+    writeFileSync(scene, `export const Level = () => (\n  <Scene>\n    <Group>\n      <Mesh position={[1, 0, 0]} />\n    </Group>\n  </Scene>\n);\n`);
+    const written = new Set<string>();
+    const at = (index: number, tag: string, line: number, column: number) => ({ file: scene, index, expect: { tag, line, column } });
+
+    const copied = (await handle(root, request('POST', '/duplicate', at(2, 'Mesh', 4, 7)), written)) as { copy?: object };
+    expect(copied.copy).toEqual({ line: 5, column: 7 });
+    expect(readFileSync(scene, 'utf8')).toContain('      <Mesh position={[1, 0, 0]} />\n      <Mesh position={[1, 0, 0]} />\n');
+
+    await handle(root, request('POST', '/duplicate', at(1, 'Group', 3, 5)), written);
+    expect(readFileSync(scene, 'utf8').match(/<Mesh/g)).toHaveLength(4); // the group came with both meshes
+
+    await handle(root, request('POST', '/delete', at(1, 'Group', 3, 5)), written);
+    expect(readFileSync(scene, 'utf8')).toBe(`export const Level = () => (\n  <Scene>\n    <Group>\n      <Mesh position={[1, 0, 0]} />\n      <Mesh position={[1, 0, 0]} />\n    </Group>\n  </Scene>\n);\n`);
+    await expect(handle(root, request('POST', '/delete', at(0, 'Scene', 2, 3)), written)).rejects.toThrow(/is the whole scene or prefab/);
   });
 });
 
@@ -91,7 +113,8 @@ describe('the fields an element declares', () => {
     mkdirSync(`${project}src`, { recursive: true });
     writeFileSync(`${project}tsconfig.json`, JSON.stringify({ compilerOptions: { jsx: 'preserve', module: 'esnext', moduleResolution: 'bundler', strict: true, noEmit: true }, include: ['src'] }));
     writeFileSync(`${project}src/Spin.ts`, "export class Spin {\n  speed = 1;\n  axis: 'x' | 'y' = 'y';\n  private turned = 0;\n}\n");
-    writeFileSync(`${project}src/Main.tsx`, "import { HemisphereLight, MeshBasicMaterial } from 'three';\nimport { Spin } from './Spin';\nexport const Main = () => <Scene><HemisphereLight args={['#fff', '#000', 1]} /><MeshBasicMaterial /><Spin /></Scene>;\n");
+    writeFileSync(`${project}src/Brick.tsx`, "import { Mesh } from 'three';\nexport const Brick = ({ hits = 1, snap = true }: { hits?: number; snap?: boolean }) => <Mesh />;\n");
+    writeFileSync(`${project}src/Main.tsx`, "import { HemisphereLight, MeshBasicMaterial } from 'three';\nimport { Spin } from './Spin';\nimport { Brick } from './Brick';\nexport const Main = () => <Scene><HemisphereLight args={['#fff', '#000', 1]} /><MeshBasicMaterial /><Spin /><Brick /></Scene>;\n");
     const definitions = new Definitions(project.replace(/\/$/, ''));
     try {
       const types = await definitions.types(`${project}src/Main.tsx`);
@@ -103,6 +126,8 @@ describe('the fields an element declares', () => {
       expect(material.fields.side).toMatchObject({ kind: 'option', options: expect.arrayContaining([{ label: 'DoubleSide', value: 2, text: '{DoubleSide}', import: { name: 'DoubleSide', from: 'three' } }]) });
       expect(spin.fields).toMatchObject({ speed: { kind: 'number' }, axis: { kind: 'option', options: [{ value: 'x', text: '"x"' }, { value: 'y', text: '"y"' }] } });
       expect(spin.hidden).toEqual(['turned']);
+      // A function's tag: its props, and what each is when the tag leaves it out.
+      expect(at(4)).toMatchObject({ fields: { hits: { kind: 'number' }, snap: { kind: 'boolean' } }, defaults: { hits: 1, snap: true } });
     } finally {
       await definitions.close();
     }
@@ -124,4 +149,25 @@ describe('opening a file from the editor', () => {
     await expect(openFile(root, scene, 1, 1, 'custom', null)).rejects.toThrow(/set scenoco\(\{ editor/);
     await expect(openFile(root, scene, 1, 1, 'custom', 'no-such-editor {file}')).rejects.toThrow(/not a command on the dev server's PATH/);
   });
+});
+
+describe('a game inside a React app', () => {
+  it("compiles only include's files with core's JSX, and leaves the app's own React's", async () => {
+    const project = `${root}react/`;
+    mkdirSync(`${project}src/game`, { recursive: true });
+    // A React app's own: its TSX is React's, as Lovable's and Vite's React template write it.
+    writeFileSync(`${project}tsconfig.json`, JSON.stringify({ compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'react' }, include: ['src'] }));
+    writeFileSync(`${project}src/App.tsx`, "import { Main } from './game/Main';\nexport const App = () => <div id=\"game\">{String(Main)}</div>;\n");
+    writeFileSync(`${project}src/game/Main.tsx`, "import { Scene } from 'three';\nexport const Main = () => <Scene />;\n");
+    const out = (await build({
+      root: project,
+      logLevel: 'silent',
+      plugins: [scenoco({ include: 'src/game/**' })],
+      build: { write: false, minify: false, rollupOptions: { input: `${project}src/App.tsx`, preserveEntrySignatures: 'exports-only', external: [/^react/, /^@scenoco-three/, /^three/] } },
+    })) as Rollup.RollupOutput | Rollup.RollupOutput[];
+    const code = [out].flat().flatMap((o) => o.output).map((c) => (c.type === 'chunk' ? c.code : '')).join('\n');
+    // Dev runtimes here: vitest leaves NODE_ENV at 'test', so this build is a development one.
+    expect(code).toMatch(/from ["']react\/jsx-(dev-)?runtime["']/);
+    expect(code).toMatch(/from ["']@scenoco-three\/core\/jsx-(dev-)?runtime["']/);
+  }, 60_000);
 });

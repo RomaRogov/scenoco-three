@@ -21,6 +21,7 @@
 import './augment.js';
 
 export { play, instantiate, type Game, type PlayOptions, type InstantiateOptions } from './play.js';
+export { simulate, type Simulation, type SimulateOptions } from './simulate.js';
 export { SceneManager, dontDestroyOnLoad } from './scenes.js';
 export { prefab, ref, sourceOf, type Ref, type Source } from './jsx.js';
 export {

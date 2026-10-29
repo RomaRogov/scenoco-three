@@ -220,6 +220,14 @@ export function removeElement(code: string, element: Element): string {
   return splice(code, start, end, '');
 }
 
+/** A copy of an element right after it: on the next line, indented alike, when it stood alone on its own. */
+export function duplicateElement(code: string, element: Element): string {
+  const text = code.slice(element.start, element.end);
+  const lineStart = code.lastIndexOf('\n', element.start - 1) + 1;
+  const indent = code.slice(lineStart, element.start);
+  return /^\s*$/.test(indent) ? splice(code, element.end, element.end, `\n${indent}${text}`) : splice(code, element.end, element.end, ` ${text}`);
+}
+
 /** Add a child at the end of an element, indented like its siblings. */
 export function insertChild(code: string, parent: Element, tsx: string): string {
   const lineStart = code.lastIndexOf('\n', parent.start - 1) + 1;

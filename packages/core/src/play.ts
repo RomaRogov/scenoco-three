@@ -1,15 +1,20 @@
 import { Camera, Euler, Object3D, Scene, Timer, Vector2, Vector3, WebGLRenderer, type OrthographicCamera, type PerspectiveCamera, type Quaternion } from 'three';
-import { Runtime, wake, provideCamera, type RenderCamera } from './kernel/index.js';
+import { Runtime, destroy, wake, provideCamera, type RenderCamera } from './kernel/index.js';
+import { flushDestroyed } from './kernel/runtime.js';
 import { Input } from './input/Input.js';
 import { installObserverBridge, isHeld, viewOf } from './observe.js';
-import { SceneManager, attachWorld, loadInto } from './scenes.js';
+import { SceneManager, attachWorld, detachWorld, loadInto } from './scenes.js';
 import { installEditor, markSpawned, sizeCanvas, startOpenedScene } from './editor/index.js';
 import { Model } from './assets/Model.js';
 import type { Prefab } from './kernel/types.js';
 import { isPrefab } from './jsx.js';
 
 export interface PlayOptions {
-  /** Where the canvas goes. `document.body` when left out. */
+  /**
+   * Where the canvas goes. `document.body` when left out: the game is the page. Another element —
+   * a `<div>` in a React app — has the game fill it and follow its size; the editor's bar, which
+   * lays out the whole page, stays off.
+   */
   container?: HTMLElement;
   /** Seconds per `fixedUpdate`. Unity's default, 0.02. */
   fixedDelta?: number;
@@ -42,6 +47,12 @@ export interface Game {
    * `game.render = () => composer.render()`.
    */
   render: () => void;
+  /**
+   * Stop the game and free what `play` made: the loop, its listeners, the canvas, and every
+   * behaviour — `onDestroy` runs, as when a scene unloads. For a game that comes and goes with the
+   * page around it, such as a React component's effect cleanup. One game runs at a time.
+   */
+  dispose: () => void;
 }
 
 /**
@@ -56,6 +67,8 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   const renderer = options.renderer ?? new WebGLRenderer({ antialias: true });
   if (!options.renderer) renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const host = options.container ?? document.body;
+  /** The game is the page, rather than one element of it: only then is the editor's bar put on it. */
+  const page = host === document.body;
   const autoCamera = options.autoCamera ?? true;
   host.appendChild(renderer.domElement);
 
@@ -86,11 +99,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   // one's. Hidden or taken out of the scene, it hands over to the next — Unity's `camera.enabled`.
   const findCamera = () => {
     if (!autoCamera) return;
-    let found: RenderCamera | null = null;
-    const look = (root: Object3D) =>
-      root.traverseVisible((node) => void (found ??= (node as Camera).isCamera ? (node as RenderCamera) : null));
-    for (const loaded of SceneManager.loadedScenes) look(loaded);
-    if (!found) look(scene);
+    const found = sceneCamera(scene);
     if (found !== camera) framesWithoutCamera = 0;
     camera = found;
     fit();
@@ -106,21 +115,23 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   const noCamera = 'The scene has no camera, so nothing is drawn. Put one in it, as in Unity: <PerspectiveCamera position={[0, 2, 6]} />';
   const resize = () => {
     // In development the editor's bar or panel may take part of the page: it sizes the canvas then.
-    if (!(import.meta.env?.DEV && sizeCanvas(renderer, host))) {
-      const page = host === document.body;
+    if (!(import.meta.env?.DEV && page && sizeCanvas(renderer, host))) {
       renderer.setSize(page ? innerWidth : host.clientWidth, page ? innerHeight : host.clientHeight);
     }
     fit();
   };
   resize();
   addEventListener('resize', resize);
+  // An element can change size with the page around it, not only with the window.
+  const watch = page ? null : new ResizeObserver(resize);
+  watch?.observe(host);
 
   provideCamera(runtime, () => camera);
   attachWorld(scene, findCamera);
   // Before the scene is built: a reset in the editor holds behaviours from their very first wake.
-  const editor = import.meta.env?.DEV ? installEditor(scene, runtime, renderer, () => camera, (dt) => frame(dt)) : null;
+  const editor = import.meta.env?.DEV && page ? installEditor(scene, runtime, renderer, () => camera, (dt) => frame(dt)) : null;
   // In development the editor may have opened another scene: the page starts in it instead.
-  let starting = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
+  let starting = import.meta.env?.DEV && page ? startOpenedScene(scene, build) : null;
   if (starting) void starting.finally(() => (starting = null));
   else loadInto(scene, build, false);
   Input.attach(renderer.domElement);
@@ -139,7 +150,26 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     render: () => {
       if (camera) renderer.render(scene, camera);
     },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      renderer.setAnimationLoop(null);
+      removeEventListener('resize', resize);
+      watch?.disconnect();
+      timer.dispose();
+      closeBridge?.();
+      Input.detach(renderer.domElement);
+      // As an unload: everything in the scene is destroyed, its behaviours' onDestroy run.
+      for (const child of [...scene.children]) destroy(child);
+      flushDestroyed();
+      runtime.dispose();
+      detachWorld(scene);
+      renderer.domElement.remove();
+      // A renderer the game was given is the caller's to dispose of.
+      if (!options.renderer) renderer.dispose();
+    },
   };
+  let disposed = false;
 
   /** One frame of the game: input first, then every behaviour, then input's one-frame edges roll over. */
   const frame = (dt: number) => {
@@ -148,9 +178,9 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     runtime.update(dt);
     Input.endFrame();
   };
-  if (import.meta.env?.DEV) {
-    installObserverBridge(runtime, () => ({ scene, camera, gl: renderer, size: { width: size.x, height: size.y } }), frame);
-  }
+  const closeBridge = import.meta.env?.DEV
+    ? installObserverBridge(runtime, () => ({ scene, camera, gl: renderer, size: { width: size.x, height: size.y } }), frame)
+    : null;
 
   const timer = new Timer();
   timer.connect(document);
@@ -169,6 +199,15 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     if (view ?? camera) editor?.draw((view ?? camera)!);
   });
   return game;
+}
+
+/** @internal the camera that draws: the newest loaded scene's first visible one, then a kept one's. */
+export function sceneCamera(scene: Scene): RenderCamera | null {
+  let found: RenderCamera | null = null;
+  const look = (root: Object3D) => root.traverseVisible((node) => void (found ??= (node as Camera).isCamera ? (node as RenderCamera) : null));
+  for (const loaded of SceneManager.loadedScenes) look(loaded);
+  if (!found) look(scene);
+  return found;
 }
 
 export interface InstantiateOptions {

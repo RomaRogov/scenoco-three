@@ -31,6 +31,8 @@ interface ElementTypes {
   fields: Record<string, Field>;
   hidden: string[];
   constructors: { name: string; field?: Field }[][];
+  /** A function's tag: each prop's value when the tag leaves it out. */
+  defaults?: Record<string, unknown>;
 }
 
 /** One attribute, as a line of the TSX. */
@@ -59,6 +61,8 @@ export interface Attr {
   source?: unknown;
   /** What it sets: the node, a behaviour, or — for a prop of a function's tag — the node it made. */
   target: object;
+  /** A prop of a function's tag: setting it calls the function again, written or not. */
+  prop?: boolean;
   /** Where a change is written: its element in its file. Absent for one that stays live, or is locked. */
   at?: Address;
   /** Shown, not edited: what a prefab is made of, outside prefab mode. */
@@ -200,6 +204,8 @@ interface Step {
   /** Every object it sets: one, or each copy of a prefab. */
   targets: object[];
   name: string;
+  /** A prop of a function's tag: see `Attr.prop`. */
+  prop?: boolean;
   /** The attribute in its file — null for a change that stays live. */
   at: { key: string; address: Address } | null;
   before: Side;
@@ -210,6 +216,8 @@ const TRANSFORM = ['position', 'rotation', 'scale'] as const;
 /** How long a question the dev server could not answer waits before it is asked again. */
 const RETRY_MS = 5000;
 const CODE_EDITOR_KEY = 'scenoco-editor-code';
+/** The element a duplicate made, selected once the page has loaded again. */
+const SELECT_KEY = 'scenoco-editor-select';
 const REACH_KEY = 'scenoco-editor-reset';
 const REACHES: readonly Reach[] = ['none', 'awake', 'onEnable', 'start', 'frame'];
 
@@ -244,6 +252,7 @@ export class Model {
 
   constructor(host: EditHost) {
     this.host = host;
+    this.selectRemembered();
     call<{ file: string; name: string }[]>('GET', 'scenes').then(
       (scenes) => {
         this.scenes = scenes;
@@ -343,10 +352,14 @@ export class Model {
       for (const name of TRANSFORM) attrs.push(this.attr(node, name, at[name], texts, given ?? {}, fixed, address));
     }
     if (how.props) {
-      // A function's tag: its props, live as last passed. Changing one calls the function again.
-      for (const [name, value] of Object.entries(how.props)) {
+      // A function's tag: its props, live as last passed, then those it declares and the tag leaves
+      // out, at their defaults. Changing one calls the function again.
+      const types = this.typesOf(address);
+      const declared = Object.keys(types?.fields ?? {}).filter((name) => !(name in how.props!));
+      for (const [name, value] of [...Object.entries(how.props), ...declared.map((name) => [name, types?.defaults?.[name]] as const)]) {
         if (name === 'children' || name === 'name' || (TRANSFORM as readonly string[]).includes(name)) continue;
-        attrs.push(this.attr(node, name, value, texts, given ?? {}, here, address));
+        const attr = this.attr(node, name, value, texts, given ?? {}, here, address);
+        if (attr.written || attr.kind) attrs.push({ ...attr, prop: true });
       }
     } else {
       // The element's own attributes past the transform, in the order written.
@@ -581,17 +594,28 @@ export class Model {
   async set(attr: Attr, value: unknown, done: boolean, before: unknown = attr.value): Promise<void> {
     if (attr.locked) return;
     if (attr.arg) return this.setArg(attr, attr.arg, value, done, before);
-    const live = toLive(value, attr.kind);
+    let live = toLive(value, attr.kind);
     const targets = this.targets(attr);
-    for (const target of targets) this.host.apply(target, attr.name, live);
+    for (const target of targets) this.host.apply(target, attr.name, live, attr.prop);
     if (!done) return this.changed();
+    // What the object made of it — `onValidate` snapping it to a grid, clamping it — is what the file
+    // gets, as a drag writes where the node ended up. A prop called the function again: nothing to read.
+    if (!attr.prop && attr.kind && attr.kind !== 'option') {
+      const now = read(this.host.current(targets[0]!), attr.name);
+      const seen = now === undefined ? undefined : shown(now, attr.kind);
+      // Compared as shown, both rounded alike: a value typed finer than the editor shows stays as typed.
+      if (seen !== undefined && JSON.stringify(seen) !== JSON.stringify(shown(live, attr.kind))) {
+        value = seen;
+        live = toLive(value, attr.kind);
+      }
+    }
     const at = this.at(attr);
     const was = at && (this.unsaved.get(at.key)?.file ?? this.inFile.get(at.key));
     if (at && !this.unsaved.has(at.key)) this.before.set(at.key, before);
     // An option is written as the file names it — `{DoubleSide}`, imported if need be.
     const option = attr.options?.find((o) => o.value === value);
     const file = option ? new Text(option.text, option.import) : toFile(value, attr.kind);
-    this.record({ targets, name: attr.name, at, before: { live: toLive(before, attr.kind), file: was }, after: { live, file } });
+    this.record({ targets, name: attr.name, prop: attr.prop, at, before: { live: toLive(before, attr.kind), file: was }, after: { live, file } });
   }
 
   /**
@@ -648,8 +672,8 @@ export class Model {
     const file = at && this.inFile.get(at.key);
     const was = at && (this.unsaved.get(at.key)?.file ?? file);
     const targets = this.targets(attr);
-    for (const target of targets) this.host.apply(target, attr.name, live);
-    this.record({ targets, name: attr.name, at, before: { live: toLive(attr.value, attr.kind), file: was }, after: { live, file } });
+    for (const target of targets) this.host.apply(target, attr.name, live, attr.prop);
+    this.record({ targets, name: attr.name, prop: attr.prop, at, before: { live: toLive(attr.value, attr.kind), file: was }, after: { live, file } });
   }
 
   /** Write every unsaved change into its file, one attribute each. */
@@ -666,6 +690,55 @@ export class Model {
       saved++;
     }
     this.say(saved ? `Saved ${saved} ${saved === 1 ? 'change' : 'changes'}.` : 'Nothing to save.');
+  }
+
+  /**
+   * Duplicate or delete what a node's element wrote — Unity's Duplicate (⌘D) and Delete. The file
+   * changes at once, unsaved changes saved first, and the page loads again from it, held as Reset
+   * holds it: a copy comes back selected, in its original's place, to be moved.
+   */
+  async restructure(node: Object3D, duplicate: boolean): Promise<void> {
+    const verb = duplicate ? 'duplicate' : 'delete';
+    const view = await this.view(node);
+    if (view.enter) return this.say(`This is part of the prefab <${view.enter.name}>: enter it to ${verb} what it is made of.`, true);
+    const source = this.host.sourceOf(node);
+    const address = source && !this.host.spawned(node) ? await this.addressFor(source) : null;
+    const element = address && (await this.element(address));
+    if (!address || !element) return this.say(`Nothing in a scene file wrote this node, so there is no element to ${verb}.`, true);
+    if (!duplicate && !confirm(`Delete <${element.tag}> from ${where(source!).label}? The file changes now; undo does not bring it back.`)) return;
+    if (this.unsavedCount) {
+      await this.save();
+      if (this.unsavedCount) return;
+    }
+    try {
+      const done = await call<{ copy?: { line: number; column: number } }>('POST', verb, {
+        file: address.file,
+        index: address.index,
+        expect: { tag: element.tag, line: element.line, column: element.column },
+      });
+      if (done.copy) remember(SELECT_KEY, { file: address.file, ...done.copy });
+      this.host.reset(this.resetReach);
+    } catch (error) {
+      this.say(`Could not ${verb} <${element.tag}>: ${error instanceof Error ? error.message : String(error)}`, true);
+    }
+  }
+
+  /** After a duplicate's reload: select the copy, once the scene has built it. */
+  private selectRemembered(): void {
+    const wanted = recall<{ file: string; line: number; column: number }>(SELECT_KEY);
+    if (!wanted) return;
+    remember(SELECT_KEY, null);
+    const until = performance.now() + 3000;
+    const look = () => {
+      let found: Object3D | null = null;
+      this.host.scene.traverse((n) => {
+        const at = this.host.sourceOf(n);
+        if (!found && at?.fileName === wanted.file && at.lineNumber === wanted.line && at.columnNumber === wanted.column) found = n;
+      });
+      if (found) this.host.select(found);
+      else if (performance.now() < until) requestAnimationFrame(look);
+    };
+    look();
   }
 
   /** Forget what is unsaved: it stays live, and Save no longer writes it. */
@@ -719,7 +792,7 @@ export class Model {
     const step = (back ? this.undos : this.redos).pop();
     if (!step) return;
     const side = back ? step.before : step.after;
-    for (const target of step.targets) this.host.apply(target, step.name, side.live);
+    for (const target of step.targets) this.host.apply(target, step.name, side.live, step.prop);
     this.apply(step, side);
     (back ? this.redos : this.undos).push(step);
   }
@@ -994,6 +1067,24 @@ function short(file: string): string {
 function round(x: number, places = 3): number {
   const k = 10 ** places;
   return Math.round(x * k) / k;
+}
+
+/** For this tab, across a reload. */
+function remember(key: string, value: unknown): void {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // no storage: the copy is made, just not selected
+  }
+}
+
+function recall<T>(key: string): T | null {
+  try {
+    return JSON.parse(sessionStorage.getItem(key) ?? 'null') as T | null;
+  } catch {
+    return null;
+  }
 }
 
 async function call<T>(method: 'GET' | 'POST', path: string, body?: object): Promise<T> {

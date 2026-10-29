@@ -109,7 +109,7 @@ export class Runtime {
         b._started = true;
         resolveRefs(b);
         b._refs = null;
-        b.start?.();
+        if (b.start) this.guard(b, 'start', () => b.start!());
       }
     }
   }
@@ -126,28 +126,53 @@ export class Runtime {
     this.deltaTime = this.fixedDelta;
     while (this.accumulator >= this.fixedDelta) {
       this.accumulator -= this.fixedDelta;
-      for (const b of this.snapshot()) if (this.ticks(b)) b.fixedUpdate?.(this.fixedDelta);
-      for (const s of this.systems) s.fixedUpdate?.(this.fixedDelta);
+      for (const b of this.snapshot()) if (this.ticks(b) && b.fixedUpdate) this.guard(b, 'fixedUpdate', () => b.fixedUpdate!(this.fixedDelta));
+      for (const s of this.systems) if (s.fixedUpdate) this.guard(s, 'fixedUpdate', () => s.fixedUpdate!(this.fixedDelta));
     }
     this.deltaTime = dt;
-    for (const b of this.snapshot()) if (this.ticks(b)) b.update?.(dt);
-    for (const s of this.systems) s.update?.(dt);
+    for (const b of this.snapshot()) if (this.ticks(b) && b.update) this.guard(b, 'update', () => b.update!(dt));
+    for (const s of this.systems) if (s.update) this.guard(s, 'update', () => s.update!(dt));
     for (const b of this.snapshot()) {
       if (!this.ticks(b) || !b._coroutines) continue;
       // Over a copy, removing only what finished: a coroutine may start another mid-step
       // (`yield this.startCoroutine(…)`), and rebuilding the list would drop the newcomer.
       for (const c of b._coroutines.slice()) {
         if (!this.ticks(b)) break; // destroyed or disabled by an earlier one
-        if (c.step(dt, unscaled)) continue;
+        // A coroutine that throws ends there, as in Unity; the behaviour's others go on.
+        if (this.guard(b, 'coroutine', () => c.step(dt, unscaled)) === true) continue;
         const i = b._coroutines?.indexOf(c) ?? -1;
         if (i !== -1) b._coroutines!.splice(i, 1);
       }
     }
-    for (const b of this.snapshot()) if (this.ticks(b)) b.lateUpdate?.(dt);
-    for (const s of this.systems) s.lateUpdate?.(dt);
+    for (const b of this.snapshot()) if (this.ticks(b) && b.lateUpdate) this.guard(b, 'lateUpdate', () => b.lateUpdate!(dt));
+    for (const s of this.systems) if (s.lateUpdate) this.guard(s, 'lateUpdate', () => s.lateUpdate!(dt));
 
     flushDestroyed();
   }
+
+  /**
+   * One hook of one behaviour or system. What it throws is logged, as Unity logs an exception, and
+   * the frame goes on: one broken behaviour stops itself, not the game. A hook that throws on every
+   * frame is logged once, so the console keeps saying something new.
+   */
+  private guard<R>(owner: object, hook: string, call: () => R): R | undefined {
+    try {
+      return call();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const where = `${owner.constructor.name}.${hook}`;
+      const seen = this.thrown.get(where);
+      if (seen?.has(message)) return undefined;
+      this.thrown.set(where, (seen ?? new Set()).add(message));
+      const node = (owner as { _node?: Node | null })._node;
+      const on = node ? ` on ${node.name ? `"${node.name}"` : `a ${node.type}`}` : '';
+      console.error(`${where}${on} threw — the rest of the frame went on, as in Unity; logged once even if it repeats:`, error);
+      return undefined;
+    }
+  }
+
+  /** What each hook has thrown, so each error is logged once. */
+  private readonly thrown = new Map<string, Set<string>>();
 
   /** This runtime's system of that class, made — and woken — on first ask. */
   requireSystem<T extends System>(type: SystemType<T>): T {

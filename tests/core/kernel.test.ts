@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Group, Object3D, Scene } from 'three';
 import {
   Behaviour,
@@ -257,7 +257,38 @@ describe('lookups and coroutines', () => {
       }
     }
     node.addComponent(Sloppy);
-    expect(() => runtime.update(1 / 60)).toThrow(/yield new WaitForSeconds\(0\.5\)/);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    runtime.update(1 / 60);
+    expect(String(errors.mock.calls[0]?.[1])).toMatch(/yield new WaitForSeconds\(0\.5\)/);
+    errors.mockRestore();
+  });
+});
+
+describe('an exception in a hook', () => {
+  it('is logged once and stops only that behaviour, as in Unity', () => {
+    const { scene, runtime } = world();
+    class Broken extends Behaviour {
+      override update() {
+        throw new Error('no ball');
+      }
+    }
+    class Counter extends Behaviour {
+      frames = 0;
+      override update() {
+        this.frames++;
+      }
+    }
+    const node = new Object3D();
+    node.name = 'paddle';
+    scene.add(node);
+    node.addComponent(Broken);
+    const counter = node.addComponent(Counter);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (let i = 0; i < 4; i++) runtime.update(1 / 60);
+    expect(counter.frames).toBe(4);
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(errors.mock.calls[0]![0]).toMatch(/^Broken\.update on "paddle" threw/);
+    errors.mockRestore();
   });
 });
 

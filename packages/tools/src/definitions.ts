@@ -54,6 +54,8 @@ export interface ElementTypes {
   hidden: string[];
   /** Each of the constructor's signatures: its parameters, in order. `args` is read against the one its length fits. */
   constructors: { name: string; field?: Field }[][];
+  /** A function's tag — a prefab, a component: what each prop is when the tag leaves it out. */
+  defaults?: Record<string, unknown>;
 }
 
 interface Api {
@@ -104,6 +106,10 @@ const ALIAS = 2097152;
 const CLASS = 32;
 const VALUE = 111551;
 const CONSTRUCT = 1;
+const CALL = 0;
+/** TypeScript's `SymbolFlags` of a value a tag can call: a function, or a `const` holding one. */
+const FUNCTION = 16;
+const VARIABLE = 3;
 /** TypeScript's `TypeFlags`, those a field's kind is read from. */
 const T = { String: 32, Number: 64, Boolean: 256, StringLiteral: 1024, NumberLiteral: 2048, BooleanLiteral: 8192, Undefined: 4, Null: 8, Union: 134217728 };
 /** Classes whose instances the editor edits as one value. */
@@ -161,10 +167,10 @@ export class Definitions {
       const out: ElementTypes[] = [];
       for (const [index, found] of symbols.entries()) {
         const symbol = found && (found.flags & ALIAS ? await project.checker.getAliasedSymbol(found) : found);
-        if (!symbol || !(symbol.flags & CLASS)) continue;
+        if (!symbol || !(symbol.flags & (CLASS | FUNCTION | VARIABLE))) continue;
         const from = imports.get(all[index]!.tag);
         let known = classes.get(symbol.id);
-        if (!known) classes.set(symbol.id, (known = classOf(project, symbol, from)));
+        if (!known) classes.set(symbol.id, (known = symbol.flags & CLASS ? classOf(project, symbol, from) : propsOf(project, symbol, from)));
         out.push({ element: index, ...(await known) });
       }
       return out;
@@ -239,6 +245,53 @@ async function classOf(project: Project, symbol: Symbol, from: string | undefine
     }),
   );
   return { fields, hidden, constructors };
+}
+
+/**
+ * A function's tag — `<BrickPrefab hits={2} />` — as a class's: its props are its fields, and each
+ * default its parameter gives (`({ hits = 1 })`) is what the editor shows for a prop not written.
+ */
+async function propsOf(project: Project, symbol: Symbol, from: string | undefined): Promise<Omit<ElementTypes, 'element'>> {
+  const none = { fields: {}, hidden: [], constructors: [] };
+  const { checker } = project;
+  const [type] = await checker.getTypeOfSymbol([symbol]);
+  const [signature] = type ? await checker.getSignaturesOfType(type, CALL) : [];
+  if (!signature) return none;
+  const props = await checker.getParameterType(signature, 0);
+  if (!props) return none;
+  const members = await checker.getPropertiesOfType(props);
+  const types = await checker.getTypeOfSymbol(members);
+  const fields: Record<string, Field> = {};
+  for (const [i, member] of members.entries()) {
+    const field = await fieldOf(project, types[i], from);
+    if (field && member.name !== 'children') fields[member.name] = field;
+  }
+  const [parameter] = await signature.getParameters();
+  return { ...none, fields, defaults: parameter ? await defaultsOf(project, parameter) : {} };
+}
+
+/** `{ hits = 1, snap = true }`: each name a destructured parameter gives a literal default. */
+async function defaultsOf(project: Project, parameter: Symbol): Promise<Record<string, unknown>> {
+  const declaration = parameter.valueDeclaration ?? parameter.declarations[0];
+  const node = declaration && (await declaration.resolve());
+  const source = declaration && (await project.program.getSourceFile(declaration.path));
+  if (!node || !source) return {};
+  const text = source.text.slice(skipTrivia(source.text, node.pos), node.end);
+  const defaults: Record<string, unknown> = {};
+  try {
+    const { program } = parseSync('params.ts', `(${text}) => 0`);
+    const pattern = (program.body[0] as any)?.expression?.params?.items?.[0]?.pattern ?? (program.body[0] as any)?.expression?.params?.[0];
+    for (const property of pattern?.properties ?? []) {
+      const value = property.value;
+      if (value?.type !== 'AssignmentPattern' || property.key?.type !== 'Identifier') continue;
+      const right = value.right;
+      if (right.type === 'Literal') defaults[property.key.name] = right.value;
+      else if (right.type === 'UnaryExpression' && right.operator === '-' && typeof right.argument?.value === 'number') defaults[property.key.name] = -right.argument.value;
+    }
+  } catch {
+    // A parameter this cannot read leaves its props without defaults: they show empty.
+  }
+  return defaults;
 }
 
 /** How the editor edits a value of this type, or undefined when it cannot. */

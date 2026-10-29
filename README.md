@@ -113,6 +113,15 @@ running game with it — Playwright's `page.evaluate`, an agent's browser tool, 
 the clock and steps exact frames, presses keys, clicks and swipes, waits for a condition and reads
 behaviours by class: `__scenoco.until("GameState.phase === 'over'")`. `__scenoco.help()` lists the
 rest; `@scenoco-three/observer` is the same calls, typed, for a test.
+A tool that can't run JavaScript in the page — only open an address, read the console and take a
+screenshot — drives it from the address instead: `/?drive=press('Space');until(Game.over);outline()`.
+The address carries data, not code, so a link from anywhere can do no more than press keys.
+
+The game's rules are tested without a browser at all: `simulate(Main)` runs the scene in Vitest, in
+Node or jsdom, and the test steps it, presses keys and checks the result frame by frame.
+
+For an agent making a game, [`skills/scenoco-game`](skills/scenoco-game/SKILL.md) is the workflow as a skill:
+read the rules card, write, `npm run check`, then play it through `__scenoco` until each phase is proven.
 
 ## Editing a scene by hand, visually
 

@@ -1,8 +1,10 @@
-import { Vector2, type Mesh, type Object3D } from 'three';
-import { Behaviour, Input, KeyCode, MouseButton, findObjectOfType } from '@scenoco-three/core';
-import { Rigidbody2D, type Collision2D } from '@scenoco-three/box2d';
+import { Vector2, type Object3D } from 'three';
+import { Behaviour, Input, KeyCode, MouseButton, findObjectOfType, instantiate, type Prefab } from '@scenoco-three/core';
+import { Rigidbody2D, type Collider2D, type Collision2D } from '@scenoco-three/box2d';
 import { Brick } from './Brick.js';
+import { Floor } from './Floor.js';
 import { GameState } from './GameState.js';
+import { Paddle } from './Paddle.js';
 
 /**
  * The ball: rests on the paddle, launches, and never changes pace.
@@ -10,55 +12,68 @@ import { GameState } from './GameState.js';
  * Box2D does the bouncing — every surface here has bounciness 1 — but a physics ball is not a
  * Breakout ball. Two rules are enforced on top of it every step: the speed is held constant, so
  * a glancing hit cannot bleed the rally to a crawl, and the angle is kept away from horizontal,
- * because a ball travelling sideways between two walls never comes back and the game is over
- * without ending.
+ * because a ball travelling sideways between two walls never comes back.
+ *
+ * A multi-ball is more of this prefab: `split` instantiates `copy` twice beside it, each sent off at
+ * an angle from this one's path.
  */
-export class Ball extends Behaviour<Mesh> {
-  /** The node the ball sits on while waiting, and steers off. */
-  paddle!: Object3D;
-
+export class Ball extends Behaviour<Object3D> {
   /** How high above the paddle it waits. */
   restHeight = 0.62;
-
-  /**
-   * How far the bounce angle can be steered by where the paddle was struck, in degrees from
-   * straight up. Classic Breakout's one piece of skill.
-   */
+  /** How far the paddle can steer a bounce, in degrees from straight up: Breakout's one skill. */
   steer = 62;
+  /** What `split` makes more of: this ball's own prefab. */
+  copy: Prefab | null = null;
 
-  /**
-   * How fast the ball travels, in units per second — constant, whatever it bounces off.
-   *
-   * It belongs to the ball, so it lives on the ball — even though the ball is inside the arena
-   * every level shares. A level that wants it faster passes `<Arena ballSpeed={18} />`.
-   */
-  speed = 15;
+  /** Set on a copy before its `start`: the direction it leaves in, radians from straight up. */
+  heading: number | null = null;
 
   private body!: Rigidbody2D;
   private game!: GameState;
+  private paddle!: Paddle;
 
   override awake(): void {
     this.body = this.node.getComponent(Rigidbody2D)!;
     this.game = findObjectOfType(GameState)!;
-    this.listen(this.game.ballReset, this.rest);
+    this.paddle = findObjectOfType(Paddle)!;
+    this.game.addBall(this);
+    this.listen(this.game.ballReset, this.follow);
   }
 
   override start(): void {
-    this.rest();
+    if (this.heading === null) this.follow();
+    else this.send(this.heading);
+  }
+
+  override onDestroy(): void {
+    this.game.removeBall(this);
   }
 
   override update(): void {
-    if (this.game.phase === 'ready') {
-      this.follow();
-      if (Input.getMouseButtonDown(MouseButton.Left) || Input.getKeyDown(KeyCode.Space)) this.launch();
-      return;
+    if (this.game.phase === 'playing') return;
+    this.follow();
+    if (this.game.phase !== 'ready') return;
+    if (Input.getMouseButtonDown(MouseButton.Left) || Input.getKeyDown(KeyCode.Space)) {
+      // Always upward, leaning the way the paddle is off-centre, so the first shot is the player's.
+      this.send(Math.atan(this.paddle.node.position.x / 16));
+      this.game.launched();
     }
-    if (this.game.phase !== 'playing') this.follow();
   }
 
   override fixedUpdate(): void {
-    if (this.game.phase !== 'playing') return;
-    this.hold();
+    if (this.game.phase === 'playing') this.hold();
+  }
+
+  /** Two more of this ball, fanned out from its path. */
+  split(): void {
+    if (!this.copy) return;
+    const { x, y } = this.body.linearVelocity;
+    const along = Math.atan2(x, y);
+    for (const turn of [-0.45, 0.45]) {
+      const ball = instantiate(this.copy, { position: this.node.position.clone() });
+      // In by its `start`, which is where it reads it — Unity's order after `Instantiate`.
+      ball.getComponent(Ball)!.heading = along + turn;
+    }
   }
 
   // --- the two rules --------------------------------------------------------------------
@@ -67,12 +82,10 @@ export class Ball extends Behaviour<Mesh> {
   private hold(): void {
     const { x, y } = this.body.linearVelocity;
     const length = Math.hypot(x, y);
-    if (length < 1e-4) return this.launch();
-
+    if (length < 1e-4) return this.send(0);
     let dirX = x / length;
     let dirY = y / length;
-    // Below about 12° from flat, a rally can bounce between the side walls for ever. Push the
-    // vertical component back up and renormalise, which bends the path rather than stopping it.
+    // Below about 12° from flat, a rally can bounce between the side walls for ever: bend it back.
     const MIN_VERTICAL = 0.21;
     if (Math.abs(dirY) < MIN_VERTICAL) {
       dirY = dirY === 0 ? MIN_VERTICAL : Math.sign(dirY) * MIN_VERTICAL;
@@ -83,50 +96,43 @@ export class Ball extends Behaviour<Mesh> {
     this.body.linearVelocity = new Vector2(dirX * this.speed, dirY * this.speed);
   }
 
-  private follow(): void {
-    this.node.position.set(this.paddle.position.x, this.paddle.position.y + this.restHeight, 0);
-    this.body.position = new Vector2(this.node.position.x, this.node.position.y);
-    this.body.linearVelocity = new Vector2(0, 0);
+  /** The level's pace: `GameState.ballSpeed`. */
+  private get speed(): number {
+    return this.game.ballSpeed;
   }
 
-  private launch(): void {
-    // Always upward, leaning the way the paddle is off-centre, so the first shot is the
-    // player's rather than the same shot every time.
-    const lean = (this.paddle.position.x / 8) * 0.5;
-    const angle = Math.atan(lean);
+  private send(angle: number): void {
     this.body.linearVelocity = new Vector2(Math.sin(angle) * this.speed, Math.cos(angle) * this.speed);
-    this.game.launched();
   }
 
-  private readonly rest = (): void => {
-    this.follow();
+  private readonly follow = (): void => {
+    const at = this.paddle.node.position;
+    this.node.position.set(at.x, at.y + this.restHeight, 0);
+    this.body.position = new Vector2(at.x, at.y + this.restHeight);
+    this.body.linearVelocity = new Vector2(0, 0);
   };
 
   // --- what it runs into ----------------------------------------------------------------
 
   override onCollisionEnter2D(collision: Collision2D): void {
     const other = collision.node;
-    if (other === this.paddle) return this.steerOffPaddle();
+    if (other === this.paddle.node) return this.offPaddle();
     const brick = other.getComponent(Brick);
     if (brick) brick.hit();
+    else this.game.sfx?.play('wall');
   }
 
-  override onTriggerEnter2D(): void {
-    // The only sensor in the level is the floor.
-    this.game.missed();
+  override onTriggerEnter2D(other: Collider2D): void {
+    if (other.node.getComponent(Floor)) this.game.lost(this);
   }
 
-  /**
-   * Leave the paddle at an angle set by where it was hit — the edges throw the ball wide, the
-   * middle sends it back up.
-   */
-  private steerOffPaddle(): void {
-    const offset = clamp((this.node.position.x - this.paddle.position.x) / 1.7, -1, 1);
-    const angle = (offset * this.steer * Math.PI) / 180;
-    this.body.linearVelocity = new Vector2(Math.sin(angle) * this.speed, Math.abs(Math.cos(angle)) * this.speed);
+  /** Leave the paddle at an angle set by where it was hit: the edges throw it wide. */
+  private offPaddle(): void {
+    const half = 1.6 * this.paddle.node.scale.x;
+    const offset = Math.max(-1, Math.min(1, (this.node.position.x - this.paddle.node.position.x) / half));
+    this.send((offset * this.steer * Math.PI) / 180);
+    this.paddle.struck();
+    this.game.returned();
+    this.game.sfx?.play('paddle');
   }
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(high, value));
 }

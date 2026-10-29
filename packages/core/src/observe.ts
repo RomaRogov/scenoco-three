@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { Behaviour, Event, Runtime, Time, behavioursOn, destroy } from './kernel/index.js';
 import { Input } from './input/Input.js';
 import { SceneManager } from './scenes.js';
+import { parseDrive, reader, source, value, type DriveCall, type DriveScope } from './drive.js';
 
 /** What the bridge reads from whatever draws the frame. */
 export interface ObservedState {
@@ -237,6 +238,17 @@ export function installObserverBridge(
     clock() {
       return { held: held.has(runtime), time: round(Time.time), frame: Time.frameCount, timeScale: Time.timeScale };
     },
+    /**
+     * Once the game has run its first frames. Behaviours start listening for input on their first
+     * frames, so a key pressed sooner goes nowhere: call this before anything else.
+     */
+    async ready(frames = 3) {
+      while (runtime.frame < frames) {
+        if (held.has(runtime)) stepFrames(frames - runtime.frame, DT);
+        else await new Promise((done) => requestAnimationFrame(done));
+      }
+      return bridge.clock();
+    },
     /** Hold the clock where it is: the game moves only when stepped. */
     pause() {
       hold();
@@ -256,9 +268,9 @@ export function installObserverBridge(
       return bridge.clock();
     },
     /** Hold the clock and step until `code` is true, at most `maxFrames`. */
-    async until(code: string, maxFrames = 600, dt = DT) {
+    async until(code: string | (() => unknown), maxFrames = 600, dt = DT) {
       hold();
-      const test = expression(code);
+      const test = typeof code === 'string' ? expression(code) : code;
       for (let frame = 0; frame <= maxFrames; frame++) {
         if (test()) {
           await nextPaint();
@@ -273,9 +285,9 @@ export function installObserverBridge(
      * Hold the clock, step `frames`, and read each expression every `every` frames: one row per
      * sample, with the time, the frame and each value under its text. A reading that throws is `{ error }`.
      */
-    async watch(fields: string[], frames = 60, every = 10, dt = DT) {
+    async watch(fields: string[], frames = 60, every = 10, dt = DT, compile: (field: string) => () => unknown = expression) {
       hold();
-      const readers = fields.map((field) => ({ field, read: expression(field) }));
+      const readers = fields.map((field) => ({ field, read: compile(field) }));
       const rows: Record<string, unknown>[] = [];
       const sample = () => {
         const row: Record<string, unknown> = { t: round(Time.time), frame: Time.frameCount };
@@ -437,8 +449,23 @@ export function installObserverBridge(
   };
 
   (window as unknown as { __scenoco?: unknown }).__scenoco = bridge;
+  const script = new URLSearchParams(location.search).get('drive');
+  if (script) {
+    const camera = () => get().camera;
+    const scope: DriveScope = {
+      type: (name) => learnClasses().get(name),
+      live: (name) => byClass().get(name) ?? [],
+      of,
+      node: nodeNamed,
+      globals: { Time, get scene() { return get().scene; }, get camera() { return camera(); } },
+    };
+    void drive(bridge as unknown as Bridge, script, scope);
+  }
   // Where an agent's browser tools look first: the console says what drives the game.
-  console.info('SceNoCo: this game is driven from the page with window.__scenoco — call __scenoco.help().');
+  console.info(
+    'SceNoCo: this game is driven from the page with window.__scenoco — call __scenoco.help(). ' +
+      "A tool that cannot run JavaScript in the page drives it from the address and reads the console: ?drive=press('Space');until(Game.over);outline()",
+  );
   return () => {
     held.delete(runtime);
     viewing.delete(runtime);
@@ -446,6 +473,55 @@ export function installObserverBridge(
     const w = window as unknown as { __scenoco?: unknown };
     if (w.__scenoco === bridge) delete w.__scenoco;
   };
+}
+
+type Bridge = Record<string, (...args: unknown[]) => unknown>;
+
+/** What `?drive=` may call with data: every bridge method that answers with plain data, but `eval`. */
+const DRIVE_CALLS = ['pause', 'play', 'clock', 'step', 'outline', 'telemetry', 'view', 'press', 'keyDown', 'keyUp', 'click', 'pointerDown', 'pointerMove', 'pointerUp', 'swipe'];
+
+/**
+ * `?drive=press('Space');until(GameState.phase == 'playing');read(count(Brick))` — drive the game to
+ * the moment a check needs, from the address (`drive.ts`): each call waits for the one before, each
+ * answer is one console line, and the clock stays held after the last, so the screenshot taken next
+ * shows that moment. It reads data only, so a link from anywhere can do no more than press keys.
+ */
+async function drive(bridge: Bridge, script: string, scope: DriveScope): Promise<void> {
+  let calls: DriveCall[];
+  try {
+    calls = parseDrive(script);
+  } catch (error) {
+    console.error(`[scenoco] ?drive= could not be read: ${error instanceof Error ? error.message : String(error)}. Write # as %23 in an address.`);
+    return;
+  }
+  await bridge.ready!();
+  bridge.pause!();
+  for (const { name, args } of calls) {
+    const call = `${name}(${args.map((a) => source(a)).join(', ')})`;
+    try {
+      let answer: unknown;
+      if (name === 'until') answer = await bridge.until!(reader(args[0]!, scope), ...args.slice(1).map((a) => value(a, scope)));
+      else if (name === 'read') answer = readable(reader(args[0]!, scope)());
+      else if (name === 'watch') {
+        const items = args[0]?.k === 'arr' ? args[0].items : args.slice(0, 1);
+        const readers = new Map(items.map((item) => [source(item), reader(item, scope)]));
+        answer = await bridge.watch!([...readers.keys()], ...[60, 10, DT].map((d, i) => (args[i + 1] ? value(args[i + 1]!, scope) : d)), (f: string) => readers.get(f)!);
+      } else if (DRIVE_CALLS.includes(name)) answer = await bridge[name]!(...args.map((a) => value(a, scope)));
+      else throw new Error(`there is no ${name}() — drive calls ${[...DRIVE_CALLS, 'until', 'watch', 'read'].join(', ')}`);
+      console.info(`[scenoco] ${call} →`, typeof answer === 'string' ? `\n${answer}` : answer === undefined ? 'done' : JSON.stringify(answer));
+    } catch (error) {
+      console.error(`[scenoco] ${call} failed, and the calls after it did not run: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+  }
+  console.info(`[scenoco] done, held at frame ${(bridge.clock!() as { frame: number }).frame}: a screenshot now shows this frame. Open the address without ?drive= to play.`);
+}
+
+/** A reading as one console line: a behaviour as its fields, as `eval` answers. */
+function readable(value: unknown): unknown {
+  if (value instanceof Behaviour) return { class: value.constructor.name, ...fields(value) };
+  if (Array.isArray(value) && value.some((v) => v instanceof Behaviour)) return value.map(readable);
+  return plain(value, 3);
 }
 
 const HELP = `window.__scenoco — the running SceNoCo game, from the page (development only).
@@ -467,7 +543,11 @@ Input — as the player's, stepped while the clock is held; x, y in pixels from 
   click(x, y)  pointerDown(x, y)  pointerMove(x, y)  pointerUp()  swipe([x, y], [x, y], frames = 8)
 Looking — take the screenshot with the browser's own tool:
   view({ cameraPos: [x, y, z], lookAt: [x, y, z] | "#name", fov }) draws from there until view(null) or play()
-CSS animations and timers in the page run in real time, not on the held clock: to wait for one, play() and let it finish.`;
+CSS animations and timers in the page run in real time, not on the held clock: to wait for one, play() and let it finish.
+Start with ready(): it resolves once the game has run its first frames — a key pressed sooner goes nowhere.
+Driving from the address, for a tool that cannot run JavaScript here: ?drive=press('Space');until(Game.over);read(count(Brick))
+runs the calls in order on a held clock, one console line each, and holds the last frame for a screenshot; write # as %23.
+It reads data, not code: fields and getters of behaviours, #nodes, Time, count/find/findAll(Type), operators — no other calls.`;
 
 /** A key by the name Playwright uses — "Space", "ArrowLeft", "a", "7" — as the DOM's code and key. */
 function keyOf(name: string): { code: string; key: string } {

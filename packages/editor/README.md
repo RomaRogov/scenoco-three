@@ -35,8 +35,9 @@ and a production build never contains it.
   degrees, colours, flags, strings, and one-of-a-few values as a list — `alignTo="world"`, three's
   `side={DoubleSide}` (imported for you when the file lacks it). What each field is comes from its
   declared type, as the project's TypeScript (7 or later) reads it; `private` fields are not shown.
-  A behaviour lists every public field, those the file leaves out greyed at their defaults; a
-  three.js tag lists what the file writes, besides a node's name and transform.
+  A behaviour lists every public field, those the file leaves out greyed at their defaults — and so
+  does a prefab's or a component's tag, its props at the defaults its parameter gives; a three.js
+  tag lists what the file writes, besides a node's name and transform.
   Drag a number sideways to scrub it. A value with focus
   shows what the file says; a value changed and not saved, or moved by the game, has a reset
   button at the end of its line that puts back what the file says — or, for one the file does not
@@ -49,9 +50,16 @@ and a production build never contains it.
   made, such as `<PlaneGeometry>`, shows under its node. An argument changes the live object
   through the property it sets, found by building the class with it changed; a geometry or a
   material is built again and copied into itself. Save rewrites only the item that changed.
+- **Duplicate and delete** (⌘D, ⌫, or the buttons beside the selection). Duplicate writes a copy of
+  the element — with everything it holds — on the next line, and the copy comes back selected, in
+  its original's place, to be moved; delete takes the element out, after asking. Both change the
+  file at once, unsaved changes saved first, and load the page again from it, held as a reset holds
+  it. Undo does not reach them: the file's history does. A scene's or a prefab's root, and an element
+  written inside `{…}`, are refused with why.
 - **A behaviour sees its fields change.** After a field is changed in the editor — or undone, or
   reset — its `onValidate()` runs, as Unity's `OnValidate` does; so it does when its node moves, or
-  a node a scene gave it, or one under that. What a behaviour builds once in `start` follows a
+  a node a scene gave it, or one under that. What `onValidate` makes of a value — a position
+  snapped to a grid — is what Save writes. What a behaviour builds once in `start` follows a
   change when `onValidate` builds it again: `onValidate() { this.place(); }` slides a `PlaceOnPath`
   along its path as `t` is dragged, and a road bent along a spline follows a knot under the gizmo.
 - **Your code editor, your way** (⚙, the same settings). Source links open the editor that is running, or

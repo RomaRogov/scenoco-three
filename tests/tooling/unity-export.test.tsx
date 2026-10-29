@@ -76,8 +76,12 @@ describe('unity export', () => {
   it("builds the project's prefabs in its own page", async () => {
     // breakout, through its own Vite and a headless Chrome: what `scenoco-unity` reads.
     const snap = await snapshotProject(fileURLToPath(new URL('../../examples/breakout', import.meta.url)));
-    expect(snap.warnings).toEqual([]);
-    expect(snap.prefabs.map((p) => p.name).sort()).toEqual(['BrickPrefab', 'Level1', 'Level2', 'Level3', 'Run']);
+    // A particle effect is three.quarks data with no Unity counterpart in the exporter yet: said, and skipped.
+    expect(snap.warnings.filter((w) => !w.includes('<ParticleSystem effect>'))).toEqual([]);
+    expect(snap.prefabs.map((p) => p.name).sort()).toEqual([
+      'BallPrefab', 'BoltPrefab', 'BrickPrefab', 'FirmBurst', 'HardBurst', 'LaserPickup', 'Level1', 'Level2', 'Level3',
+      'MultiPickup', 'Run', 'SlimPickup', 'SoftBurst', 'Spark', 'WidePickup',
+    ]);
     // The walls share one geometry and one material, as assets.ts made them.
     const all = (n: SnapshotNode): SnapshotNode[] => [n, ...n.children.flatMap(all)];
     const walls = all(snap.prefabs.find((p) => p.name === 'Level1')!.root).filter((n) => /^wall(Left|Right)$/.test(n.name));

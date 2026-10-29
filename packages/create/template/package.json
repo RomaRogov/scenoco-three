@@ -8,12 +8,12 @@
     "check": "tsc --noEmit && scenoco check src"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.9.6",
+    "@scenoco-three/core": "^0.9.7",
     "three": "^0.184.0"
   },
   "devDependencies": {
-    "@scenoco-three/observer": "^0.9.6",
-    "@scenoco-three/tools": "^0.9.6",
+    "@scenoco-three/observer": "^0.9.7",
+    "@scenoco-three/tools": "^0.9.7",
     "@types/three": "^0.184.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"

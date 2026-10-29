@@ -214,10 +214,10 @@ class InputClass {
     document.addEventListener('click', this.onPageClick, true);
   }
 
-  /** @internal */
-  detach(): void {
+  /** @internal `from`: only if still attached to it — a game disposed after the next one started leaves that one's. */
+  detach(from?: HTMLElement): void {
     const element = this.element;
-    if (!element) return;
+    if (!element || (from && from !== element)) return;
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
@@ -269,17 +269,21 @@ class InputClass {
   // place that asserts either type. An unrecognised key is stored and never matches a lookup.
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.repeat) return;
-    const key = event.code as KeyCode;
-    this.held.add(key);
-    this.pressed.add(key);
+    if (!event.repeat) this.key(event.code as KeyCode, true);
   };
 
-  private readonly onKeyUp = (event: KeyboardEvent): void => {
-    const key = event.code as KeyCode;
-    this.held.delete(key);
-    this.released.add(key);
-  };
+  private readonly onKeyUp = (event: KeyboardEvent): void => this.key(event.code as KeyCode, false);
+
+  /** @internal a key going down or up, as the keyboard's events say it — or a simulation does. */
+  key(key: KeyCode, down: boolean): void {
+    if (down) {
+      this.held.add(key);
+      this.pressed.add(key);
+    } else {
+      this.held.delete(key);
+      this.released.add(key);
+    }
+  }
 
   private readonly onBlur = (): void => this.clear();
 

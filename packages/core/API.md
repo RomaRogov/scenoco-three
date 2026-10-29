@@ -21,7 +21,7 @@ is three.js, as three.js documents it.
 // A scene file only declares: no loops, branches, handlers or calls — `scenoco check` says what to write instead.
 
 function play(scene: () => JSX.Element, options?: {
-  container?: HTMLElement;
+  container?: HTMLElement;         // default document.body: the game is the page; an element — a React app's <div> — it fills and follows
   fixedDelta?: number;
   renderer?: WebGLRenderer;         // your own, for what only its constructor sets: new WebGLRenderer({ antialias: false })
   autoCamera?: boolean;             // false: play picks and fits no camera — set game.camera and size it yourself
@@ -32,6 +32,19 @@ interface Game {
                                     // hidden or removed, the next one draws. Settable; with autoCamera: false, only what you set
   readonly renderer: WebGLRenderer; // shadows, tone mapping: set them as three.js documents
   render: () => void;               // replace to draw another way: game.render = () => composer.render()
+  dispose: () => void;              // stop it and free the canvas; onDestroy runs — a React effect's cleanup
+}
+function simulate(scene: () => JSX.Element, options?: { fixedDelta?: number }): Simulation;  // no canvas, no loop:
+                                    // a test in Node or jsdom (Vitest) steps it — the game's rules, frame-exact
+interface Simulation {
+  readonly scene: Scene;
+  readonly camera: PerspectiveCamera | OrthographicCamera | null;   // what this.camera is; nothing is drawn
+  step(frames?: number, dt?: number): void;                         // default 1 frame of 1/60 s
+  until(condition: () => boolean, maxFrames?: number): boolean;     // steps until true: whether it came true (600)
+  press(key: KeyCode, frames?: number): void;                       // held 6 frames, then let go
+  keyDown(key: KeyCode): void;
+  keyUp(key: KeyCode): void;
+  dispose(): void;                                                  // onDestroy runs; input let go
 }
 function ref<T>(): { current: T | null };
 function prefab<F extends (props: P) => JSX.Element>(build: F): F;  // export const Coin = prefab(() => <Mesh>…</Mesh>): one root;

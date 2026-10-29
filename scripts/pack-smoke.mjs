@@ -164,7 +164,9 @@ try {
   await runBuiltPage(join(app, 'dist'), async (page) => {
     await page.waitForFunction(() => document.getElementById('level')?.textContent?.includes('NEON GRID'), undefined, { timeout: 30_000 });
     console.log('  the game runs: the first level is loaded and the HUD reports it');
-    // A real round: launch, and wait for the ball to break a brick against the wall.
+    // A real round: past the splash, launch, and wait for the ball to break a brick against the wall.
+    await page.keyboard.press('Space');
+    await new Promise((done) => setTimeout(done, 300));
     await page.keyboard.press('Space');
     await page.waitForFunction(() => document.getElementById('score')?.textContent !== '00000', undefined, { timeout: 30_000 });
     console.log('  a launched ball breaks a brick, and the score shows it');
@@ -263,7 +265,8 @@ async function runObserver(root) {
       if (!outline.includes(expected)) fail(`the observer's outline has no ${expected}:\n${outline}`);
     }
     console.log('  outlines the running game');
-    await game.press('Space');
+    await game.press('Space'); // past the splash
+    await game.press('Space'); // the launch
     const launched = await game.until("GameState.phase === 'playing'", { maxFrames: 60 });
     if (!launched.met) fail('Space did not launch the ball through the bridge');
     console.log('  presses a key and steps the held clock to the launch');

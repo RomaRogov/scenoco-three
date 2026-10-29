@@ -22,10 +22,27 @@ export function attachWorld(scene: Scene, changed: () => void): void {
   loaded.length = 0;
 }
 
+/** @internal the game `play` made is gone: loads have nowhere to go until the next one. */
+export function detachWorld(scene: Scene): void {
+  if (world !== scene) return;
+  world = null;
+  onLoaded = () => {};
+  loaded.length = 0;
+}
+
 /** @internal build a scene into the world, replacing what was loaded unless `additive`. */
 export function loadInto(root: Scene, build: () => unknown, additive: boolean): Scene {
   const built = build();
-  if (!(built instanceof Object3D)) throw new Error(`${build.name || 'A scene'} must return an element — <Scene>…</Scene>.`);
+  if (!(built instanceof Object3D)) {
+    // A three.js object that is not this three's: the project has two copies, and `instanceof` across them is false.
+    if ((built as { isObject3D?: boolean } | null)?.isObject3D) {
+      throw new Error(
+        `${build.name || 'A scene'} returned a three.js object from another copy of three.js than SceNoCo's: the project has two (\`npm ls three\` lists them). ` +
+          "Install one — `npm dedupe` — or, under Vite or Vitest, add `resolve: { dedupe: ['three'] }` to the config.",
+      );
+    }
+    throw new Error(`${build.name || 'A scene'} must return an element — <Scene>…</Scene>.`);
+  }
   const scene = built instanceof Scene ? built : new Scene().add(built);
   if (!additive) {
     for (const old of loaded.splice(0)) destroy(old);

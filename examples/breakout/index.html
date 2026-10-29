@@ -5,41 +5,239 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>Breakout — SceNoCo</title>
     <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@800&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
     <style>
-      html, body { margin: 0; height: 100%; background: #05070d; overflow: hidden; }
-      canvas { display: block; touch-action: none; }
-      body { font: bold 14px/1 system-ui, -apple-system, sans-serif; color: #e2e8f0; }
-      .bar {
-        position: fixed; inset: 0 0 auto 0; height: 58px; padding: 0 16px; box-sizing: border-box;
-        display: flex; align-items: center; justify-content: space-between;
-        background: rgb(13 21 38 / 0.94); pointer-events: none;
+      :root {
+        --cyan: #2ff5d2;
+        --pink: #ff3dd8;
+        --gold: #ffd23f;
+        --ink: #e9f2ff;
+        --dim: #6f86b3;
+        --arcade: Orbitron, 'Arial Black', system-ui, sans-serif;
       }
-      .group { display: flex; align-items: center; gap: 8px; }
-      .label { font-size: 11px; color: #5b7089; }
-      #score { font-size: 22px; color: #5eead4; }
-      #level { font-size: 11px; color: #8fa3bd; }
-      #lives { display: flex; gap: 7px; }
-      #lives i { width: 11px; height: 11px; border-radius: 50%; background: #fb7185; }
-      #lives i.spent { visibility: hidden; }
+      html, body { margin: 0; height: 100%; background: #02040a; overflow: hidden; }
+      canvas { display: block; touch-action: none; }
+      body { font-family: var(--arcade); color: var(--ink); user-select: none; -webkit-user-select: none; }
+
+      /* The bar: three glass panels, numbers glowing in neon. */
+      .bar {
+        position: fixed; inset: max(10px, env(safe-area-inset-top)) 12px auto 12px;
+        display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 10px; pointer-events: none;
+      }
+      .panel {
+        display: flex; flex-direction: column; gap: 4px; padding: 9px 14px 10px; border-radius: 14px;
+        background: linear-gradient(180deg, rgb(20 30 60 / 0.72), rgb(8 12 28 / 0.6));
+        border: 1px solid rgb(120 160 255 / 0.22);
+        box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4), 0 8px 30px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.08);
+        backdrop-filter: blur(6px);
+      }
+      .panel { justify-self: start; }
+      .panel.right { justify-self: end; align-items: flex-end; }
+      .panel.middle { justify-self: center; }
+      .panel.middle { align-items: center; }
+      .label { font-size: 9px; font-weight: 700; letter-spacing: 0.28em; color: var(--dim); }
+      #score {
+        font-family: 'Exo 2', var(--arcade); font-size: 30px; font-weight: 800; font-style: italic; letter-spacing: 0.08em; color: var(--cyan);
+        text-shadow: 0 0 8px rgb(47 245 210 / 0.8), 0 0 22px rgb(47 245 210 / 0.45);
+        font-variant-numeric: tabular-nums;
+      }
+      #level { font-size: 12px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink); white-space: nowrap; }
+      #lives { display: flex; gap: 6px; padding-top: 3px; }
+      #lives i {
+        width: 22px; height: 7px; border-radius: 4px; background: var(--pink);
+        box-shadow: 0 0 8px rgb(255 61 216 / 0.9);
+      }
+      #lives i.spent { background: rgb(255 255 255 / 0.1); box-shadow: none; }
+
+      #combo {
+        position: fixed; left: 50%; top: max(78px, calc(env(safe-area-inset-top) + 70px)); transform: translateX(-50%);
+        font-size: 15px; font-weight: 900; letter-spacing: 0.2em; color: var(--gold);
+        text-shadow: 0 0 10px rgb(255 210 63 / 0.9); pointer-events: none;
+      }
+
+      /* Running bonuses: a chip each, its bar draining as its time runs out. */
+      #effects {
+        position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+        display: flex; gap: 8px; pointer-events: none;
+      }
+      .chip {
+        --left: 1; min-width: 74px; padding: 6px 10px 7px; border-radius: 10px; text-align: center;
+        background: rgb(8 12 28 / 0.75); border: 1px solid var(--tint);
+        box-shadow: 0 0 14px color-mix(in srgb, var(--tint) 55%, transparent);
+        font-size: 11px; font-weight: 900; letter-spacing: 0.14em; color: var(--tint);
+      }
+      .chip i {
+        display: block; height: 3px; margin-top: 5px; border-radius: 2px; background: var(--tint);
+        transform: scaleX(var(--left)); transform-origin: left;
+      }
+
+      #sound {
+        position: fixed; z-index: 2; right: 14px; bottom: max(14px, env(safe-area-inset-bottom)); width: 42px; height: 42px;
+        display: grid; place-items: center; padding: 0; border-radius: 12px; cursor: pointer;
+        background: rgb(8 12 28 / 0.7); border: 1px solid rgb(120 160 255 / 0.25); color: var(--cyan);
+        box-shadow: 0 0 12px rgb(47 245 210 / 0.25);
+      }
+      #sound svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      #sound path:first-child { fill: currentColor; }
+      #sound .cross { display: none; }
+      #sound.off { color: var(--dim); box-shadow: none; }
+      #sound.off .wave { display: none; }
+      #sound.off .cross { display: block; }
+
+      /* A brick's points, rising from where it broke. */
+      #popups { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      .popup {
+        position: absolute; transform: translate(-50%, -50%);
+        font-size: 15px; font-weight: 900; color: #fff; letter-spacing: 0.04em;
+        text-shadow: 0 0 8px rgb(47 245 210 / 0.9);
+        animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+      }
+      .popup.hot { color: var(--gold); font-size: 19px; text-shadow: 0 0 10px rgb(255 210 63 / 0.95); }
+      @keyframes rise {
+        from { opacity: 1; translate: 0 0; scale: 0.6; }
+        25% { scale: 1.15; }
+        to { opacity: 0; translate: 0 -64px; scale: 1; }
+      }
+      .bump { animation: bump 0.22s ease-out; }
+      @keyframes bump { 40% { scale: 1.18; } }
+
+      /* Between rounds. */
       #banner {
-        position: fixed; inset: 0; display: flex; flex-direction: column; gap: 16px;
-        align-items: center; justify-content: center; background: rgb(3 5 9 / 0.82); cursor: pointer;
+        position: fixed; inset: 0; display: flex; flex-direction: column; gap: 22px;
+        align-items: center; justify-content: center; cursor: pointer;
+        background: radial-gradient(ellipse at center, rgb(10 6 30 / 0.55), rgb(2 4 10 / 0.9));
       }
       #banner[hidden] { display: none; }
-      #headline { font-size: 46px; color: #f8fafc; }
-      #hint { font-size: 15px; font-weight: normal; color: #7f96b3; }
+      #headline {
+        font-size: clamp(34px, 9vw, 72px); font-weight: 900; letter-spacing: 0.08em; text-align: center;
+        color: #fff; text-shadow: 0 0 12px var(--glow), 0 0 40px var(--glow), 0 0 80px var(--glow);
+        --glow: rgb(47 245 210 / 0.8); animation: arrive 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+      }
+      #headline[data-mood='bad'] { --glow: rgb(255 61 107 / 0.85); }
+      #hint { font-size: 13px; font-weight: 700; letter-spacing: 0.32em; color: var(--dim); animation: blink 1.2s steps(2) infinite; }
+      @keyframes arrive { from { scale: 0.6; opacity: 0; } }
+
+      /* The splash: the first level waits behind it until PLAY, which is also what lets sound start. */
+      #splash {
+        position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; gap: 26px;
+        align-items: center; justify-content: center; text-align: center; padding: 16px;
+        background: radial-gradient(ellipse at center, rgb(14 8 40 / 0.6), rgb(2 4 10 / 0.94));
+      }
+      #splash { transition: opacity 0.5s ease, visibility 0s 0.5s; }
+      #splash.gone { opacity: 0; visibility: hidden; pointer-events: none; }
+      #splash.gone #title { translate: 0 -30px; scale: 1.08; transition: translate 0.5s ease-in, scale 0.5s ease-in; }
+      #title {
+        font-size: clamp(44px, 13vw, 112px); font-weight: 900; letter-spacing: 0.06em; line-height: 0.9;
+        color: #fff; font-style: italic;
+        text-shadow: 0 0 10px var(--pink), 0 0 36px rgb(255 61 216 / 0.7), 0 0 90px rgb(255 61 216 / 0.45);
+        animation: arrive 0.7s cubic-bezier(0.2, 1.4, 0.4, 1);
+      }
+      #title small {
+        display: block; margin-top: 14px; font-size: 0.16em; font-style: normal; letter-spacing: 0.5em;
+        color: var(--cyan); text-shadow: 0 0 10px rgb(47 245 210 / 0.8);
+      }
+      #play {
+        font: 900 22px/1 var(--arcade); letter-spacing: 0.3em; padding: 18px 40px 18px 46px; cursor: pointer;
+        color: #02040a; background: var(--cyan); border: 0; border-radius: 14px;
+        box-shadow: 0 0 18px rgb(47 245 210 / 0.8), 0 0 60px rgb(47 245 210 / 0.35);
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      #play:active { scale: 0.96; }
+      @keyframes pulse { 50% { box-shadow: 0 0 26px rgb(47 245 210 / 1), 0 0 90px rgb(47 245 210 / 0.55); } }
+      #how { font-size: 11px; font-weight: 700; letter-spacing: 0.22em; line-height: 2; color: var(--dim); }
+
+      /* The HUD drops in once PLAY is pressed. */
+      .bar { translate: 0 -140%; opacity: 0; transition: translate 0.6s cubic-bezier(0.2, 1.3, 0.4, 1) 0.15s, opacity 0.4s ease 0.15s; }
+      .bar.shown { translate: 0 0; opacity: 1; }
+
+      /* Between levels the screen goes to black and comes back. */
+      #fade {
+        position: fixed; inset: 0; z-index: 1; pointer-events: none; background: #02040a;
+        opacity: 0; transition: opacity 0.7s ease;
+      }
+      #fade.shut { opacity: 1; transition-duration: 0.6s; }
+
+      /* A lost ball: the edges of the screen flash red. */
+      #flash {
+        position: fixed; inset: 0; pointer-events: none; opacity: 0;
+        background: radial-gradient(ellipse at center, transparent 45%, rgb(255 40 90 / 0.55));
+      }
+      #flash.on { animation: flash 0.9s ease-out; }
+      @keyframes flash { 8% { opacity: 1; } to { opacity: 0; } }
+
+      /* A stage's name, sweeping in and out as it opens. */
+      #intro {
+        position: fixed; left: 0; right: 0; top: 40%; text-align: center; pointer-events: none; opacity: 0;
+        font-size: clamp(26px, 7vw, 54px); font-weight: 900; letter-spacing: 0.12em; color: #fff;
+        text-shadow: 0 0 12px rgb(47 245 210 / 0.9), 0 0 44px rgb(47 245 210 / 0.5);
+      }
+      #intro small { display: block; margin-bottom: 8px; font-size: 0.3em; letter-spacing: 0.6em; color: var(--cyan); }
+      #intro.on { animation: intro 2.2s cubic-bezier(0.2, 0.8, 0.3, 1) 0.2s; }
+      @keyframes intro {
+        from { opacity: 0; translate: 60px 0; letter-spacing: 0.5em; }
+        18% { opacity: 1; translate: 0 0; letter-spacing: 0.12em; }
+        75% { opacity: 1; translate: 0 0; }
+        to { opacity: 0; translate: -40px 0; }
+      }
+
+      /* The banner fades in; after a loss it waits for the sting first. */
+      #banner { animation: appear 0.45s ease both; }
+      #banner[data-mood='bad'] { animation-delay: 0.7s; }
+      #banner #hint { animation: blink 1.2s steps(2) infinite, appear 0.4s ease 0.5s both; }
+      #banner[data-mood='bad'] #headline { animation-delay: 0.7s; animation-fill-mode: both; }
+      @keyframes appear { from { opacity: 0; } }
+
+      /* A pip lost: it bursts, then stays dark. */
+      #lives i { transition: background 0.3s, box-shadow 0.3s; }
+      #lives i.losing { animation: burst 0.6s ease-out; }
+      @keyframes burst { 0% { background: #fff; scale: 1; } 30% { scale: 1.8 2.2; box-shadow: 0 0 22px var(--pink); } to { scale: 1; } }
+
+      /* A bonus chip pops in. */
+      .chip.new { animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1); }
+      @keyframes pop { from { scale: 0.3; opacity: 0; } }
+
+      /* A phone held upright: the same three panels, tighter. */
+      @media (max-width: 560px) {
+        .bar { inset-inline: 8px; gap: 6px; }
+        .panel { padding: 7px 9px 8px; border-radius: 11px; }
+        .label { font-size: 8px; letter-spacing: 0.2em; }
+        #score { font-size: 19px; }
+        #level { font-size: 9px; letter-spacing: 0.08em; }
+        #lives { gap: 4px; }
+        #lives i { width: 14px; height: 6px; }
+      }
+      @keyframes blink { 50% { opacity: 0.25; } }
     </style>
   </head>
   <body>
-    <div class="bar">
-      <div class="group"><span class="label">SCORE</span><span id="score">00000</span></div>
-      <div class="group"><span id="level">1/3</span></div>
-      <div class="group"><span class="label">LIVES</span><span id="lives"><i></i><i></i><i></i></span></div>
+    <div class="bar" id="hud">
+      <div class="panel"><span class="label">SCORE</span><span id="score">00000</span></div>
+      <div class="panel middle"><span class="label">STAGE</span><span id="level">1/3</span></div>
+      <div class="panel right"><span class="label">LIVES</span><span id="lives"><i></i><i></i><i></i></span></div>
     </div>
+    <!-- The sound switch: a virtual button, as the banner is. M on a keyboard. -->
+    <button id="sound" data-button="Sound" aria-label="Sound on or off" title="Sound (M)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" /><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" /><path class="cross" d="M16 9l6 6M22 9l-6 6" /></svg>
+    </button>
+    <div id="combo"></div>
+    <div id="effects"></div>
+    <div id="popups"></div>
     <!-- Between rounds. A virtual button: Input.getButtonDown('Continue') reads a tap on it. -->
     <div id="banner" data-button="Continue" hidden>
       <div id="headline"></div>
       <div id="hint"></div>
+    </div>
+    <!-- Over everything but the splash: black between levels, a red flash on a lost ball, a stage's name. -->
+    <div id="flash"></div>
+    <div id="intro"></div>
+    <div id="fade" class="shut"></div>
+    <!-- The first screen. PLAY is a virtual button too; Space or Enter on a keyboard. -->
+    <div id="splash">
+      <div id="title">BREAKOUT<small>NEON · FM · SCENOCO</small></div>
+      <button id="play" data-button="Play">PLAY</button>
+      <div id="how">DRAG OR MOUSE TO STEER · TAP OR SPACE TO LAUNCH<br />M FOR SOUND</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

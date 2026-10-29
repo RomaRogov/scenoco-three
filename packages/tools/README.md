@@ -19,4 +19,6 @@ text that changed — everything else, comments and layout included, stays byte 
 found by the line and column the runtime's `sourceOf` reports, so a picked object leads to its tag.
 
 `@scenoco-three/tools/vite` is the project's Vite plugin, `scenoco()`: TSX through core's runtime and,
-while serving, [the editor](../editor) with the endpoints it reads and writes scene files through.
+while serving, [the editor](../editor) with the endpoints it reads and writes scene files through. In a
+project whose other TSX is React's, `scenoco({ include: 'src/game/**' })` makes only those files
+SceNoCo's; exclude the same files from `@vitejs/plugin-react`.

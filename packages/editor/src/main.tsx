@@ -123,6 +123,16 @@ export function mount(host: EditHost): () => void {
       else model.redo();
       return;
     }
+    if ((event.metaKey || event.ctrlKey) && key === 'd' && host.selected) {
+      event.preventDefault();
+      void model.restructure(host.selected, true);
+      return;
+    }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && host.selected) {
+      event.preventDefault();
+      void model.restructure(host.selected, false);
+      return;
+    }
     const mode = ({ w: 'translate', e: 'rotate', r: 'scale' } as const)[key as 'w' | 'e' | 'r'];
     if (mode) model.setMode(mode);
     if (key === 'f' && host.selected) host.frame(host.selected);
