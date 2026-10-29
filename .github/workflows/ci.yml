@@ -46,7 +46,7 @@ jobs:
         run: npm test
 
   # The packages as npm hands them out, installed in a fresh project outside the workspace and
-  # walked through init, check, a production build run in Chrome, and the observer. Every other
+  # walked through init, check, a production build run in Chrome, and the bridge on the dev server. Every other
   # check here imports the sources; this is the one that sees what a user installs.
   packed:
     runs-on: ${{ matrix.os }}

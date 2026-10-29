@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/audio",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "Audio for SceNoCo: Unity-shaped AudioSource, AudioClip and AudioMixer on three.js's Web Audio wrappers.",
   "keywords": [
     "three",
@@ -65,7 +65,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.9.7"
+    "@scenoco-three/core": "^0.9.8"
   },
   "peerDependencies": {
     "three": ">=0.160.0"

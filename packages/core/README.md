@@ -55,7 +55,7 @@ play(Main);
 - `simulate(Main)` runs a scene with no canvas, for a Vitest test in Node or jsdom: it steps frames,
   presses keys and waits for a condition, so the game's rules are tested like any other code.
 - In development `play()` installs `window.__scenoco`, the bridge a browser tool or
-  `@scenoco-three/observer` drives the game through, and every object
+  a Playwright test drives the game through, and every object
   remembers where its tag was written (`sourceOf`). A button on the page opens
   [the editor](../editor) over the running game.
 
@@ -87,7 +87,6 @@ Every package depends on core alone; install the ones a game needs.
 | [`@scenoco-three/splines`](https://www.npmjs.com/package/@scenoco-three/splines) | Unity's Splines — tracks, rails and roads: `SplineContainer`, `SplineMesh`, `SplineExtrude`, `SplineInstantiate`, `SplineAnimate`. |
 | [`@scenoco-three/terrain`](https://www.npmjs.com/package/@scenoco-three/terrain) | Unity's `Terrain` and `TerrainData`: ground from a heightmap, layers blended by weight. |
 | [`@scenoco-three/tools`](https://www.npmjs.com/package/@scenoco-three/tools) | `scenoco check` — a scene only declares — and the `scenoco()` Vite plugin. |
-| [`@scenoco-three/observer`](https://www.npmjs.com/package/@scenoco-three/observer) | `observe(page)`: a Playwright or Puppeteer test holds the game's clock, drives input and reads behaviours back. |
 | [`@scenoco-three/editor`](https://www.npmjs.com/package/@scenoco-three/editor) | A visual editor over the running game in development, writing edits back into the `.tsx` files. |
 | [`@scenoco-three/unity`](https://www.npmjs.com/package/@scenoco-three/unity) | `scenoco-unity`: the game's prefabs, scenes, meshes and materials written into a Unity project. |
 | [`@scenoco-three/create`](https://www.npmjs.com/package/@scenoco-three/create) | The starter `npm create @scenoco-three` copies. |

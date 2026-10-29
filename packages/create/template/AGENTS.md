@@ -20,7 +20,7 @@ canvas: `const game = simulate(Main)` builds the scene and runs nothing until th
 `window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock, press keys, click, swipe,
 read behaviours by class. Evaluate in the page with any browser tool —
 `async () => { await __scenoco.ready(); await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
-— then take its screenshot; in a Playwright test, `observe(page)` from `@scenoco-three/observer`. A
+— then take its screenshot; a Playwright test makes the same calls through `page.evaluate`. A
 tool that can only open an address, read the console and take a screenshot puts the same calls in
 the address, driving the game to the moment it needs to see:
 `/?drive=press('Space');until(GameState.phase == 'over');read(count(Brick))` logs one console line

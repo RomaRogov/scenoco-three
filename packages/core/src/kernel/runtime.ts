@@ -1,6 +1,6 @@
 import { Behaviour } from './Behaviour.js';
 import type { System, SystemType } from './System.js';
-import type { BehaviourInit, BehaviourType, ConstructableBehaviour, FitsNode, Node, NodeOf } from './types.js';
+import type { BehaviourInit, BehaviourType, ConstructableBehaviour, DrivesNode, FitsNode, Node, NodeOf } from './types.js';
 
 // The registry lives beside the scene graph, never on it: nothing on a node is patched, so
 // whatever moves nodes — `add`, `attach`, `children.push`, a library — cannot get past it.
@@ -290,9 +290,17 @@ export function refreshBehaviour(b: Behaviour): void {
  * Construct a behaviour, apply its settings, attach it. If the node is already in a running scene,
  * `awake` and `onEnable` run before this returns — Unity's `AddComponent` — and `start` next frame.
  */
+export function addComponent<T extends Behaviour, N extends Node>(node: N, type: ConstructableBehaviour<T> & DrivesNode<N>, init?: BehaviourInit<T>): T;
+// The same check, as a conditional type whose failure is the message tsc prints: reached only when the
+// call above does not fit.
 export function addComponent<T extends Behaviour, N extends Node>(
   node: N,
   type: (ConstructableBehaviour<T> | T) & FitsNode<N, T>,
+  init?: BehaviourInit<T>,
+): T;
+export function addComponent<T extends Behaviour, N extends Node>(
+  node: N,
+  type: ConstructableBehaviour<T> | T,
   init?: BehaviourInit<T>,
 ): T {
   const b = addDormant(node as unknown as NodeOf<T>, type, init);

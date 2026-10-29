@@ -13,6 +13,14 @@ describe('API.md', () => {
     expect(missing).toEqual([]);
   });
 
+  it('names only types that exist: every generic it writes is exported by core, three.js or TypeScript', () => {
+    // A type name made up for the page — `Class<T>` once — sends a model grepping dist/ for it.
+    const declared = readFileSync(new URL('../../packages/core/dist/index.d.ts', import.meta.url), 'utf8');
+    const builtin = new Set(['Partial', 'Promise', 'Record', 'Generator', 'Array', 'Readonly']);
+    const named = new Set([...digest.matchAll(/\b([A-Z]\w*)</g)].map((m) => m[1]!));
+    expect([...named].filter((name) => !builtin.has(name) && !new RegExp(`\\b${name}\\b`).test(declared))).toEqual([]);
+  });
+
   it('spells every KeyCode it shows as core does — the starter’s rules card too', () => {
     const card = readFileSync(new URL('../../packages/create/template/AGENTS.md', import.meta.url), 'utf8');
     const written = [...(digest + card).matchAll(/KeyCode\.(\w+)/g)].map((m) => m[1]!);

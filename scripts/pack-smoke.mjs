@@ -13,7 +13,7 @@
  *      page run in Chrome;
  *   2. a copy of the breakout example on the packed packages: install, `npm run check` (tsc, and
  *      `scenoco check`: a scene only declares), build, and the built page playing a round;
- *   3. the observer: `observe(page)` reading the game on its dev server.
+ *   3. the bridge: `window.__scenoco` driving the game on its dev server, through page.evaluate.
  *
  * Along the way: every `@scenoco-three` package is installed once, from its tarball — a second
  * copy of core means two `Behaviour` classes and a silently broken `instanceof`.
@@ -128,7 +128,6 @@ try {
     dependencies: { ...exampleManifest.dependencies, three: workspace.devDependencies.three },
     devDependencies: {
       ...exampleManifest.devDependencies,
-      '@scenoco-three/observer': '*',
       '@types/three': workspace.devDependencies['@types/three'],
       typescript: workspace.devDependencies.typescript,
       vite: workspace.devDependencies.vite,
@@ -172,9 +171,9 @@ try {
     console.log('  a launched ball breaks a brick, and the score shows it');
   });
 
-  // --- 6. the observer, as a test uses it -----------------------------------------------------------
-  step('observe(page) on the dev server');
-  await runObserver(app);
+  // --- 6. the bridge, as a test or an agent's browser tool uses it -----------------------------------
+  step('window.__scenoco on the dev server');
+  await runBridge(app);
 
   console.log(`\n✓ packed install works end to end${keep ? `\n  project kept at ${app}` : ''}`);
 } catch (error) {
@@ -243,8 +242,8 @@ async function runBuiltPage(dist, play) {
   if (errors.length) fail(`the built page reported errors:\n  ${errors.join('\n  ')}`);
 }
 
-/** The packed app's own dev server, and the packed observer reading the game on it. */
-async function runObserver(root) {
+/** The packed app's own dev server, and the bridge core installs there, driven through page.evaluate. */
+async function runBridge(root) {
   const port = 5170 + Math.floor(Math.random() * 20);
   // Its own process group, so stopping it stops Vite too, not only npm.
   const dev = spawn(npm, ['run', 'dev', '--', '--port', String(port), '--strictPort'], { cwd: root, stdio: 'ignore', detached: true, shell: process.platform === 'win32' });
@@ -256,18 +255,20 @@ async function runObserver(root) {
       if (tries > 150) fail(`the dev server did not answer at ${url}`);
       await new Promise((done) => setTimeout(done, 200));
     }
-    const { observe } = await import(pathToFileURL(join(root, 'node_modules', '@scenoco-three', 'observer', 'dist', 'index.js')).href);
     const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
     await page.goto(url);
-    const game = await observe(page);
-    const outline = await game.outline(4);
+    await page.waitForFunction(() => window.__scenoco, undefined, { timeout: 30_000 });
+    await page.evaluate(() => window.__scenoco.ready());
+    const outline = await page.evaluate(() => window.__scenoco.outline(4));
     for (const expected of ['Progress', 'GameState', 'Ball', 'Rigidbody2D']) {
-      if (!outline.includes(expected)) fail(`the observer's outline has no ${expected}:\n${outline}`);
+      if (!outline.includes(expected)) fail(`the bridge's outline has no ${expected}:\n${outline}`);
     }
     console.log('  outlines the running game');
-    await game.press('Space'); // past the splash
-    await game.press('Space'); // the launch
-    const launched = await game.until("GameState.phase === 'playing'", { maxFrames: 60 });
+    const launched = await page.evaluate(async () => {
+      await window.__scenoco.press('Space'); // past the splash
+      await window.__scenoco.press('Space'); // the launch
+      return window.__scenoco.until("GameState.phase === 'playing'", 60);
+    });
     if (!launched.met) fail('Space did not launch the ball through the bridge');
     console.log('  presses a key and steps the held clock to the launch');
   } finally {

@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/core",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "SceNoCo core: Unity's behaviours on three.js — Behaviour, coroutines, Time, Input, SceneManager — with scenes written in TSX and no React.",
   "keywords": [
     "three",

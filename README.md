@@ -104,7 +104,6 @@ running game from its browser tool.
 | [`@scenoco-three/tools`](packages/tools) | `scenoco check` — a scene only declares — and the read/edit layer an editor uses on scene files. |
 | [`@scenoco-three/create`](packages/create) | The starter `npm create @scenoco-three` copies. |
 | [`@scenoco-three/editor`](packages/editor) | A visual editor over the running game in development — a button on the page — that writes edits back into the `.tsx` files byte for byte. |
-| [`@scenoco-three/observer`](packages/observer) | `observe(page)`: a Playwright or Puppeteer test holds the game's clock, drives it and reads its behaviours back. |
 
 ## Testing it, or letting an agent look
 
@@ -112,7 +111,7 @@ In development `play()` installs `window.__scenoco` in the page, and any browser
 running game with it — Playwright's `page.evaluate`, an agent's browser tool, the console. It holds
 the clock and steps exact frames, presses keys, clicks and swipes, waits for a condition and reads
 behaviours by class: `__scenoco.until("GameState.phase === 'over'")`. `__scenoco.help()` lists the
-rest; `@scenoco-three/observer` is the same calls, typed, for a test.
+rest.
 A tool that can't run JavaScript in the page — only open an address, read the console and take a
 screenshot — drives it from the address instead: `/?drive=press('Space');until(Game.over);outline()`.
 The address carries data, not code, so a link from anywhere can do no more than press keys.

@@ -135,4 +135,12 @@ export abstract class Behaviour<N extends Object3D = Object3D> {
  * Declaration merge: subclasses get typed optional hooks without the base carrying empty bodies.
  * Merged with the class, so it repeats the class's type parameter.
  */
-export interface Behaviour<N extends Object3D = Object3D> extends BehaviourHooks {}
+export interface Behaviour<N extends Object3D = Object3D> extends BehaviourHooks {
+  /**
+   * @internal Type only, never defined: the node class this behaviour can be added to, so that
+   * `addComponent` checks it by assignability (`DrivesNode`), which a generic `T extends Weapon`
+   * resolves — a conditional type is left unresolved. A method, so it is compared loosely here and
+   * `Behaviour<Mesh>` stays a `Behaviour`; `DrivesNode` compares it strictly.
+   */
+  _drives?(node: N): void;
+}

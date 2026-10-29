@@ -40,8 +40,6 @@ not memory.
   byte-preserving read/write of a scene file.
 - `packages/create` — the starter `npm create @scenoco-three` copies; `template/AGENTS.md` is the
   rules card a model reads in a project, so a change to the API is a change there too.
-- `packages/observer` — `observe(page)`: a test drives a running game through the bridge `play()`
-  installs in development (`window.__scenoco`, core's `observe.ts`) on any Playwright page.
 - `packages/unity` — `scenoco-unity`: the game's prefabs, scenes, meshes and materials written into a
   Unity project. Core's `snapshot` (dev only) describes what the TSX declares; the package mirrors it
   into Unity's space and a C# importer builds it with Unity's API.

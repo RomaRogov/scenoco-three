@@ -13,6 +13,9 @@ export type ConstructableBehaviour<T extends Behaviour = Behaviour> = new () => 
 /** The node class a behaviour declares it drives: `Behaviour<Mesh>` → `Mesh`. */
 export type NodeOf<T extends Behaviour> = T extends Behaviour<infer N> ? N : Object3D;
 
+/** A behaviour class whose instances can be added to a node of class `N`, generic ones included. */
+export type DrivesNode<N> = abstract new () => { readonly _drives?: (node: N) => void };
+
 /**
  * Passes when a node of class `N` can carry behaviour `T`; otherwise a type whose one property names
  * the fix, which is what tsc prints — rather than `Property 'isGroup' is missing in type 'Object3D'`.

@@ -2,9 +2,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { createServer, type ViteDevServer } from 'vite';
-import { observe } from '@scenoco-three/observer';
 
-// What a test harness does on its own: its Vite, its browser, its page — then observe(page).
+// What a test harness does on its own: its Vite, its browser, its page — then the bridge, through page.evaluate.
 const breakout = fileURLToPath(new URL('../../examples/breakout', import.meta.url));
 
 let server: ViteDevServer;
@@ -28,7 +27,8 @@ declare const __scenoco: Bridge;
 describe('the game from Playwright', () => {
   it('needs nothing but page.evaluate: exact frames, input, conditions and readings, from the bridge', async () => {
     // What an agent with only a browser tool does: evaluate in the page, with the bridge's own help to go on.
-    await observe(page); // only waits for the game to be up
+    await page.waitForFunction(() => 'ready' in (window as { __scenoco?: object }).__scenoco!);
+    await page.evaluate(() => __scenoco.ready!());
     expect(await page.evaluate(() => __scenoco.help!())).toMatch(/until\(code, maxFrames = 600\)/);
     const started = await page.evaluate(async () => {
       await __scenoco.pause!();
@@ -48,10 +48,9 @@ describe('the game from Playwright', () => {
     expect(await page.evaluate(() => __scenoco.clock!())).toEqual(before); // held: real time does not move it
   }, 60_000);
 
-  it('is the same calls through observe(page), with the game\'s own message on a mistake', async () => {
-    const game = await observe(page);
-    expect(await game.eval('return findAll(Brick).length')).toBeGreaterThan(0);
-    await expect(game.eval('return Game.state')).rejects.toThrow(/^Game is not defined\. This game's behaviour classes so far: .*GameState/);
+  it("answers a mistake with the game's own message", async () => {
+    expect(await page.evaluate(() => __scenoco.eval!('return findAll(Brick).length'))).toBeGreaterThan(0);
+    await expect(page.evaluate(() => __scenoco.eval!('return Game.state'))).rejects.toThrow(/Game is not defined\. This game's behaviour classes so far: .*GameState/);
   }, 60_000);
 
   it("drives the game from ?drive= with data only, one console line per call; the editor's endpoints answer only this page", async () => {

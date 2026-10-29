@@ -16,10 +16,9 @@
       "@scenoco-three/splines": ["./packages/splines/src/index.ts"],
       "@scenoco-three/terrain": ["./packages/terrain/src/index.ts"],
       "@scenoco-three/tools": ["./packages/tools/src/index.ts"],
-      "@scenoco-three/tools/vite": ["./packages/tools/src/vite.ts"],
-      "@scenoco-three/observer": ["./packages/observer/src/index.ts"]
+      "@scenoco-three/tools/vite": ["./packages/tools/src/vite.ts"]
     }
   },
-  "include": ["packages/core/src", "packages/box2d/src", "packages/rapier/src", "packages/particles/src", "packages/audio/src", "packages/splines/src", "packages/terrain/src", "packages/observer/src", "packages/unity/src", "packages/tools/src", "packages/editor/src", "tests", "vitest.config.ts"],
+  "include": ["packages/core/src", "packages/box2d/src", "packages/rapier/src", "packages/particles/src", "packages/audio/src", "packages/splines/src", "packages/terrain/src", "packages/unity/src", "packages/tools/src", "packages/editor/src", "tests", "vitest.config.ts"],
   "exclude": ["**/dist", "tests/.tmp"]
 }

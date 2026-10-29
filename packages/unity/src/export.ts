@@ -83,7 +83,7 @@ export async function snapshotProject(root: string, options: { headed?: boolean 
     plugins: [page(root, gameModules(root))],
     // Not pre-bundled: the snapshot and the scenes must share one copy of core's JSX runtime.
     optimizeDeps: { exclude: ['@scenoco-three/core'] },
-    // Its own optimizer cache: a dev server or the observer on the same project re-bundling the
+    // Its own optimizer cache: a dev server or a test on the same project re-bundling the
     // shared one mid-load answers this page's imports with 504 "Outdated Optimize Dep".
     cacheDir: join(root, 'node_modules', '.vite-scenoco-unity'),
     server: { port: 0, hmr: false },

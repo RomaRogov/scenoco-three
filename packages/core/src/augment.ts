@@ -10,6 +10,7 @@ import {
   type BehaviourInit,
   type BehaviourType,
   type ConstructableBehaviour,
+  type DrivesNode,
   type FitsNode,
 } from './kernel/index.js';
 
@@ -17,6 +18,7 @@ import {
 declare module 'three' {
   interface Object3D {
     /** Unity's `AddComponent`. */
+    addComponent<T extends Behaviour, N extends Object3D>(this: N, type: ConstructableBehaviour<T> & DrivesNode<N>, init?: BehaviourInit<T>): T;
     addComponent<T extends Behaviour, N extends Object3D>(this: N, type: ConstructableBehaviour<T> & FitsNode<N, T>, init?: BehaviourInit<T>): T;
     /** Unity's `GetComponent`. */
     getComponent<T extends Behaviour>(type: BehaviourType<T>): T | null;

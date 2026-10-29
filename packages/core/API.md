@@ -79,11 +79,11 @@ abstract class Behaviour<N extends Object3D = Object3D> {   // Behaviour<Mesh>: 
   onDisable?(): void;  onDestroy?(): void;
   onValidate?(): void;                  // Unity's OnValidate: after the editor changed a field, or moved its node or one it was given — redo what start did
 
-  getComponent<T>(type: Class<T>): T | null;            // same node
-  getComponents<T>(type: Class<T>): T[];
-  getComponentInChildren<T>(type: Class<T>): T | null;  // this node and below
-  getComponentsInChildren<T>(type: Class<T>): T[];
-  getComponentInParent<T>(type: Class<T>): T | null;    // this node and above
+  getComponent<T>(type: BehaviourType<T>): T | null;    // same node
+  getComponents<T>(type: BehaviourType<T>): T[];
+  getComponentInChildren<T>(type: BehaviourType<T>): T | null;  // this node and below
+  getComponentsInChildren<T>(type: BehaviourType<T>): T[];
+  getComponentInParent<T>(type: BehaviourType<T>): T | null;    // this node and above
 
   listen<A extends unknown[]>(event: Event<A>, fn: (...args: A) => void): void;  // unsubscribes on destroy
   startCoroutine(body: Generator<Yieldable>): Coroutine;  // this.startCoroutine(this.spawnWaves())
@@ -137,12 +137,17 @@ class Event<A extends unknown[] = []> {   // a class field: readonly onScored = 
   on(fn: (...args: A) => void): void;  off(fn): void;  once(fn): void;  clear(): void;
 }
 
+// A behaviour class as a value — what the lookups take, and how to type a list of kinds:
+//   const kinds: BehaviourType<Weapon>[] = [Bolt, Ring];  for (const k of kinds) node.getComponent(k)
+type BehaviourType<T extends Behaviour = Behaviour> = abstract new () => T;
+type ConstructableBehaviour<T extends Behaviour = Behaviour> = new () => T;   // not abstract: addComponent makes one
+type BehaviourInit<T>;   // its public fields, each optional: addComponent(node, Spinner, { speed: 2 })
 function destroy(target: Object3D | Behaviour): void;  // at the end of the frame, with children and their behaviours
-function findObjectOfType<T>(type: Class<T>): T | null;
-function findObjectsOfType<T>(type: Class<T>): T[];   // skips what is being destroyed
+function findObjectOfType<T>(type: BehaviourType<T>): T | null;
+function findObjectsOfType<T>(type: BehaviourType<T>): T[];   // skips what is being destroyed
 function sendMessage(node: Object3D, method: string, ...args: unknown[]): void;
 function broadcastMessage(node: Object3D, method: string, ...args: unknown[]): void;  // and its children
-function addComponent<T>(node: Object3D, type: Class<T>, init?: Partial<Fields<T>>): T;   // node typed as T's N
+function addComponent<T>(node: Object3D, type: ConstructableBehaviour<T>, init?: BehaviourInit<T>): T;   // node typed as T's N
 // and as free functions, the lookups above: getComponent(node, T), getComponents, getComponentInChildren,
 // getComponentsInChildren, getComponentInParent. three's Object3D gains them all as methods, and addComponent.
 

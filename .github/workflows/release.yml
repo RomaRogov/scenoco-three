@@ -40,11 +40,11 @@ jobs:
       # install — core@0.5.0 did.
       - run: npm run smoke:pack
 
-      # Dependency order: everything peers on core; observer and tools stand alone.
+      # Dependency order: everything peers on core; tools stands alone.
       - name: Publish
         run: |
           set -euo pipefail
-          for pkg in core box2d rapier particles audio splines terrain observer tools unity create editor; do
+          for pkg in core box2d rapier particles audio splines terrain tools unity create editor; do
             dir="packages/$pkg"
             [ -d "$dir" ] || continue
             name=$(node -p "require('./$dir/package.json').name")
