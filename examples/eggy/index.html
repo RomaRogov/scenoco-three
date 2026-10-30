@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>Eggy Roll</title>
     <style>
       /* The page around the game: the UI below is UI Toolkit's, its USS here and its UXML in the body. */
@@ -18,7 +18,9 @@
       /* Unity's canvas is 1080 × 1920, and both UIDocuments lay out at it: every px is one of its units.
          Behind the scene, its UIGradient: color1 at the top, color2 at the bottom. */
       #backdrop { background-image: url(/ui/sky.png); background-size: 100% 100%; }
-      #ui { font-family: 'Comic Neue'; font-weight: bold; color: #371e70; }
+      /* The screen's box, clipped, from the first layout on: before the UIDocument scales it, a 1080-unit
+         layout would spill past a phone's width, and a phone widens the whole page to fit it for good. */
+      #ui { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; font-family: 'Comic Neue'; font-weight: bold; color: #371e70; }
 
       /* DOTween's easings, as CSS has them: USS names them ease-out-back, ease-in-back and ease-in-expo… */
       #title {

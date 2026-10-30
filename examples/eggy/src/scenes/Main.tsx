@@ -4,6 +4,7 @@ import { BoxCollider, MeshCollider, Rigidbody, TerrainCollider } from '@scenoco-
 import { Terrain } from '@scenoco-three/terrain';
 import { materials, models, textures } from '../assets';
 import { EggController } from '../EggController';
+import { FitWidth } from '../FitWidth';
 import { slope, unity } from '../layout';
 import { LevelController } from '../LevelController';
 import { Nest } from '../markers';
@@ -27,7 +28,9 @@ export const Main = () => {
       <AmbientLight intensity={Math.PI * 0.78} />
 
       <Group name="camContainer" ref={cam} position={unity.camContainer}>
-        <PerspectiveCamera position={unity.camera} quaternion={unity.cameraRotation} fov={60} near={0.3} far={1000} />
+        <PerspectiveCamera position={unity.camera} quaternion={unity.cameraRotation} fov={60} near={0.3} far={1000}>
+          <FitWidth />
+        </PerspectiveCamera>
         {/* Unity's sun, kept over the egg so its shadows stay sharp along a long slope. Shadows reach
             40 m around it, as far as the Unity project's High quality cast them. */}
         <DirectionalLight intensity={Math.PI * 0.78} position={unity.sunPosition} castShadow shadow-intensity={0.848} shadow-mapSize={[4096, 4096]}
