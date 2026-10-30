@@ -91,8 +91,34 @@ through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)
 `update` keeps running with `dt` 0, while fixedUpdate, physics and `WaitForSeconds` stop — timing
 done with setTimeout or Date.now does not pause with it.
 
-**Input and UI.** UI is HTML and CSS in `index.html`, read and written with DOM APIs. A
-`<button data-button="Pause">` reads like a key: `Input.getButtonDown('Pause')`. Give every control
+**UI is UI Toolkit's, written in HTML.** `index.html` is the UXML and its `<style>` the USS, so a
+game ports to Unity file by file:
+- One root holds it, `<div id="ui">`, and a `<UIDocument referenceResolution={[1280, 720]} />` in the
+  scene scales it to the screen as Unity's Scale With Screen Size does: a CSS `px` is a reference pixel.
+  The root lets the pointer through; a control says `pointer-events: auto`. `html`, `body`, `canvas`
+  and a `button { appearance: none; font: inherit; color: inherit }` reset are the page, not the UI.
+- Its elements are `div` (a `VisualElement`, a `Label` when it holds text) and `button` (a `Button`);
+  an image is a `div`'s `background-image`. Code finds an element by its `id` once, in `awake`
+  (Unity's `Q`), writes text with `textContent` (`Label.text`) and state with classes —
+  `classList.add`, `remove`, `toggle(name, on)` (`AddToClassList`, `RemoveFromClassList`,
+  `EnableInClassList`). Hidden is a class, `#ui .hidden { display: none }` — the root's id, so it outranks an element's own `display`; what the screen is — touch, a
+  gamepad — is a class code puts on the root. A repeated item is a `<template>`, cloned. No
+  `innerHTML`, no `data-` attribute but `data-button`, no inline style but one USS has, in `px` or `%`.
+- CSS is USS's: selectors by tag, `#id`, `.class`, descendant and child, `:hover` `:active` `:focus`
+  `:disabled` `:checked`; flexbox, saying its `flex-direction` every time (CSS's default is `row`,
+  USS's `column`); `position` relative or absolute with `left` `top` `right` `bottom`;
+  lengths in `px` and `%`. Not there: `em`, `rem`, `vw`, `vh`, `calc`, `clamp`, `inset`, `gap` (use
+  margins), grid, `z-index` (later in the page is on top), `line-height`, `::before`/`::after`,
+  attribute selectors, `@media`, `@keyframes`, `!important`, gradients, `box-shadow`. Motion is a class
+  toggled on an element whose CSS has a `transition`; wait for it with `transitionend`
+  (`TransitionEndEvent`). A gradient or a shadow is an image (`node`-written PNGs are fine):
+  `background-image`, or nine-sliced with `border-image: url(x.png) 36 fill / 36px / 24px` — USS's
+  `-unity-slice-*` at 36, on an element 24 px larger each way. `text-align` is USS's
+  `-unity-text-align`; `font-weight: bold`, `font-style: italic`, `text-shadow`, `letter-spacing`,
+  `opacity`, `border-radius`, `translate`, `rotate` and `scale` are USS's own. A font is an
+  `@font-face` file, or `system-ui`: the platform's, as Unity's default font is.
+
+**Input.** A `<button data-button="Pause">` reads like a key: `Input.getButtonDown('Pause')`. Give every control
 one, labelled — `<button data-button="Jump">Jump</button>` — beside its key: a phone has no keys, and
 a browser tool that cannot click the canvas or press keys can still press a button. Keys, axes and the
 pointer are Unity's: `Input.getKeyDown(KeyCode.Space)`, `Input.getAxis('Horizontal')`,
@@ -133,7 +159,7 @@ keeps the app's own TSX React's.
 
 From Unity: gameObject/transform → `this.node` · transform.localPosition → `this.node.position`
 (three's position is in the parent's space) · transform.position → `this.node.getWorldPosition(v)` ·
-Time.deltaTime → `update(dt)` or `Time.deltaTime` ·
+Time.deltaTime → `update(dt)` or `Time.deltaTime` · Screen.width → `Screen.width` (not `innerWidth`) ·
 GetComponent<T>() → `getComponent(T)` · FindObjectOfType<T>() → `findObjectOfType(T)` ·
 Instantiate → `instantiate` · Destroy → `destroy` · Camera.main → `this.camera` ·
 StartCoroutine → `this.startCoroutine` · `yield return new WaitForSeconds(1)` → `yield new WaitForSeconds(1)`

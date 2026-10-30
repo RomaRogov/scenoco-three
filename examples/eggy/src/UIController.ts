@@ -1,74 +1,85 @@
-import { Behaviour, SceneManager } from '@scenoco-three/core';
+import { Behaviour, SceneManager, type Yieldable } from '@scenoco-three/core';
 import { EggController } from './EggController';
 import { LevelController } from './LevelController';
 import { Main } from './scenes/Main';
 
-/** DOTween's easings for the page's animations. */
-const OUT_BACK = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
-const IN_BACK = 'cubic-bezier(0.36, 0, 0.66, -0.56)';
-const IN_EXPO = 'cubic-bezier(0.7, 0, 0.84, 0)';
-
 const element = (id: string) => document.getElementById(id) as HTMLElement;
-/** One of Unity's canvas units, in CSS pixels now: the title is 200 of them (index.html's --u). */
-const unit = () => parseFloat(getComputedStyle(element('title')).fontSize) / 200;
+
+/** Run `then` once `el` has finished its transition — UI Toolkit's `TransitionEndEvent`. */
+function afterTransition(el: HTMLElement, then: () => void): void {
+  el.addEventListener('transitionend', () => then(), { once: true });
+}
 
 /**
  * The title, the play button, the star counter and the fade — the Unity game's `UIController`, on
- * the page's own elements. The page outlives scene loads, so each load puts it back as it was.
+ * the page's own elements. Its DOTween moves are the page's transitions: an element enters as the
+ * class that held it off screen is taken away, and leaves as one is put back. The page outlives scene
+ * loads, so each load puts it back as it was.
  */
 export class UIController extends Behaviour {
   private gameStarted = false;
+  private title!: HTMLElement;
+  private play!: HTMLButtonElement;
+  private stars!: HTMLElement;
+  private count!: HTMLElement;
+  private fade!: HTMLElement;
 
   static gameOver(_lose: boolean): void {
     const fade = element('fade');
-    fade.classList.remove('hidden');
-    fade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: 300, fill: 'forwards' }).onfinish = () => {
-      // Unity reloads the active scene: everything starts again, the page and the music stay.
-      SceneManager.load(Main);
-    };
+    fade.classList.add('shut');
+    // Unity reloads the active scene: everything starts again, the page and the music stay.
+    afterTransition(fade, () => SceneManager.load(Main));
   }
 
   static starsChanged(): void {
     element('count').textContent = `${LevelController.starsCollected}/${LevelController.starsOnLevel}`;
-    element('stars').animate([{ scale: 1 }, { scale: 1.2 }, { scale: 0.9 }, { scale: 1 }], { duration: 300 });
+    const stars = element('stars');
+    stars.classList.add('bump');
+    afterTransition(stars, () => stars.classList.remove('bump'));
+  }
+
+  override awake() {
+    this.title = element('title');
+    this.play = element('play') as HTMLButtonElement;
+    this.stars = element('stars');
+    this.count = element('count');
+    this.fade = element('fade');
   }
 
   override start() {
-    const u = unit();
-    const fade = element('fade');
-    fade.classList.remove('hidden');
-    fade.getAnimations().forEach((a) => a.cancel());
-    fade.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: 100, fill: 'forwards' }).onfinish = () => fade.classList.add('hidden');
-
-    const title = element('title');
-    title.getAnimations().forEach((a) => a.cancel());
-    title.animate([{ translate: `0 ${-600 * u}px` }, { translate: '0 0' }], { duration: 400, delay: 300, easing: OUT_BACK, fill: 'both' });
-
-    const play = element('play') as HTMLButtonElement;
-    play.getAnimations().forEach((a) => a.cancel());
-    play.disabled = false;
-    play.animate([{ translate: `0 ${800 * u}px` }, { translate: '0 0' }], { duration: 300, delay: 200, easing: OUT_BACK, fill: 'both' });
-    play.onclick = () => this.startGame();
-
-    const stars = element('stars');
-    stars.getAnimations().forEach((a) => a.cancel());
     element('level').textContent = `LEVEL ${LevelController.currentLevel}`;
-    element('count').textContent = String(LevelController.starsOverall);
+    this.count.textContent = String(LevelController.starsOverall);
+    this.play.disabled = false;
+    this.play.onclick = () => this.startGame();
+    this.startCoroutine(this.enter());
+  }
+
+  /** In from where the last game left them: placed off screen at once, then moved in. */
+  private *enter(): Generator<Yieldable> {
+    for (const el of [this.title, this.play]) el.classList.add('instant', 'gone');
+    this.stars.classList.remove('shrunk', 'raised', 'bump');
+    yield null; // a frame, so the page has drawn them off screen before they move
+    for (const el of [this.title, this.play]) el.classList.remove('instant', 'gone');
+    this.fade.classList.remove('shut');
   }
 
   private startGame() {
     if (this.gameStarted) return;
     this.gameStarted = true;
-    const u = unit();
-    const play = element('play') as HTMLButtonElement;
-    play.disabled = true;
-    element('title').animate([{ translate: '0 0' }, { translate: `0 ${-600 * u}px` }], { duration: 300, delay: 100, easing: IN_EXPO, fill: 'forwards' });
-    const stars = element('stars');
-    stars.animate([{ scale: 1 }, { scale: 0 }], { duration: 300, easing: IN_BACK, fill: 'forwards' }).onfinish = () => {
-      element('count').textContent = `${LevelController.starsCollected}/${LevelController.starsOnLevel}`;
-      stars.animate([{ scale: 1, translate: `0 ${-300 * u}px` }, { scale: 1, translate: '0 0' }], { duration: 300, delay: 300, easing: OUT_BACK, fill: 'both' });
-    };
-    play.animate([{ translate: '0 0' }, { translate: `0 ${800 * u}px` }], { duration: 300, easing: IN_BACK, fill: 'forwards' }).onfinish = () =>
-      EggController.startGame();
+    this.play.disabled = true;
+    this.title.classList.add('gone');
+    this.play.classList.add('gone');
+    afterTransition(this.play, () => EggController.startGame());
+    this.stars.classList.add('shrunk');
+    afterTransition(this.stars, () => this.startCoroutine(this.showLevelStars()));
+  }
+
+  /** The counter comes back down from above, now counting this level's stars. */
+  private *showLevelStars(): Generator<Yieldable> {
+    this.count.textContent = `${LevelController.starsCollected}/${LevelController.starsOnLevel}`;
+    this.stars.classList.add('instant', 'raised');
+    this.stars.classList.remove('shrunk');
+    yield null;
+    this.stars.classList.remove('instant', 'raised');
   }
 }

@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Behaviour, Input, KeyCode, SceneManager, WaitForSecondsRealtime, dontDestroyOnLoad, findObjectOfType } from '@scenoco-three/core';
+import { Behaviour, Input, KeyCode, SceneManager, Screen, WaitForSecondsRealtime, dontDestroyOnLoad, findObjectOfType, type Yieldable } from '@scenoco-three/core';
 import { Paddle } from './Paddle.js';
 import type { Bonus } from './bonus.js';
 import type { GameState } from './GameState.js';
@@ -21,7 +21,8 @@ import type { GameState } from './GameState.js';
  *
  * Nothing changes with a cut: a level change fades the screen to black and back (the music, which
  * reads `changing`, fades with it), a stage opens with its name, and a lost ball flashes the screen
- * red and takes its pip away. The motion is the page's CSS; this only says when.
+ * red and takes its pip away. The motion is the page's CSS transitions; this only says when, by
+ * putting a class on and taking it off — what a port to UI Toolkit does with the same USS.
  */
 export class Progress extends Behaviour {
   /** The levels, in order: scene functions, as `SceneManager.load` takes them. */
@@ -44,31 +45,48 @@ export class Progress extends Behaviour {
   private drawnEffects = '';
   private shownBonuses = new Set<string>();
 
-  private readonly hud = {
-    score: element('score'),
-    level: element('level'),
-    lives: element('lives'),
-    combo: element('combo'),
-    effects: element('effects'),
-    popups: element('popups'),
-    banner: element('banner'),
-    splash: element('splash'),
-    bar: element('hud'),
-    fade: element('fade'),
-    flash: element('flash'),
-    intro: element('intro'),
-    headline: element('headline'),
-    hint: element('hint'),
-  };
+  private hud!: Record<
+    'ui' | 'score' | 'level' | 'lives' | 'combo' | 'effects' | 'popups' | 'banner' | 'splash' | 'title' | 'playGlow' | 'bar' | 'fade' | 'flash' | 'intro' | 'introStage' | 'introName' | 'headline' | 'hint',
+    HTMLElement
+  >;
+  private chip!: HTMLTemplateElement;
+  private popupTemplate!: HTMLTemplateElement;
 
   override awake(): void {
     dontDestroyOnLoad(this);
     this.lives = this.startingLives;
+    this.hud = {
+      ui: element('ui'),
+      score: element('score'),
+      level: element('level'),
+      lives: element('lives'),
+      combo: element('combo'),
+      effects: element('effects'),
+      popups: element('popups'),
+      banner: element('banner'),
+      splash: element('splash'),
+      title: element('title'),
+      playGlow: element('play-glow'),
+      bar: element('hud'),
+      fade: element('fade'),
+      flash: element('flash'),
+      intro: element('intro'),
+      introStage: element('intro-stage'),
+      introName: element('intro-name'),
+      headline: element('headline'),
+      hint: element('hint'),
+    };
+    this.chip = element('chip') as HTMLTemplateElement;
+    this.popupTemplate = element('popup') as HTMLTemplateElement;
   }
 
   override start(): void {
     // The page opens already black: the first level fades in from it, with no fade out first.
     this.load(0);
+    // The splash's title arrives; PLAY pulses and the banner's hint blinks for as long as the run lasts.
+    this.startCoroutine(this.arrive(this.hud.title, 'arriving'));
+    this.startCoroutine(this.pulse(this.hud.playGlow, 'bright', 0.8));
+    this.startCoroutine(this.pulse(this.hud.hint, 'dim', 0.6));
   }
 
   override update(): void {
@@ -79,6 +97,8 @@ export class Progress extends Behaviour {
 
   /** Every frame, what moves on its own: the combo, and the bonuses' timers running down. */
   override lateUpdate(): void {
+    // A phone held upright gets the narrower sizes: UI Toolkit has no media queries.
+    this.hud.ui.classList.toggle('portrait', Screen.height > Screen.width);
     // After every update has run, so the press that leaves the splash cannot also launch the ball.
     // PLAY, Space or Enter — or a gamepad's A or Start.
     const start =
@@ -96,26 +116,28 @@ export class Progress extends Behaviour {
     if (combo !== this.drawnCombo) {
       this.drawnCombo = combo;
       this.hud.combo.textContent = combo > 1 ? `COMBO ×${combo}` : '';
-      if (combo > 1) bump(this.hud.combo);
+      if (combo > 1) this.startCoroutine(this.flick(this.hud.combo, 'bump', 0.09));
     }
     const running = this.paddle?.running ?? [];
     const names = running.map((e) => e.bonus).join();
     if (names !== this.drawnEffects) {
       this.drawnEffects = names;
-      this.hud.effects.replaceChildren(
-        ...running.map((e) => {
-          const chip = document.createElement('div');
-          // Only a bonus new since the last drawing pops in; the others are redrawn as they were.
-          chip.className = this.shownBonuses.has(e.bonus) ? 'chip' : 'chip new';
-          // Its colour is the page's CSS, by `data-bonus`.
-          chip.dataset.bonus = e.bonus;
-          chip.innerHTML = `<span>${LABELS[e.bonus]}</span><i></i>`;
-          return chip;
-        }),
-      );
+      const chips = running.map((e) => {
+        const chip = clone(this.chip);
+        // Its colour is the page's CSS, by the bonus's class.
+        chip.classList.add(e.bonus);
+        (chip.querySelector('.name') as HTMLElement).textContent = LABELS[e.bonus];
+        // Only a bonus new since the last drawing pops in; the others are redrawn as they were.
+        if (!this.shownBonuses.has(e.bonus)) this.startCoroutine(this.arrive(chip, 'new'));
+        return chip;
+      });
+      this.hud.effects.replaceChildren(...chips);
       this.shownBonuses = new Set(running.map((e) => e.bonus));
     }
-    running.forEach((e, i) => (this.hud.effects.children[i] as HTMLElement | undefined)?.style.setProperty('--left', String(e.left / e.total)));
+    running.forEach((e, i) => {
+      const timer = this.hud.effects.children[i]?.querySelector('.timer') as HTMLElement | null;
+      if (timer) timer.style.scale = `${e.left / e.total} 1`;
+    });
   }
 
   // --- what the level tells it ------------------------------------------------------------
@@ -136,7 +158,7 @@ export class Progress extends Behaviour {
     const points = this.pointsPerHit * hitsTaken * Math.max(1, combo);
     this.score += points;
     this.redraw();
-    bump(this.hud.score);
+    this.startCoroutine(this.flick(this.hud.score, 'bump', 0.09));
     this.popup(`+${points}`, at, combo > 1);
   }
 
@@ -144,8 +166,9 @@ export class Progress extends Behaviour {
   loseLife(): boolean {
     this.lives -= 1;
     // The pip that goes bursts first; the screen flashes red behind it.
-    (this.hud.lives.children[this.lives] as HTMLElement | undefined)?.classList.add('losing');
-    replay(this.hud.flash, 'on');
+    const pip = this.hud.lives.children[this.lives] as HTMLElement | undefined;
+    if (pip) this.startCoroutine(this.flick(pip, 'losing', 0.18));
+    this.startCoroutine(this.flick(this.hud.flash, 'on', 0.07));
     this.redraw();
     return this.lives > 0;
   }
@@ -201,8 +224,45 @@ export class Progress extends Behaviour {
 
   /** The stage's number and name, across the screen for a moment as it opens. */
   private introduce(): void {
-    this.hud.intro.innerHTML = `<small>STAGE ${this.index + 1}</small>${this.game?.levelName ?? ''}`;
-    replay(this.hud.intro, 'on');
+    this.hud.introStage.textContent = `STAGE ${this.index + 1}`;
+    this.hud.introName.textContent = this.game?.levelName ?? '';
+    this.startCoroutine(this.sweep());
+  }
+
+  /** In from the right, spaced wide; held; out to the left. */
+  private *sweep(): Generator<Yieldable> {
+    const intro = this.hud.intro;
+    intro.classList.remove('shown', 'leave');
+    intro.classList.add('enter');
+    yield new WaitForSecondsRealtime(0.2);
+    intro.classList.remove('enter');
+    intro.classList.add('shown');
+    yield new WaitForSecondsRealtime(1.25);
+    intro.classList.replace('shown', 'leave');
+  }
+
+  // --- motion: a class on, and off again ---------------------------------------------------
+
+  /** Into place from where `from` holds it: placed there at once, then — a frame later — moved in. */
+  private *arrive(element: HTMLElement, from: string): Generator<Yieldable> {
+    element.classList.add(from);
+    yield null;
+    element.classList.remove(from);
+  }
+
+  /** On for `seconds`, then off: the CSS moves it there and back. */
+  private *flick(element: HTMLElement, name: string, seconds: number): Generator<Yieldable> {
+    element.classList.add(name);
+    yield new WaitForSecondsRealtime(seconds);
+    element.classList.remove(name);
+  }
+
+  /** On and off every `seconds`, for as long as the run lasts. */
+  private *pulse(element: HTMLElement, name: string, seconds: number): Generator<Yieldable> {
+    for (;;) {
+      element.classList.toggle(name);
+      yield new WaitForSecondsRealtime(seconds);
+    }
   }
 
   // --- drawing ----------------------------------------------------------------------------
@@ -215,26 +275,26 @@ export class Progress extends Behaviour {
     this.hud.splash.classList.toggle('gone', this.game?.phase !== 'title');
     [...this.hud.lives.children].forEach((pip, i) => i >= this.lives || pip.classList.remove('losing'));
     const message = MESSAGES[this.game?.phase ?? 'ready'];
-    this.hud.banner.hidden = message === null;
+    this.hud.banner.classList.toggle('shown', message !== null);
     if (!message) return;
-    this.hud.banner.dataset.mood = message.mood;
+    this.hud.banner.classList.toggle('bad', message.mood === 'bad');
     this.hud.headline.textContent = message.headline;
-    this.hud.headline.dataset.mood = message.mood;
     this.hud.hint.textContent = message.hint;
   }
 
-  /** A number rising from a point of the world, then gone: CSS animates it, the DOM drops it. */
+  /** A number rising from a point of the world, then gone: CSS moves it, and it is taken out once it has. */
   private popup(text: string, at: Vector3, hot: boolean): void {
     const camera = this.camera;
     if (!camera) return;
     const screen = at.clone().project(camera);
-    const label = document.createElement('div');
-    label.className = hot ? 'popup hot' : 'popup';
+    const label = clone(this.popupTemplate);
+    label.classList.toggle('hot', hot);
     label.textContent = text;
     label.style.left = `${((screen.x + 1) / 2) * 100}%`;
     label.style.top = `${((1 - screen.y) / 2) * 100}%`;
-    label.addEventListener('animationend', () => label.remove());
+    label.addEventListener('transitionend', (event) => event.propertyName === 'opacity' && label.remove());
     this.hud.popups.append(label);
+    this.startCoroutine(this.arrive(label, 'start'));
   }
 }
 
@@ -251,16 +311,9 @@ const MESSAGES: Record<GameState['phase'], { headline: string; hint: string; moo
   won: { headline: 'YOU WIN', hint: 'TAP TO PLAY AGAIN', mood: 'good' },
 };
 
-/** Play an element's `.bump` animation again from the start. */
-function bump(element: HTMLElement): void {
-  replay(element, 'bump');
-}
-
-/** Put `className` back on an element so its CSS animation plays again from the start. */
-function replay(element: HTMLElement, className: string): void {
-  element.classList.remove(className);
-  void element.offsetWidth; // a reflow, so the class coming back restarts the animation
-  element.classList.add(className);
+/** A copy of a `<template>`'s element — UI Toolkit's `VisualTreeAsset.Instantiate`. */
+function clone(template: HTMLTemplateElement): HTMLElement {
+  return template.content.firstElementChild!.cloneNode(true) as HTMLElement;
 }
 
 function element(id: string): HTMLElement {

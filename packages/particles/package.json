@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/particles",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "Particle effects for SceNoCo on three.quarks: Unity's ParticleSystem playing typed ParticleEffect data.",
   "keywords": [
     "three",
@@ -48,11 +48,11 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.9.9",
+    "@scenoco-three/core": "^1.0.0",
     "three.quarks": "^0.17.1"
   },
   "peerDependencies": {
-    "three": ">=0.160.0"
+    "three": ">=0.184.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.0"

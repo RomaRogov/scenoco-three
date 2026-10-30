@@ -1,5 +1,5 @@
 import { BoxGeometry, Color, DirectionalLight, HemisphereLight, Mesh, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Scene } from 'three';
-import { ref } from '@scenoco-three/core';
+import { UIDocument, ref } from '@scenoco-three/core';
 import { Dropper } from '../Dropper';
 import { Follow } from '../Follow';
 import { Mover } from '../Mover';
@@ -11,6 +11,7 @@ export const Main = () => {
       <Color attach="background" args={['#10131c']} />
       <HemisphereLight args={['#ffffff', '#334455', 1]} />
       <DirectionalLight position={[3, 8, 5]} intensity={2} castShadow />
+      <UIDocument referenceResolution={[1280, 720]} />
 
       <PerspectiveCamera position={[0, 6, 8]}>
         <Follow target={player} offset={[0, 6, 8]} />

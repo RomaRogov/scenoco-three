@@ -9,6 +9,7 @@ package-lock.json
 
 # Build output / artifacts
 dist/
+dist-single/
 # The Pages site, built by `npm run site`.
 site/
 *.log

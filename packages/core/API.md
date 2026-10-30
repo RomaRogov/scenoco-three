@@ -3,6 +3,11 @@
 Every public signature of `@scenoco-three/core`. Read this instead of `src/`. Everything not here
 is three.js, as three.js documents it.
 
+From 1.0, semantic versioning covers what this file documents: a minor release adds to it, and only a
+major one changes or removes. The exports core has for packages and for the editor — `System`,
+`service`, `declareMessages`, `wake`, `writtenOf`, `Runtime` and the editor's types — are not listed
+here, and may change in a minor release; a package written against them names the core version it needs.
+
 ```ts
 // ── scenes: TSX with no React ──────────────────────────────────────────────────────────────
 // A tag is a class you import: <Mesh> is `new Mesh()`, built at once. Lowercase tags do not exist.
@@ -23,7 +28,7 @@ is three.js, as three.js documents it.
 function play(scene: () => JSX.Element, options?: {
   container?: HTMLElement;         // default document.body: the game is the page; an element — a React app's <div> — it fills and follows
   fixedDelta?: number;
-  renderer?: WebGLRenderer;         // your own, for what only its constructor sets: new WebGLRenderer({ antialias: false })
+  renderer?: WebGLRenderer;         // your own, for what only its constructor sets: new WebGLRenderer({ alpha: true }); none antialiases by default
   autoCamera?: boolean;             // false: play picks and fits no camera — set game.camera and size it yourself
 }): Game;
 interface Game {
@@ -124,6 +129,18 @@ const Random: {   // Unity's: one seeded generator; Random.initState(level) repe
   readonly insideUnitCircle: Vector2;  readonly insideUnitSphere: Vector3;  readonly onUnitSphere: Vector3;
   readonly rotation: Quaternion;  colorHSV(hueMin?, hueMax?, satMin?, satMax?, valueMin?, valueMax?): Color;
 };
+
+const Screen: {   // Unity's: the canvas, in CSS pixels as Input.mousePosition; changes only on a resize
+  readonly width: number;  readonly height: number;
+};
+
+class UIDocument extends Behaviour {   // Unity's, with Scale With Screen Size: <UIDocument referenceResolution={[1280, 720]} />
+  element: string;                   // the id of the UI's root element, 'ui'
+  referenceResolution: Vector2;      // the size the UI is designed at: its CSS px are reference pixels, as in USS
+  match: number;                     // 0 matches the screen's width, 1 its height, as Unity blends them
+  readonly rootVisualElement: HTMLElement;   // the root; it lets the pointer through, a control says pointer-events: auto
+  readonly scale: number;            // screen pixels per reference pixel
+}
 
 const PlayerPrefs: {   // Unity's, on localStorage; kept in memory for the visit where storage is refused
   getInt(key, defaultValue = 0): number;  setInt(key, value): void;

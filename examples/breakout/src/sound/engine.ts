@@ -119,6 +119,18 @@ export class Engine {
   render(frames: number): Pcm {
     const left = new Float32Array(frames);
     const right = new Float32Array(frames);
+    this.renderInto(left, right);
+    return { left, right };
+  }
+
+  /**
+   * Fill `left` and `right` with what comes next, the ticks run in between: an AudioWorklet's own
+   * output arrays, so nothing is made each call on the audio thread.
+   */
+  renderInto(left: Float32Array, right: Float32Array): void {
+    const frames = left.length;
+    left.fill(0);
+    right.fill(0);
     let done = 0;
     while (done < frames) {
       if (this.untilTick <= 0) {
@@ -170,7 +182,6 @@ export class Engine {
         right[i]! *= g;
       }
     }
-    return { left, right };
   }
 
   /**

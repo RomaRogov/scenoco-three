@@ -7,242 +7,215 @@
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@800&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,800&family=Orbitron:wght@500;700&display=swap" rel="stylesheet" />
     <style>
-      :root {
-        --cyan: #2ff5d2;
-        --pink: #ff3dd8;
-        --gold: #ffd23f;
-        --ink: #e9f2ff;
-        --dim: #6f86b3;
-        --arcade: Orbitron, 'Arial Black', system-ui, sans-serif;
-      }
-      html, body { margin: 0; height: 100%; background: #02040a; overflow: hidden; }
-      canvas { display: block; touch-action: none; }
-      body { font-family: var(--arcade); color: var(--ink); user-select: none; -webkit-user-select: none; }
+      /* The page around the game: the UI below is UI Toolkit's, its USS here and its UXML in the body. */
+      html, body { margin: 0; height: 100%; background: #02040a; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+      canvas { display: block; }
+      /* A button as UI Toolkit's: no look of the browser's own, its parent's text. */
+      button { appearance: none; margin: 0; padding: 0; font: inherit; color: inherit; }
 
-      /* The bar: three glass panels, numbers glowing in neon. */
+      :root { --cyan: #2ff5d2; --pink: #ff3dd8; --gold: #ffd23f; --ink: #e9f2ff; --dim: #6f86b3; }
+      #ui { font-family: Orbitron; font-weight: bold; color: var(--ink); }
+      /* A face is USS's own — colour, border, radius — and its glow an image (tools/ui-images.mjs, drawn at
+         twice its size) on a .shade child placed outside it, nine-sliced in the image's pixels as
+         -unity-slice-* is. Gradients and washes are images too, stretched. */
+      .shade { position: absolute; border-width: 0; border-style: solid; }
+
+      /* The bar: three glass panels, numbers glowing in neon. It drops in once PLAY is pressed. */
       .bar {
-        position: fixed; inset: max(10px, env(safe-area-inset-top)) 12px auto 12px;
-        display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 10px; pointer-events: none;
+        position: absolute; left: 12px; right: 12px; top: 10px; display: flex; flex-direction: row; align-items: flex-start;
+        translate: 0 -140%; opacity: 0; transition: translate 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s, opacity 0.4s ease 0.15s;
       }
+      .bar.shown { translate: 0 0; opacity: 1; }
+      .side { flex-grow: 1; flex-basis: 0; display: flex; flex-direction: row; }
+      .side.right { justify-content: flex-end; }
       .panel {
-        display: flex; flex-direction: column; gap: 4px; padding: 9px 14px 10px; border-radius: 14px;
-        background: linear-gradient(180deg, rgb(20 30 60 / 0.72), rgb(8 12 28 / 0.6));
-        border: 1px solid rgb(120 160 255 / 0.22);
-        box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4), 0 8px 30px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.08);
-        backdrop-filter: blur(6px);
+        position: relative; display: flex; flex-direction: column; padding: 9px 14px 10px; border-radius: 14px;
+        background-image: url(/ui/panel-face.png); background-size: 100% 100%;
+        border: 1px solid rgba(120, 160, 255, 0.22); border-top-color: rgba(170, 195, 255, 0.3);
       }
-      .panel { justify-self: start; }
-      .panel.right { justify-self: end; align-items: flex-end; }
-      .panel.middle { justify-self: center; }
-      .panel.middle { align-items: center; }
-      .label { font-size: 9px; font-weight: 700; letter-spacing: 0.28em; color: var(--dim); }
+      .panel > .shade { left: -41px; top: -41px; right: -41px; bottom: -41px; border-image: url(/ui/panel-shadow.png) 108 fill / 54px; }
+      .panel.middle { align-items: center; margin: 0 10px; }
+      .panel.right { align-items: flex-end; }
+      .label { font-size: 9px; letter-spacing: 2.5px; color: var(--dim); margin-bottom: 4px; }
       #score {
-        font-family: 'Exo 2', var(--arcade); font-size: 30px; font-weight: 800; font-style: italic; letter-spacing: 0.08em; color: var(--cyan);
-        text-shadow: 0 0 8px rgb(47 245 210 / 0.8), 0 0 22px rgb(47 245 210 / 0.45);
-        font-variant-numeric: tabular-nums;
+        font-family: 'Exo 2'; font-size: 30px; font-style: italic; letter-spacing: 2.4px; color: var(--cyan);
+        text-shadow: 0 0 8px rgba(47, 245, 210, 0.8); transition: scale 0.13s ease-out;
       }
-      #level { font-size: 12px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink); white-space: nowrap; }
-      #lives { display: flex; gap: 6px; padding-top: 3px; }
-      #lives i {
-        width: 22px; height: 7px; border-radius: 4px; background: var(--pink);
-        box-shadow: 0 0 8px rgb(255 61 216 / 0.9);
-      }
-      #lives i.spent { background: rgb(255 255 255 / 0.1); box-shadow: none; }
+      #level { font-size: 12px; letter-spacing: 1.9px; white-space: nowrap; }
+      #lives { display: flex; flex-direction: row; padding-top: 3px; }
+      .pip { position: relative; width: 22px; height: 7px; margin-left: 6px; border-radius: 4px; background-color: var(--pink); transition: scale 0.42s ease-out, background-color 0.3s; }
+      .pip > .shade { left: -10px; top: -10px; right: -10px; bottom: -10px; background-image: url(/ui/pip-glow.png); background-size: 100% 100%; }
+      .pip.spent { background-color: rgba(255, 255, 255, 0.1); }
+      .pip.spent > .shade { display: none; }
+      .pip.losing { scale: 1.8 2.2; background-color: #ffffff; transition: scale 0.18s ease-out, background-color 0.18s; }
+      .pip.losing > .shade { display: flex; flex-direction: column; background-image: url(/ui/pip-burst.png); }
 
       #combo {
-        position: fixed; left: 50%; top: max(78px, calc(env(safe-area-inset-top) + 70px)); transform: translateX(-50%);
-        font-size: 15px; font-weight: 900; letter-spacing: 0.2em; color: var(--gold);
-        text-shadow: 0 0 10px rgb(255 210 63 / 0.9); pointer-events: none;
+        position: absolute; left: 0; right: 0; top: 78px; text-align: center; font-size: 15px; letter-spacing: 3px; color: var(--gold);
+        text-shadow: 0 0 10px rgba(255, 210, 63, 0.9); transition: scale 0.13s ease-out;
       }
+      .bump { scale: 1.18; transition: scale 0.09s ease-out; }
 
       /* Running bonuses: a chip each, its bar draining as its time runs out. */
-      #effects {
-        position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%);
-        display: flex; gap: 8px; pointer-events: none;
-      }
-      .chip[data-bonus='laser'] { --tint: #ff3b6b; }
-      .chip[data-bonus='multi'] { --tint: #ffd23f; }
-      .chip[data-bonus='wide'] { --tint: #3bff9a; }
-      .chip[data-bonus='slim'] { --tint: #b18cff; }
+      #effects { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; flex-direction: row; justify-content: center; }
       .chip {
-        --left: 1; min-width: 74px; padding: 6px 10px 7px; border-radius: 10px; text-align: center;
-        background: rgb(8 12 28 / 0.75); border: 1px solid var(--tint);
-        box-shadow: 0 0 14px color-mix(in srgb, var(--tint) 55%, transparent);
-        font-size: 11px; font-weight: 900; letter-spacing: 0.14em; color: var(--tint);
+        position: relative; min-width: 74px; margin: 0 4px; padding: 6px 10px 7px; text-align: center; font-size: 11px; letter-spacing: 1.5px;
+        border-radius: 10px; border-width: 1px; border-style: solid; background-color: rgba(8, 12, 28, 0.75);
+        transition: scale 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.35s ease-out;
       }
-      .chip i {
-        display: block; height: 3px; margin-top: 5px; border-radius: 2px; background: var(--tint);
-        transform: scaleX(var(--left)); transform-origin: left;
-      }
-
-      #sound {
-        position: fixed; z-index: 2; right: 14px; bottom: max(14px, env(safe-area-inset-bottom)); width: 42px; height: 42px;
-        display: grid; place-items: center; padding: 0; border-radius: 12px; cursor: pointer;
-        background: rgb(8 12 28 / 0.7); border: 1px solid rgb(120 160 255 / 0.25); color: var(--cyan);
-        box-shadow: 0 0 12px rgb(47 245 210 / 0.25);
-      }
-      #sound svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-      #sound path:first-child { fill: currentColor; }
-      #sound .cross { display: none; }
-      #sound.off { color: var(--dim); box-shadow: none; }
-      #sound.off .wave { display: none; }
-      #sound.off .cross { display: block; }
+      .chip.new { scale: 0.3; opacity: 0; transition-duration: 0s; }
+      .chip > .shade { left: -17px; top: -17px; right: -17px; bottom: -17px; }
+      .chip .timer { height: 3px; margin-top: 5px; border-radius: 2px; transform-origin: left; }
+      .chip.laser { color: #ff3b6b; border-color: #ff3b6b; }
+      .chip.laser > .shade { border-image: url(/ui/chip-laser.png) 52 fill / 26px; }
+      .chip.laser .timer { background-color: #ff3b6b; }
+      .chip.multi { color: #ffd23f; border-color: #ffd23f; }
+      .chip.multi > .shade { border-image: url(/ui/chip-multi.png) 52 fill / 26px; }
+      .chip.multi .timer { background-color: #ffd23f; }
+      .chip.wide { color: #3bff9a; border-color: #3bff9a; }
+      .chip.wide > .shade { border-image: url(/ui/chip-wide.png) 52 fill / 26px; }
+      .chip.wide .timer { background-color: #3bff9a; }
+      .chip.slim { color: #b18cff; border-color: #b18cff; }
+      .chip.slim > .shade { border-image: url(/ui/chip-slim.png) 52 fill / 26px; }
+      .chip.slim .timer { background-color: #b18cff; }
 
       /* A brick's points, rising from where it broke. */
-      #popups { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      #popups { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; }
       .popup {
-        position: absolute; transform: translate(-50%, -50%);
-        font-size: 15px; font-weight: 900; color: #fff; letter-spacing: 0.04em;
-        text-shadow: 0 0 8px rgb(47 245 210 / 0.9);
-        animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+        position: absolute; translate: -50% -64px; opacity: 0; font-size: 15px; letter-spacing: 0.6px; color: #ffffff;
+        text-shadow: 0 0 8px rgba(47, 245, 210, 0.9);
+        transition: translate 0.9s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.9s cubic-bezier(0.33, 1, 0.68, 1), scale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
       }
-      .popup.hot { color: var(--gold); font-size: 19px; text-shadow: 0 0 10px rgb(255 210 63 / 0.95); }
-      @keyframes rise {
-        from { opacity: 1; translate: 0 0; scale: 0.6; }
-        25% { scale: 1.15; }
-        to { opacity: 0; translate: 0 -64px; scale: 1; }
-      }
-      .bump { animation: bump 0.22s ease-out; }
-      @keyframes bump { 40% { scale: 1.18; } }
+      .popup.start { translate: -50% 0; opacity: 1; scale: 0.6; transition-duration: 0s; }
+      .popup.hot { color: var(--gold); font-size: 19px; text-shadow: 0 0 10px rgba(255, 210, 63, 0.95); }
 
-      /* Between rounds. */
+      /* Between rounds. It fades in; after a loss it waits for the sting first. */
       #banner {
-        position: fixed; inset: 0; display: flex; flex-direction: column; gap: 22px;
-        align-items: center; justify-content: center; cursor: pointer;
-        background: radial-gradient(ellipse at center, rgb(10 6 30 / 0.55), rgb(2 4 10 / 0.9));
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background-image: url(/ui/banner.png); background-size: 100% 100%; opacity: 0; visibility: hidden;
+        transition: opacity 0.45s ease, visibility 0s 0.45s;
       }
-      #banner[hidden] { display: none; }
+      #banner.shown { opacity: 1; visibility: visible; pointer-events: auto; cursor: pointer; transition: opacity 0.45s ease; }
+      #banner.shown.bad { transition-delay: 0.7s; }
       #headline {
-        font-size: clamp(34px, 9vw, 72px); font-weight: 900; letter-spacing: 0.08em; text-align: center;
-        color: #fff; text-shadow: 0 0 12px var(--glow), 0 0 40px var(--glow), 0 0 80px var(--glow);
-        --glow: rgb(47 245 210 / 0.8); animation: arrive 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+        font-size: 72px; letter-spacing: 5.8px; text-align: center; color: #ffffff; margin-bottom: 22px;
+        text-shadow: 0 0 40px rgba(47, 245, 210, 0.8); scale: 0.6; opacity: 0; transition: scale 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.5s ease;
       }
-      #headline[data-mood='bad'] { --glow: rgb(255 61 107 / 0.85); }
-      #hint { font-size: 13px; font-weight: 700; letter-spacing: 0.32em; color: var(--dim); animation: blink 1.2s steps(2) infinite; }
-      @keyframes arrive { from { scale: 0.6; opacity: 0; } }
-
-      /* The splash: the first level waits behind it until PLAY, which is also what lets sound start. */
-      #splash {
-        position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; gap: 26px;
-        align-items: center; justify-content: center; text-align: center; padding: 16px;
-        background: radial-gradient(ellipse at center, rgb(14 8 40 / 0.6), rgb(2 4 10 / 0.94));
-      }
-      #splash { transition: opacity 0.5s ease, visibility 0s 0.5s; }
-      #splash.gone { opacity: 0; visibility: hidden; pointer-events: none; }
-      #splash.gone #title { translate: 0 -30px; scale: 1.08; transition: translate 0.5s ease-in, scale 0.5s ease-in; }
-      #title {
-        font-size: clamp(44px, 13vw, 112px); font-weight: 900; letter-spacing: 0.06em; line-height: 0.9;
-        color: #fff; font-style: italic;
-        text-shadow: 0 0 10px var(--pink), 0 0 36px rgb(255 61 216 / 0.7), 0 0 90px rgb(255 61 216 / 0.45);
-        animation: arrive 0.7s cubic-bezier(0.2, 1.4, 0.4, 1);
-      }
-      #title small {
-        display: block; margin-top: 14px; font-size: 0.16em; font-style: normal; letter-spacing: 0.5em;
-        color: var(--cyan); text-shadow: 0 0 10px rgb(47 245 210 / 0.8);
-      }
-      #play {
-        font: 900 22px/1 var(--arcade); letter-spacing: 0.3em; padding: 18px 40px 18px 46px; cursor: pointer;
-        color: #02040a; background: var(--cyan); border: 0; border-radius: 14px;
-        box-shadow: 0 0 18px rgb(47 245 210 / 0.8), 0 0 60px rgb(47 245 210 / 0.35);
-        animation: pulse 1.6s ease-in-out infinite;
-      }
-      #play:active { scale: 0.96; }
-      @keyframes pulse { 50% { box-shadow: 0 0 26px rgb(47 245 210 / 1), 0 0 90px rgb(47 245 210 / 0.55); } }
-      #how { font-size: 11px; font-weight: 700; letter-spacing: 0.22em; line-height: 2; color: var(--dim); }
-
-      /* The HUD drops in once PLAY is pressed. */
-      .bar { translate: 0 -140%; opacity: 0; transition: translate 0.6s cubic-bezier(0.2, 1.3, 0.4, 1) 0.15s, opacity 0.4s ease 0.15s; }
-      .bar.shown { translate: 0 0; opacity: 1; }
-
-      /* Between levels the screen goes to black and comes back. */
-      #fade {
-        position: fixed; inset: 0; z-index: 1; pointer-events: none; background: #02040a;
-        opacity: 0; transition: opacity 0.7s ease;
-      }
-      #fade.shut { opacity: 1; transition-duration: 0.6s; }
+      #banner.bad #headline { text-shadow: 0 0 40px rgba(255, 61, 107, 0.85); }
+      #banner.shown #headline { scale: 1; opacity: 1; }
+      #banner.shown.bad #headline { transition-delay: 0.7s; }
+      .blink { font-size: 13px; letter-spacing: 4.2px; color: var(--dim); }
+      .blink.dim { opacity: 0.25; }
 
       /* A lost ball: the edges of the screen flash red. */
-      #flash {
-        position: fixed; inset: 0; pointer-events: none; opacity: 0;
-        background: radial-gradient(ellipse at center, transparent 45%, rgb(255 40 90 / 0.55));
-      }
-      #flash.on { animation: flash 0.9s ease-out; }
-      @keyframes flash { 8% { opacity: 1; } to { opacity: 0; } }
+      #flash { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-image: url(/ui/flash.png); background-size: 100% 100%; opacity: 0; transition: opacity 0.83s ease-out; }
+      #flash.on { opacity: 1; transition: opacity 0.07s ease-out; }
 
       /* A stage's name, sweeping in and out as it opens. */
       #intro {
-        position: fixed; left: 0; right: 0; top: 40%; text-align: center; pointer-events: none; opacity: 0;
-        font-size: clamp(26px, 7vw, 54px); font-weight: 900; letter-spacing: 0.12em; color: #fff;
-        text-shadow: 0 0 12px rgb(47 245 210 / 0.9), 0 0 44px rgb(47 245 210 / 0.5);
+        position: absolute; left: 0; right: 0; top: 40%; display: flex; flex-direction: column; align-items: center; opacity: 0;
+        font-size: 54px; letter-spacing: 6.5px; color: #ffffff; text-shadow: 0 0 12px rgba(47, 245, 210, 0.9);
+        transition: opacity 0.55s ease-in, translate 0.55s ease-in;
       }
-      #intro small { display: block; margin-bottom: 8px; font-size: 0.3em; letter-spacing: 0.6em; color: var(--cyan); }
-      #intro.on { animation: intro 2.2s cubic-bezier(0.2, 0.8, 0.3, 1) 0.2s; }
-      @keyframes intro {
-        from { opacity: 0; translate: 60px 0; letter-spacing: 0.5em; }
-        18% { opacity: 1; translate: 0 0; letter-spacing: 0.12em; }
-        75% { opacity: 1; translate: 0 0; }
-        to { opacity: 0; translate: -40px 0; }
+      #intro.enter { opacity: 0; translate: 60px 0; letter-spacing: 27px; transition-duration: 0s; }
+      #intro.shown { opacity: 1; translate: 0 0; letter-spacing: 6.5px; transition: opacity 0.4s cubic-bezier(0.33, 1, 0.68, 1), translate 0.4s cubic-bezier(0.33, 1, 0.68, 1), letter-spacing 0.4s cubic-bezier(0.33, 1, 0.68, 1); }
+      #intro.leave { opacity: 0; translate: -40px 0; }
+      #intro-stage { margin-bottom: 8px; font-size: 16px; letter-spacing: 9.7px; color: var(--cyan); }
+
+      /* Between levels the screen goes to black and comes back. */
+      #fade { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: #02040a; opacity: 0; transition: opacity 0.7s ease; }
+      #fade.shut { opacity: 1; transition-duration: 0.6s; }
+
+      /* The splash: the first level waits behind it until PLAY, which is also what lets sound start. */
+      #splash {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        text-align: center; padding: 16px; background-image: url(/ui/splash.png); background-size: 100% 100%;
+        pointer-events: auto; transition: opacity 0.5s ease, visibility 0s 0.5s;
       }
-
-      /* The banner fades in; after a loss it waits for the sting first. */
-      #banner { animation: appear 0.45s ease both; }
-      #banner[data-mood='bad'] { animation-delay: 0.7s; }
-      #banner #hint { animation: blink 1.2s steps(2) infinite, appear 0.4s ease 0.5s both; }
-      #banner[data-mood='bad'] #headline { animation-delay: 0.7s; animation-fill-mode: both; }
-      @keyframes appear { from { opacity: 0; } }
-
-      /* A pip lost: it bursts, then stays dark. */
-      #lives i { transition: background 0.3s, box-shadow 0.3s; }
-      #lives i.losing { animation: burst 0.6s ease-out; }
-      @keyframes burst { 0% { background: #fff; scale: 1; } 30% { scale: 1.8 2.2; box-shadow: 0 0 22px var(--pink); } to { scale: 1; } }
-
-      /* A bonus chip pops in. */
-      .chip.new { animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1); }
-      @keyframes pop { from { scale: 0.3; opacity: 0; } }
-
-      /* A phone held upright: the same three panels, tighter. */
-      @media (max-width: 560px) {
-        .bar { inset-inline: 8px; gap: 6px; }
-        .panel { padding: 7px 9px 8px; border-radius: 11px; }
-        .label { font-size: 8px; letter-spacing: 0.2em; }
-        #score { font-size: 19px; }
-        #level { font-size: 9px; letter-spacing: 0.08em; }
-        #lives { gap: 4px; }
-        #lives i { width: 14px; height: 6px; }
+      #splash.gone { opacity: 0; visibility: hidden; pointer-events: none; }
+      #title {
+        display: flex; flex-direction: column; align-items: center; margin-bottom: 26px;
+        transition: translate 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), scale 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.7s ease;
       }
-      @keyframes blink { 50% { opacity: 0.25; } }
+      #title.arriving { scale: 0.6; opacity: 0; transition-duration: 0s; }
+      #splash.gone #title { translate: 0 -30px; scale: 1.08; transition: translate 0.5s ease-in, scale 0.5s ease-in; }
+      #title-name { font-size: 112px; letter-spacing: 6.7px; font-style: italic; color: #ffffff; text-shadow: 0 0 36px rgba(255, 61, 216, 0.85); }
+      #title-tag { margin-top: 14px; font-size: 18px; letter-spacing: 9px; color: var(--cyan); text-shadow: 0 0 10px rgba(47, 245, 210, 0.8); }
+      #play {
+        position: relative; margin-bottom: 26px; padding: 18px 40px 18px 46px; font-size: 22px; letter-spacing: 6.6px; color: #02040a;
+        border-radius: 14px; background-color: var(--cyan); pointer-events: auto; cursor: pointer;
+      }
+      #play > .shade { left: -90px; top: -90px; right: -90px; bottom: -90px; border-image: url(/ui/play-glow.png) 208 fill / 104px; }
+      #play:active { scale: 0.96; }
+      #play > #play-glow { border-image: url(/ui/play-glow-bright.png) 208 fill / 104px; opacity: 0; transition: opacity 0.8s ease-in-out; }
+      #play > #play-glow.bright { opacity: 1; }
+      #how { font-size: 11px; letter-spacing: 2.4px; color: var(--dim); }
+      #how .line { margin: 6px 0; }
+
+      /* The sound switch: a virtual button, as the banner is. M on a keyboard. */
+      #sound {
+        position: absolute; right: 14px; bottom: 14px; width: 42px; height: 42px; border-radius: 12px; color: var(--cyan);
+        background-color: rgba(8, 12, 28, 0.7); border: 1px solid rgba(120, 160, 255, 0.25); pointer-events: auto; cursor: pointer;
+      }
+      #sound > .shade { left: -17px; top: -17px; right: -17px; bottom: -17px; background-image: url(/ui/sound-glow.png); background-size: 100% 100%; }
+      #sound .icon { position: absolute; left: 9px; top: 9px; width: 22px; height: 22px; background-image: url(/ui/speaker.png); background-size: 100% 100%; }
+      #sound.off > .shade { display: none; }
+      #sound.off .icon { background-image: url(/ui/speaker-off.png); }
+
+      /* A phone held upright. UI Toolkit has no media queries, so Progress puts .portrait on the root; the
+         big words then take the share of the screen's width the page gave them before the port. */
+      #ui.portrait #title-name { font-size: 84px; }
+      #ui.portrait #headline { font-size: 60px; }
+      #ui.portrait #intro { font-size: 46px; }
+
+      /* Until the first frame: the page's scripts on their way, then the first level's shaders. Outside
+         #ui, so it shows before the UIDocument has scaled anything. */
+      #loading {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        text-align: center; background-color: #02040a; font-family: Orbitron; font-weight: bold; transition: opacity 0.5s ease;
+      }
+      #loading .title { font-size: 48px; margin-bottom: 18px; font-style: italic; letter-spacing: 3px; color: #ffffff; text-shadow: 0 0 24px rgba(255, 61, 216, 0.85); }
+      #loading-bar { width: 320px; height: 8px; border-radius: 4px; background-color: rgba(47, 245, 210, 0.15); overflow: hidden; margin-bottom: 18px; }
+      #loading-fill { height: 100%; width: 0; background-color: var(--cyan); transition: width 0.25s ease-out; }
+      #loading .label { font-size: 14px; letter-spacing: 3.4px; color: var(--cyan); }
+      #loading.done { opacity: 0; pointer-events: none; }
     </style>
   </head>
   <body>
-    <div class="bar" id="hud">
-      <div class="panel"><span class="label">SCORE</span><span id="score">00000</span></div>
-      <div class="panel middle"><span class="label">STAGE</span><span id="level">1/3</span></div>
-      <div class="panel right"><span class="label">LIVES</span><span id="lives"><i></i><i></i><i></i></span></div>
+    <div id="ui">
+      <div class="bar" id="hud">
+        <div class="side"><div class="panel"><div class="shade"></div><div class="label">SCORE</div><div id="score">00000</div></div></div>
+        <div class="panel middle"><div class="shade"></div><div class="label">STAGE</div><div id="level">1/3</div></div>
+        <div class="side right"><div class="panel right"><div class="shade"></div><div class="label">LIVES</div><div id="lives"><div class="pip"><div class="shade"></div></div><div class="pip"><div class="shade"></div></div><div class="pip"><div class="shade"></div></div></div></div></div>
+      </div>
+      <div id="combo"></div>
+      <div id="effects"></div>
+      <template id="chip"><div class="chip"><div class="shade"></div><div class="name"></div><div class="timer"></div></div></template>
+      <div id="popups"></div>
+      <template id="popup"><div class="popup start"></div></template>
+      <!-- Between rounds. A virtual button: Input.getButtonDown('Continue') reads a tap on it. -->
+      <div id="banner" data-button="Continue">
+        <div id="headline"></div>
+        <div id="hint" class="blink"></div>
+      </div>
+      <!-- Over everything but the splash: a red flash on a lost ball, a stage's name, black between levels. -->
+      <div id="flash"></div>
+      <div id="intro"><div id="intro-stage"></div><div id="intro-name"></div></div>
+      <div id="fade" class="shut"></div>
+      <!-- The first screen. PLAY is a virtual button too; Space or Enter on a keyboard. -->
+      <div id="splash">
+        <div id="title" class="arriving"><div id="title-name">BREAKOUT</div><div id="title-tag">NEON · FM · SCENOCO</div></div>
+        <button id="play" data-button="Play"><div class="shade"></div><div id="play-glow" class="shade"></div>PLAY</button>
+        <div id="how">
+          <div class="line">MOUSE, FINGER OR ARROWS TO STEER · TAP OR SPACE TO LAUNCH</div>
+          <div class="line">GAMEPAD: STICK STEERS · A LAUNCHES · M OR BACK FOR SOUND</div>
+        </div>
+      </div>
+      <button id="sound" data-button="Sound" aria-label="Sound on or off" title="Sound (M)"><div class="shade"></div><div class="icon"></div></button>
     </div>
-    <!-- The sound switch: a virtual button, as the banner is. M on a keyboard. -->
-    <button id="sound" data-button="Sound" aria-label="Sound on or off" title="Sound (M)">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" /><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" /><path class="cross" d="M16 9l6 6M22 9l-6 6" /></svg>
-    </button>
-    <div id="combo"></div>
-    <div id="effects"></div>
-    <div id="popups"></div>
-    <!-- Between rounds. A virtual button: Input.getButtonDown('Continue') reads a tap on it. -->
-    <div id="banner" data-button="Continue" hidden>
-      <div id="headline"></div>
-      <div id="hint"></div>
-    </div>
-    <!-- Over everything but the splash: black between levels, a red flash on a lost ball, a stage's name. -->
-    <div id="flash"></div>
-    <div id="intro"></div>
-    <div id="fade" class="shut"></div>
-    <!-- The first screen. PLAY is a virtual button too; Space or Enter on a keyboard. -->
-    <div id="splash">
-      <div id="title">BREAKOUT<small>NEON · FM · SCENOCO</small></div>
-      <button id="play" data-button="Play">PLAY</button>
-      <div id="how">MOUSE, FINGER OR ARROWS TO STEER · TAP OR SPACE TO LAUNCH<br />GAMEPAD: STICK STEERS · A LAUNCHES · M OR BACK FOR SOUND</div>
-    </div>
+    <div id="loading"><div class="title">BREAKOUT</div><div id="loading-bar"><div id="loading-fill"></div></div><div class="label">LOADING</div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

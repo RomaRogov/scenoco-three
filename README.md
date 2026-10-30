@@ -100,7 +100,7 @@ running game from its browser tool.
 | [`@scenoco-three/audio`](packages/audio) | Unity's `AudioSource` on three.js's Web Audio. |
 | [`@scenoco-three/splines`](packages/splines) | Unity's Splines: tracks, rails and roads — meshes bent along a curve, prefabs placed by it, objects driven on it. |
 | [`@scenoco-three/terrain`](packages/terrain) | Unity's `Terrain` and `TerrainData`: ground from a heightmap, layers blended by weight, made in code or loaded from a compact file. |
-| [`@scenoco-three/unity`](packages/unity) | `scenoco-unity`: a game's prefabs, scenes, meshes and materials written into a Unity project. |
+| [`@scenoco-three/unity`](packages/unity) | `scenoco-unity`: a game written into a Unity project — prefabs, scenes, meshes, materials, particles, the page as UI Toolkit, the input actions — with C# stubs holding its TypeScript, and commands that drive it in Play mode. |
 | [`@scenoco-three/tools`](packages/tools) | `scenoco check` — a scene only declares — and the read/edit layer an editor uses on scene files. |
 | [`@scenoco-three/create`](packages/create) | The starter `npm create @scenoco-three` copies. |
 | [`@scenoco-three/editor`](packages/editor) | A visual editor over the running game in development — a button on the page — that writes edits back into the `.tsx` files byte for byte. |
@@ -140,7 +140,7 @@ npm install
 npm run build          # every package, in dependency order
 npm run examples:dev   # examples/breakout
 npm test               # vitest, under tests/{core,packages,tooling}
-npm run typecheck      # tsc over every package and the tests, then breakout's own check
+npm run typecheck      # tsc over every package and the tests, then each example's and the starter's own check
 ```
 
 Working *on* this repo with an agent? Start at [`AGENTS.md`](AGENTS.md).
@@ -155,8 +155,6 @@ The first example you can see in this repo is [its own homepage](https://romarog
 
 More playable stuff is also there:
 - [**Breakout**](examples/breakout) ([play](https://romarogov.github.io/scenoco-three/breakout/)) — three levels, Box2D, an HTML HUD, bloom.
-- [**Rail Rush**](examples/subway) ([play](https://romarogov.github.io/scenoco-three/subway/)) — a Subway Surfers clone written by Claude Sonnet 5.5 in one session
-  on a fresh starter: 5 minutes, $0.84.
 - [**Tiny Bastion**](examples/td) ([play](https://romarogov.github.io/scenoco-three/td/)) — tower defence on a layered terrain: paths, towers, particles,
   sound, a menu and levels.
 - [**Spline Race**](examples/race) ([play](https://romarogov.github.io/scenoco-three/race/)) — a closed track: one modelled road piece bent along a spline,

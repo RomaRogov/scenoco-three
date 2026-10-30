@@ -1,5 +1,6 @@
 import { Object3D } from 'three';
-import { applyProp, givenOf } from '../jsx.js';
+import { applyProp } from '../jsx.js';
+import { givenOf } from '../provenance.js';
 
 /**
  * Development only: an element's `args` changed on the live object, as if it had been built with

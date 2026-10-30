@@ -1,5 +1,5 @@
 import type { Scene } from 'three';
-import type { Reach } from '../kernel/runtime.js';
+import type { Reach } from '../kernel/lifecycle.js';
 import { loadInto } from '../scenes.js';
 import type { OpenedScene } from './EditHost.js';
 

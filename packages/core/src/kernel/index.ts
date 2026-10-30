@@ -12,15 +12,9 @@ export {
 } from './Coroutine.js';
 export { Time } from './Time.js';
 export { System, type SystemType } from './System.js';
+export { Runtime, type RuntimeOptions } from './runtime.js';
 export {
-  Runtime,
-  type RuntimeOptions,
-  addComponent,
   behavioursOn,
-  broadcastMessage,
-  declareMessages,
-  sendMessage,
-  destroy,
   findObjectOfType,
   findObjectsOfType,
   getComponent,
@@ -29,10 +23,10 @@ export {
   getComponents,
   getComponentsInChildren,
   runtimeOf,
-  service,
-  wake,
-  writtenOf,
-} from './runtime.js';
+} from './registry.js';
+export { destroy, service, wake, type Reach } from './lifecycle.js';
+export { addComponent, writtenOf } from './attach.js';
+export { broadcastMessage, declareMessages, sendMessage } from './messages.js';
 export { provideCamera, cameraOf, type RenderCamera } from './camera.js';
 export type {
   BehaviourHooks,

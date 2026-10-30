@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/rapier",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "3D physics for SceNoCo on Rapier, in Unity's shape: Rigidbody, the colliders, Physics.gravity, and the contact messages.",
   "keywords": [
     "three",
@@ -51,10 +51,10 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.9.9",
+    "@scenoco-three/core": "^1.0.0",
     "@dimforge/rapier3d-compat": "~0.20.0"
   },
   "peerDependencies": {
-    "three": ">=0.160.0"
+    "three": ">=0.184.0"
   }
 }

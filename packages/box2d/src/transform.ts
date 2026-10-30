@@ -15,11 +15,17 @@ import { Euler, Quaternion, Vector3, type Object3D } from 'three';
 const POSITION = new Vector3();
 const ROTATION = new Quaternion();
 const ANGLES = new Euler();
+const SCALE = new Vector3();
 
-/** Where a node is in the world, as this simulation sees it: x, y, and the angle about z. */
-export function worldPose(node: Object3D): { x: number; y: number; angle: number } {
-  node.getWorldPosition(POSITION);
-  ANGLES.setFromQuaternion(node.getWorldQuaternion(ROTATION));
+/**
+ * Where a node is in the world, as this simulation sees it: x, y, and the angle about z. `fresh`
+ * when its world matrix is already up to date: three's getWorldPosition and getWorldQuaternion each
+ * walk up to the root again, and on a phone those walks were a tenth of the frame.
+ */
+export function worldPose(node: Object3D, fresh = false): { x: number; y: number; angle: number } {
+  if (!fresh) node.updateWorldMatrix(true, false);
+  node.matrixWorld.decompose(POSITION, ROTATION, SCALE);
+  ANGLES.setFromQuaternion(ROTATION);
   return { x: POSITION.x, y: POSITION.y, angle: ANGLES.z };
 }
 
@@ -56,15 +62,13 @@ export interface ShapeFrame {
   scaleY: number;
 }
 
-const SCALE = new Vector3();
-
 export function shapeFrame(node: Object3D, owner: Object3D): ShapeFrame {
-  node.getWorldScale(SCALE);
+  // One walk up from the node brings the owner, its ancestor, up to date too.
+  const at = worldPose(node);
   const scaleX = SCALE.x;
   const scaleY = SCALE.y;
   if (node === owner) return { x: 0, y: 0, angle: 0, scaleX, scaleY };
-  const at = worldPose(node);
-  const from = worldPose(owner);
+  const from = worldPose(owner, true);
   const dx = at.x - from.x;
   const dy = at.y - from.y;
   const cos = Math.cos(-from.angle);

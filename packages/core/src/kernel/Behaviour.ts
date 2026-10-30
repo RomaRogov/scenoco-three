@@ -3,6 +3,7 @@ import type { BehaviourHooks, BehaviourType } from './types.js';
 import type { Event } from './Event.js';
 import { Coroutine, type Yieldable } from './Coroutine.js';
 import { cameraOf, type RenderCamera } from './camera.js';
+import { refreshBehaviour } from './lifecycle.js';
 import {
   runtimeOf,
   getComponent,
@@ -10,8 +11,7 @@ import {
   getComponentInParent,
   getComponents,
   getComponentsInChildren,
-  refreshBehaviour,
-} from './runtime.js';
+} from './registry.js';
 
 /**
  * Base class for game behaviour — Unity's `MonoBehaviour`.

@@ -142,7 +142,8 @@ describe('TSX on three.js', () => {
 describe('development builds', () => {
   it('remember the attributes each element was written with — a behaviour’s too — for the editor to put back', async () => {
     // From the sources: what the editor reads lives beside jsxDEV, in the same module.
-    const { jsxDEV, givenOf } = await import('../../packages/core/src/jsx.js');
+    const { jsxDEV } = await import('../../packages/core/src/jsx.js');
+    const { givenOf } = await import('../../packages/core/src/provenance.js');
     const { Behaviour: SourceBehaviour, behavioursOn } = await import('../../packages/core/src/kernel/index.js');
     class Spin extends SourceBehaviour {
       speed = 1;
@@ -155,7 +156,8 @@ describe('development builds', () => {
   });
 
   it('keep a prefab root’s own element apart from the tag that placed it: the prefab’s own, and the copy’s overrides', async () => {
-    const { jsxDEV, givenOf, ownOf, prefab: makePrefab, sourceOf } = await import('../../packages/core/src/jsx.js');
+    const { jsxDEV, prefab: makePrefab } = await import('../../packages/core/src/jsx.js');
+    const { givenOf, ownOf, sourceOf } = await import('../../packages/core/src/provenance.js');
     const inside = { fileName: 'prefabs.tsx', lineNumber: 2, columnNumber: 3 };
     const tagAt = { fileName: 'scene.tsx', lineNumber: 9, columnNumber: 5 };
     const Coin = makePrefab(() => jsxDEV(Group, { name: 'coin', visible: false }, undefined, false, inside));

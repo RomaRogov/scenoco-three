@@ -1,4 +1,4 @@
-import { Vector3, type Mesh, type MeshStandardMaterial } from 'three';
+import { Vector3, type Color, type Mesh, type MeshStandardMaterial } from 'three';
 import { Behaviour, destroy, findObjectOfType, instantiate, type Prefab } from '@scenoco-three/core';
 import { BONUSES, type Bonus } from './bonus.js';
 import { GameState } from './GameState.js';
@@ -18,12 +18,12 @@ export class Brick extends Behaviour<Mesh> {
   /** What falls out of it when it breaks. */
   bonus: Bonus = 'none';
   /** By hits, less one: the tier's colour, how metallic it is, and the sparks it breaks into. */
-  tints: string[] = [];
+  tints: Color[] = [];
   metalness: number[] = [];
   bursts: (Prefab | null)[] = [];
   /** By bonus, in `BONUSES`' order: the pickup it drops, and the colour of the gem that says so. */
   drops: Prefab[] = [];
-  gemTints: string[] = [];
+  gemTints: Color[] = [];
   gem: Mesh | null = null;
 
   private left = 1;

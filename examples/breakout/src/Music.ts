@@ -1,10 +1,10 @@
 import { Behaviour, Input, KeyCode, PlayerPrefs, Time, findObjectOfType } from '@scenoco-three/core';
 import { GameState } from './GameState.js';
 import { Progress } from './Progress.js';
-import { audioBus, glide } from './sound/bus.js';
-import { loadChips } from './sound/chips.js';
-import { Engine } from './sound/engine.js';
-import { Song, keyOf } from './sound/song.js';
+import { audioBus } from './audio.js';
+import { keyOf, songProgram, type SongMessage } from './song.js';
+import { startPlayer, type ChipPlayer } from './sound/player.js';
+import songWorklet from './song.worklet.ts?worker&url';
 
 /**
  * The music: a Mega Drive's two chips, played live, the arrangement following the game. It lives
@@ -15,20 +15,17 @@ import { Song, keyOf } from './sound/song.js';
  * bricks), and a muffle while a banner is up. A lost ball, or a level change, fades the music out
  * and starts the piece over from its top.
  *
- * The chips render on the page's thread a little ahead of what is heard — about 0.6 ms of work for
- * every 100 ms of music — into buffers queued back to back on the AudioContext.
+ * The chips play on the audio thread, in an AudioWorklet (`song.worklet.ts`): the song is told only
+ * what changed, so the page's own thread — a quarter of it, on a weak phone — is left to the game.
+ * Where there is no AudioWorklet (a page that is not https or localhost) they play on the page's thread.
  */
 export class Music extends Behaviour {
   /** 0 to 1. */
   volume = 0.55;
-  /** Seconds rendered ahead of what is heard: enough to ride out a slow frame. */
-  lookahead = 0.2;
 
-  private song: Song | null = null;
-  private engine: Engine | null = null;
-  private timer: ReturnType<typeof setInterval> | null = null;
-  /** When, on the AudioContext's clock, the next buffer starts. */
-  private next = 0;
+  private song: ChipPlayer | null = null;
+  /** What the song was last told, so it is told again only when the game changes it. */
+  private told = '';
   private game: GameState | null = null;
   private progress: Progress | null = null;
   private bricksAtStart = 1;
@@ -47,16 +44,16 @@ export class Music extends Behaviour {
     bus.music.gain.value = this.volume;
     bus.master.gain.value = this.muted ? 0 : 1;
     this.button?.classList.toggle('off', this.muted);
-    void loadChips().then((chips) => {
-      if (this.isDestroyed) return;
-      this.engine = new Engine(chips, bus.context.sampleRate, () => this.song?.step());
-      this.song = new Song(this.engine);
-      this.timer = setInterval(() => this.pump(), 25);
-    });
+    startPlayer(bus.context, { worklet: songWorklet, name: 'song', program: songProgram, output: bus.music })
+      .then((player) => {
+        if (this.isDestroyed) return player.stop();
+        this.song = player;
+      })
+      .catch((error: unknown) => console.error('The music could not start:', error));
   }
 
   override onDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.song?.stop();
   }
 
   override update(): void {
@@ -70,23 +67,22 @@ export class Music extends Behaviour {
     if (!bus) return;
     this.muted = !this.muted;
     PlayerPrefs.setInt('muted', this.muted ? 1 : 0);
-    glide(bus.master.gain, this.muted ? 0 : 1, 0.15);
+    bus.glide(bus.master.gain, this.muted ? 0 : 1, 0.15);
     this.button?.classList.toggle('off', this.muted);
   }
 
   /** The song, set from where the game is. */
   private follow(): void {
-    const song = this.song;
-    if (!song) return;
+    if (!this.song) return;
     const game = findObjectOfType(GameState);
     if (game !== this.game) {
       this.game = game;
       this.bricksAtStart = Math.max(1, game?.bricksLeft ?? 1);
-      if (game) this.listen(game.ballLost, () => this.song?.restart());
+      if (game) this.listen(game.ballLost, () => this.tell('restart'));
     }
     // The screen starting to fade to the next level: the music fades with it.
     const changing = this.progress?.changing ?? false;
-    if (changing && !this.changing && this.game) song.restart();
+    if (changing && !this.changing && this.game) this.tell('restart');
     this.changing = changing;
     const phase = game?.phase ?? 'ready';
     let intensity = 0;
@@ -96,38 +92,23 @@ export class Music extends Behaviour {
       if (cleared >= 0.35 || game.combo >= 3 || game.ballsInPlay > 1) intensity = 2;
       if (cleared >= 0.7 || game.combo >= 6) intensity = 3;
     }
-    song.intensity = intensity;
-    song.key = keyOf(this.progress?.stage ?? 0);
-    song.tempo = game && phase === 'playing' && game.bricksLeft <= 3 ? 152 : 138;
+    const state = { intensity, key: keyOf(this.progress?.stage ?? 0), tempo: game && phase === 'playing' && game.bricksLeft <= 3 ? 152 : 138 };
+    const told = JSON.stringify(state);
+    if (told !== this.told) {
+      this.told = told;
+      this.tell(state);
+    }
 
     // Under a banner, or paused, the music goes on as if through a wall.
     const muffled = (phase !== 'playing' && phase !== 'ready') || Time.timeScale === 0;
     if (muffled !== this.muffled) {
       this.muffled = muffled;
       const bus = audioBus();
-      if (bus) glide(bus.muffle.frequency, muffled ? 650 : 20000, muffled ? 0.4 : 0.8);
+      if (bus) bus.glide(bus.muffle.frequency, muffled ? 650 : 20000, muffled ? 0.4 : 0.8);
     }
   }
 
-  /** Render what will be heard next and queue it, until `lookahead` seconds are waiting. */
-  private pump(): void {
-    const bus = audioBus();
-    const engine = this.engine;
-    if (!bus || !engine || bus.context.state !== 'running') return;
-    const { context } = bus;
-    // After a stall — a hidden tab — start again just ahead, rather than catch up with a burst.
-    if (this.next < context.currentTime) this.next = context.currentTime + 0.03;
-    while (this.next < context.currentTime + this.lookahead) {
-      const frames = 2048;
-      const { left, right } = engine.render(frames);
-      const buffer = context.createBuffer(2, frames, engine.rate);
-      buffer.copyToChannel(left, 0);
-      buffer.copyToChannel(right, 1);
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(bus.music);
-      source.start(this.next);
-      this.next += frames / engine.rate;
-    }
+  private tell(message: SongMessage): void {
+    this.song?.post(message);
   }
 }

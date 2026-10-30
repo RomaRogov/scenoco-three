@@ -1,5 +1,5 @@
 import { Quaternion, Vector2, Vector3, type Object3D, type PerspectiveCamera } from 'three';
-import { Behaviour, Input, Time, destroy, instantiate, type Prefab, type Yieldable } from '@scenoco-three/core';
+import { Behaviour, Input, Screen, Time, destroy, instantiate, type Prefab, type Yieldable } from '@scenoco-three/core';
 import { Collider, Rigidbody, type Collision } from '@scenoco-three/rapier';
 import { LevelController } from './LevelController';
 import { Nest, Stone } from './markers';
@@ -60,7 +60,7 @@ export class EggController extends Behaviour {
     if (this.isDead) return;
     // Unity scaled the drag by the screen's width over 400: a phone's width of drag is the same push
     // anywhere. Its screen stood upright, so that width is the short side, turned or not.
-    const scale = Math.min(window.innerWidth, window.innerHeight) / 400;
+    const scale = Math.min(Screen.width, Screen.height) / 400;
     const rb = this.rb;
     rb.addTorque(unityTorque(this.speed.x * scale * 20, 0, 0));
     rb.addTorque(unityTorque(0, 0, Math.min(this.speed.y * scale, 0) * 20));

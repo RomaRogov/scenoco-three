@@ -1,7 +1,7 @@
 import type { Object3D, Scene } from 'three';
 import type { Behaviour } from '../kernel/Behaviour.js';
-import type { Reach } from '../kernel/runtime.js';
-import type { Source } from '../jsx.js';
+import type { Reach } from '../kernel/lifecycle.js';
+import type { Source } from '../provenance.js';
 
 /** What the editor's interface works the game through. */
 export interface EditHost {

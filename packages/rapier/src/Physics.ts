@@ -338,7 +338,7 @@ export class Physics extends System {
       const owner = collider.attachedRigidbody?.node;
       if (owner && owner !== collider.node) this.mounted.add(collider);
     } else {
-      const { p, q } = staticPose(collider, scale);
+      const { p, q } = staticPose(collider);
       desc.setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
       this.statics.add(collider);
     }
@@ -366,7 +366,7 @@ export class Physics extends System {
       // Asleep, its contacts would not be looked for again: it would fall through what it rests on.
       body.wakeUp();
     } else {
-      const { p, q } = staticPose(collider, scale);
+      const { p, q } = staticPose(collider);
       created.setTranslation(p);
       created.setRotation(q);
     }
@@ -453,15 +453,24 @@ export class Physics extends System {
         drivenByBody.push(rigidbody);
         continue;
       }
-      body.setNextKinematicTranslation(rigidbody.node.getWorldPosition(SCRATCH_V));
-      body.setNextKinematicRotation(rigidbody.node.getWorldQuaternion(SCRATCH_Q));
+      rigidbody.node.updateWorldMatrix(true, false);
+      rigidbody.node.matrixWorld.decompose(SCRATCH_V, SCRATCH_Q, SCALE);
+      body.setNextKinematicTranslation(SCRATCH_V);
+      body.setNextKinematicRotation(SCRATCH_Q);
+    }
+
+    // Each collider's node brought up to date once, and read below from its world matrix as it is:
+    // three's getWorldPosition, getWorldQuaternion and getWorldScale each walk up to the root again,
+    // and a static collider was read five times a step — on a phone, a tenth of the frame.
+    for (const collider of this.colliders.values()) {
+      if (collider._collider && collider.enabled) collider.node.updateWorldMatrix(true, false);
     }
 
     // A static collider moved through its node — a scrolling obstacle, a sliding door — goes with it.
     for (const collider of this.statics) {
       const created = collider._collider;
       if (!created || !collider.enabled) continue;
-      const { p, q } = staticPose(collider, collider.node.getWorldScale(SCALE));
+      const { p, q } = staticPose(collider, true);
       const t = created.translation();
       const r = created.rotation();
       // Rapier keeps f32, so compare with a tolerance: an unmoved wall is not touched.
@@ -476,7 +485,7 @@ export class Physics extends System {
       if (!created || !collider.enabled) continue;
       BEFORE_V.copy(collider._mount.p);
       BEFORE_Q.copy(collider._mount.q);
-      const { p, q } = mountPose(collider, collider._builtScale);
+      const { p, q } = mountPose(collider, collider._builtScale, true);
       if (BEFORE_V.distanceToSquared(p) > 1e-8) created.setTranslationWrtParent(p);
       if (1 - Math.abs(BEFORE_Q.dot(q)) > 1e-7) created.setRotationWrtParent(q);
     }
@@ -491,7 +500,8 @@ export class Physics extends System {
     const rescaled = new Set<Collider>();
     for (const collider of this.colliders.values()) {
       if (!collider._collider || !collider.enabled) continue;
-      const scale = collider.node.getWorldScale(SCALE);
+      const scale = SCALE;
+      collider.node.matrixWorld.decompose(SCRATCH_V, SCRATCH_Q, scale);
       if (Math.abs(scale.x - collider._builtScale.x) + Math.abs(scale.y - collider._builtScale.y) + Math.abs(scale.z - collider._builtScale.z) > 1e-5) rescaled.add(collider);
     }
     for (const collider of rescaled) this.rescale(collider);
@@ -622,18 +632,22 @@ export function collisionGroups(layer: number): number {
   return ((1 << layer) << 16) | (0xffff & ~ignoredLayers[layer]!);
 }
 
-/** Where a static collider's shape sits in the world: its node's pose, offset by `center`. */
-function staticPose(collider: Collider, scale: Vector3): { p: Vector3; q: Quaternion } {
-  const q = collider.node.getWorldQuaternion(STATIC_Q);
-  const p = STATIC_V.copy(collider.center).multiply(scale).applyQuaternion(q).add(collider.node.getWorldPosition(SCRATCH_V));
-  return { p, q };
+/**
+ * Where a static collider's shape sits in the world: its node's pose, offset by `center`. `fresh`
+ * when the node's world matrix is already up to date this step.
+ */
+function staticPose(collider: Collider, fresh = false): { p: Vector3; q: Quaternion } {
+  if (!fresh) collider.node.updateWorldMatrix(true, false);
+  collider.node.matrixWorld.decompose(SCRATCH_V, STATIC_Q, STATIC_S);
+  const p = STATIC_V.copy(collider.center).multiply(STATIC_S).applyQuaternion(STATIC_Q).add(SCRATCH_V);
+  return { p, q: STATIC_Q };
 }
 
 /**
  * Where a body's collider sits within the body: its node's pose relative to the body's node, offset
  * by `center` — the same as the node's own for a collider on the body's node.
  */
-function mountPose(collider: Collider, scale: Vector3): { p: Vector3; q: Quaternion } {
+function mountPose(collider: Collider, scale: Vector3, fresh = false): { p: Vector3; q: Quaternion } {
   const { p, q } = collider._mount;
   const owner = collider.attachedRigidbody?.node;
   if (!owner || owner === collider.node) {
@@ -641,10 +655,14 @@ function mountPose(collider: Collider, scale: Vector3): { p: Vector3; q: Quatern
     q.identity();
     return collider._mount;
   }
-  const inverse = owner.getWorldQuaternion(MOUNT_Q).invert();
-  collider.node.getWorldQuaternion(q).premultiply(inverse);
-  p.copy(collider.center).multiply(scale).applyQuaternion(collider.node.getWorldQuaternion(SCALE_Q));
-  p.add(collider.node.getWorldPosition(MOUNT_V)).sub(owner.getWorldPosition(SCRATCH_V)).applyQuaternion(inverse);
+  // The owner is the node's ancestor: one walk up from the node brings both up to date.
+  if (!fresh) collider.node.updateWorldMatrix(true, false);
+  owner.matrixWorld.decompose(SCRATCH_V, MOUNT_Q, STATIC_S);
+  collider.node.matrixWorld.decompose(MOUNT_V, SCALE_Q, STATIC_S);
+  const inverse = MOUNT_Q.invert();
+  q.copy(SCALE_Q).premultiply(inverse);
+  p.copy(collider.center).multiply(scale).applyQuaternion(SCALE_Q);
+  p.add(MOUNT_V).sub(SCRATCH_V).applyQuaternion(inverse);
   return collider._mount;
 }
 
@@ -782,6 +800,7 @@ const BLEND_Q = new Quaternion();
 const STATIC_V = new Vector3();
 const STATIC_Q = new Quaternion();
 const SCALE = new Vector3();
+const STATIC_S = new Vector3();
 const QUERY_V = new Vector3();
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const SCALE_Q = new Quaternion();

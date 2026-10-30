@@ -1,5 +1,5 @@
 import { Color, DirectionalLight, Fog, Group, HemisphereLight, Mesh, Object3D, PerspectiveCamera, Scene } from 'three';
-import { ref } from '@scenoco-three/core';
+import { UIDocument, ref } from '@scenoco-three/core';
 import { SplineAnimate, SplineContainer, SplineInstantiate, SplineMesh } from '@scenoco-three/splines';
 import { Terrain } from '@scenoco-three/terrain';
 import { ground, models } from '../assets';
@@ -7,6 +7,7 @@ import { ChaseCamera } from '../ChaseCamera';
 import { Car, Drone, Lamp } from '../prefabs';
 import { RaceControl } from '../RaceControl';
 import { Scatter } from '../Scatter';
+import { SunFollow } from '../SunFollow';
 import { TouchStick } from '../TouchStick';
 
 /**
@@ -24,11 +25,10 @@ export const Race = () => {
       {/* Close enough to hide where the ground ends. */}
       <Fog attach="fog" args={['#9fc6e8', 70, 200]} />
       <HemisphereLight args={['#dff0ff', '#4a5a3a', 1.2]} />
-      <DirectionalLight
-        position={[40, 80, 30]} intensity={2.2} castShadow
-        shadow-mapSize={[4096, 4096]} shadow-camera-left={-100} shadow-camera-right={100}
-        shadow-camera-top={100} shadow-camera-bottom={-100} shadow-camera-far={250} shadow-bias={-0.0004}
-      />
+      {/* The sun: its shadows kept around where the camera looks, not over the whole map. */}
+      <DirectionalLight position={[40, 80, 30]} intensity={2.2} castShadow shadow-bias={-0.0004}>
+        <SunFollow radius={45} ahead={25} mapSize={2048} />
+      </DirectionalLight>
 
       <PerspectiveCamera position={[0, 80, 30]} args={[55, 1, 0.1, 600]}>
         <ChaseCamera />
@@ -73,6 +73,7 @@ export const Race = () => {
         <Scatter items={[models.rock]} count={90} seed={8} height={1.4} minScale={0.6} maxScale={2.2} clearTrack={13} />
       </Group>
 
+      <UIDocument referenceResolution={[960, 540]} />
       <RaceControl laps={3} tracks={[Race]} />
       <TouchStick element="stick" axis="Horizontal" />
 

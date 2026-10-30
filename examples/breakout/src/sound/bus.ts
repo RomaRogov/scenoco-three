@@ -1,9 +1,6 @@
-import { AudioContext as ThreeAudio } from 'three';
-
 /**
- * Where the game's sound goes: the music through a low-pass that muffles it under a banner, the
- * effects beside it, both into a compressor so a pile of effects cannot clip. One AudioContext —
- * three.js's own, which the page's other audio shares.
+ * Where a game's sound goes: the music through a low-pass that muffles it under a banner, the
+ * effects beside it, both into a compressor so a pile of effects cannot clip.
  */
 export interface Bus {
   context: AudioContext;
@@ -11,15 +8,11 @@ export interface Bus {
   muffle: BiquadFilterNode;
   sfx: GainNode;
   master: GainNode;
+  /** Glide an AudioParam of this bus to `value` over about `seconds`. */
+  glide(param: AudioParam, value: number, seconds: number): void;
 }
 
-let bus: Bus | null | undefined;
-
-/** The bus, made on first ask; null where there is no Web Audio — a test, a server. */
-export function audioBus(): Bus | null {
-  if (bus !== undefined) return bus;
-  if (typeof window === 'undefined' || !('AudioContext' in window)) return (bus = null);
-  const context = ThreeAudio.getContext() as AudioContext;
+export function createBus(context: AudioContext): Bus {
   const master = context.createGain();
   const compressor = context.createDynamicsCompressor();
   compressor.threshold.value = -12;
@@ -47,13 +40,9 @@ export function audioBus(): Bus | null {
     if (context.state !== 'running') void context.resume();
   };
   for (const type of ['pointerdown', 'keydown', 'touchend']) addEventListener(type, start, { capture: true });
-  return (bus = { context, music, muffle, sfx, master });
-}
-
-/** Glide an AudioParam to `value` over about `seconds`. */
-export function glide(param: AudioParam, value: number, seconds: number): void {
-  const context = audioBus()?.context;
-  if (!context) return;
-  param.cancelScheduledValues(context.currentTime);
-  param.setTargetAtTime(value, context.currentTime, seconds / 3);
+  const glide = (param: AudioParam, value: number, seconds: number) => {
+    param.cancelScheduledValues(context.currentTime);
+    param.setTargetAtTime(value, context.currentTime, seconds / 3);
+  };
+  return { context, music, muffle, sfx, master, glide };
 }

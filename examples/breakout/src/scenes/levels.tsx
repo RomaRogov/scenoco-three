@@ -32,7 +32,7 @@ const Level = ({ title, ballSpeed, wallY, children }: LevelProps) => (
 
     {/* Behind the paddle, looking up the field: the near paddle and far wall in perspective. */}
     <PerspectiveCamera near={0.1} far={200} position={[0, -2, 19]}>
-      <CameraRig target={[0, 8.2, 0]} />
+      <CameraRig target={[0, 6.994, 0]} />
     </PerspectiveCamera>
 
     <Arena />

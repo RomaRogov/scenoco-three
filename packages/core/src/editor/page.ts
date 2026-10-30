@@ -3,7 +3,7 @@ import type { WebGLRenderer } from 'three';
 const BAR = 28;
 
 /**
- * The bar along the page's top: the frame rate on the left, Hide and Edit on the right. The page's
+ * The bar along the page's top: the frame rate on the left, Full screen, Hide and Edit on the right. The page's
  * body is laid out under it, as the editor's panel lays it out beside itself, so the game draws in
  * what is left and nothing is hidden behind it. Hidden, it is gone until the page loads again.
  */
@@ -25,7 +25,24 @@ export function devBar(edit: () => void): { show(on: boolean): void } {
     return b;
   };
   let hidden = false;
-  bar.append(fps, button('Hide', 'Hide this bar until the page loads again', () => {
+  // The whole page full screen, so the bar and the game's own HTML come with the canvas. Safari on an
+  // iPad has only the prefixed calls; where there are none — an iPhone — the button is left out.
+  const page = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+  const doc = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+  const isFull = () => !!(document.fullscreenElement ?? doc.webkitFullscreenElement);
+  const full = button('Full screen', 'Fill the screen with the page (development only)', () => {
+    // A browser may refuse — not from a tap, say — and the promise says so: nothing to do about it here.
+    const asked = isFull()
+      ? (typeof document.exitFullscreen === 'function' ? document.exitFullscreen() : doc.webkitExitFullscreen?.())
+      : (typeof page.requestFullscreen === 'function' ? page.requestFullscreen() : page.webkitRequestFullscreen?.());
+    void Promise.resolve(asked).catch(() => {});
+  });
+  const relabel = () => void (full.textContent = isFull() ? 'Exit full screen' : 'Full screen');
+  document.addEventListener('fullscreenchange', relabel);
+  document.addEventListener('webkitfullscreenchange', relabel);
+  if (typeof page.requestFullscreen === 'function' || page.webkitRequestFullscreen) bar.append(fps, full);
+  else bar.append(fps);
+  bar.append(button('Hide', 'Hide this bar until the page loads again', () => {
     hidden = true;
     show(false);
   }), button('Edit', 'Open the editor (development only)', edit));

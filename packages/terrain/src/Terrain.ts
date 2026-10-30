@@ -10,7 +10,7 @@ import {
   type Camera,
   type Material,
 } from 'three';
-import { Behaviour } from '@scenoco-three/core';
+import { Behaviour, Screen } from '@scenoco-three/core';
 import type { TerrainData } from './TerrainData.js';
 import { TerrainMaterial } from './TerrainMaterial.js';
 
@@ -158,13 +158,17 @@ export class Terrain extends Behaviour {
     }
     const camera = this.drawingCamera();
     const scale = this.node.getWorldScale(scratch).x;
+    // Once a frame, not once a chunk: where the camera is, and how many pixels a metre covers a unit away.
+    const eye = camera ? camera.getWorldPosition(scratch2) : null;
+    const pixelsAtOne = camera ? pixelsPerUnit(camera, 1) : 0;
+    const flat = camera instanceof OrthographicCamera;
     for (const chunk of this.chunks) {
       chunk.mesh.castShadow = this.castShadows;
       let level = 0;
-      if (camera) {
+      if (eye) {
         const centre = this.node.localToWorld(scratch.copy(chunk.bounds.center));
-        const distance = Math.max(centre.distanceTo(camera.getWorldPosition(scratch2)) - chunk.bounds.radius * scale, 1e-3);
-        const pixelsPerMetre = pixelsPerUnit(camera, distance) * scale;
+        const distance = Math.max(centre.distanceTo(eye) - chunk.bounds.radius * scale, 1e-3);
+        const pixelsPerMetre = (flat ? pixelsAtOne : pixelsAtOne / distance) * scale;
         while (level + 1 < LEVEL_ERRORS.length && LEVEL_ERRORS[level + 1]! * pixelsPerMetre <= this.heightmapPixelError) level++;
       }
       const geometry = (chunk.levels[level] ??= this.build(chunk, level));
@@ -272,7 +276,7 @@ function martiniFor(gridSize: number): Martini {
 
 /** Screen pixels a world unit covers at a distance: the viewport's height over what the camera sees there. */
 function pixelsPerUnit(camera: Camera, distance: number): number {
-  const screen = (globalThis as { innerHeight?: number }).innerHeight ?? 1080;
+  const screen = Screen.height;
   if (camera instanceof PerspectiveCamera) return screen / (2 * distance * Math.tan((camera.fov * Math.PI) / 360) / camera.zoom);
   if (camera instanceof OrthographicCamera) return (screen * camera.zoom) / (camera.top - camera.bottom);
   return screen / (2 * distance);

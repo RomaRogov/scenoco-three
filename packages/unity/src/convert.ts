@@ -1,6 +1,6 @@
 /**
  * A snapshot in Unity's terms: its handedness, its units, its asset paths, and C# for every game
- * behaviour a prefab carries.
+ * behaviour.
  *
  * three.js is right-handed and Unity left-handed, both Y up: mirroring Z maps one onto the other.
  * A position or vector negates z, a rotation negates x and y of its quaternion, a mesh negates z of
@@ -19,6 +19,7 @@ import type {
   SnapshotPrefab,
   SnapshotValue,
 } from '@scenoco-three/core/snapshot';
+import { outsideClasses, readClass, stubClass } from './stub.js';
 
 export type UnityValue =
   | null
@@ -34,8 +35,8 @@ export type UnityValue =
   | { node: string }
   | { component: string; node: string }
   | { asset: string }
-  /** A plain settings object — a physics material — which the importer reads as it is. */
-  | { object: { type: string; fields: Record<string, number | boolean | string> } };
+  /** A plain object — a physics material, a particle effect — which the importer reads as it is. */
+  | { object: { type: string; fields: Record<string, UnityValue> } };
 
 export interface UnityComponent {
   type: string;
@@ -82,6 +83,8 @@ export interface UnityNode {
   components: UnityComponent[];
   /** A nested prefab's asset path. */
   prefab?: string;
+  /** Its Unity layer, from a collider's `layer`: SceNoCo's layer n is Unity's user layer n + 7. */
+  layer?: number;
   children: UnityNode[];
   source?: string;
 }
@@ -111,6 +114,9 @@ export interface UnityMaterial {
   emissionIntensity?: number;
   /** The texture's asset path, once the exporter copied it in. */
   texture?: string;
+  emissionTexture?: string;
+  /** How often the textures repeat: three's `texture.repeat`, Unity's tiling. */
+  tiling?: number[];
 }
 
 export interface UnityPrefab {
@@ -134,8 +140,17 @@ export interface UnityExport {
   prefabs: UnityPrefab[];
   /** The first is the one to play first. */
   scenes: UnityScene[];
+  /** User layers by Unity number — their names, and the pairs that pass through each other. */
+  layers: { names: Record<number, string>; ignore2D: [number, number][]; ignore3D: [number, number][] };
+  /** The page's UXML by the element a UIDocument names, and the panels' theme. */
+  ui?: { documents: Record<string, string>; theme: string };
+  /** The project-wide input actions asset. */
+  input?: string;
   warnings: string[];
 }
+
+/** SceNoCo's layers are 0 to 15, Unity's own 0 to 5: layer n, past 0, is Unity's user layer n + 7. */
+export const unityLayer = (n: number) => (n === 0 ? 0 : n + 7);
 
 /** A texture's URL as the page loaded it, and where its file is in the project. */
 export type TextureSource = (url: string) => { file: string; name: string } | null;
@@ -170,7 +185,17 @@ export const csName = (type: string) => (UNITY_NAMES.has(type) ? `${type}Behavio
 const flipV = ([x, y, z]: number[]) => [x!, y!, z === 0 ? 0 : -z!];
 const flipQ = ([x, y, z, w]: number[]) => [x === 0 ? 0 : -x!, y === 0 ? 0 : -y!, z!, w!];
 
-export function convert(snap: Snapshot, options: { firstScene?: string; textures?: TextureSource } = {}): Converted {
+export interface ConvertOptions {
+  /** The scene `main.ts` plays: listed first in Build Settings. */
+  firstScene?: string;
+  textures?: TextureSource;
+  /** A behaviour's TypeScript, by the module path the snapshot gives (`/src/Player.ts`): its stub then carries every member. */
+  source?: (file: string) => string | null;
+  /** The game's layers as SceNoCo numbers them: names, and the pairs its physics ignores. */
+  layers?: { names: Record<number, string>; ignore2D: [number, number][]; ignore3D: [number, number][] };
+}
+
+export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted {
   const warnings = [...snap.warnings];
   const paths = new Paths();
   const copies = new Map<string, string>();
@@ -213,6 +238,7 @@ export function convert(snap: Snapshot, options: { firstScene?: string; textures
     if ('component' in v) return { component: csName(v.component), node: v.node };
     if ('material' in v) return { asset: materialPath.get(v.material)! };
     if ('geometry' in v) return { asset: meshPath.get(v.geometry)! };
+    if ('object' in v) return { object: { type: v.object.type, fields: Object.fromEntries(Object.entries(v.object.fields).map(([k, f]) => [k, value(f)])) } };
     return v;
   };
 
@@ -235,6 +261,9 @@ export function convert(snap: Snapshot, options: { firstScene?: string; textures
       children: n.children.map(node),
     };
     if (n.source) out.source = n.source;
+    // A collider's layer is its object's in Unity.
+    const layered = n.components.find((c) => !c.game && typeof c.fields.layer === 'number' && c.fields.layer > 0);
+    if (layered) out.layer = unityLayer(layered.fields.layer as number);
     if (!n.visible) {
       // three hides the subtree and keeps its behaviours running; Unity's inactive object stops them.
       if (hasComponents(n)) out.renderersEnabled = false;
@@ -285,8 +314,11 @@ export function convert(snap: Snapshot, options: { firstScene?: string; textures
     }
     ambient = undefined;
     const root = node(p.root);
-    // The scene's own components, if any, need an object to live on.
-    const roots = root.components.length ? [{ ...root, name: p.name, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], children: [] }, ...root.children] : root.children;
+    // The scene's own components, if any, need an object to live on: the first root, before the
+    // scene's children — so a reference into the scene, a path of child indices, moves one along.
+    const roots = root.components.length
+      ? shiftNodes([{ ...root, name: p.name, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], children: [] }, ...root.children])
+      : root.children;
     const scene: UnityScene = { path: `Assets/Scenes/${sceneName.get(p.id)}.unity`, roots };
     if (p.background) scene.background = p.background;
     if (p.fog) scene.fog = p.fog.type === 'linear' ? { mode: 'linear', color: p.fog.color, start: p.fog.near, end: p.fog.far } : { mode: 'exp2', color: p.fog.color, density: p.fog.density };
@@ -298,7 +330,33 @@ export function convert(snap: Snapshot, options: { firstScene?: string; textures
     if (first > 0) scenes.unshift(...scenes.splice(first, 1));
   }
 
-  return { data: { meshes, materials, prefabs, scenes, warnings }, scripts: scripts(snap, value), copies };
+  const given = options.layers ?? { names: {}, ignore2D: [], ignore3D: [] };
+  const used = new Set([...given.ignore2D.flat(), ...given.ignore3D.flat(), ...Object.keys(given.names).map(Number)].filter((n) => n > 0));
+  const layers = {
+    names: Object.fromEntries([...used].map((n) => [unityLayer(n), given.names[n] ?? `Layer ${n}`])),
+    ignore2D: given.ignore2D.map(([a, b]) => [unityLayer(a), unityLayer(b)] as [number, number]),
+    ignore3D: given.ignore3D.map(([a, b]) => [unityLayer(a), unityLayer(b)] as [number, number]),
+  };
+  return { data: { meshes, materials, prefabs, scenes, layers, warnings }, scripts: scripts(snap, value, options.source), copies };
+}
+
+/** Every node reference in `roots` one root further along; the scene itself (`''`) is now the first root. */
+function shiftNodes(roots: UnityNode[]): UnityNode[] {
+  const shift = (v: UnityValue): UnityValue => {
+    if (!v || typeof v !== 'object') return v;
+    if ('array' in v) return { array: v.array.map(shift) };
+    if ('node' in v) {
+      const [first, ...rest] = v.node === '' ? ['-1'] : v.node.split('/');
+      return { ...v, node: [String(Number(first) + 1), ...rest].join('/') };
+    }
+    return v;
+  };
+  const visit = (n: UnityNode): UnityNode => ({
+    ...n,
+    components: n.components.map((c) => ({ ...c, fields: Object.fromEntries(Object.entries(c.fields).map(([k, v]) => [k, shift(v)])) })),
+    children: n.children.map(visit),
+  });
+  return roots.map(visit);
 }
 
 function hasComponents(n: SnapshotNode): boolean {
@@ -357,13 +415,16 @@ function material(m: SnapshotMaterial, path: string, textures: TextureSource | u
     out.emission = m.emissive;
     out.emissionIntensity = m.emissiveIntensity ?? 1;
   }
-  if (m.map) {
-    const found = textures?.(m.map);
+  for (const [slot, key] of [['map', 'texture'], ['emissiveMap', 'emissionTexture']] as const) {
+    const url = m[slot];
+    if (!url) continue;
+    const found = textures?.(url);
     if (found) {
-      out.texture = `Assets/Textures/${found.name}`;
-      copies.set(found.file, out.texture);
-    } else warnings.push(`${m.source ?? m.name}: texture ${m.map} was not found in the project — left off.`);
+      out[key] = `Assets/Textures/${found.name}`;
+      copies.set(found.file, out[key]!);
+    } else warnings.push(`${m.source ?? m.name}: ${slot} ${url.startsWith('data:') ? '(drawn in code)' : url} was not found in the project — left off.`);
   }
+  if (m.repeat) out.tiling = m.repeat;
   if (m.vertexColors) warnings.push(`${m.source ?? m.name}: vertex colours are not exported.`);
   if (m.flatShading) warnings.push(`${m.source ?? m.name}: flat shading is not exported — the mesh keeps its normals.`);
   return out;
@@ -430,11 +491,11 @@ function mix(a: string, b: string): string {
 // --- C# for game behaviours ----------------------------------------------------------------------
 
 /**
- * One MonoBehaviour per game behaviour, with the fields its elements write — typed from the values
- * written, started from the defaults a fresh instance holds. The logic is a port's to write; these
- * exist so the prefabs can carry the components and their settings now.
+ * One MonoBehaviour per game behaviour: the fields its elements write — typed from the values
+ * written, started from the defaults a fresh instance holds — and, from its TypeScript, every other
+ * member with that member's code inside it as comments, for a port to write in place.
  */
-function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue): Map<string, string> {
+function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue, source?: (file: string) => string | null): Map<string, string> {
   const seen = new Map<string, Map<string, UnityValue[]>>();
   const visit = (n: SnapshotNode) => {
     for (const c of n.components) {
@@ -447,16 +508,29 @@ function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue): Map<s
   };
   snap.prefabs.forEach((p) => visit(p.root));
 
+  const classes = new Map(Object.keys(snap.classes).map((type) => [type, csName(type)]));
   const out = new Map<string, string>();
-  for (const [type, fields] of seen) {
+  // A file's code outside its behaviours goes with the first of them, once.
+  const outsideGiven = new Set<string>();
+  for (const type of new Set([...seen.keys(), ...Object.keys(snap.classes)])) {
     const info = snap.classes[type];
-    const lines = [...fields].map(([name, values]) => {
+    const wired = new Map<string, string>();
+    for (const [name, values] of seen.get(type) ?? []) {
       const cs = csType(values);
       const fallback = info?.defaults[name];
       const init = fallback === undefined ? '' : csValue(value(fallback), cs);
-      return cs ? `    public ${cs} ${name}${init ? ` = ${init}` : ''};` : `    // ${name}: always empty where it is written, so its type is unknown`;
-    });
+      wired.set(name, cs ? `    public ${cs} ${name}${init ? ` = ${init}` : ''};` : `    // ${name}: always empty where it is written, so its type is unknown`);
+    }
     const name = csName(type);
+    const code = info && source?.(info.file);
+    const cls = code ? readClass(code, info.file, type) : undefined;
+    if (cls) {
+      const file = info!.file;
+      const outside = outsideGiven.has(file) ? [] : outsideClasses(code!, file, Object.keys(snap.classes).filter((t) => snap.classes[t]!.file === file));
+      outsideGiven.add(file);
+      out.set(name, stubClass(name, file, cls, wired, classes, outside).replace(/^(public class)/m, `${name !== type ? `// Named ${name}: Unity has its own ${type}.\n` : ''}$1`));
+      continue;
+    }
     out.set(name, [
       'using UnityEngine;',
       '',
@@ -465,7 +539,7 @@ function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue): Map<s
       ...(name !== type ? [`// Named ${name}: Unity has its own ${type}.`] : []),
       `public class ${name} : MonoBehaviour`,
       '{',
-      ...lines,
+      ...wired.values(),
       '}',
       '',
     ].join('\n'));

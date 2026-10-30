@@ -51,6 +51,11 @@ describe('the game from Playwright', () => {
   it("answers a mistake with the game's own message", async () => {
     expect(await page.evaluate(() => __scenoco.eval!('return findAll(Brick).length'))).toBeGreaterThan(0);
     await expect(page.evaluate(() => __scenoco.eval!('return Game.state'))).rejects.toThrow(/Game is not defined\. This game's behaviour classes so far: .*GameState/);
+    // The game's component lookups are here as in a behaviour; a helper that is not says what is.
+    expect(await page.evaluate(() => __scenoco.eval!('return getComponent(find(GameState).node, GameState) === find(GameState)'))).toBe(true);
+    await expect(page.evaluate(() => __scenoco.eval!('return getComponnet(scene, GameState)'))).rejects.toThrow(/getComponnet is not in this scope\. What is: .*getComponent/);
+    // A swipe as adb and Appium write it, four numbers: refused with the same swipe as two points.
+    await expect(page.evaluate(() => __scenoco.swipe!(500, 400, 300, 400))).rejects.toThrow('swipe takes two points, not four numbers: swipe([500, 400], [300, 400]).');
   }, 60_000);
 
   it("drives the game from ?drive= with data only, one console line per call; the editor's endpoints answer only this page", async () => {

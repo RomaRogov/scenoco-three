@@ -28,7 +28,8 @@ import {
   type Texture,
 } from 'three';
 import { Behaviour, behavioursOn } from './kernel/index.js';
-import { isPrefab, prefabOf, sourceOf } from './jsx.js';
+import { isBehaviourClass, isClass, isPrefab } from './jsx.js';
+import { prefabOf, sourceOf } from './provenance.js';
 import { writtenOf } from './kernel/index.js';
 
 /** A value a behaviour's field holds, as data. Vectors are three.js's, untouched: right-handed, Y up. */
@@ -49,8 +50,11 @@ export type SnapshotValue =
   | { component: string; node: string }
   | { prefab: string }
   | { material: string }
-  /** A plain settings object — a physics material — as its class and its own values. */
-  | { object: { type: string; fields: Record<string, number | boolean | string> } }
+  /**
+   * A plain object as data: a settings object — a physics material — as its class and its own values,
+   * or an object literal — a particle effect — with every value encoded as a field is.
+   */
+  | { object: { type: string; fields: Record<string, SnapshotValue> } }
   | { geometry: string };
 
 export interface SnapshotComponent {
@@ -154,8 +158,11 @@ export interface SnapshotMaterial {
   shininess?: number;
   flatShading?: boolean;
   vertexColors: boolean;
-  /** The image's URL, as the page loaded it. */
+  /** The image's URL, as the page loaded it — or, for one drawn in code on a canvas, the canvas as a `data:` URL. */
   map?: string;
+  emissiveMap?: string;
+  /** How often the map repeats across the surface: three's `texture.repeat`. */
+  repeat?: number[];
 }
 
 export interface SnapshotClass {
@@ -175,8 +182,6 @@ export interface Snapshot {
 
 type Module = Record<string, unknown>;
 
-const isClass = (fn: Function) => /^class[\s{]/.test(Function.prototype.toString.call(fn));
-const isBehaviourClass = (v: unknown): v is new () => Behaviour => typeof v === 'function' && v.prototype instanceof Behaviour;
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 const list = (v: { toArray(): number[] }) => v.toArray().map(round);
 const hex = (c: Color) => `#${c.getHexString()}`;
@@ -440,6 +445,16 @@ class Walk {
     }
     const plain = plainFields(o);
     if (plain) return { object: { type: (o.constructor as Function).name, fields: plain } };
+    // An object literal is data all the way down — a particle effect, with its colours and lists.
+    const proto = Object.getPrototypeOf(o);
+    if (proto === Object.prototype || proto === null) {
+      const fields: Record<string, SnapshotValue> = {};
+      for (const [k, item] of Object.entries(o)) {
+        const encoded = this.value(item, fields, k, `${where}.${k}`);
+        if (encoded !== undefined) fields[k] = encoded;
+      }
+      return { object: { type: 'Object', fields } };
+    }
     this.warnings.push(`${where}: a ${(o.constructor as Function | undefined)?.name ?? 'value'} is not exported — numbers, strings, vectors, colours, nodes, prefabs, materials, settings objects and lists of them are.`);
     return undefined;
   }
@@ -531,12 +546,15 @@ function describeMaterial(m: Material, name: string, source: string | undefined,
     out.emissiveIntensity = any.emissiveIntensity as number;
   }
   for (const key of ['roughness', 'metalness', 'shininess', 'flatShading'] as const) if (any[key] !== undefined) (out as unknown as Record<string, unknown>)[key] = any[key];
-  const map = any.map as Texture | null | undefined;
-  if (map) {
-    const image = map.image as { src?: string; currentSrc?: string } | undefined;
-    const src = image?.currentSrc || image?.src;
-    if (src) out.map = src;
-    else warnings.push(`${source ?? name}: a texture with no image URL (made in code) is not exported.`);
+  for (const slot of ['map', 'emissiveMap'] as const) {
+    const texture = any[slot] as Texture | null | undefined;
+    if (!texture) continue;
+    const image = texture.image as { src?: string; currentSrc?: string; toDataURL?: (type: string) => string } | undefined;
+    // A texture drawn in code is its canvas: written down as the image it holds.
+    const src = image?.currentSrc || image?.src || image?.toDataURL?.('image/png');
+    if (src) out[slot] = src;
+    else warnings.push(`${source ?? name}: a ${slot} that is neither an image nor a canvas is not exported.`);
+    if (texture.repeat.x !== 1 || texture.repeat.y !== 1) out.repeat = [texture.repeat.x, texture.repeat.y];
   }
   if (any.isShaderMaterial) warnings.push(`${source ?? name}: a ${m.type} is exported as a plain lit material — its shader is not.`);
   return out;

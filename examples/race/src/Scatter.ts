@@ -5,7 +5,9 @@ import { Terrain } from '@scenoco-three/terrain';
 
 /**
  * Scenery strewn over the terrain — trees, rocks — clear of the track, the same every time for one
- * `seed`. Each model is drawn instanced: one draw call per part, however many copies.
+ * `seed`. Drawn instanced, one mesh per model part per `cell` metres square: one mesh for the whole
+ * map would be inside every camera's view and every shadow's, and drawn whole each time; in cells,
+ * what is behind the camera, or outside the shadow's box, is skipped.
  */
 export class Scatter extends Behaviour {
   items: Model[] = [];
@@ -19,6 +21,8 @@ export class Scatter extends Behaviour {
   extent: [number, number] = [120, 120];
   /** Metres kept clear either side of the track's centre line. */
   clearTrack = 16;
+  /** The side of the squares the copies are grouped into, each drawn as its own meshes. */
+  cell = 64;
 
   override start(): void {
     const terrain = findObjectOfType(Terrain);
@@ -29,7 +33,8 @@ export class Scatter extends Behaviour {
     let state = this.seed * 9301 + 49297;
     const random = () => (state = (state * 9301 + 49297) % 233280) / 233280;
 
-    const placed: Matrix4[][] = this.items.map(() => []);
+    // By model, then by cell: `${column},${row}` → the copies there.
+    const placed: Map<string, Matrix4[]>[] = this.items.map(() => new Map());
     const at = new Vector3();
     for (let tries = 0, made = 0; tries < this.count * 8 && made < this.count; tries++) {
       const x = centre.x + (random() * 2 - 1) * this.extent[0];
@@ -40,12 +45,15 @@ export class Scatter extends Behaviour {
       if (line.some((p) => Math.hypot(p.x - x, p.z - z) < this.clearTrack)) continue;
       at.set(x, 0, z);
       at.y = terrain.sampleHeight(at) + terrain.node.position.y;
-      placed[pick]!.push(new Matrix4().compose(at.clone(), new Quaternion().setFromAxisAngle(UP, yaw), new Vector3().setScalar(scale)));
+      const key = `${Math.floor(x / this.cell)},${Math.floor(z / this.cell)}`;
+      const cell = placed[pick]!.get(key) ?? [];
+      placed[pick]!.set(key, cell);
+      cell.push(new Matrix4().compose(at.clone(), new Quaternion().setFromAxisAngle(UP, yaw), new Vector3().setScalar(scale)));
       made++;
     }
 
     this.items.forEach((model, i) => {
-      if (placed[i]!.length === 0) return;
+      if (placed[i]!.size === 0) return;
       const root = model.value.scene;
       root.updateMatrixWorld(true);
       // Sized so a scale-1 copy is `height` tall, its base on the ground.
@@ -56,13 +64,16 @@ export class Scatter extends Behaviour {
         const part = o as Mesh;
         if (!part.isMesh) return;
         const local = seat.clone().multiply(part.matrixWorld);
-        const mesh = new InstancedMesh(part.geometry, part.material, placed[i]!.length);
-        placed[i]!.forEach((m, k) => mesh.setMatrixAt(k, m.clone().multiply(local)));
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.computeBoundingSphere();
-        // Instances in world space: the node's own transform must not move them again.
-        this.node.parent?.add(mesh);
+        for (const copies of placed[i]!.values()) {
+          const mesh = new InstancedMesh(part.geometry, part.material, copies.length);
+          copies.forEach((m, k) => mesh.setMatrixAt(k, m.clone().multiply(local)));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          // The cell's own bounds, so a camera or a shadow that cannot see the cell skips it.
+          mesh.computeBoundingSphere();
+          // Instances in world space: the node's own transform must not move them again.
+          this.node.parent?.add(mesh);
+        }
       });
     });
   }

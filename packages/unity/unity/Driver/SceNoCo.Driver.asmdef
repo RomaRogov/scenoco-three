@@ -1,0 +1,32 @@
+{
+    "name": "SceNoCo.Driver",
+    "rootNamespace": "SceNoCo.Driver",
+    "references": [
+        "Unity.Pipeline.Attributes",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "SCENOCO_PIPELINE"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.pipeline",
+            "expression": "0.0.0",
+            "define": "SCENOCO_PIPELINE"
+        },
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "SCENOCO_INPUT_SYSTEM"
+        }
+    ],
+    "noEngineReferences": false
+}

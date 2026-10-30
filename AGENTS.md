@@ -32,7 +32,7 @@ not memory.
 
 - `packages/core` — the kernel (`Behaviour`, the per-scene `Runtime`, coroutines, `Time`, events,
   destruction), the TSX runtime (`jsx.ts`), `play`, `SceneManager`, `Input`, assets, and the
-  dev-only bridge a browser drives the game through (`observe.ts`).
+  dev-only bridge a browser drives the game through (`bridge/`). Its own map is below.
 - Packages (`rapier`, `box2d`, `particles`, `audio`, `splines`, `terrain`) attach through core's package seam: a private
   per-scene `System` reached with `service(node, Type)`, Unity's message names declared with
   `declareMessages`, and Unity's static facades (`Physics.gravity`) for anything a game sets.
@@ -40,13 +40,41 @@ not memory.
   byte-preserving read/write of a scene file.
 - `packages/create` — the starter `npm create @scenoco-three` copies; `template/AGENTS.md` is the
   rules card a model reads in a project, so a change to the API is a change there too.
-- `packages/unity` — `scenoco-unity`: the game's prefabs, scenes, meshes and materials written into a
-  Unity project. Core's `snapshot` (dev only) describes what the TSX declares; the package mirrors it
-  into Unity's space and a C# importer builds it with Unity's API.
+- `packages/unity` — `scenoco-unity`: the game written into a Unity project. Core's `snapshot` (dev
+  only) describes what the TSX declares; `convert.ts` mirrors it into Unity's space, `page.ts` turns the
+  page into UXML and USS, `input.ts` the named axes into input actions, `stub.ts` the code into C#
+  stubs holding its TypeScript, and the C# in `unity/` — importer, driver commands, `PORTING.md` — is
+  copied into the project, where the importer builds it with Unity's API.
 - `packages/editor` — the editor's interface: one self-contained module (React bundled in) the
   running game's page loads from a button in development. The live half is core's `editor/` (pause,
   step, reset, the editor's camera and gizmo); the file half is `scenoco()` in `packages/tools/src/vite.ts`,
   which also serves the module.
+
+## Inside core
+
+| Where | What |
+| --- | --- |
+| `kernel/Behaviour.ts` | the base class: fields, hooks, lookups on its node, `listen`, coroutines |
+| `kernel/registry.ts` | which behaviours are on which node, which runtime runs which root, every `getComponent*` and `findObject*` |
+| `kernel/lifecycle.ts` | a behaviour's life — woken, live, started, destroyed at the end of the frame — and `service` |
+| `kernel/attach.ts` `kernel/init.ts` | `addComponent`, and how a tag's attributes and refs land on a behaviour |
+| `kernel/messages.ts` | `sendMessage`, `declareMessages`, the check that names a misspelled hook |
+| `kernel/runtime.ts` | `Runtime`: one root's frame — start, fixed steps, update, coroutines, late update, destroy |
+| `jsx.ts` | TSX to three.js objects, `prefab`, `ref`; `provenance.ts` records where each element was written |
+| `play.ts` `simulate.ts` | a scene run on a canvas, or stepped by a test |
+| `host.ts` | what the editor and the bridge do to a running game: hold its clock, draw from another camera |
+| `bridge/` | `window.__scenoco`: `scope` (what `eval` can name), `input`, `read` (state as plain data), `drive` (`?drive=`) |
+| `editor/` | the editor's live half |
+| `snapshot.ts` | what the TSX declares, as plain data, for the Unity export (development only) |
+
+Words of its own, each defined where it lives:
+- **live** — receiving hooks: the node is under a running root and the behaviour is enabled;
+  **wake** — make that true now, rather than at the next frame (`lifecycle.ts`).
+- **dormant** — attached but not woken yet: `instantiate` and TSX wire a whole copy first (`attach.ts`).
+- **reach** — how far a runtime lets behaviours go, `awake` to `frame`; the editor holds a scene short of `start` to show it as written (`lifecycle.ts`).
+- **written** — the fields a tag set (`writtenOf`), so a component sizes itself from its node only where nothing was said (`attach.ts`).
+- **given**, **own** — the attributes an element was written with, and a prefab root's own element apart from the tag that placed it (`provenance.ts`).
+- **held** — a clock that moves only when stepped (`host.ts`).
 
 ## What good looks like here
 

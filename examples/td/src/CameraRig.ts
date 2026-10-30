@@ -1,5 +1,5 @@
 import { MathUtils, type PerspectiveCamera, Vector3 } from 'three';
-import { Behaviour, Event, Input } from '@scenoco-three/core';
+import { Behaviour, Event, Input, Screen } from '@scenoco-three/core';
 
 /**
  * The level's camera, tilted over the map. Held upright it frames `width` units across; on a wide
@@ -130,7 +130,7 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
     if (!this.moved) return;
     // Drag the ground: a screen pixel is this many units at the focus.
     const camera = this.node;
-    const perPixel = (2 * this.node.position.distanceTo(new Vector3(this.focus.x, this.ground, this.focus.z)) * Math.tan(MathUtils.degToRad(camera.fov / 2))) / window.innerHeight;
+    const perPixel = (2 * this.node.position.distanceTo(new Vector3(this.focus.x, this.ground, this.focus.z)) * Math.tan(MathUtils.degToRad(camera.fov / 2))) / Screen.height;
     const across = dx * perPixel;
     const along = (dy * perPixel) / Math.sin(MathUtils.degToRad(this.pitch));
     if (camera.aspect > 1) {

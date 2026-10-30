@@ -1,10 +1,12 @@
 import { Behaviour, findObjectOfType } from '@scenoco-three/core';
 import { Music } from './Music.js';
 import { Progress } from './Progress.js';
-import { audioBus } from './sound/bus.js';
-import { loadChips } from './sound/chips.js';
-import { SfxBank, type SfxName } from './sound/sfx.js';
-import { keyOf } from './sound/song.js';
+import { audioBus } from './audio.js';
+import { score, type SfxName } from './effects.js';
+import { keyOf } from './song.js';
+import { SfxBank } from './sound/bank.js';
+import { chipBinaries } from './sound/binaries.js';
+import { makeChips } from './sound/chips.js';
 
 /** The effects that duck the music for a moment while they play. */
 const BIG: readonly SfxName[] = ['catch', 'multi', 'lose', 'clear', 'over', 'win'];
@@ -26,7 +28,7 @@ export class Sfx extends Behaviour {
     const bus = audioBus();
     if (!bus) return;
     bus.sfx.gain.value = this.volume;
-    void loadChips().then((chips) => {
+    void chipBinaries().then(makeChips).then((chips) => {
       if (!this.isDestroyed) this.bank = new SfxBank(chips, bus.context.sampleRate);
     });
   }
@@ -35,7 +37,8 @@ export class Sfx extends Behaviour {
   play(name: SfxName, step = 0): void {
     const bus = audioBus();
     if (!bus || !this.bank || bus.context.state !== 'running') return;
-    const { left, right } = this.bank.get(name, keyOf(this.progress?.stage ?? 0), step);
+    const key = keyOf(this.progress?.stage ?? 0);
+    const { left, right } = this.bank.get(`${name}:${key}:${step}`, () => score(name, key, step));
     const buffer = bus.context.createBuffer(2, left.length, bus.context.sampleRate);
     buffer.copyToChannel(left, 0);
     buffer.copyToChannel(right, 1);

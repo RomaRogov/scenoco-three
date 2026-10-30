@@ -15,6 +15,7 @@ class Grid extends Behaviour {
 class Spawner extends Behaviour {
   wave: (() => unknown)[] = [];
   grid: Grid | null = null;
+  area: Group | null = null;
 }
 
 const Crate = prefab(() => <Mesh geometry={box} material={paint.stone} position={[1, 2, 3]} rotation={[0.5, 0.25, 0]} />);
@@ -28,7 +29,7 @@ const Main = () => {
         <Grid size={6} />
       </Group>
       <Crate />
-      <Spawner wave={[Crate]} />
+      <Spawner wave={[Crate]} area={grid} />
     </Scene>
   );
 };
@@ -65,12 +66,47 @@ describe('unity export', () => {
     expect(scene.roots.find((r) => r.prefab)!.prefab).toBe('Assets/Prefabs/Crate.prefab');
     const spawner = scene.roots[0]!.components.find((c) => c.type === 'Spawner')!;
     expect(spawner.fields.wave).toEqual({ array: [{ asset: 'Assets/Prefabs/Crate.prefab' }] });
+    // The scene's own behaviours sit on a first root of their own: a reference into the scene counts it.
+    const area = (spawner.fields.area as { node: string }).node.split('/').map(Number);
+    expect(scene.roots[area[0]!]!.components.some((c) => c.type === 'GridBehaviour')).toBe(true);
 
     // A behaviour named like one of Unity's own gets a C# name Unity accepts.
     expect(scene.roots.find((r) => r.components.some((c) => c.type === 'GridBehaviour'))).toBeDefined();
     expect(scripts.get('GridBehaviour')).toContain('public class GridBehaviour : MonoBehaviour');
     expect(scripts.get('GridBehaviour')).toContain('public float size = 4f;');
     expect(scripts.get('Spawner')).toContain('public GameObject[] wave;');
+  });
+
+  it("writes each behaviour's TypeScript into its C# stub, member by member", () => {
+    const source = `/** Spawns crates. */
+export class Spawner extends Behaviour {
+  wave: (() => unknown)[] = [];
+  private spawned = 0;
+  override update(): void {
+    if (this.spawned < 3) this.spawned++;
+  }
+  /** One crate, a frame apart. */
+  private *drop(count: number): Generator<Yieldable> {
+    yield null;
+  }
+  get left(): number {
+    return 3 - this.spawned;
+  }
+}`;
+    const { scripts } = convert(snapshot({ '/src/scenes.tsx': { Crate, Main }, '/src/Grid.ts': { Grid }, '/src/Spawner.ts': { Spawner } }), {
+      source: (file) => (file === '/src/Spawner.ts' ? source : null),
+    });
+    const stub = scripts.get('Spawner')!;
+    // The field the scene wires is real; the others are their TypeScript, for the port to write.
+    expect(stub).toContain('public GameObject[] wave;');
+    expect(stub).toContain('// private spawned = 0;');
+    // A hook is Unity's message, a generator a coroutine, a getter a property — each with its code inside.
+    expect(stub).toContain('    void Update()\n    {\n        // override update(): void {\n        //   if (this.spawned < 3) this.spawned++;');
+    expect(stub).toContain('    // One crate, a frame apart.\n    private IEnumerator Drop(float count)');
+    expect(stub).toContain('yield break;');
+    expect(stub).toContain('public float Left');
+    // A behaviour whose TypeScript cannot be read keeps the stub of its wired fields.
+    expect(scripts.get('GridBehaviour')).toContain('public float size = 4f;');
   });
 
   it("builds the project's prefabs in its own page", async () => {

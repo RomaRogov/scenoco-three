@@ -1,6 +1,7 @@
 import type { Camera, Scene, WebGLRenderer } from 'three';
-import type { Reach, Runtime } from '../kernel/runtime.js';
-import { setHeld } from '../observe.js';
+import type { Runtime } from '../kernel/runtime.js';
+import type { Reach } from '../kernel/lifecycle.js';
+import { setHeld } from '../host.js';
 import { devBar } from './page.js';
 import { drawEditor, startEditor, type Editor } from './editor.js';
 import { read, write, writeOpened } from './session.js';

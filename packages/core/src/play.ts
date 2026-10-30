@@ -1,8 +1,10 @@
 import { Camera, Euler, Object3D, Scene, Timer, Vector2, Vector3, WebGLRenderer, type OrthographicCamera, type PerspectiveCamera, type Quaternion } from 'three';
 import { Runtime, destroy, wake, provideCamera, type RenderCamera } from './kernel/index.js';
-import { flushDestroyed } from './kernel/runtime.js';
+import { flushDestroyed } from './kernel/lifecycle.js';
 import { Input } from './input/Input.js';
-import { installObserverBridge, isHeld, viewOf } from './observe.js';
+import { setScreenSize } from './Screen.js';
+import { installBridge } from './bridge/index.js';
+import { isHeld, viewOf } from './host.js';
 import { SceneManager, attachWorld, detachWorld, loadInto } from './scenes.js';
 import { installEditor, markSpawned, sizeCanvas, startOpenedScene } from './editor/index.js';
 import { Model } from './assets/Model.js';
@@ -19,8 +21,9 @@ export interface PlayOptions {
   /** Seconds per `fixedUpdate`. Unity's default, 0.02. */
   fixedDelta?: number;
   /**
-   * The renderer to draw with, for what only its constructor sets — `new WebGLRenderer({ antialias:
-   * false, powerPreference: 'high-performance' })`. One with antialiasing when left out.
+   * The renderer to draw with, for what only its constructor sets — `new WebGLRenderer({ alpha: true,
+   * powerPreference: 'high-performance' })`. One without antialiasing when left out: crisp pixels,
+   * and none of the multisampling's cost to fill on a phone or a tablet.
    */
   renderer?: WebGLRenderer;
   /**
@@ -64,7 +67,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   const scene = new Scene();
   const runtime = new Runtime(scene, { fixedDelta: options.fixedDelta });
 
-  const renderer = options.renderer ?? new WebGLRenderer({ antialias: true });
+  const renderer = options.renderer ?? new WebGLRenderer();
   if (!options.renderer) renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const host = options.container ?? document.body;
   /** The game is the page, rather than one element of it: only then is the editor's bar put on it. */
@@ -118,6 +121,8 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     if (!(import.meta.env?.DEV && page && sizeCanvas(renderer, host))) {
       renderer.setSize(page ? innerWidth : host.clientWidth, page ? innerHeight : host.clientHeight);
     }
+    renderer.getSize(size);
+    setScreenSize(size.x, size.y);
     fit();
   };
   resize();
@@ -179,7 +184,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     Input.endFrame();
   };
   const closeBridge = import.meta.env?.DEV
-    ? installObserverBridge(runtime, () => ({ scene, camera, gl: renderer, size: { width: size.x, height: size.y } }), frame)
+    ? installBridge(runtime, () => ({ scene, camera, gl: renderer, size: { width: size.x, height: size.y } }), frame)
     : null;
 
   const timer = new Timer();

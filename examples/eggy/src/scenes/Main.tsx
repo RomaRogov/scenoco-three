@@ -1,5 +1,5 @@
 import { AmbientLight, DirectionalLight, Group, Mesh, Object3D, PerspectiveCamera, PlaneGeometry, Scene } from 'three';
-import { ref } from '@scenoco-three/core';
+import { UIDocument, ref } from '@scenoco-three/core';
 import { BoxCollider, MeshCollider, Rigidbody, TerrainCollider } from '@scenoco-three/rapier';
 import { Terrain } from '@scenoco-three/terrain';
 import { materials, models, textures } from '../assets';
@@ -71,7 +71,10 @@ export const Main = () => {
       <Group name="music">
         <MusicController />
       </Group>
+      {/* Unity's portrait canvas, 1080 × 1920, for the UI and the gradient behind the scene alike. */}
       <Group name="ui">
+        <UIDocument element="backdrop" referenceResolution={[1080, 1920]} />
+        <UIDocument element="ui" referenceResolution={[1080, 1920]} />
         <UIController />
       </Group>
     </Scene>

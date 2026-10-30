@@ -1,6 +1,6 @@
 import { Object3D, Scene } from 'three';
 import { Behaviour } from './kernel/Behaviour.js';
-import { destroy, wake } from './kernel/runtime.js';
+import { destroy, wake } from './kernel/lifecycle.js';
 
 /**
  * Scenes are functions returning `<Scene>…</Scene>`, and `SceneManager` swaps them, as Unity's does.

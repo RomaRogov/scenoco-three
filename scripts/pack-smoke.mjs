@@ -101,7 +101,8 @@ try {
   step('breakout, copied out of the workspace, on the packed packages');
   const example = join(repo, 'examples', 'breakout');
   mkdirSync(app);
-  for (const entry of ['src', 'index.html', 'vite.config.ts']) cpSync(join(example, entry), join(app, entry), { recursive: true });
+  // public/ too: the UI's images, which its CSS names by address.
+  for (const entry of ['src', 'public', 'index.html', 'vite.config.ts']) cpSync(join(example, entry), join(app, entry), { recursive: true });
   // Standalone: the example's own tsconfig extends the workspace's.
   writeFileSync(
     join(app, 'tsconfig.json'),

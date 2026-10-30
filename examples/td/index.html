@@ -8,276 +8,380 @@
     <title>Tiny Bastion</title>
     <link rel="icon" href="/ui/castle-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700&display=swap" rel="stylesheet" />
     <style>
-      :root {
-        --wood: url(/ui/wood.jpg);
-        --paper: url(/ui/parchment.jpg);
-        --ink: #4a2a12;
-        --gold: #ffd23f;
-        --safe-top: env(safe-area-inset-top, 0px);
-        --safe-bottom: env(safe-area-inset-bottom, 0px);
-      }
+      /* The page around the game: the UI below is UI Toolkit's, its USS here and its UXML in the body.
+         Border-box is USS's box model; a button has no look of the browser's own, and its parent's text. */
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #6fae4f; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-      body { font-family: 'Nunito', system-ui, sans-serif; color: #fff; }
-      canvas { display: block; touch-action: none; }
-      .hidden { display: none !important; }
-      .display { font-family: 'Lilita One', 'Trebuchet MS', sans-serif; letter-spacing: .5px; }
-      img { -webkit-user-drag: none; pointer-events: none; }
-      button { font: inherit; border: 0; cursor: pointer; touch-action: manipulation; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #6fae4f; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      canvas { display: block; }
+      button { appearance: none; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; touch-action: manipulation; }
+
+      :root { --ink: #4a2a12; --gold: #ffd23f; }
+      #ui { font-family: Nunito; font-weight: bold; color: #ffffff; }
+      /* Hidden wins over any one id's or class's display: the root's id and the class together. */
+      #ui .hidden { display: none; }
+      .lilita { font-family: 'Lilita One'; letter-spacing: 0.5px; }
+      /* A face is USS's own — colour, texture, border, radius — and its shadow an image
+         (tools/ui-images.mjs, at twice its size) on a .shade child placed outside it, nine-sliced in the
+         image's pixels as -unity-slice-* is; a fixed-size button is drawn whole on its .shade. Text over
+         a whole one is a positioned .text after it. */
+      .shade { position: absolute; border-width: 0; border-style: solid; }
+      .text { position: relative; }
+      .icon { flex-shrink: 0; background-size: 100% 100%; }
+      .icon.heart { background-image: url(/ui/heart.png); }
+      .icon.coin { background-image: url(/ui/coin.png); }
+      .icon.swords { background-image: url(/ui/swords.png); }
+      .icon.archer { background-image: url(/ui/archer.png); }
+      .icon.cannon { background-image: url(/ui/cannon.png); }
+      .icon.mage { background-image: url(/ui/mage.png); }
+      .icon.frost { background-image: url(/ui/frost.png); }
+      .icon.goblin { background-image: url(/ui/goblin.png); }
+      .icon.wolf { background-image: url(/ui/wolf.png); }
+      .icon.orc { background-image: url(/ui/orc.png); }
+      .icon.troll { background-image: url(/ui/troll.png); }
+      .star { width: 22px; height: 22px; background-image: url(/ui/star.png); background-size: 100% 100%; }
+      .star.off { background-image: url(/ui/drawn/star-off.png); }
+      .shake-l { translate: -6px 0; }
+      .shake-r { translate: 6px 0; }
 
       /* ── wooden chips and buttons ───────────────────────────────────────────── */
       .chip {
-        display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 12px 0 4px; border-radius: 20px;
-        background: var(--wood) center / 160px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.25), 0 3px 0 #2b1a0c, 0 6px 12px rgba(0,0,0,.3);
-        font-family: 'Lilita One', sans-serif; font-size: 20px; text-shadow: 0 2px 0 rgba(0,0,0,.45);
+        position: relative; display: flex; flex-direction: row; align-items: center; height: 38px; padding: 0 12px 0 4px; margin-right: 8px; border-radius: 20px;
+        background-image: url(/ui/wood.jpg); background-size: 160px; background-position: center;
+        border: 2px solid rgba(0, 0, 0, 0.35); border-top-color: rgba(255, 255, 255, 0.25);
+        font-family: 'Lilita One'; font-size: 20px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+        transition: scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), translate 0.09s, color 0.2s;
       }
-      .chip img { width: 34px; height: 34px; filter: drop-shadow(0 2px 1px rgba(0,0,0,.4)); }
-      .chip.bump { animation: bump .35s cubic-bezier(.3,1.8,.5,1); }
-      .chip.hurt { animation: hurt .45s; }
-      @keyframes bump { 35% { transform: scale(1.22); } }
-      @keyframes hurt { 20%, 60% { transform: translateX(-5px); background-color: #c22; } 40%, 80% { transform: translateX(5px); } }
+      .chip > .shade { left: -18px; top: -18px; right: -18px; bottom: -18px; border-image: url(/ui/drawn/chip-shadow.png) 72 fill / 36px; }
+      .chip .icon { width: 34px; height: 34px; margin-right: 4px; }
+      .chip.bump { scale: 1.22; transition: scale 0.12s ease-out; }
+      .chip.hurt { color: #ff5c4d; border-color: #cc2222; }
 
       .round {
-        width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff;
-        background: var(--wood) center / 120px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.25), 0 3px 0 #2b1a0c, 0 6px 12px rgba(0,0,0,.3);
-        font-family: 'Lilita One', sans-serif; font-size: 17px; text-shadow: 0 2px 0 rgba(0,0,0,.5); transition: transform .08s;
+        position: relative; width: 44px; height: 44px; margin-left: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        font-family: 'Lilita One'; font-size: 17px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); pointer-events: auto; cursor: pointer; transition: translate 0.08s, scale 0.08s;
       }
-      .round:active, .btn:active, .card:active { transform: translateY(3px) scale(.97); }
-      .round svg { width: 22px; height: 22px; fill: #fff; filter: drop-shadow(0 2px 0 rgba(0,0,0,.45)); }
-      .round.on { background-color: #e8a317; background-blend-mode: multiply; }
+      .round > .shade { left: -16px; top: -16px; right: -16px; bottom: -16px; background-image: url(/ui/drawn/round.png); background-size: 100% 100%; }
+      .round.on > .shade { background-image: url(/ui/drawn/round-on.png); }
+      .round .icon.pause { width: 26px; height: 26px; background-image: url(/ui/drawn/pause.png); }
+      .round:active, .btn:active, .card:active { translate: 0 3px; scale: 0.97; }
 
       .btn {
-        display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 26px; border-radius: 16px;
-        font-family: 'Lilita One', sans-serif; font-size: 22px; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.35);
-        background: linear-gradient(#7ed957, #3e9b2b); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 5px 0 #24661a, 0 10px 18px rgba(0,0,0,.3);
-        transition: transform .08s, filter .2s;
+        position: relative; display: flex; flex-direction: row; align-items: center; justify-content: center; min-height: 52px; padding: 0 26px; margin-bottom: 12px;
+        border-radius: 16px; border-top: 2px solid rgba(255, 255, 255, 0.4); font-family: 'Lilita One'; font-size: 22px; color: #ffffff; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+        background-image: url(/ui/drawn/btn-green.png); background-size: 100% 100%; pointer-events: auto; cursor: pointer; transition: translate 0.08s, scale 0.08s, opacity 0.2s;
       }
-      .btn.gold { background: linear-gradient(#ffe066, #f0a400); box-shadow: inset 0 2px 0 rgba(255,255,255,.5), 0 5px 0 #a86a00, 0 10px 18px rgba(0,0,0,.3); color: #5a3000; text-shadow: 0 1px 0 rgba(255,255,255,.5); }
-      .btn.red { background: linear-gradient(#ff7b6b, #d4392a); box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 5px 0 #8c1f14, 0 10px 18px rgba(0,0,0,.3); }
-      .btn.wood { background: var(--wood) center / 180px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.3), inset 0 2px 0 rgba(255,255,255,.25), 0 5px 0 #2b1a0c, 0 10px 18px rgba(0,0,0,.3); }
-      .btn img { width: 26px; height: 26px; }
-      .btn[disabled] { filter: grayscale(1) brightness(.85); pointer-events: none; }
-      .btn.shimmer { position: relative; overflow: hidden; }
-      .btn.shimmer::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%); transform: translateX(-120%); animation: shimmer 2.6s infinite; }
-      @keyframes shimmer { 60%, 100% { transform: translateX(120%); } }
+      .btn > .shade { left: -28px; top: -30px; right: -28px; bottom: -28px; border-image: url(/ui/drawn/btn-green-shadow.png) 88 fill / 44px; }
+      .btn.gold { background-image: url(/ui/drawn/btn-gold.png); border-top-color: rgba(255, 255, 255, 0.5); color: #5a3000; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5); }
+      .btn.gold > .shade { border-image: url(/ui/drawn/btn-gold-shadow.png) 88 fill / 44px; }
+      .btn.red { background-image: url(/ui/drawn/btn-red.png); }
+      .btn.red > .shade { border-image: url(/ui/drawn/btn-red-shadow.png) 88 fill / 44px; }
+      .btn.wood { background-image: url(/ui/wood.jpg); background-size: 180px; background-position: center; border: 2px solid rgba(0, 0, 0, 0.3); border-top-color: rgba(255, 255, 255, 0.25); }
+      .btn.wood > .shade { left: -30px; right: -30px; bottom: -30px; border-image: url(/ui/drawn/btn-wood-shadow.png) 88 fill / 44px; }
+      .btn .icon { width: 26px; height: 26px; margin-right: 8px; }
+      .btn:disabled, .btn.poor { opacity: 0.6; }
+      .btn:disabled { pointer-events: none; }
+      /* The light sweeping over the gold button: clipped to it, and moved across again and again. */
+      .btn .clip { position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 16px; overflow: hidden; }
+      .btn .shine { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-image: url(/ui/drawn/shimmer.png); background-size: 100% 100%; translate: 120% 0; transition: translate 1.56s ease; }
+      .btn .shine.start { translate: -120% 0; transition-duration: 0s; }
 
       /* ── HUD ─────────────────────────────────────────────────────────────────── */
-      #hud { position: fixed; inset: 0; pointer-events: none; transition: opacity .3s; }
-      #hud > * { pointer-events: auto; }
-      #top { position: absolute; top: calc(var(--safe-top) + 10px); left: 10px; right: 10px; display: flex; align-items: center; gap: 8px; pointer-events: none; }
-      #top > * { pointer-events: auto; }
-      #top .spacer { flex: 1; }
+      #hud { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+      #top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; flex-direction: row; align-items: center; }
+      #top .spacer { flex-grow: 1; }
       #wave-chip { padding-right: 14px; }
-      #wave-chip small { font-size: 13px; opacity: .8; margin-left: 2px; }
+      #waves { font-size: 13px; opacity: 0.8; margin-left: 2px; }
 
       #next {
-        position: absolute; right: 16px; bottom: calc(var(--safe-bottom) + 22px);
-        width: 86px; height: 86px; border-radius: 50%; display: grid; place-items: center;
-        background: radial-gradient(circle at 50% 35%, #ff9b5c, #d4392a 70%); box-shadow: inset 0 3px 0 rgba(255,255,255,.4), 0 5px 0 #7d1c12, 0 10px 22px rgba(0,0,0,.4);
-        transition: transform .15s, opacity .3s;
+        position: absolute; right: 16px; bottom: 22px; width: 86px; height: 86px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        pointer-events: auto; cursor: pointer; transition: scale 0.7s ease-in-out, opacity 0.3s;
       }
-      #next.idle { animation: pulse 1.4s ease-in-out infinite; }
-      #next.gone { transform: scale(0); opacity: 0; pointer-events: none; }
-      #next img { width: 50px; height: 50px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.4)); }
-      #next svg.ring { position: absolute; inset: -6px; width: 98px; height: 98px; transform: rotate(-90deg); }
-      #next svg.ring circle { fill: none; stroke: #ffe066; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 289; filter: drop-shadow(0 0 4px #ffb703); }
-      #next .label { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 10px; border-radius: 10px; background: #2b1a0c; font-family: 'Lilita One', sans-serif; font-size: 14px; color: var(--gold); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
-      @keyframes pulse { 50% { transform: scale(1.08); } }
+      #next > .shade { left: -24px; top: -24px; right: -24px; bottom: -24px; background-image: url(/ui/drawn/next.png); background-size: 100% 100%; }
+      #next.pulse { scale: 1.08; }
+      #next.gone { scale: 0; opacity: 0; pointer-events: none; transition: scale 0.15s, opacity 0.3s; }
+      #next .icon.swords { position: relative; width: 50px; height: 50px; }
+      /* The countdown's ring: two halves, each turned into view inside a clip — -unity-overflow-clip-box's way. */
+      #ring { position: absolute; left: -12px; top: -12px; width: 110px; height: 110px; }
+      .half { position: absolute; top: 0; width: 55px; height: 110px; overflow: hidden; }
+      .half.right { left: 55px; }
+      .half.left { left: 0; }
+      .arc { position: absolute; top: 0; width: 110px; height: 110px; background-size: 100% 100%; transform-origin: 55px 55px; rotate: -180deg; }
+      #arc-right { left: -55px; background-image: url(/ui/drawn/ring-right.png); }
+      #arc-left { left: 0; background-image: url(/ui/drawn/ring-left.png); }
+      #next .tag { position: absolute; left: 0; right: 0; bottom: -8px; display: flex; flex-direction: row; justify-content: center; }
+      #next-label { padding: 2px 10px; border-radius: 10px; background-color: #2b1a0c; font-family: 'Lilita One'; font-size: 14px; color: var(--gold); white-space: nowrap; }
 
-      #pops { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-      .pop { position: absolute; font-family: 'Lilita One', sans-serif; font-size: 20px; color: var(--gold); text-shadow: 0 2px 0 #7a4a00, 0 0 8px rgba(0,0,0,.4); transform: translate(-50%, -50%); animation: rise 1s ease-out forwards; white-space: nowrap; }
+      #pops { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; }
+      .pop {
+        position: absolute; display: flex; flex-direction: row; align-items: center; white-space: nowrap; translate: -50% -260%; opacity: 0;
+        font-family: 'Lilita One'; font-size: 20px; color: var(--gold); text-shadow: 0 2px 0 #7a4a00;
+        transition: translate 0.85s ease-out, opacity 0.85s ease-out, scale 0.85s ease-out;
+      }
+      .pop.start { translate: -50% -30%; opacity: 0; scale: 0.5; transition-duration: 0s; }
+      .pop.mid { translate: -50% -80%; opacity: 1; scale: 1.25; transition-duration: 0.15s; }
       .pop.hurt { color: #ff5c4d; text-shadow: 0 2px 0 #5a0a00; font-size: 24px; }
-      .pop img { width: 18px; height: 18px; vertical-align: -3px; }
-      @keyframes rise { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.5); } 15% { opacity: 1; transform: translate(-50%, -80%) scale(1.25); } 100% { opacity: 0; transform: translate(-50%, -260%) scale(1); } }
+      .pop .icon.coin { width: 18px; height: 18px; margin-left: 4px; }
 
-      #vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 0 rgba(220,30,20,0); }
-      #vignette.flash { animation: vignette .6s ease-out; }
-      @keyframes vignette { 0% { box-shadow: inset 0 0 90px 30px rgba(220,30,20,.75); } 100% { box-shadow: inset 0 0 0 0 rgba(220,30,20,0); } }
+      #vignette { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-image: url(/ui/drawn/vignette.png); background-size: 100% 100%; opacity: 0; transition: opacity 0.6s ease-out; }
+      #vignette.flash { opacity: 1; transition-duration: 0s; }
 
-      #banner { position: fixed; top: 22%; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-      #banner .ribbon { padding: 10px 40px 12px; background: var(--wood) center / 200px; border-radius: 8px; font-family: 'Lilita One', sans-serif; font-size: 40px; text-shadow: 0 3px 0 rgba(0,0,0,.5); box-shadow: inset 0 0 0 3px rgba(0,0,0,.3), 0 8px 20px rgba(0,0,0,.4); }
-      #banner .who { display: flex; gap: 6px; margin-top: 8px; }
-      #banner .who span { display: flex; align-items: center; padding: 2px 8px 2px 2px; border-radius: 16px; background: rgba(43,26,12,.85); font-family: 'Lilita One', sans-serif; font-size: 16px; }
-      #banner .who img { width: 30px; height: 30px; }
-      #banner.show { animation: banner 2.4s cubic-bezier(.2,.9,.3,1) forwards; }
-      @keyframes banner { 0% { opacity: 0; transform: translateY(-40px) scale(.7); } 12% { opacity: 1; transform: translateY(0) scale(1.06); } 20% { transform: scale(1); } 80% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-20px); } }
+      #banner { position: absolute; top: 22%; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; opacity: 0; translate: 0 -20px; transition: opacity 0.48s, translate 0.48s; }
+      #banner.enter { opacity: 0; translate: 0 -40px; scale: 0.7; transition-duration: 0s; }
+      #banner.shown { opacity: 1; translate: 0 0; scale: 1; transition: opacity 0.29s cubic-bezier(0.33, 1, 0.68, 1), translate 0.29s cubic-bezier(0.33, 1, 0.68, 1), scale 0.29s cubic-bezier(0.34, 1.56, 0.64, 1); }
+      .ribbon {
+        position: relative; padding: 10px 40px 12px; border-radius: 8px; font-family: 'Lilita One'; font-size: 40px; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+        background-image: url(/ui/wood.jpg); background-size: 200px; background-position: center; border: 3px solid rgba(0, 0, 0, 0.3);
+      }
+      .ribbon > .shade { left: -31px; top: -31px; right: -31px; bottom: -31px; border-image: url(/ui/drawn/ribbon-shadow.png) 72 fill / 36px; }
+      #banner-who { display: flex; flex-direction: row; margin-top: 8px; }
+      .who { display: flex; flex-direction: row; align-items: center; margin: 0 3px; padding: 2px 8px 2px 2px; border-radius: 16px; background-color: rgba(43, 26, 12, 0.85); font-family: 'Lilita One'; font-size: 16px; }
+      .who .icon { width: 30px; height: 30px; }
 
-      #toast { position: fixed; left: 50%; bottom: 34%; transform: translateX(-50%); padding: 8px 16px; border-radius: 12px; background: rgba(43,26,12,.9); font-weight: 900; pointer-events: none; opacity: 0; }
-      #toast.show { animation: toast 1.4s; }
-      @keyframes toast { 10%, 80% { opacity: 1; transform: translate(-50%, -6px); } }
+      #toast { position: absolute; left: 0; right: 0; bottom: 34%; display: flex; flex-direction: row; justify-content: center; opacity: 0; transition: opacity 0.14s, translate 0.14s; }
+      #toast.shown { opacity: 1; translate: 0 -6px; }
+      #toast-text { padding: 8px 16px; border-radius: 12px; background-color: rgba(43, 26, 12, 0.9); }
 
       /* ── bottom sheets ───────────────────────────────────────────────────────── */
+      .sheet-row { position: absolute; left: 8px; right: 8px; bottom: 0; display: flex; flex-direction: row; justify-content: center; }
       .sheet {
-        position: fixed; left: 8px; right: 8px; bottom: 0; margin: 0 auto; max-width: 480px; padding: 14px 14px calc(var(--safe-bottom) + 16px);
-        border-radius: 22px 22px 0 0; color: var(--ink);
-        background: var(--paper) center / 260px; box-shadow: inset 0 0 0 4px #8a5a2b, inset 0 0 0 7px #c9995b, 0 -8px 30px rgba(0,0,0,.35);
-        transform: translateY(110%); transition: transform .32s cubic-bezier(.2,1.25,.4,1);
+        position: relative; width: 100%; max-width: 480px; padding: 14px 14px 16px; border-radius: 22px 22px 0 0; color: var(--ink);
+        background-image: url(/ui/parchment.jpg); background-size: 260px; background-position: center; border: 4px solid #8a5a2b;
+        translate: 0 110%; transition: translate 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); pointer-events: auto;
       }
-      .sheet.open { transform: translateY(0); }
-      .sheet h3 { margin: 0 0 10px; font-family: 'Lilita One', sans-serif; font-size: 22px; text-align: center; color: var(--ink); }
-      .sheet .x { position: absolute; top: 10px; right: 12px; width: 34px; height: 34px; border-radius: 50%; background: #8a5a2b; color: #fff; font-size: 20px; font-weight: 900; }
-      #cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-      .card { position: relative; display: flex; flex-direction: column; align-items: center; padding: 6px 2px 8px; border-radius: 14px; background: rgba(255,248,230,.75); box-shadow: inset 0 0 0 2px #c9995b, 0 3px 0 #a87b45; color: var(--ink); transition: transform .08s; }
-      .card img { width: 64px; height: 64px; margin-top: -2px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.25)); }
-      .card b { font-family: 'Lilita One', sans-serif; font-size: 14px; font-weight: 400; }
-      .card .cost { display: flex; align-items: center; gap: 2px; font-family: 'Lilita One', sans-serif; font-size: 16px; color: #8a5a00; }
-      .card .cost img { width: 18px; height: 18px; margin: 0; }
-      .card.poor { filter: grayscale(.9); opacity: .7; }
-      .card.poor .cost { color: #c22; }
-      .sheet.open .card { animation: card-in .35s cubic-bezier(.2,1.4,.4,1) backwards; }
-      .sheet.open .card:nth-child(2) { animation-delay: .04s; } .sheet.open .card:nth-child(3) { animation-delay: .08s; } .sheet.open .card:nth-child(4) { animation-delay: .12s; }
-      @keyframes card-in { from { opacity: 0; transform: translateY(24px) scale(.8); } }
-      .shake { animation: shake .4s; }
-      @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+      .sheet.open { translate: 0 0; }
+      .sheet > .shade { left: -44px; top: -44px; right: -44px; bottom: -44px; border-image: url(/ui/drawn/sheet-shadow.png) 124 fill / 62px; }
+      .sheet > .rim, .panel > .rim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; border: 3px solid #c9995b; }
+      .sheet > .rim { border-radius: 18px 18px 0 0; }
+      .sheet .title { margin-bottom: 10px; font-family: 'Lilita One'; font-size: 22px; text-align: center; color: var(--ink); }
+      .sheet .x { position: absolute; top: 10px; right: 12px; width: 34px; height: 34px; border-radius: 17px; background-color: #8a5a2b; color: #ffffff; font-size: 20px; text-align: center; pointer-events: auto; cursor: pointer; }
+      #cards { display: flex; flex-direction: row; }
+      .card {
+        position: relative; flex-grow: 1; flex-basis: 0; margin: 0 4px; display: flex; flex-direction: column; align-items: center; padding: 6px 2px 8px;
+        border-radius: 14px; background-color: rgba(255, 248, 230, 0.75); border: 2px solid #c9995b; color: var(--ink); pointer-events: auto; cursor: pointer;
+        transition: opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), translate 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), scale 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .card > .shade { left: -6px; top: -6px; right: -6px; bottom: -6px; border-image: url(/ui/drawn/card-lip.png) 36 fill / 18px; }
+      .card.enter { opacity: 0; translate: 0 24px; scale: 0.8; transition-duration: 0s; transition-delay: 0s; }
+      #build-cannon { transition-delay: 0.04s; }
+      #build-mage { transition-delay: 0.08s; }
+      #build-frost { transition-delay: 0.12s; }
+      .card .icon { width: 64px; height: 64px; margin-top: -2px; }
+      .card .name { font-family: 'Lilita One'; font-size: 14px; }
+      .card .cost { display: flex; flex-direction: row; align-items: center; font-family: 'Lilita One'; font-size: 16px; color: #8a5a00; }
+      .card .cost .icon { width: 18px; height: 18px; margin: 0 2px 0 0; }
+      .card.poor { opacity: 0.7; }
+      .card.poor .cost { color: #cc2222; }
 
-      #tower-sheet .head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-      #tower-sheet .head > img { width: 78px; height: 78px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.25)); }
-      #tower-sheet .head h3 { text-align: left; margin: 0; }
-      .stars { display: flex; gap: 2px; }
-      .stars img { width: 22px; height: 22px; }
-      .stars img.off { filter: grayscale(1) brightness(.6); opacity: .5; }
-      .stat-row { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 8px; font-weight: 900; font-size: 14px; margin: 4px 0; }
-      .bar { height: 10px; border-radius: 6px; background: rgba(74,42,18,.18); overflow: hidden; position: relative; }
-      .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: linear-gradient(#ffcf4a, #e08a00); transition: width .4s cubic-bezier(.2,1.3,.4,1); }
-      .bar u { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: rgba(74,180,60,.55); transition: width .4s; }
-      #tower-sheet .actions { display: flex; gap: 10px; margin-top: 12px; }
-      #tower-sheet .actions .btn { flex: 1; font-size: 19px; padding: 0 10px; }
-      #tower-sheet .note { text-align: center; font-weight: 900; font-size: 13px; opacity: .75; margin-top: 4px; }
+      #tower-sheet .head { display: flex; flex-direction: row; align-items: center; margin-bottom: 10px; }
+      #ts-icon { width: 78px; height: 78px; margin-right: 12px; background-size: 100% 100%; }
+      #tower-sheet .head .title { text-align: left; margin: 0; }
+      .stars { display: flex; flex-direction: row; }
+      .stars .star { margin-right: 2px; }
+      .stat-row { display: flex; flex-direction: row; align-items: center; margin: 4px 0; font-size: 14px; }
+      .stat-row .what { width: 64px; margin-right: 8px; }
+      .stat-row .value { width: 44px; margin-left: 8px; }
+      .bar { position: relative; flex-grow: 1; height: 10px; border-radius: 6px; background-color: rgba(74, 42, 18, 0.18); overflow: hidden; }
+      .bar .next { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 6px; background-color: rgba(74, 180, 60, 0.55); transition: width 0.4s; }
+      .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 6px; background-image: url(/ui/drawn/bar-fill.png); background-size: 100% 100%; transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+      #tower-sheet .actions { display: flex; flex-direction: row; margin-top: 12px; }
+      #tower-sheet .actions .btn { flex-grow: 1; flex-basis: 0; margin: 0 5px; font-size: 19px; padding: 0 10px; }
+      #tower-sheet .note { text-align: center; font-size: 13px; opacity: 0.75; margin-top: 4px; }
 
       /* ── full-screen panels ──────────────────────────────────────────────────── */
-      .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px); background: radial-gradient(ellipse at center, rgba(20,12,4,.25), rgba(20,12,4,.7)); animation: fade .3s; }
-      @keyframes fade { from { opacity: 0; } }
-      .panel { position: relative; width: min(92vw, 400px); padding: 26px 20px 22px; border-radius: 24px; text-align: center; color: var(--ink); background: var(--paper) center / 260px; box-shadow: inset 0 0 0 5px #8a5a2b, inset 0 0 0 8px #c9995b, 0 16px 40px rgba(0,0,0,.45); animation: panel-in .45s cubic-bezier(.2,1.4,.4,1); }
-      @keyframes panel-in { from { opacity: 0; transform: translateY(40px) scale(.85); } }
-      .panel h2 { margin: -50px auto 6px; width: max-content; padding: 8px 30px 10px; border-radius: 12px; font-family: 'Lilita One', sans-serif; font-size: 34px; font-weight: 400; color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.45); background: var(--wood) center / 200px; box-shadow: inset 0 0 0 3px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.35); }
-      .panel h2.red { background: linear-gradient(#d4392a, #8c1f14); }
-      .panel .col { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
-      .big-stars { display: flex; justify-content: center; align-items: flex-end; gap: 4px; margin: 6px 0; }
-      .big-stars img { width: 70px; height: 70px; opacity: 0; filter: grayscale(1) brightness(.5); }
-      .big-stars img:nth-child(2) { width: 88px; height: 88px; margin-bottom: 10px; }
-      .big-stars img.show { animation: star-in .5s cubic-bezier(.2,1.6,.4,1) forwards; }
-      .big-stars img.show.got { filter: drop-shadow(0 4px 6px rgba(160,100,0,.5)); }
-      @keyframes star-in { from { opacity: 0; transform: scale(2.4) rotate(-40deg); } to { opacity: 1; transform: none; } }
-      .panel p { margin: 4px 0; font-weight: 900; }
+      .overlay {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px;
+        background-image: url(/ui/drawn/overlay.png); background-size: 100% 100%; pointer-events: auto; transition: opacity 0.3s;
+      }
+      .overlay.enter { opacity: 0; transition-duration: 0s; }
+      .panel {
+        position: relative; width: 400px; max-width: 92%; padding: 26px 20px 22px; border-radius: 24px; text-align: center; color: var(--ink);
+        background-image: url(/ui/parchment.jpg); background-size: 260px; background-position: center; border: 5px solid #8a5a2b;
+        transition: opacity 0.45s, translate 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), scale 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .panel.enter { opacity: 0; translate: 0 40px; scale: 0.85; transition-duration: 0s; }
+      .panel > .shade { left: -61px; top: -61px; right: -61px; bottom: -61px; border-image: url(/ui/drawn/panel-shadow.png) 160 fill / 80px; }
+      .panel > .rim { border-radius: 19px; }
+      .plaque {
+        position: relative; align-self: center; margin: -50px 0 6px; padding: 8px 30px 10px; border-radius: 12px;
+        font-family: 'Lilita One'; font-size: 34px; color: #ffffff; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+        background-image: url(/ui/wood.jpg); background-size: 200px; background-position: center; border: 3px solid rgba(0, 0, 0, 0.3);
+      }
+      .plaque > .shade { left: -27px; top: -27px; right: -27px; bottom: -27px; border-image: url(/ui/drawn/plaque-shadow.png) 72 fill / 36px; }
+      .plaque.red { background-image: url(/ui/drawn/plaque-red.png); background-size: 100% 100%; }
+      .panel .col { display: flex; flex-direction: column; margin-top: 14px; }
+      .panel .line { margin: 4px 0; }
+      .big-stars { display: flex; flex-direction: row; justify-content: center; align-items: flex-end; margin: 6px 0; }
+      .big-star {
+        width: 70px; height: 70px; margin: 0 2px; background-image: url(/ui/drawn/star-off.png); background-size: 100% 100%;
+        opacity: 0; scale: 2.4; rotate: -40deg; transition: opacity 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), scale 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), rotate 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .big-star.middle { width: 88px; height: 88px; margin-bottom: 10px; }
+      .big-star.show { opacity: 1; scale: 1; rotate: 0deg; }
+      .big-star.got { background-image: url(/ui/star.png); }
 
       /* ── title and level select ──────────────────────────────────────────────── */
-      #title { justify-content: flex-start; background: linear-gradient(rgba(20,12,4,.0), rgba(20,12,4,.45) 60%, rgba(20,12,4,.75)); overflow-y: auto; }
-      #logo { margin-top: max(5vh, 20px); text-align: center; animation: logo 3s ease-in-out infinite; }
-      #logo h1 { margin: 0; font-family: 'Lilita One', sans-serif; font-weight: 400; font-size: clamp(54px, 16vw, 92px); line-height: .9; color: #ffe066; text-shadow: 0 4px 0 #b86e00, 0 8px 0 #5a3000, 0 14px 24px rgba(0,0,0,.45); }
-      #logo h1 span { display: block; color: #fff; font-size: .62em; text-shadow: 0 3px 0 #5a3000, 0 8px 16px rgba(0,0,0,.45); }
-      #logo img { width: 120px; height: 120px; margin-bottom: -18px; filter: drop-shadow(0 8px 10px rgba(0,0,0,.4)); }
-      @keyframes logo { 50% { transform: translateY(-6px) rotate(-1deg); } }
-      #levels { display: flex; flex-direction: column; gap: 12px; width: min(92vw, 420px); margin-top: auto; }
-      .level { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 18px; text-align: left; color: var(--ink); background: var(--paper) center / 240px; box-shadow: inset 0 0 0 3px #8a5a2b, 0 5px 0 #4a2a12, 0 10px 20px rgba(0,0,0,.35); animation: level-in .5s cubic-bezier(.2,1.3,.4,1) backwards; transition: transform .08s; }
-      .level:nth-child(2) { animation-delay: .08s; } .level:nth-child(3) { animation-delay: .16s; }
-      @keyframes level-in { from { opacity: 0; transform: translateX(-60px); } }
-      .level .map { width: 74px; height: 74px; border-radius: 12px; background-size: cover; box-shadow: inset 0 0 0 3px rgba(74,42,18,.5); flex: none; }
-      .level .info { flex: 1; }
-      .level .info b { display: block; font-family: 'Lilita One', sans-serif; font-weight: 400; font-size: 22px; }
-      .level .info small { font-weight: 900; opacity: .7; }
-      .level .stars img { width: 22px; height: 22px; }
-      .level.locked { filter: grayscale(.85); }
-      .level.locked .map::after { content: '🔒'; display: grid; place-items: center; height: 100%; font-size: 30px; }
-      .level .go { flex: none; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(#7ed957, #3e9b2b); box-shadow: 0 4px 0 #24661a; }
-      .level .go svg { width: 24px; height: 24px; fill: #fff; }
-      #credits { font-size: 12px; font-weight: 900; opacity: .7; margin-top: 4px; text-align: center; }
-      #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #2b1d12; font-family: 'Lilita One', sans-serif; font-size: 28px; color: var(--gold); z-index: 10; transition: opacity .4s; }
+      #title { justify-content: flex-start; background-image: url(/ui/drawn/title-wash.png); }
+      #logo { width: 408px; height: 348px; margin-top: 12px; flex-shrink: 1; background-image: url(/ui/drawn/logo.png); background-size: contain; background-position: center; background-repeat: no-repeat; transition: translate 1.5s ease-in-out, rotate 1.5s ease-in-out; }
+      /* A wide screen has the height for the cards but not for the logo above them: side by side instead.
+         UI Toolkit has no media queries, so MenuController puts .wide on the root. */
+      #ui.wide #title { flex-direction: row; justify-content: center; align-items: center; }
+      #ui.wide #logo { margin-top: 0; margin-right: 32px; }
+      #ui.wide #levels { margin-top: 0; }
+      #ui.wide #credits { position: absolute; left: 0; right: 0; bottom: 8px; }
+      #logo.up { translate: 0 -6px; rotate: -1deg; }
+      #levels { display: flex; flex-direction: column; width: 420px; max-width: 92%; margin-top: auto; }
+      .level {
+        position: relative; display: flex; flex-direction: row; align-items: center; margin-bottom: 12px; padding: 10px; border-radius: 18px; text-align: left; color: var(--ink);
+        background-image: url(/ui/parchment.jpg); background-size: 240px; background-position: center; border: 3px solid #8a5a2b;
+        transition: opacity 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), translate 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .level > .shade { left: -33px; top: -33px; right: -33px; bottom: -33px; border-image: url(/ui/drawn/level-shadow.png) 96 fill / 48px; }
+      .level.enter { opacity: 0; translate: -60px 0; transition-duration: 0s; }
+      .level.locked { opacity: 0.85; }
+      .level .map { position: relative; width: 74px; height: 74px; margin-right: 12px; flex-shrink: 0; border-radius: 12px; border: 3px solid rgba(74, 42, 18, 0.5); background-size: cover; background-position: center; }
+      .level .map.meadow { background-image: url(/ui/map-meadow.jpg); }
+      .level .map.canyon { background-image: url(/ui/map-canyon.jpg); }
+      .level .map.frost { background-image: url(/ui/map-frost.jpg); }
+      .level.locked .map.meadow { background-image: url(/ui/drawn/map-meadow-locked.png); }
+      .level.locked .map.canyon { background-image: url(/ui/drawn/map-canyon-locked.png); }
+      .level.locked .map.frost { background-image: url(/ui/drawn/map-frost-locked.png); }
+      .level .lock { display: none; }
+      .level.locked .lock { display: flex; flex-direction: column; position: absolute; left: 14px; top: 14px; width: 40px; height: 40px; background-image: url(/ui/drawn/lock.png); background-size: 100% 100%; }
+      .level .info { flex-grow: 1; }
+      .level .name { font-family: 'Lilita One'; font-size: 22px; }
+      .level .blurb { font-size: 13px; opacity: 0.7; }
+      .level .go { position: relative; flex-shrink: 0; width: 52px; height: 52px; margin-left: 12px; }
+      .level .go > .shade { left: -8px; top: -8px; right: -8px; bottom: -8px; background-image: url(/ui/drawn/go.png); background-size: 100% 100%; }
+      .level.locked .go > .shade { background-image: url(/ui/drawn/go-locked.png); }
+      #credits { font-size: 12px; opacity: 0.7; margin-top: 4px; text-align: center; }
+
+      /* Until the game is loaded: the page's own, before the game and its UI are there. */
+      #loading {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        text-align: center; background-color: #2b1d12; font-family: 'Lilita One'; transition: opacity 0.5s ease;
+      }
+      #loading .title { font-size: 48px; margin-bottom: 18px; letter-spacing: 1px; color: var(--gold); }
+      #loading-bar { width: 320px; height: 8px; border-radius: 4px; background-color: rgba(255, 210, 63, 0.15); overflow: hidden; margin-bottom: 18px; }
+      #loading-fill { height: 100%; width: 0; background-color: var(--gold); transition: width 0.25s ease-out; }
+      #loading .label { font-size: 14px; letter-spacing: 3.4px; color: var(--gold); }
       #loading.done { opacity: 0; pointer-events: none; }
     </style>
   </head>
   <body>
-    <div id="hud" class="hidden">
-      <div id="top">
-        <div class="chip" id="lives-chip"><img src="/ui/heart.png" alt="" /><span id="lives">20</span></div>
-        <div class="chip" id="gold-chip"><img src="/ui/coin.png" alt="" /><span id="gold">0</span></div>
-        <div class="spacer"></div>
-        <div class="chip" id="wave-chip"><img src="/ui/swords.png" alt="" /><span id="wave">0</span><small id="waves">/10</small></div>
-        <button class="round" data-button="Speed" id="speed">1×</button>
-        <button class="round" data-button="Pause" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.5" /><rect x="14" y="4" width="5" height="16" rx="1.5" /></svg></button>
+    <div id="ui">
+      <div id="hud" class="hidden">
+        <div id="top">
+          <div class="chip" id="lives-chip"><div class="shade"></div><div class="icon heart"></div><div id="lives">20</div></div>
+          <div class="chip" id="gold-chip"><div class="shade"></div><div class="icon coin"></div><div id="gold">0</div></div>
+          <div class="spacer"></div>
+          <div class="chip" id="wave-chip"><div class="shade"></div><div class="icon swords"></div><div id="wave">0</div><div id="waves">/10</div></div>
+          <button class="round" data-button="Speed" id="speed"><div class="shade"></div><div class="text" id="speed-text">1×</div></button>
+          <button class="round" data-button="Pause" aria-label="Pause"><div class="shade"></div><div class="icon pause text"></div></button>
+        </div>
+        <button id="next" data-button="NextWave" aria-label="Next wave">
+          <div class="shade"></div>
+          <div id="ring"><div class="half right"><div class="arc" id="arc-right"></div></div><div class="half left"><div class="arc" id="arc-left"></div></div></div>
+          <div class="icon swords"></div>
+          <div class="tag"><div id="next-label">START</div></div>
+        </button>
       </div>
-      <button id="next" class="idle" data-button="NextWave" aria-label="Next wave">
-        <svg class="ring" viewBox="0 0 98 98"><circle cx="49" cy="49" r="46" style="stroke-dashoffset: 289" /></svg>
-        <img src="/ui/swords.png" alt="" />
-        <span class="label" id="next-label">START</span>
-      </button>
-    </div>
 
-    <div id="pops"></div>
-    <div id="vignette"></div>
-    <div id="banner" class="hidden"><div class="ribbon" id="banner-text">WAVE 1</div><div class="who" id="banner-who"></div></div>
-    <div id="toast">Not enough gold</div>
+      <div id="pops"></div>
+      <template id="pop"><div class="pop start"><div class="say"></div></div></template>
+      <div id="vignette"></div>
+      <div id="banner" class="hidden"><div class="ribbon"><div class="shade"></div><div class="text" id="banner-text">WAVE 1</div></div><div id="banner-who"></div></div>
+      <template id="who"><div class="who"><div class="icon"></div><div class="count"></div></div></template>
+      <div id="toast"><div id="toast-text">Not enough gold</div></div>
 
-    <div class="sheet" id="build-sheet">
-      <button class="x" data-button="CloseSheet">×</button>
-      <h3>Build a tower</h3>
-      <div id="cards">
-        <button class="card" data-build="archer"><img src="/ui/archer.png" alt="" /><b>Archers</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>70</span></span></button>
-        <button class="card" data-build="cannon"><img src="/ui/cannon.png" alt="" /><b>Cannon</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>120</span></span></button>
-        <button class="card" data-build="mage"><img src="/ui/mage.png" alt="" /><b>Mage</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>110</span></span></button>
-        <button class="card" data-build="frost"><img src="/ui/frost.png" alt="" /><b>Frost</b><span class="cost"><img src="/ui/coin.png" alt="" /><span>90</span></span></button>
-      </div>
-    </div>
-
-    <div class="sheet" id="tower-sheet">
-      <button class="x" data-button="CloseSheet">×</button>
-      <div class="head">
-        <img id="ts-icon" src="/ui/archer.png" alt="" />
-        <div><h3 id="ts-name">Archers</h3><div class="stars" id="ts-stars"></div></div>
-      </div>
-      <div class="stat-row"><span>Damage</span><div class="bar"><u id="ts-dmg-next"></u><i id="ts-dmg"></i></div><span id="ts-dmg-v">0</span></div>
-      <div class="stat-row"><span>Range</span><div class="bar"><u id="ts-rng-next"></u><i id="ts-rng"></i></div><span id="ts-rng-v">0</span></div>
-      <div class="stat-row"><span>Speed</span><div class="bar"><u id="ts-spd-next"></u><i id="ts-spd"></i></div><span id="ts-spd-v">0</span></div>
-      <div class="note" id="ts-note"></div>
-      <div class="actions">
-        <button class="btn gold shimmer" data-button="Upgrade" id="ts-upgrade"><img src="/ui/coin.png" alt="" /><span id="ts-up-cost">0</span></button>
-        <button class="btn red" data-button="Sell" id="ts-sell">Sell <span id="ts-refund">0</span></button>
-      </div>
-    </div>
-
-    <div id="pause" class="overlay hidden">
-      <div class="panel">
-        <h2>Paused</h2>
-        <div class="col">
-          <button class="btn" data-button="Resume">Resume</button>
-          <button class="btn wood" data-button="Restart">Restart</button>
-          <button class="btn wood" data-button="Menu">Map</button>
+      <div class="sheet-row">
+        <div class="sheet" id="build-sheet">
+          <div class="shade"></div><div class="rim"></div>
+          <button class="x" data-button="CloseSheet">×</button>
+          <div class="title">Build a tower</div>
+          <div id="cards">
+            <button class="card" id="build-archer"><div class="shade"></div><div class="icon archer"></div><div class="name">Archers</div><div class="cost"><div class="icon coin"></div><div>70</div></div></button>
+            <button class="card" id="build-cannon"><div class="shade"></div><div class="icon cannon"></div><div class="name">Cannon</div><div class="cost"><div class="icon coin"></div><div>120</div></div></button>
+            <button class="card" id="build-mage"><div class="shade"></div><div class="icon mage"></div><div class="name">Mage</div><div class="cost"><div class="icon coin"></div><div>110</div></div></button>
+            <button class="card" id="build-frost"><div class="shade"></div><div class="icon frost"></div><div class="name">Frost</div><div class="cost"><div class="icon coin"></div><div>90</div></div></button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div id="won" class="overlay hidden">
-      <div class="panel">
-        <h2>Victory!</h2>
-        <div class="big-stars" id="won-stars"><img src="/ui/star.png" alt="" /><img src="/ui/star.png" alt="" /><img src="/ui/star.png" alt="" /></div>
-        <p id="won-text">The bastion stands.</p>
-        <div class="col">
-          <button class="btn gold shimmer" data-button="NextLevel" id="won-next">Next level</button>
-          <button class="btn wood" data-button="Restart">Play again</button>
-          <button class="btn wood" data-button="Menu">Map</button>
+      <div class="sheet-row">
+        <div class="sheet" id="tower-sheet">
+          <div class="shade"></div><div class="rim"></div>
+          <button class="x" data-button="CloseSheet">×</button>
+          <div class="head">
+            <div id="ts-icon" class="icon archer"></div>
+            <div><div class="title" id="ts-name">Archers</div><div class="stars" id="ts-stars"><div class="star"></div><div class="star"></div><div class="star"></div></div></div>
+          </div>
+          <div class="stat-row"><div class="what">Damage</div><div class="bar"><div class="next" id="ts-dmg-next"></div><div class="fill" id="ts-dmg"></div></div><div class="value" id="ts-dmg-v">0</div></div>
+          <div class="stat-row"><div class="what">Range</div><div class="bar"><div class="next" id="ts-rng-next"></div><div class="fill" id="ts-rng"></div></div><div class="value" id="ts-rng-v">0</div></div>
+          <div class="stat-row"><div class="what">Speed</div><div class="bar"><div class="next" id="ts-spd-next"></div><div class="fill" id="ts-spd"></div></div><div class="value" id="ts-spd-v">0</div></div>
+          <div class="note" id="ts-note"></div>
+          <div class="actions">
+            <button class="btn gold" data-button="Upgrade" id="ts-upgrade"><div class="shade"></div><div class="clip"><div class="shine"></div></div><div class="icon coin"></div><div id="ts-up-cost">0</div></button>
+            <button class="btn red" data-button="Sell" id="ts-sell"><div class="shade"></div>Sell&nbsp;<div id="ts-refund">0</div></button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div id="lost" class="overlay hidden">
-      <div class="panel">
-        <h2 class="red">Defeat</h2>
-        <p id="lost-text">The bastion has fallen.</p>
-        <div class="col">
-          <button class="btn" data-button="Restart">Try again</button>
-          <button class="btn wood" data-button="Menu">Map</button>
+      <div id="pause" class="overlay hidden">
+        <div class="panel">
+          <div class="shade"></div><div class="rim"></div>
+          <div class="plaque"><div class="shade"></div>Paused</div>
+          <div class="col">
+            <button class="btn" data-button="Resume"><div class="shade"></div>Resume</button>
+            <button class="btn wood" data-button="Restart"><div class="shade"></div>Restart</button>
+            <button class="btn wood" data-button="Menu"><div class="shade"></div>Map</button>
+          </div>
         </div>
       </div>
+
+      <div id="won" class="overlay hidden">
+        <div class="panel">
+          <div class="shade"></div><div class="rim"></div>
+          <div class="plaque"><div class="shade"></div>Victory!</div>
+          <div class="big-stars" id="won-stars"><div class="big-star"></div><div class="big-star middle"></div><div class="big-star"></div></div>
+          <div class="line" id="won-text">The bastion stands.</div>
+          <div class="col">
+            <button class="btn gold" data-button="NextLevel" id="won-next"><div class="shade"></div><div class="clip"><div class="shine"></div></div>Next level</button>
+            <button class="btn wood" data-button="Restart"><div class="shade"></div>Play again</button>
+            <button class="btn wood" data-button="Menu"><div class="shade"></div>Map</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="lost" class="overlay hidden">
+        <div class="panel">
+          <div class="shade"></div><div class="rim"></div>
+          <div class="plaque red"><div class="shade"></div>Defeat</div>
+          <div class="line" id="lost-text">The bastion has fallen.</div>
+          <div class="col">
+            <button class="btn" data-button="Restart"><div class="shade"></div>Try again</button>
+            <button class="btn wood" data-button="Menu"><div class="shade"></div>Map</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="title" class="overlay hidden">
+        <div id="logo"></div>
+        <div id="levels"></div>
+        <div id="credits">Art made locally: FLUX.2 · TRELLIS.2 · Blender</div>
+      </div>
+      <template id="level">
+        <button class="level">
+          <div class="shade"></div>
+          <div class="map"><div class="lock"></div></div>
+          <div class="info"><div class="name"></div><div class="blurb"></div><div class="stars"><div class="star"></div><div class="star"></div><div class="star"></div></div></div>
+          <div class="go"><div class="shade"></div></div>
+        </button>
+      </template>
     </div>
 
-    <div id="title" class="overlay hidden">
-      <div id="logo"><img src="/ui/castle-icon.png" alt="" /><h1>TINY<span>BASTION</span></h1></div>
-      <div id="levels"></div>
-      <div id="credits">Art made locally: FLUX.2 · TRELLIS.2 · Blender</div>
-    </div>
-
-    <div id="loading">Loading…</div>
+    <div id="loading"><div class="title">TINY BASTION</div><div id="loading-bar"><div id="loading-fill"></div></div><div class="label">LOADING</div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

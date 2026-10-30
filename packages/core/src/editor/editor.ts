@@ -1,8 +1,12 @@
 import { Box3, Box3Helper, Object3D, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, type Camera, type Light, type Material, type Texture, type WebGLRenderer } from 'three';
 import { Behaviour } from '../kernel/Behaviour.js';
-import { Runtime, assignInit, behavioursOn, destroy, flushDestroyed, wake } from '../kernel/runtime.js';
-import { INSTANCE, applyProp, givenOf, isPrefab, jsxDEV, keepGiven, ownOf, prefabOf, setGiven, sourceOf } from '../jsx.js';
-import { setHeld, setView, isHeld } from '../observe.js';
+import { Runtime } from '../kernel/runtime.js';
+import { assignInit } from '../kernel/init.js';
+import { behavioursOn } from '../kernel/registry.js';
+import { destroy, flushDestroyed, wake } from '../kernel/lifecycle.js';
+import { INSTANCE, applyProp, isPrefab, jsxDEV } from '../jsx.js';
+import { givenOf, keepGiven, ownOf, prefabOf, setGiven, sourceOf } from '../provenance.js';
+import { setHeld, setView, isHeld } from '../host.js';
 import type { EditHost, Transform } from './EditHost.js';
 import { openedScene, write, writeOpened } from './session.js';
 import { EditorGrid } from './grid.js';

@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/unity",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "Export a SceNoCo game's prefabs, scenes, meshes and materials into a Unity project: nested prefabs, shared materials, behaviours as MonoBehaviours with their fields wired.",
   "keywords": [
     "three",
@@ -50,10 +50,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "playwright-core": "^1.62.1"
+    "playwright-core": "^1.62.1",
+    "rolldown": "^1.0.3"
   },
   "peerDependencies": {
-    "@scenoco-three/core": "^0.9.9",
+    "@scenoco-three/core": "^1.0.0",
     "vite": ">=6"
   }
 }

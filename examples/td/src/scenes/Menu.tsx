@@ -1,4 +1,5 @@
 import { Color, DirectionalLight, Fog, Group, HemisphereLight, PerspectiveCamera, Scene } from 'three';
+import { UIDocument } from '@scenoco-three/core';
 import { AudioSource } from '@scenoco-three/audio';
 import { MenuCamera } from '../MenuCamera';
 import { MenuController } from '../MenuController';
@@ -21,6 +22,7 @@ export const Menu = () => (
     </PerspectiveCamera>
     <MeadowWorld />
     <Group name="menu">
+      <UIDocument referenceResolution={[960, 540]} />
       <MenuController />
       <AudioSource clip={sounds.click} playOnAwake={false} />
       <Sfx />

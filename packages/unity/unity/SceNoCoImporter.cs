@@ -14,6 +14,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using UnityEngine.UIElements;
 using Object = UnityEngine.Object;
 
 namespace SceNoCo
@@ -38,6 +39,9 @@ namespace SceNoCo
         }
 
         static readonly List<string> warnings = new List<string>();
+        /// <summary>What the last import could not carry across, each with where it was written.</summary>
+        public static IReadOnlyList<string> Warnings => warnings;
+        static Dictionary<string, object> ui;
 
         [MenuItem("SceNoCo/Import")]
         public static void Import()
@@ -51,6 +55,10 @@ namespace SceNoCo
             AssetDatabase.Refresh();
             var data = (Dictionary<string, object>)Json.Parse(File.ReadAllText(DataPath));
             foreach (var w in List(data["warnings"])) warnings.Add((string)w);
+            ui = data.TryGetValue("ui", out var u) ? Obj(u) : null;
+            Try(Project.Recommended, "rendering settings");
+            if (data.TryGetValue("layers", out var layers)) Try(() => Project.Layers(Obj(layers)), "layers");
+            if (data.TryGetValue("input", out var input)) Try(() => Project.Input((string)input), "input actions");
 
             foreach (var m in List(data["meshes"])) Try(() => MakeMesh(Obj(m)), Str(Obj(m), "path"));
             foreach (var m in List(data["materials"])) Try(() => MakeMaterial(Obj(m)), Str(Obj(m), "path"));
@@ -62,11 +70,16 @@ namespace SceNoCo
             foreach (var p in prefabs) Try(() => WirePrefab(p), Str(p, "path"));
 
             var scenes = List(data["scenes"]).Select(Obj).ToList();
-            replaced = false;
-            foreach (var s in scenes) Try(() => SaveScene(s), Str(s, "path"));
+            reopen = null;
+            for (var i = 0; i < scenes.Count; i++)
+            {
+                var s = scenes[i];
+                var first = i == 0;
+                Try(() => SaveScene(s, first), Str(s, "path"));
+            }
             var paths = scenes.Select(s => Str(s, "path")).ToList();
-            // An empty untitled scene stood in for the first exported one: open it in its place.
-            if (replaced && paths.Count > 0) EditorSceneManager.OpenScene(paths[0], OpenSceneMode.Single);
+            // An empty untitled scene stood in for the first exported one, or an open scene was rebuilt: open it again.
+            if (reopen != null && paths.Count > 0) EditorSceneManager.OpenScene(reopen == "" ? paths[0] : reopen, OpenSceneMode.Single);
             EditorBuildSettings.scenes = paths.Select(p => new EditorBuildSettingsScene(p, true))
                 .Concat(EditorBuildSettings.scenes.Where(s => !paths.Contains(s.path))).ToArray();
 
@@ -157,6 +170,18 @@ namespace SceNoCo
                 if (t != null) mat.SetTexture("_BaseMap", t);
                 else warnings.Add($"{path}: texture {tex} did not import.");
             }
+            if (m.TryGetValue("emissionTexture", out var etex))
+            {
+                var t = AssetDatabase.LoadAssetAtPath<Texture2D>((string)etex);
+                if (t != null) mat.SetTexture("_EmissionMap", t);
+                else warnings.Add($"{path}: emission texture {etex} did not import.");
+            }
+            if (m.TryGetValue("tiling", out var tiling))
+            {
+                var f = Floats(tiling);
+                mat.SetTextureScale("_BaseMap", new Vector2(f[0], f[1]));
+                mat.SetTextureScale("_EmissionMap", new Vector2(f[0], f[1]));
+            }
 
             mat.SetFloat("_Cull", Num(m, "cull", 2));
             var transparent = m.TryGetValue("transparent", out var tr) && (bool)tr;
@@ -219,19 +244,26 @@ namespace SceNoCo
             finally { PrefabUtility.UnloadPrefabContents(root); }
         }
 
-        static bool replaced;
+        /// <summary>The scene to open once the import is done: "" for the first exported one.</summary>
+        static string reopen;
 
-        static void SaveScene(Dictionary<string, object> s)
+        static void SaveScene(Dictionary<string, object> s, bool first)
         {
             var path = Str(s, "path");
             Folder(Path.GetDirectoryName(path));
             // A scene of its own, beside whatever is open: nothing the user has open is touched. Unity
-            // cannot add one beside an untitled scene, so an untouched untitled one is replaced instead.
+            // cannot add one beside an untitled scene, nor save over an open one, so an untouched untitled
+            // scene or this very scene open is replaced instead, and opened again at the end.
+            var open = SceneManager.GetSceneByPath(path);
+            if (open.IsValid() && open.isDirty) throw new Exception("it is open with unsaved changes — save or discard them, then import again");
+            var beside = open.IsValid() && SceneManager.sceneCount > 1;
+            if (beside) EditorSceneManager.CloseScene(open, true);
             var previous = SceneManager.GetActiveScene();
             var untitled = SceneManager.sceneCount == 1 && string.IsNullOrEmpty(previous.path);
             if (untitled && previous.isDirty) throw new Exception("the open scene is untitled and has unsaved changes — save or discard it, then import again");
-            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, untitled ? NewSceneMode.Single : NewSceneMode.Additive);
-            if (untitled) { replaced = true; previous = default; }
+            var single = untitled || previous.path == path;
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, single ? NewSceneMode.Single : NewSceneMode.Additive);
+            if (single) { reopen ??= untitled ? "" : path; previous = default; }
             SceneManager.SetActiveScene(scene);
             try
             {
@@ -243,6 +275,7 @@ namespace SceNoCo
                 for (var i = 0; i < roots.Count; i++) Wire(roots[i], built[i], holder);
                 foreach (var go in built) go.transform.SetParent(null, false);
                 Object.DestroyImmediate(holder);
+                if (first) MakeInput();
 
                 RenderSettings.skybox = null;
                 Color background = Color.black;
@@ -290,6 +323,10 @@ namespace SceNoCo
                     RenderSettings.ambientMode = AmbientMode.Flat;
                     RenderSettings.ambientLight = Color.black;
                 }
+                // three lights a surface with no environment by nothing but its lights: no skybox reflections either.
+                RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+                RenderSettings.customReflectionTexture = null;
+                RenderSettings.reflectionIntensity = s.ContainsKey("environment") ? 1 : 0;
                 EditorSceneManager.SaveScene(scene, path);
             }
             finally
@@ -298,6 +335,7 @@ namespace SceNoCo
                 {
                     SceneManager.SetActiveScene(previous);
                     EditorSceneManager.CloseScene(scene, true);
+                    if (beside) EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
                 }
             }
         }
@@ -319,6 +357,7 @@ namespace SceNoCo
             var r = Floats(n["rotation"]);
             go.transform.localRotation = new Quaternion(r[0], r[1], r[2], r[3]);
             go.transform.localScale = V3(n["scale"]);
+            if (n.TryGetValue("layer", out var layer)) go.layer = Convert.ToInt32(layer, CultureInfo.InvariantCulture);
 
             if (n.TryGetValue("mesh", out var mesh))
             {
@@ -341,6 +380,8 @@ namespace SceNoCo
                     if (t == null) warnings.Add($"{Where(comp, n)}: no MonoBehaviour named {type} — it has a stub in Assets/Scripts unless a class of that name exists elsewhere.");
                     else go.AddComponent(t);
                 }
+                else if (type == "ParticleSystem") Particles.Add(go, Obj(comp["fields"]), w => warnings.Add($"{Where(comp, n)}: {w}"));
+                else if (type == "UIDocument") MakeDocument(go, Obj(comp["fields"]), Where(comp, n));
                 else if (!Physics.Add(go, type, Obj(comp["fields"]))) warnings.Add($"{Where(comp, n)}: {type} has no Unity counterpart here — left off.");
             }
 
@@ -437,6 +478,51 @@ namespace SceNoCo
             return t != null ? go.GetComponent(t) : go.GetComponent(wanted);
         }
 
+        // --- the page and input ------------------------------------------------------------------
+
+        /// <summary>A UIDocument for the page's element: its UXML, and Panel Settings that scale as core's UIDocument does.</summary>
+        static void MakeDocument(GameObject go, Dictionary<string, object> f, string where)
+        {
+            var element = f.TryGetValue("element", out var e) ? (string)e : "ui";
+            var documents = ui != null && ui.TryGetValue("documents", out var d) ? Obj(d) : new Dictionary<string, object>();
+            if (!documents.TryGetValue(element, out var uxml))
+            {
+                warnings.Add($"{where}: no UXML for the element \"{element}\" — the page has no element with that id.");
+                return;
+            }
+            var path = $"Assets/UI/{element}.panel.asset";
+            var panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(path);
+            if (panel == null)
+            {
+                panel = ScriptableObject.CreateInstance<PanelSettings>();
+                SaveAsset(panel, path);
+            }
+            panel.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(Str(ui, "theme"));
+            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+            var size = f.TryGetValue("referenceResolution", out var r) ? Floats(Obj(r)["v2"]) : new[] { 1280f, 720f };
+            panel.referenceResolution = new Vector2Int(Mathf.RoundToInt(size[0]), Mathf.RoundToInt(size[1]));
+            panel.match = Num(f, "match", 0.5f);
+            // In the page's order: an element written later draws over an earlier one.
+            panel.sortingOrder = documents.Keys.ToList().IndexOf(element);
+            EditorUtility.SetDirty(panel);
+            var doc = go.AddComponent<UIDocument>();
+            doc.panelSettings = panel;
+            doc.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>((string)uxml);
+        }
+
+        /// <summary>The first scene's Input object: the UI's EventSystem and its Input System module, kept for the whole game.</summary>
+        static void MakeInput()
+        {
+            var go = new GameObject("Input");
+            foreach (var name in new[] { "UnityEngine.EventSystems.EventSystem, UnityEngine.UI", "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem", "SceNoCo.KeepAcrossScenes, Assembly-CSharp" })
+            {
+                var t = Type.GetType(name);
+                if (t != null) go.AddComponent(t);
+                else warnings.Add($"Input: {name.Split(',')[0]} is not in this project — add the Input System and UI packages.");
+            }
+        }
+
         static GameObject Find(GameObject root, string path)
         {
             var t = root.transform;
@@ -477,10 +563,8 @@ namespace SceNoCo
         static Type GameType(string name)
         {
             if (types.TryGetValue(name, out var known)) return known;
-            var found = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(a => !a.FullName.StartsWith("Unity") && !a.FullName.StartsWith("System") && !a.FullName.StartsWith("mscorlib"))
-                .SelectMany(a => { try { return a.GetTypes(); } catch { return new Type[0]; } })
-                .FirstOrDefault(t => t.Name == name && typeof(MonoBehaviour).IsAssignableFrom(t));
+            var found = TypeCache.GetTypesDerivedFrom<MonoBehaviour>()
+                .FirstOrDefault(t => t.Name == name && !t.Assembly.FullName.StartsWith("Unity"));
             types[name] = found;
             return found;
         }
@@ -489,6 +573,231 @@ namespace SceNoCo
             comp.TryGetValue("source", out var s) ? (string)s : node.TryGetValue("source", out var ns) ? (string)ns : Str(node, "name");
 
         // --- physics: SceNoCo's rapier and box2d components are Unity's own --------------------
+
+        /// <summary>The project's own settings: what a three.js game draws and reads like, in Unity 6.</summary>
+        static class Project
+        {
+            /// <summary>
+            /// three.js renders in linear space to an sRGB canvas, with no tone mapping, no antialiasing (SceNoCo's
+            /// default), no light limit per object and no environment: Linear colour space, HDR kept for a bloom a
+            /// game adds, MSAA off, render scale 1, Forward+, soft shadows. Applied to every URP asset in the
+            /// project, through their serialized fields, so a project without URP still compiles this.
+            /// </summary>
+            public static void Recommended()
+            {
+                PlayerSettings.colorSpace = ColorSpace.Linear;
+                foreach (var guid in AssetDatabase.FindAssets("t:UniversalRenderPipelineAsset"))
+                {
+                    var asset = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(guid));
+                    var so = new SerializedObject(asset);
+                    Set(so, "m_SupportsHDR", p => p.boolValue = true);
+                    Set(so, "m_MSAA", p => p.intValue = 1);
+                    Set(so, "m_RenderScale", p => p.floatValue = 1);
+                    Set(so, "m_SoftShadowsSupported", p => p.boolValue = true);
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                }
+                foreach (var guid in AssetDatabase.FindAssets("t:UniversalRendererData"))
+                {
+                    var so = new SerializedObject(AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(guid)));
+                    // Forward+: no cap of eight lights per object — three has none.
+                    Set(so, "m_RenderingMode", p => p.intValue = 2);
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
+
+            static void Set(SerializedObject so, string name, Action<SerializedProperty> set)
+            {
+                var p = so.FindProperty(name);
+                if (p != null) set(p);
+            }
+
+            /// <summary>The game's layers by name, and the pairs its physics lets pass through each other.</summary>
+            public static void Layers(Dictionary<string, object> l)
+            {
+                var tags = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
+                var names = tags.FindProperty("layers");
+                foreach (var pair in Obj(l["names"]))
+                {
+                    var index = int.Parse(pair.Key, CultureInfo.InvariantCulture);
+                    var current = names.GetArrayElementAtIndex(index).stringValue;
+                    if (string.IsNullOrEmpty(current) || current.StartsWith("Layer ")) names.GetArrayElementAtIndex(index).stringValue = (string)pair.Value;
+                    else if (current != (string)pair.Value) warnings.Add($"layers: Unity layer {index} is \"{current}\" already — the game's {pair.Value} shares it.");
+                }
+                tags.ApplyModifiedPropertiesWithoutUndo();
+                Matrix("ProjectSettings/Physics2DSettings.asset", List(l["ignore2D"]).Select(Floats));
+                Matrix("ProjectSettings/DynamicsManager.asset", List(l["ignore3D"]).Select(Floats));
+            }
+
+            /// <summary>
+            /// The pairs written into the project's collision matrix itself: IgnoreLayerCollision called in the
+            /// Editor lasts only until the settings reload. A row's bit set is "collides".
+            /// </summary>
+            static void Matrix(string settings, IEnumerable<float[]> pairs)
+            {
+                var so = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath(settings)[0]);
+                var rows = so.FindProperty("m_LayerCollisionMatrix");
+                if (rows == null) return;
+                foreach (var pair in pairs)
+                {
+                    int a = (int)pair[0], b = (int)pair[1];
+                    rows.GetArrayElementAtIndex(a).longValue &= ~(1L << b);
+                    rows.GetArrayElementAtIndex(b).longValue &= ~(1L << a);
+                }
+                so.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            /// <summary>SceNoCo's named axes and buttons as the project-wide actions: `InputSystem.actions["Horizontal"]`.</summary>
+            public static void Input(string path)
+            {
+                AssetDatabase.ImportAsset(path);
+                var asset = AssetDatabase.LoadMainAssetAtPath(path);
+                var system = Type.GetType("UnityEngine.InputSystem.InputSystem, Unity.InputSystem");
+                var actions = system?.GetProperty("actions", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+                if (asset == null || actions == null || !actions.CanWrite)
+                {
+                    warnings.Add($"input: {path} is not the project-wide actions — set it in Project Settings ▸ Input System Package.");
+                    return;
+                }
+                actions.SetValue(null, asset);
+            }
+        }
+
+        /// <summary>
+        /// A SceNoCo ParticleSystem's effect — Shuriken's modules under Shuriken's names — as Unity's own
+        /// ParticleSystem. three.quarks emits along +Z like Unity; the mirror on Z turns a cone or a hemisphere round.
+        /// </summary>
+        static class Particles
+        {
+            public static void Add(GameObject go, Dictionary<string, object> f, Action<string> warn)
+            {
+                if (!f.TryGetValue("effect", out var e) || !(e is Dictionary<string, object> eo) || !eo.ContainsKey("object"))
+                {
+                    warn("ParticleSystem has no effect it could read — left off.");
+                    return;
+                }
+                var c = Fields(eo);
+                var ps = go.AddComponent<ParticleSystem>();
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                var main = ps.main;
+                main.duration = Num(c, "duration", 5);
+                main.loop = Bool(c, "looping", true);
+                main.prewarm = Bool(c, "prewarm", false);
+                main.startLifetime = Num(c, "startLifetime", 5);
+                main.startSpeed = Num(c, "startSpeed", 5);
+                main.startSize = Num(c, "startSize", 1);
+                main.startRotation = Num(c, "startRotation", 0) * Mathf.Deg2Rad;
+                main.startColor = ColorOf(c, "startColor", Color.white);
+                main.gravityModifier = Num(c, "gravityModifier", 0);
+                main.simulationSpace = Str(c, "simulationSpace") == "World" ? ParticleSystemSimulationSpace.World : ParticleSystemSimulationSpace.Local;
+                main.playOnAwake = !f.TryGetValue("playOnAwake", out var awake) || (bool)awake;
+                main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+
+                var emission = ps.emission;
+                var em = Sub(c, "emission");
+                emission.rateOverTime = Num(em, "rateOverTime", 10);
+                if (em.TryGetValue("bursts", out var bursts))
+                    emission.SetBursts(List(Obj(bursts)["array"]).Select(b => Fields(Obj(b))).Select(b => new ParticleSystem.Burst(Num(b, "time", 0), (short)Num(b, "count", 0))).ToArray());
+
+                var shape = ps.shape;
+                var sh = Sub(c, "shape");
+                var type = sh.ContainsKey("type") ? Str(sh, "type") : "Cone";
+                shape.radius = Num(sh, "radius", 1);
+                shape.angle = Num(sh, "angle", 25);
+                shape.arc = Num(sh, "arc", 360);
+                switch (type)
+                {
+                    case "Sphere": shape.shapeType = ParticleSystemShapeType.Sphere; break;
+                    case "Hemisphere": shape.shapeType = ParticleSystemShapeType.Hemisphere; shape.rotation = new Vector3(0, 180, 0); break;
+                    case "Circle": shape.shapeType = ParticleSystemShapeType.Circle; break;
+                    case "Donut": shape.shapeType = ParticleSystemShapeType.Donut; break;
+                    case "Rectangle": shape.shapeType = ParticleSystemShapeType.Rectangle; shape.scale = new Vector3(shape.radius * 2, shape.radius * 2, 1); break;
+                    case "Point": shape.shapeType = ParticleSystemShapeType.Sphere; shape.radius = 0.0001f; break;
+                    default: shape.shapeType = ParticleSystemShapeType.Cone; shape.rotation = new Vector3(0, 180, 0); break;
+                }
+
+                if (c.TryGetValue("noise", out _))
+                {
+                    var n = Sub(c, "noise");
+                    var noise = ps.noise;
+                    noise.enabled = true;
+                    noise.strength = Num(n, "strength", 1);
+                    noise.frequency = Num(n, "frequency", 2);
+                }
+                if (c.TryGetValue("colorOverLifetime", out _))
+                {
+                    var colors = List(Obj(Sub(c, "colorOverLifetime")["colors"])["array"]).Select(x => Hex(Str(Obj(x), "color"))).ToArray();
+                    if (colors.Length > 0)
+                    {
+                        // Evenly spaced, as the effect writes them; full alpha, fading out over the last third, as three.quarks does.
+                        var keys = colors.Select((col, i) => new GradientColorKey(col, colors.Length == 1 ? 0 : i / (float)(colors.Length - 1))).Take(8).ToArray();
+                        var gradient = new Gradient();
+                        gradient.SetKeys(keys, new[] { new GradientAlphaKey(1, 0), new GradientAlphaKey(1, 0.7f), new GradientAlphaKey(0, 1) });
+                        var col = ps.colorOverLifetime;
+                        col.enabled = true;
+                        col.color = gradient;
+                    }
+                }
+                if (c.TryGetValue("sizeOverLifetime", out _))
+                {
+                    var values = Floats(Obj(Sub(c, "sizeOverLifetime")["curve"])["array"]);
+                    if (values.Length > 0)
+                    {
+                        var curve = new AnimationCurve(values.Select((v, i) => new Keyframe(values.Length == 1 ? 0 : i / (float)(values.Length - 1), v)).ToArray());
+                        for (var i = 0; i < curve.length; i++) AnimationUtility.SetKeyLeftTangentMode(curve, i, AnimationUtility.TangentMode.Linear);
+                        for (var i = 0; i < curve.length; i++) AnimationUtility.SetKeyRightTangentMode(curve, i, AnimationUtility.TangentMode.Linear);
+                        var size = ps.sizeOverLifetime;
+                        size.enabled = true;
+                        size.size = new ParticleSystem.MinMaxCurve(1, curve);
+                    }
+                }
+                if (c.TryGetValue("rotationOverLifetime", out _))
+                {
+                    var rot = ps.rotationOverLifetime;
+                    rot.enabled = true;
+                    rot.z = Num(Sub(c, "rotationOverLifetime"), "angularVelocity", 0) * Mathf.Deg2Rad;
+                }
+
+                var r = Sub(c, "renderer");
+                var renderer = go.GetComponent<ParticleSystemRenderer>();
+                renderer.renderMode = Str(r, "renderMode") switch
+                {
+                    "StretchedBillboard" => ParticleSystemRenderMode.Stretch,
+                    "HorizontalBillboard" => ParticleSystemRenderMode.HorizontalBillboard,
+                    "VerticalBillboard" => ParticleSystemRenderMode.VerticalBillboard,
+                    "Mesh" => ParticleSystemRenderMode.Mesh,
+                    _ => ParticleSystemRenderMode.Billboard,
+                };
+                renderer.sharedMaterial = SharedMaterial(Str(r, "blending") == "Alpha" ? "Alpha" : "Additive");
+            }
+
+            /// <summary>One material per blending, shared by every system: URP's particle shader, Unity's soft round sprite.</summary>
+            static Material SharedMaterial(string blending)
+            {
+                var path = $"Assets/Materials/Particles-{blending}.mat";
+                var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (mat != null) return mat;
+                var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Particles/Standard Unlit");
+                mat = new Material(shader);
+                mat.SetTexture("_BaseMap", AssetDatabase.GetBuiltinExtraResource<Texture2D>("Default-Particle.psd"));
+                mat.SetFloat("_Surface", 1);
+                mat.SetFloat("_Blend", blending == "Additive" ? 2 : 0);
+                mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+                mat.SetFloat("_DstBlend", (float)(blending == "Additive" ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
+                mat.SetFloat("_ZWrite", 0);
+                mat.SetOverrideTag("RenderType", "Transparent");
+                mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                mat.renderQueue = (int)RenderQueue.Transparent;
+                SaveAsset(mat, path);
+                return mat;
+            }
+
+            static Dictionary<string, object> Fields(Dictionary<string, object> o) => Obj(Obj(o["object"])["fields"]);
+            static Dictionary<string, object> Sub(Dictionary<string, object> c, string key) =>
+                c.TryGetValue(key, out var v) && v is Dictionary<string, object> d && d.ContainsKey("object") ? Fields(d) : new Dictionary<string, object>();
+            static bool Bool(Dictionary<string, object> d, string key, bool fallback) => d.TryGetValue(key, out var v) && v is bool b ? b : fallback;
+            static Color ColorOf(Dictionary<string, object> d, string key, Color fallback) =>
+                d.TryGetValue(key, out var v) && v is Dictionary<string, object> o && o.TryGetValue("color", out var hex) ? Hex((string)hex) : fallback;
+        }
 
         static class Physics
         {

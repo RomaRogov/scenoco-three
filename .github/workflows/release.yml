@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes every package at the version in its `package.json`. Tag and push to fire it:
-#   git tag v0.9.5 && git push origin v0.9.5
+#   git tag v1.0.0 && git push origin v1.0.0
 #
 # No token: npm trusts this workflow (trusted publishing, OIDC). Each package names
 # RomaRogov/scenoco-three and this file, release.yml, as its publisher on npmjs.com, and npm adds a
@@ -40,11 +40,11 @@ jobs:
       # install — core@0.5.0 did.
       - run: npm run smoke:pack
 
-      # Dependency order: everything peers on core; tools stands alone.
+      # Dependency order: everything peers on core; tools depends on editor.
       - name: Publish
         run: |
           set -euo pipefail
-          for pkg in core box2d rapier particles audio splines terrain tools unity create editor; do
+          for pkg in core box2d rapier particles audio splines terrain editor tools unity create; do
             dir="packages/$pkg"
             [ -d "$dir" ] || continue
             name=$(node -p "require('./$dir/package.json').name")

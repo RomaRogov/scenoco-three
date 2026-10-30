@@ -18,20 +18,29 @@ function shadowsWork(gl: WebGLRenderingContext | WebGL2RenderingContext): boolea
   return !/PowerVR|Imagination/i.test(gpu);
 }
 
-await initRapier();
+// The loading screen fills as each piece arrives: physics, then every model and texture.
+const loading = document.getElementById('loading')!;
+const bar = document.getElementById('loading-fill')!;
+let done = 0;
+const arrived = () => void (bar.style.width = `${(++done / (allAssets.length + 1)) * 100}%`);
+await Promise.all([initRapier().then(arrived), ...allAssets.map((asset) => loadAssets(asset).then(arrived))]);
 // Unity's layer collision matrix: the shell's halves pass through the fried egg.
 Physics.ignoreLayerCollision(layers.shell, layers.fried);
-await loadAssets(...allAssets);
 
 // See-through, so the page's gradient is the sky — Unity's camera cleared depth only, over a gradient canvas.
-const renderer = new WebGLRenderer({ antialias: true, alpha: true });
-const game = play(Main, { container: document.getElementById('frame')!, renderer });
+const renderer = new WebGLRenderer({ alpha: true });
+// On the page, so the editor's bar comes with it; the canvas is moved into the frame below.
+const game = play(Main, { renderer });
 game.renderer.setClearAlpha(0);
 game.renderer.outputColorSpace = LinearSRGBColorSpace; // gamma.ts: nothing encoded on the way out
 game.renderer.shadowMap.enabled = shadowsWork(game.renderer.getContext());
 game.renderer.shadowMap.type = PCFSoftShadowMap;
 game.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-// The canvas goes under the page's title and buttons.
-document.getElementById('frame')!.prepend(game.renderer.domElement);
+// Between the gradient behind it and the UI over it.
+document.getElementById('ui')!.before(game.renderer.domElement);
+// Gone once the first frame is drawn: compiling its shaders is the last wait, and the screen covers it.
+requestAnimationFrame(() => requestAnimationFrame(() => loading.classList.add('done')));
+// Its own fade only: the bar's fill ends transitions inside it too.
+loading.addEventListener('transitionend', (e) => e.target === loading && loading.remove());
 // Development only: the game's three.js objects, for checking from the console.
 if (import.meta.env.DEV) Object.assign(window, { game });

@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/splines",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "Splines for SceNoCo: Unity-shaped SplineContainer, SplineMesh, SplineExtrude, SplineInstantiate and SplineAnimate on three.js — roads, rails and paths.",
   "keywords": [
     "three",
@@ -50,9 +50,9 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^0.9.9"
+    "@scenoco-three/core": "^1.0.0"
   },
   "peerDependencies": {
-    "three": ">=0.160.0"
+    "three": ">=0.184.0"
   }
 }

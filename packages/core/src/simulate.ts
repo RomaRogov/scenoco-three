@@ -1,6 +1,6 @@
 import { Scene } from 'three';
 import { Runtime, destroy, provideCamera, type RenderCamera } from './kernel/index.js';
-import { flushDestroyed } from './kernel/runtime.js';
+import { flushDestroyed } from './kernel/lifecycle.js';
 import { Input } from './input/Input.js';
 import type { KeyCode } from './input/KeyCode.js';
 import { attachWorld, detachWorld, loadInto } from './scenes.js';

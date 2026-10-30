@@ -27,8 +27,8 @@ export const Arena = () => {
       </Mesh>
 
       <WallPrefab name="wallLeft" position={[-9.5, 7.75, 0]} />
-      <WallPrefab name="wallRight" position={[9.5, 7.75, 0]} tubeAt={[-0.29, 0, 0.3]} />
-      <WallPrefab name="wallTop" position={[0, 15.75, 0]} width={19.5} height={0.5} tubeWidth={18.5} tubeHeight={0.07} tubeAt={[0, -0.29, 0.3]} />
+      <WallPrefab name="wallRight" position={[9.5, 7.75, 0]} tubeAt={[-0.29, 0, 0.3]} outsideX={1} />
+      <WallPrefab name="wallTop" position={[0, 15.75, 0]} width={19.5} height={0.5} tubeWidth={18.5} tubeHeight={0.146} tubeAt={[0, -0.29, 0.3]} outsideX={0} outsideY={1} />
 
       {/* Kinematic: the paddle moves its node and the body follows, so it shoves the ball rather
           than being shoved. Its width is the node's scale; what is seen is `body`, which it animates. */}

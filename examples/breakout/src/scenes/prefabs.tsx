@@ -1,4 +1,4 @@
-import { BoxGeometry, CapsuleGeometry, Group, Mesh, MeshStandardMaterial, OctahedronGeometry, SphereGeometry } from 'three';
+import { BoxGeometry, CapsuleGeometry, Color, Group, Mesh, MeshStandardMaterial, OctahedronGeometry, SphereGeometry } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { prefab, ref } from '@scenoco-three/core';
 import { BoxCollider2D, CircleCollider2D, CollisionDetectionMode2D, PhysicsMaterial2D, Rigidbody2D } from '@scenoco-three/box2d';
@@ -28,7 +28,11 @@ export const bouncy = new PhysicsMaterial2D({ friction: 0, bounciness: 1 });
  * A wall: brushed dark metal with a bevel, its collider, and a neon tube along its inner edge that
  * flickers now and then. A prefab, though it never moves, because the arena places three: what they
  * are made of is edited once, in prefab mode, and what differs — size, where the tube runs, how
- * bright it glows — is each copy's props, on its tag. The defaults are a side wall's.
+ * bright it glows — is each copy's props, on its tag. The defaults are the left wall's.
+ *
+ * The collider reaches `depth` past the wall, out the way (`outsideX`, `outsideY`) points: its inner face is where the wall's
+ * is, but the ball cannot cross it in one step — shoved there by the paddle, or fast into a corner —
+ * and come out beyond, as it could through half a metre.
  */
 export const WallPrefab = prefab(
   ({
@@ -38,6 +42,9 @@ export const WallPrefab = prefab(
     tubeHeight = 16.2,
     tubeAt = [0.29, 0, 0.3],
     glow = 1.5,
+    outsideX = -1,
+    outsideY = 0,
+    depth = 4,
   }: {
     width?: number;
     height?: number;
@@ -45,17 +52,24 @@ export const WallPrefab = prefab(
     tubeHeight?: number;
     tubeAt?: [number, number, number];
     glow?: number;
+    outsideX?: number;
+    outsideY?: number;
+    depth?: number;
   }) => (
     <Group>
       <Mesh>
         <RoundedBoxGeometry args={[width, height, 0.9, 3, 0.2]} />
         <MeshStandardMaterial color="#1b2540" roughness={0.35} metalness={0.75} />
       </Mesh>
-      <BoxCollider2D size={[width, height]} material={bouncy} />
+      <BoxCollider2D
+        size={[width + outsideX * outsideX * depth, height + outsideY * outsideY * depth]}
+        offset={[(outsideX * depth) / 2, (outsideY * depth) / 2]}
+        material={bouncy}
+      />
       <Mesh position={tubeAt}>
         <BoxGeometry args={[tubeWidth, tubeHeight, 0.07]} />
         <MeshStandardMaterial color="#38e1ff" emissive="#38e1ff" emissiveIntensity={2} roughness={0.3} metalness={0.2} />
-        <NeonFlicker minDelay={3} maxDelay={5} minLevel={0.92} maxLevel={0.98} />
+        <NeonFlicker minDelay={3} maxDelay={5} minLevel={0.85} maxLevel={0.91} />
       </Mesh>
     </Group>
   ),
@@ -119,6 +133,11 @@ export const pickups = [LaserPickup, MultiPickup, WidePickup, SlimPickup];
 
 // --- the moving parts ----------------------------------------------------------------------
 
+/** By a brick's hits, less one: cyan glass, magenta, heavy amber metal. */
+const tierTints = [new Color('#16d9ff'), new Color('#ff3dd8'), new Color('#ffaa1c')];
+/** By bonus, in `BONUSES`' order: the colour of the gem that says what a brick drops. */
+const gemTints = [new Color('#ff3b6b'), new Color('#ffd23f'), new Color('#3bff9a'), new Color('#b18cff')];
+
 /**
  * One brick, any tier: `hits` picks its colours and its sparks from the tables on `Brick` — cyan
  * glass, magenta, heavy amber metal — and `bonus` what falls out of it, shown by a spinning gem in
@@ -137,12 +156,12 @@ export const BrickPrefab = prefab(({ hits = 1, bonus = 'none', snap = true }: { 
       <Brick
         hits={hits}
         bonus={bonus}
-        tints={['#16d9ff', '#ff3dd8', '#ffaa1c']}
+        tints={tierTints}
         metalness={[0.25, 0.35, 0.7]}
         bursts={bursts}
         drops={pickups}
         gem={gem}
-        gemTints={['#ff3b6b', '#ffd23f', '#3bff9a', '#b18cff']}
+        gemTints={gemTints}
       />
       <BoxCollider2D size={[2.3, 0.72]} material={bouncy} />
       <GridSnap cell={[2.55, 1]} snap={snap} />

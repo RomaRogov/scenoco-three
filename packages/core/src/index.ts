@@ -23,7 +23,8 @@ import './augment.js';
 export { play, instantiate, type Game, type PlayOptions, type InstantiateOptions } from './play.js';
 export { simulate, type Simulation, type SimulateOptions } from './simulate.js';
 export { SceneManager, dontDestroyOnLoad } from './scenes.js';
-export { prefab, ref, sourceOf, type Ref, type Source } from './jsx.js';
+export { prefab, ref, type Ref } from './jsx.js';
+export { sourceOf, type Source } from './provenance.js';
 export {
   Behaviour,
   Event,
@@ -56,6 +57,8 @@ export {
 export { Mathf } from './Mathf.js';
 export { Random, type RandomState } from './Random.js';
 export { PlayerPrefs } from './PlayerPrefs.js';
+export { Screen } from './Screen.js';
+export { UIDocument } from './UIDocument.js';
 export { Input, type ButtonName } from './input/Input.js';
 export { KeyCode, MouseButton } from './input/KeyCode.js';
 export { AXES, AXIS_NAMES, type AxisName } from './input/axes.js';
@@ -85,4 +88,4 @@ export {
 
 // For the editor's interface, `@scenoco-three/editor`: what it reaches the running game through.
 export type { EditHost, OpenedScene, Transform } from './editor/EditHost.js';
-export type { Reach } from './kernel/runtime.js';
+export type { Reach } from './kernel/lifecycle.js';

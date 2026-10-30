@@ -1,6 +1,7 @@
 import { Vector3 } from 'three';
 import {
-  Behaviour, Input, KeyCode, SceneManager, Time, WaitForSeconds, WaitUntil, destroy, findObjectOfType, findObjectsOfType, instantiate,
+  Behaviour, Coroutine, Input, KeyCode, SceneManager, Screen, Time, WaitForSeconds, WaitForSecondsRealtime, WaitUntil, destroy, findObjectOfType, findObjectsOfType, instantiate,
+  type Yieldable,
 } from '@scenoco-three/core';
 import { BuildPad } from './BuildPad';
 import { CameraRig } from './CameraRig';
@@ -13,12 +14,12 @@ import { route } from './routes';
 import { SelectionMarker } from './SelectionMarker';
 import { Sfx, type SoundName } from './Sfx';
 import { Tower } from './Tower';
-import { icons } from './ui';
+import { $, appear, arrive, clone, flick, loop, shake, sweep } from './hud';
 import { ArcherTower, BuildDust, CannonTower, CoinBurst, FrostTower, Goblin, MageTower, Orc, Troll, Wolf } from './scenes/prefabs';
 
 type Phase = 'ready' | 'spawning' | 'between' | 'won' | 'lost';
 
-const $ = (id: string) => document.getElementById(id)!;
+const KINDS = Object.keys(TOWERS) as TowerKind[];
 
 /** Seconds between the end of one wave's arrivals and the next wave, unless the player calls it early. */
 const BREATHER = 14;
@@ -43,6 +44,8 @@ export class Game extends Behaviour {
   private selected: BuildPad | null = null;
   private shown = { gold: -1, lives: -1, wave: -1 };
   private cleanup: (() => void)[] = [];
+  /** The next-wave button's pulse while it waits to be pressed. */
+  private pulse: Coroutine | null = null;
 
   get spec() {
     return LEVELS[this.level];
@@ -58,20 +61,22 @@ export class Game extends Behaviour {
     for (const id of ['title', 'won', 'lost', 'pause', 'banner']) $(id).classList.add('hidden');
     $('hud').classList.remove('hidden');
     $('waves').textContent = `/${this.spec.waves.length}`;
-    $('next').classList.remove('gone');
-    $('next').classList.add('idle');
+    this.showNext(true);
     $('next-label').textContent = 'START';
     this.setRing(0);
-    $('speed').textContent = '1×';
+    $('speed-text').textContent = '1×';
     $('speed').classList.remove('on');
     const rig = findObjectOfType(CameraRig);
     if (rig) this.listen(rig.onTap, (x, y) => this.tap(x, y));
     // The build cards are plain buttons: one listener each, removed when the level goes.
-    for (const card of document.querySelectorAll<HTMLButtonElement>('[data-build]')) {
-      const onClick = () => this.build(card.dataset.build as TowerKind, card);
+    for (const kind of KINDS) {
+      const card = $(`build-${kind}`);
+      const onClick = () => this.build(kind, card);
       card.addEventListener('click', onClick);
       this.cleanup.push(() => card.removeEventListener('click', onClick));
     }
+    // The gold buttons' light sweeps across them for as long as the level runs.
+    for (const shine of document.querySelectorAll<HTMLElement>('#ui .shine')) this.startCoroutine(sweep(shine));
     this.refreshHud();
   }
 
@@ -110,7 +115,7 @@ export class Game extends Behaviour {
     findObjectOfType(Castle)?.hit();
     findObjectOfType(CameraRig)?.shake(0.35);
     this.flash('vignette', 'flash');
-    this.bump('lives-chip', 'hurt');
+    this.hurt();
     this.pop(enemy.node.position, `-${enemy.spec.lives}`, 'hurt');
     this.sfx('leak');
     if (this.lives <= 0) this.lose();
@@ -130,8 +135,7 @@ export class Game extends Behaviour {
     }
     const index = this.wave++;
     this.phase = 'spawning';
-    $('next').classList.add('gone');
-    $('next').classList.remove('idle');
+    this.showNext(false);
     this.banner(index);
     this.sfx('horn');
     this.startCoroutine(this.spawnWave(index));
@@ -161,8 +165,7 @@ export class Game extends Behaviour {
     if (this.phase === 'spawning' && this.wave < this.spec.waves.length) {
       this.phase = 'between';
       this.countdown = BREATHER;
-      $('next').classList.remove('gone');
-      $('next').classList.add('idle');
+      this.showNext(true);
     }
   }
 
@@ -193,14 +196,14 @@ export class Game extends Behaviour {
   private padAt(x: number, y: number): BuildPad | null {
     const camera = this.camera;
     let best: BuildPad | null = null;
-    let bestDistance = Math.max(44, Math.min(window.innerWidth, window.innerHeight) * 0.09);
+    let bestDistance = Math.max(44, Math.min(Screen.width, Screen.height) * 0.09);
     const p = new Vector3();
     for (const pad of findObjectsOfType(BuildPad)) {
       pad.node.getWorldPosition(p);
       p.y += pad.tower ? 1.2 : 0.2;
       p.project(camera);
-      const sx = ((p.x + 1) / 2) * window.innerWidth;
-      const sy = ((1 - p.y) / 2) * window.innerHeight;
+      const sx = ((p.x + 1) / 2) * Screen.width;
+      const sy = ((1 - p.y) / 2) * Screen.height;
       const d = Math.hypot(sx - x, sy - y);
       if (d < bestDistance) {
         bestDistance = d;
@@ -303,7 +306,7 @@ export class Game extends Behaviour {
   private toggleSpeed() {
     this.speed = this.speed === 1 ? 2 : this.speed === 2 ? 3 : 1;
     if (!this.paused) Time.timeScale = this.speed;
-    $('speed').textContent = `${this.speed}×`;
+    $('speed-text').textContent = `${this.speed}×`;
     $('speed').classList.toggle('on', this.speed > 1);
     this.sfx('click', 0.6);
   }
@@ -312,7 +315,8 @@ export class Game extends Behaviour {
     if (this.phase === 'won' || this.phase === 'lost') return;
     this.paused = paused;
     Time.timeScale = paused ? 0 : this.speed;
-    $('pause').classList.toggle('hidden', !paused);
+    if (paused) this.startCoroutine(appear('pause'));
+    else $('pause').classList.add('hidden');
     if (paused) this.select(null);
   }
 
@@ -330,7 +334,7 @@ export class Game extends Behaviour {
     const stars = share >= 0.9 ? 3 : share >= 0.5 ? 2 : 1;
     saveStars(this.level, stars);
     this.select(null);
-    $('next').classList.add('gone');
+    this.showNext(false);
     this.startCoroutine(this.showWin(stars));
   }
 
@@ -341,15 +345,14 @@ export class Game extends Behaviour {
     const last = LEVEL_ORDER.indexOf(this.level) === LEVEL_ORDER.length - 1;
     $('won-next').classList.toggle('hidden', last);
     $('won-text').textContent = last ? 'Every bastion stands. Well played!' : `${this.lives} of ${this.spec.lives} lives kept.`;
-    const images = [...$('won-stars').querySelectorAll('img')];
-    images.forEach((img) => img.classList.remove('show', 'got'));
-    $('won').classList.remove('hidden');
+    const shown = [...$('won-stars').children] as HTMLElement[];
+    shown.forEach((star) => star.classList.remove('show', 'got'));
+    this.startCoroutine(appear('won'));
     for (let i = 0; i < 3; i++) {
       yield new WaitForSeconds(0.35);
-      images[i]!.classList.add('show');
+      shown[i]!.classList.add('show');
       if (i < stars) {
-        images[i]!.classList.add('got');
-        images[i]!.style.filter = '';
+        shown[i]!.classList.add('got');
         this.sfx('star', 0.8);
       }
     }
@@ -358,7 +361,7 @@ export class Game extends Behaviour {
   private lose() {
     this.phase = 'lost';
     this.select(null);
-    $('next').classList.add('gone');
+    this.showNext(false);
     this.sfx('lose');
     this.startCoroutine(this.showLoss());
   }
@@ -367,7 +370,7 @@ export class Game extends Behaviour {
     yield new WaitForSeconds(1);
     Time.timeScale = 1;
     $('lost-text').textContent = `Wave ${this.wave} of ${this.spec.waves.length} broke through.`;
-    $('lost').classList.remove('hidden');
+    this.startCoroutine(appear('lost'));
   }
 
   // ── HUD ─────────────────────────────────────────────────────────────────────────────────
@@ -390,19 +393,15 @@ export class Game extends Behaviour {
   }
 
   private refreshCards() {
-    for (const card of document.querySelectorAll<HTMLElement>('[data-build]')) {
-      const kind = card.dataset.build as TowerKind;
-      card.classList.toggle('poor', this.gold < TOWERS[kind].levels[0].cost);
-    }
+    for (const kind of KINDS) $(`build-${kind}`).classList.toggle('poor', this.gold < TOWERS[kind].levels[0].cost);
   }
 
   private openBuildSheet() {
     $('tower-sheet').classList.remove('open');
     this.refreshCards();
-    const sheet = $('build-sheet');
-    sheet.classList.remove('open');
-    void sheet.offsetWidth; // restart the cards' entrance
-    sheet.classList.add('open');
+    $('build-sheet').classList.add('open');
+    // The cards come up one after another as it opens.
+    this.startCoroutine(arrive(KINDS.map((kind) => $(`build-${kind}`))));
   }
 
   private openTowerSheet(tower: Tower) {
@@ -410,9 +409,9 @@ export class Game extends Behaviour {
     const spec = TOWERS[tower.kind];
     const stats = tower.stats;
     const next = tower.next;
-    ($('ts-icon') as HTMLImageElement).src = icons[tower.kind];
+    $('ts-icon').className = `icon ${tower.kind}`;
     $('ts-name').textContent = spec.name;
-    $('ts-stars').innerHTML = [1, 2, 3].map((i) => `<img src="ui/star.png" class="${i <= tower.level ? '' : 'off'}" alt="" />`).join('');
+    [...$('ts-stars').children].forEach((star, i) => star.classList.toggle('off', i + 1 > tower.level));
     const dps = (l: { damage: number; rate: number }) => l.damage * l.rate;
     this.bar('ts-dmg', stats.damage, next?.damage, STAT_MAX.damage);
     this.bar('ts-rng', stats.range, next?.range, STAT_MAX.range);
@@ -433,7 +432,6 @@ export class Game extends Behaviour {
     $('ts-up-cost').textContent = next ? String(next.cost) : 'MAX';
     button.disabled = !next;
     button.classList.toggle('poor', !!next && this.gold < next.cost);
-    button.style.filter = next && this.gold < next.cost ? 'grayscale(.8)' : '';
   }
 
   private bar(id: string, value: number, next: number | undefined, max: number) {
@@ -450,55 +448,95 @@ export class Game extends Behaviour {
     const counts = new Map<EnemyKind, number>();
     for (const group of this.spec.waves[index]!) counts.set(group.kind, (counts.get(group.kind) ?? 0) + group.count);
     $('banner-text').textContent = index === this.spec.waves.length - 1 ? 'FINAL WAVE' : `WAVE ${index + 1}`;
-    $('banner-who').innerHTML = [...counts]
-      .map(([kind, n]) => `<span><img src="${icons[kind]}" alt="${ENEMIES[kind].name}" />×${n}</span>`)
-      .join('');
-    const banner = $('banner');
-    banner.classList.remove('hidden', 'show');
-    void banner.offsetWidth;
-    banner.classList.add('show');
+    $('banner-who').replaceChildren(
+      ...[...counts].map(([kind, n]) => {
+        const who = clone('who');
+        const icon = who.querySelector('.icon') as HTMLElement;
+        icon.classList.add(kind);
+        icon.title = ENEMIES[kind].name;
+        (who.querySelector('.count') as HTMLElement).textContent = `×${n}`;
+        return who;
+      }),
+    );
+    this.startCoroutine(this.showBanner());
   }
 
+  /** In with a bounce, held, and up and away. */
+  private *showBanner(): Generator<Yieldable> {
+    const banner = $('banner');
+    banner.classList.remove('hidden', 'shown');
+    yield* arrive(banner);
+    banner.classList.add('shown');
+    yield new WaitForSecondsRealtime(1.9);
+    banner.classList.remove('shown');
+    yield new WaitForSecondsRealtime(0.5);
+    banner.classList.add('hidden');
+  }
+
+  /** The ring fills clockwise from the top: each half turned into view inside its clip. */
   private setRing(fill: number) {
-    const circle = $('next').querySelector('circle') as SVGCircleElement;
-    circle.style.strokeDashoffset = String(289 * (1 - Math.max(0, Math.min(1, fill))));
+    const f = Math.max(0, Math.min(1, fill));
+    $('arc-right').style.rotate = `${-180 + Math.min(f, 0.5) * 360}deg`;
+    $('arc-left').style.rotate = `${-180 + Math.max(f - 0.5, 0) * 360}deg`;
+  }
+
+  /** The next-wave button, there and pulsing — or gone. */
+  private showNext(shown: boolean) {
+    const next = $('next');
+    next.classList.toggle('gone', !shown);
+    this.pulse?.stop();
+    this.pulse = null;
+    next.classList.remove('pulse');
+    if (shown) this.pulse = this.startCoroutine(loop(next, 'pulse', 0.7));
   }
 
   /** Floating text over a point in the world. */
   private pop(at: Vector3, text: string, kind: 'coin' | 'hurt') {
     const p = at.clone().setY(at.y + 1.4).project(this.camera);
     if (p.z > 1) return;
-    const el = document.createElement('div');
-    el.className = `pop ${kind === 'hurt' ? 'hurt' : ''}`;
-    el.innerHTML = kind === 'coin' ? `${text} <img src="ui/coin.png" alt="" />` : text;
-    el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
-    el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
-    el.addEventListener('animationend', () => el.remove());
+    const el = clone('pop');
+    el.classList.toggle('hurt', kind === 'hurt');
+    (el.querySelector('.say') as HTMLElement).textContent = text;
+    if (kind === 'coin') el.append(Object.assign(document.createElement('div'), { className: 'icon coin' }));
+    el.style.left = `${((p.x + 1) / 2) * 100}%`;
+    el.style.top = `${((1 - p.y) / 2) * 100}%`;
     $('pops').appendChild(el);
+    this.startCoroutine(this.rise(el));
   }
 
-  private bump(id: string, effect = 'bump') {
-    this.flash(id, effect);
+  /** Up out of the point and large; then on up, fading; then gone. */
+  private *rise(el: HTMLElement): Generator<Yieldable> {
+    yield null;
+    el.classList.replace('start', 'mid');
+    yield new WaitForSecondsRealtime(0.15);
+    el.classList.remove('mid');
+    yield new WaitForSecondsRealtime(0.85);
+    el.remove();
   }
 
-  private flash(id: string, cls: string) {
-    const el = $(id);
-    el.classList.remove(cls);
-    void el.offsetWidth;
-    el.classList.add(cls);
+  private bump(id: string) {
+    this.startCoroutine(flick($(id), 'bump', 0.12));
+  }
+
+  private flash(id: string, name: string) {
+    this.startCoroutine(flick($(id), name, 0.05));
+  }
+
+  /** A life lost: the lives chip reddens and shakes. */
+  private hurt() {
+    this.startCoroutine(flick($('lives-chip'), 'hurt', 0.45));
+    this.startCoroutine(shake($('lives-chip')));
   }
 
   private refuse(el: HTMLElement) {
-    el.classList.remove('shake');
-    void el.offsetWidth;
-    el.classList.add('shake');
+    this.startCoroutine(shake(el));
     this.toast('Not enough gold');
     this.sfx('nope', 0.7);
   }
 
   private toast(text: string) {
-    $('toast').textContent = text;
-    this.flash('toast', 'show');
+    $('toast-text').textContent = text;
+    this.startCoroutine(flick($('toast'), 'shown', 1.12));
   }
 
   private sfx(name: SoundName, volume = 1) {

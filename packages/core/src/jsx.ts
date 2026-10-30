@@ -9,8 +9,10 @@
  * A node child is always added; with `attach` it fills that property too, as a light's `target` does.
  * A behaviour class is an element too: it becomes a component of its parent.
  */
-import { addDormant, afterNodeDestroyed } from './kernel/runtime.js';
+import { addDormant } from './kernel/attach.js';
+import { afterNodeDestroyed } from './kernel/lifecycle.js';
 import { disposeBuilt, ownedBy } from './dispose.js';
+import { handOver, record, remember, type Source } from './provenance.js';
 import { Behaviour } from './kernel/Behaviour.js';
 import type { BehaviourInit, ConstructableBehaviour, PrefabMarkKey, RefLike } from './kernel/types.js';
 import type { Object3D } from 'three';
@@ -37,7 +39,8 @@ interface BehaviourMarker {
   readonly link: Ref<unknown> | undefined;
 }
 
-function isBehaviourClass(type: unknown): type is ConstructableBehaviour {
+/** @internal A class that extends `Behaviour`: its tag makes a component, not a node. */
+export function isBehaviourClass(type: unknown): type is ConstructableBehaviour {
   return typeof type === 'function' && type.prototype instanceof Behaviour;
 }
 
@@ -124,102 +127,17 @@ export function isPrefab(value: unknown): boolean {
   return typeof value === 'function' && prefabs.has(value);
 }
 
-/**
- * Which function made a node, and with what, so an export can keep `<ArrowBase />` a nested prefab
- * rather than copy what it built, and the editor can call it again.
- */
-function remember(made: unknown, type: Function, all: Props): void {
-  if (!made || typeof made !== 'object') return;
-  const { children: _c, key: _k, ...given } = all;
-  madeBy.set(made, { prefab: type as () => unknown, given: Object.keys(given).length > 0, props: all });
-}
-
-/**
- * The prefab function whose element made a node, whether that element passed it attributes, and
- * the props it was called with — what the editor calls it with again when one of them changes.
- */
-interface MadeBy {
-  prefab: () => unknown;
-  given: boolean;
-  props: Props;
-}
-const madeBy = new WeakMap<object, MadeBy>();
-
-/** @internal What an export reads: the prefab that made `node`, if a `<Prefab />` element did. */
-export function prefabOf(node: object): MadeBy | undefined {
-  return madeBy.get(node);
-}
-
-// --- development records: where each element was written, and with what, for the editor -------
-
-/** Where an element was written: what `jsxDEV` is told in development, 1-based, at the `<`. */
-export interface Source {
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
-}
-const sources = new WeakMap<object, Source>();
-
-/**
- * Where the element that made this object — a node, a material, a behaviour — was written. Development
- * builds only: what lets an editor go from a picked object to its tag.
- */
-export function sourceOf(made: object): Source | undefined {
-  return sources.get(made);
-}
-
-/**
- * The attributes the element that made this object was written with — what the editor puts back
- * when a value is reset. Development builds only.
- */
-export function givenOf(made: object): Readonly<Record<string, unknown>> | undefined {
-  return given.get(made);
-}
-
-/** @internal what the editor wrote into an element: the next reset puts this back. */
-export function setGiven(made: object, name: string, value: unknown): void {
-  given.set(made, { ...given.get(made), [name]: value });
-}
-
-/** @internal an object made again by the editor still stands for what the file says, not what made it again. */
-export function keepGiven(from: object, to: object): void {
-  const was = given.get(from);
-  if (was) given.set(to, was);
-  const inner = own.get(from);
-  if (inner) own.set(to, inner);
-}
-
-const given = new WeakMap<object, Record<string, unknown>>();
-
-/**
- * A node a function's tag made — a prefab's root — is its tag's, as far as `sourceOf` and `givenOf`
- * say: the tag places it. Its own element, inside the function, is what this answers: where it is
- * written and with what — the prefab's own, which the tag overrides. Development builds only.
- */
-export function ownOf(made: object): { source?: Source; given?: Readonly<Record<string, unknown>> } | undefined {
-  return own.get(made);
-}
-
-const own = new WeakMap<object, { source?: Source; given?: Record<string, unknown> }>();
-
-/** Development's entry: the same as `jsx`, and it remembers where each element was written, and with what. */
+/** Development's entry: the same as `jsx`, and it records where each element was written, and with what. */
 export function jsxDEV(type: unknown, props: Props | null, key?: unknown, _static?: boolean, source?: Source): unknown {
   const made = jsx(type, props, key);
-  if (made && typeof made === 'object' && !Array.isArray(made)) {
-    // A function's tag takes its root over: what the root's own element said is kept apart first.
-    if (typeof type === 'function' && !isClass(type) && sources.has(made) && !own.has(made)) {
-      own.set(made, { source: sources.get(made), given: given.get(made) });
-    }
-    if (source) sources.set(made, source);
-    const { children: _c, key: _k, ref: _r, ...attributes } = props ?? {};
-    given.set(made, attributes);
-  }
+  record(made, props, source, typeof type === 'function' && !isClass(type));
   return made;
 }
 
 // --- an element's properties and children -----------------------------------------------------
 
-function isClass(fn: Function): boolean {
+/** @internal A class rather than a plain function: only a class's source starts with `class`. */
+export function isClass(fn: Function): boolean {
   return /^class[\s{]/.test(Function.prototype.toString.call(fn));
 }
 
@@ -263,11 +181,7 @@ function addChild(parent: Record<string, unknown>, child: unknown, tag: string):
     const behaviour = addDormant(parent as never, child.type, child.init);
     if (child.link) child.link.current = behaviour;
     // Where it was written and what it said, for the editor: `jsxDEV` records them, `jsx` does not.
-    if (import.meta.env?.DEV) {
-      const source = sources.get(child);
-      if (source) sources.set(behaviour, source);
-      if (given.has(child)) given.set(behaviour, child.init);
-    }
+    if (import.meta.env?.DEV) handOver(child, behaviour, child.init);
     return;
   }
   if (!child || typeof child !== 'object') {
