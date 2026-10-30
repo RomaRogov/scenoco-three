@@ -62,6 +62,7 @@ export function installSourceButton(): void {
 
   const open = (on: boolean) => {
     panel.hidden = !on;
+    document.body.classList.toggle('source-open', on);
     button.setAttribute('aria-expanded', String(on));
   };
   button.onclick = () => open(button.getAttribute('aria-expanded') !== 'true');
