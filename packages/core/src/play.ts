@@ -134,9 +134,9 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   provideCamera(runtime, () => camera);
   attachWorld(scene, findCamera);
   // Before the scene is built: a reset in the editor holds behaviours from their very first wake.
-  const editor = import.meta.env?.DEV && page ? installEditor(scene, runtime, renderer, () => camera, (dt) => frame(dt)) : null;
+  const editor = import.meta.env?.DEV ? installEditor(scene, runtime, renderer, () => camera, (dt) => frame(dt)) : null;
   // In development the editor may have opened another scene: the page starts in it instead.
-  let starting = import.meta.env?.DEV && page ? startOpenedScene(scene, build) : null;
+  let starting = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
   if (starting) void starting.finally(() => (starting = null));
   else loadInto(scene, build, false);
   Input.attach(renderer.domElement);
