@@ -1,7 +1,6 @@
 import { Quaternion, Vector3, type Object3D, type Vector2 } from 'three';
 import { Behaviour, Mathf, PlayerPrefs, Random, instantiate, type Prefab } from '@scenoco-three/core';
 import { TerrainMesh } from './TerrainMesh';
-import { punch, tween, Ease } from './tween';
 
 const STORAGE_LEVEL = 'LevelController.LEVEL';
 const STORAGE_STARS_OVERALL = 'LevelController.STARS_OVERALL';
@@ -41,11 +40,7 @@ export class LevelController extends Behaviour {
   static gameWon(): void {
     LevelController.starsOverall += LevelController.starsCollected;
     LevelController.currentLevel++;
-    const self = LevelController.instance;
-    const nest = self.nest!;
-    const rest = nest.position.clone();
-    // DOPunchPosition(Vector3.down * .3f, .5f)
-    self.startCoroutine(tween(0.5, Ease.linear, (t) => nest.position.copy(rest).y -= 0.3 * punch(t)));
+    LevelController.instance.nest!.doPunchPosition(new Vector3(0, -0.3, 0), 0.5);
   }
 
   /** Lay the level out: Unity's Init, called by the terrain once its heights exist. */

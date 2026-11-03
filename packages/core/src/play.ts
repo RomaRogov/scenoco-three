@@ -1,5 +1,5 @@
 import { Camera, Euler, Object3D, Scene, Timer, Vector2, Vector3, WebGLRenderer, type OrthographicCamera, type PerspectiveCamera, type Quaternion } from 'three';
-import { Runtime, destroy, wake, provideCamera, type RenderCamera } from './kernel/index.js';
+import { Runtime, runtimeOf, destroy, wake, provideCamera, type RenderCamera } from './kernel/index.js';
 import { flushDestroyed } from './kernel/lifecycle.js';
 import { Input } from './input/Input.js';
 import { setScreenSize } from './Screen.js';
@@ -84,19 +84,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   const size = new Vector2();
   const fit = () => {
     renderer.getSize(size);
-    if (!camera || !autoCamera) return;
-    const aspect = size.x / size.y;
-    if ((camera as OrthographicCamera).isOrthographicCamera) {
-      // Unity's orthographic size: the height it shows is the scene's, the width follows the screen.
-      const ortho = camera as OrthographicCamera;
-      const half = ((ortho.top - ortho.bottom) / 2) * aspect;
-      const middle = (ortho.left + ortho.right) / 2;
-      ortho.left = middle - half;
-      ortho.right = middle + half;
-    } else {
-      (camera as PerspectiveCamera).aspect = aspect;
-    }
-    camera.updateProjectionMatrix();
+    if (camera && autoCamera) fitCamera(camera, size.x, size.y);
   };
   // Every load may bring its own camera: the newest scene's first visible camera draws, then a kept
   // one's. Hidden or taken out of the scene, it hands over to the next — Unity's `camera.enabled`.
@@ -135,12 +123,6 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   attachWorld(scene, findCamera);
   // Before the scene is built: a reset in the editor holds behaviours from their very first wake.
   const editor = import.meta.env?.DEV ? installEditor(scene, runtime, renderer, () => camera, (dt) => frame(dt)) : null;
-  // In development the editor may have opened another scene: the page starts in it instead.
-  let starting = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
-  if (starting) void starting.finally(() => (starting = null));
-  else loadInto(scene, build, false);
-  Input.attach(renderer.domElement);
-
   const game: Game = {
     scene,
     get camera() {
@@ -174,6 +156,13 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
       if (!options.renderer) renderer.dispose();
     },
   };
+  // Before the scene is built: its behaviours may ask for the game from their first awake.
+  games.set(runtime, game);
+  // In development the editor may have opened another scene: the page starts in it instead.
+  let starting = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
+  if (starting) void starting.finally(() => (starting = null));
+  else loadInto(scene, build, false);
+  Input.attach(renderer.domElement);
   let disposed = false;
 
   /** One frame of the game: input first, then every behaviour, then input's one-frame edges roll over. */
@@ -204,6 +193,29 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     if (view ?? camera) editor?.draw((view ?? camera)!);
   });
   return game;
+}
+
+const games = new WeakMap<Runtime, Game>();
+
+/** The game `play` made that this node is running in: its renderer, camera and `render`. Null under `simulate`. */
+export function gameOf(node: Object3D): Game | null {
+  const runtime = runtimeOf(node);
+  return runtime ? (games.get(runtime) ?? null) : null;
+}
+
+/** @internal a camera to a screen's shape. Unity's orthographic size: the height it shows is the scene's, the width follows the screen. */
+export function fitCamera(camera: RenderCamera, width: number, height: number): void {
+  const aspect = width / height;
+  if ((camera as OrthographicCamera).isOrthographicCamera) {
+    const ortho = camera as OrthographicCamera;
+    const half = ((ortho.top - ortho.bottom) / 2) * aspect;
+    const middle = (ortho.left + ortho.right) / 2;
+    ortho.left = middle - half;
+    ortho.right = middle + half;
+  } else {
+    (camera as PerspectiveCamera).aspect = aspect;
+  }
+  camera.updateProjectionMatrix();
 }
 
 /** @internal the camera that draws: the newest loaded scene's first visible one, then a kept one's. */

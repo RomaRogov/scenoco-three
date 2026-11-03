@@ -6,7 +6,7 @@
 
 ## What this is
 
-**SceNoCo** (*Scene · Node · Component*) is Unity's behaviours on three.js, with scenes written in
+**SceNoCo** (*Scene · Node · Component*) is Unity-style behaviours for three.js, with scenes written in
 TSX and no React. A TypeScript npm workspace monorepo.
 
 > A scene is a `.tsx` file that only declares. An element is `new Tag(...args)` of the class it
@@ -33,7 +33,7 @@ not memory.
 - `packages/core` — the kernel (`Behaviour`, the per-scene `Runtime`, coroutines, `Time`, events,
   destruction), the TSX runtime (`jsx.ts`), `play`, `SceneManager`, `Input`, assets, and the
   dev-only bridge a browser drives the game through (`bridge/`). Its own map is below.
-- Packages (`rapier`, `box2d`, `particles`, `audio`, `splines`, `terrain`) attach through core's package seam: a private
+- Packages (`rapier`, `box2d`, `particles`, `audio`, `postprocessing`, `splines`, `terrain`) attach through core's package seam: a private
   per-scene `System` reached with `service(node, Type)`, Unity's message names declared with
   `declareMessages`, and Unity's static facades (`Physics.gravity`) for anything a game sets.
 - `packages/tools` — `scenoco check` (the scene rule) and `scene-edit.ts`, the editor's
@@ -45,6 +45,9 @@ not memory.
   page into UXML and USS, `input.ts` the named axes into input actions, `stub.ts` the code into C#
   stubs holding its TypeScript, and the C# in `unity/` — importer, driver commands, `PORTING.md` — is
   copied into the project, where the importer builds it with Unity's API.
+- `unity/com.scenoco.ymfm` — a Unity package, not an npm one: tetorica-fm2612's YM2612 (ymfm) and Sega PSG
+  as a native plugin for macOS, iOS, Android and Windows, with tetorica's API in C#. For a game whose port
+  plays them, added by hand; the exporter knows nothing of it. `Native~/build.sh` rebuilds it.
 - `packages/editor` — the editor's interface: one self-contained module (React bundled in) the
   running game's page loads from a button in development. The live half is core's `editor/` (pause,
   step, reset, the editor's camera and gizmo); the file half is `scenoco()` in `packages/tools/src/vite.ts`,
@@ -62,6 +65,7 @@ not memory.
 | `kernel/runtime.ts` | `Runtime`: one root's frame — start, fixed steps, update, coroutines, late update, destroy |
 | `jsx.ts` | TSX to three.js objects, `prefab`, `ref`; `provenance.ts` records where each element was written |
 | `play.ts` `simulate.ts` | a scene run on a canvas, or stepped by a test |
+| `tween/` | tweens: a `System` of its own, the `do…` methods on three's objects (Unity's DOTween, which only the docs say) |
 | `host.ts` | what the editor and the bridge do to a running game: hold its clock, draw from another camera |
 | `bridge/` | `window.__scenoco`: `scope` (what `eval` can name), `input`, `read` (state as plain data), `drive` (`?drive=`) |
 | `editor/` | the editor's live half |

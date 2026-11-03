@@ -11,9 +11,9 @@ export class MenuController extends Behaviour {
 
   override start() {
     for (const id of ['hud', 'won', 'lost', 'pause', 'banner']) $(id).classList.add('hidden');
-    this.startCoroutine(appear('title'));
+    appear('title');
     // The logo bobs as long as the title is up.
-    this.startCoroutine(loop($('logo'), 'up', 1.5));
+    loop($('logo'), 'up', 1.5).setLink(this);
     const stars = loadStars();
     const cards = LEVEL_ORDER.map((id, i) => {
       const spec = LEVELS[id];
@@ -46,7 +46,7 @@ export class MenuController extends Behaviour {
       return card;
     });
     $('levels').replaceChildren(...cards);
-    this.startCoroutine(arrive(cards));
+    arrive(cards);
   }
 
   override update() {
@@ -65,6 +65,6 @@ export class MenuController extends Behaviour {
 
   private refuse(card: HTMLElement) {
     this.getComponent(Sfx)?.play('nope');
-    this.startCoroutine(shake(card));
+    shake(card);
   }
 }

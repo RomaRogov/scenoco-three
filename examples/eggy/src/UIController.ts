@@ -12,7 +12,7 @@ function afterTransition(el: HTMLElement, then: () => void): void {
 
 /**
  * The title, the play button, the star counter and the fade — the Unity game's `UIController`, on
- * the page's own elements. Its DOTween moves are the page's transitions: an element enters as the
+ * the page's own elements. Its moves are the page's transitions: an element enters as the
  * class that held it off screen is taken away, and leaves as one is put back. The page outlives scene
  * loads, so each load puts it back as it was.
  */

@@ -39,7 +39,11 @@ interface Game {
   render: () => void;               // replace to draw another way: game.render = () => composer.render()
   dispose: () => void;              // stop it and free the canvas; onDestroy runs — a React effect's cleanup
 }
-function simulate(scene: () => JSX.Element, options?: { fixedDelta?: number }): Simulation;  // no canvas, no loop:
+function gameOf(node: Object3D): Game | null;       // the game this node runs in; null under simulate
+function simulate(scene: () => JSX.Element, options?: {
+  fixedDelta?: number;
+  size?: [number, number];          // the screen in pixels: Screen, and what pointers are on. Default 1920×1080
+}): Simulation;                     // no canvas, no loop:
                                     // a test in Node or jsdom (Vitest) steps it — the game's rules, frame-exact
 interface Simulation {
   readonly scene: Scene;
@@ -49,6 +53,10 @@ interface Simulation {
   press(key: KeyCode, frames?: number): void;                       // held 6 frames, then let go
   keyDown(key: KeyCode): void;
   keyUp(key: KeyCode): void;
+  click(target: [x: number, y: number] | string): void;             // a point in pixels, or a data-button by name
+  pointerDown(x: number, y: number): void;  pointerMove(x: number, y: number): void;  pointerUp(): void;
+  swipe(from: [number, number], to: [number, number], frames?: number): void;   // press, drag, lift (8 frames)
+  worldToScreen(position: Vector3): [number, number];               // where to aim a pointer
   dispose(): void;                                                  // onDestroy runs; input let go
 }
 function ref<T>(): { current: T | null };
@@ -64,11 +72,22 @@ function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: { 
 function sourceOf(made: object): { fileName: string; lineNumber: number; columnNumber: number } | undefined;  // dev only
 
 const SceneManager: {
-  load(scene: () => JSX.Element): Scene;          // the last loaded scene goes at the end of the frame
-  loadAdditive(scene: () => JSX.Element): Scene;  // beside what is loaded
+  load(scene: () => JSX.Element): void;          // from a frame, at the end of it; from outside one, now
+  loadAdditive(scene: () => JSX.Element): void;  // beside what is loaded
+  sceneLoaded: Event<[scene: Scene]>;            // after its awake and onEnable, before its start
   readonly activeScene: Scene | null;
 };
-function dontDestroyOnLoad(target: Object3D | Behaviour): void;  // in awake: this tree outlives every later load
+// A load, in order:
+//   the rest of this frame    the old scene runs on, and activeScene is still the old one
+//   the new scene is built    constructors and attributes; a throw here leaves the old scene running
+//   old: onDisable, onDestroy everything but what dontDestroyOnLoad kept; what its elements built is freed
+//   background, environment and fog are replaced by the new scene's, unset ones too: a level with no fog
+//                             has none, whichever came before it. For a setting across levels, set it on
+//                             game.scene from a kept behaviour that listens to sceneLoaded
+//   new: awake, onEnable      sceneLoaded fires
+//   the next frame            new: start. Input stays as it is; what instantiate placed in the old scene went with it
+function dontDestroyOnLoad(target: Object3D | Behaviour): void;  // in awake: this tree outlives every later load.
+                                                                 // Marking a child keeps its whole tree: move it to the scene's root first
 
 // ── behaviours ────────────────────────────────────────────────────────────────────────────
 abstract class Behaviour<N extends Object3D = Object3D> {   // Behaviour<Mesh>: goes only on a node typed Mesh — instantiate<Mesh>(P)
@@ -91,7 +110,7 @@ abstract class Behaviour<N extends Object3D = Object3D> {   // Behaviour<Mesh>: 
   getComponentInParent<T>(type: BehaviourType<T>): T | null;    // this node and above
 
   listen<A extends unknown[]>(event: Event<A>, fn: (...args: A) => void): void;  // unsubscribes on destroy
-  startCoroutine(body: Generator<Yieldable>): Coroutine;  // this.startCoroutine(this.spawnWaves())
+  startCoroutine(body: Generator<unknown, unknown, any>): Coroutine;  // this.startCoroutine(this.spawnWaves())
   stopCoroutine(c: Coroutine): void;
   stopAllCoroutines(): void;
 }
@@ -113,6 +132,48 @@ const Time: {
   readonly unscaledDeltaTime: number;  readonly unscaledTime: number;   // real time, for pause menus
   readonly fixedDeltaTime: number;     readonly frameCount: number;
 };
+
+// Tweens — a value moving over time. They start by themselves, on the game's clock, and chain.
+//   node.doMove(to, 0.5).setEase(Ease.OutBack).onComplete(() => destroy(node));
+//   Tween.sequence().append(node.doScale(2, 0.2)).join(material.doFade(0, 0.2)).appendInterval(0.1).appendCallback(next);
+//   el.classList.add('bump'); Tween.delayedCall(0.12, () => el.classList.remove('bump')).setUpdate(true);
+//   yield node.doLocalMoveY(1, 0.3).waitForCompletion();       // in a coroutine
+// three's Object3D gains these. A tween on a node ends when the node leaves the game, without onComplete:
+//   doMove doMoveX/Y/Z(to, s) to a world position      doLocalMove doLocalMoveX/Y/Z(to, s) to three's position
+//   doRotate doLocalRotate(angles, s, mode?)           Vector3: degrees, Euler: radians; mode: RotateMode.Fast | FastBeyond360
+//   doRotateQuaternion doLocalRotateQuaternion(q, s)   doLookAt(worldPoint, s)
+//   doScale(number | Vector3, s)  doScaleX/Y/Z(to, s)  doJump doLocalJump(to, power, jumps, s)
+//   doPunchPosition/Rotation/Scale(amount: Vector3, s, vibrato = 10, elasticity = 1)   rotation's in degrees
+//   doShakePosition/Rotation/Scale(s, strength = 1, vibrato = 10)   rotation's in degrees, 90 by default
+//   doKill(complete?)  doComplete()                    every tween on this node
+// Material: doColor(color, s), doFade(opacity, s) (makes it transparent), doFloat(to, 'property', s).
+// Light: doColor, doIntensity. PerspectiveCamera: doFieldOfView. OrthographicCamera: doOrthoSize.
+class Tween {
+  static to<T extends Tweenable>(get: () => T, set: (value: T) => void, to: T, duration: number): Tween;   // number, Vector2/3/4, Color, Quaternion
+  static float(from: number, to: number, duration: number, fn: (value: number) => void): Tween;
+  static delayedCall(seconds: number, fn: () => void): Tween;
+  static sequence(): Sequence;
+  static kill(target: object, complete?: boolean): void;   static killAll(complete?: boolean): void;
+  timeScale: number;
+  setEase(ease: EaseFunction): this;                 // Ease.OutQuad unless set; any (t) => t is an ease
+  setDelay(seconds: number): this;
+  setLoops(loops: number, type?: LoopType): this;    // -1 for ever; LoopType.Restart | Yoyo | Incremental
+  setRelative(relative?: boolean): this;             // the end value is added to where it starts
+  from(value?: Tweenable): this;                     // from there, or from its end value, to where it is now
+  setUpdate(unscaled: boolean): this;                // true: real time, a pause does not stop it
+  setLink(link: Object3D | Behaviour): this;         // ends with it: for a tween not on a node, or its callbacks' owner
+  setAutoKill(autoKill: boolean): this;              // false: stays when it ends, for restart
+  setTarget(target: object): this;                   // what Tween.kill finds it by
+  onStart(fn): this;  onUpdate(fn): this;  onStepComplete(fn): this;  onComplete(fn): this;  onKill(fn): this;
+  pause(): this;  play(): this;  restart(): this;  complete(): this;  kill(complete?: boolean): void;
+  isActive(): boolean;  isPlaying(): boolean;
+  waitForCompletion(): WaitUntil;                    // or until it is killed
+}
+class Sequence extends Tween {                       // what goes in runs from here
+  append(tween: Tween): this;  prepend(tween: Tween): this;  join(tween: Tween): this;  insert(at: number, tween: Tween): this;
+  appendInterval(seconds: number): this;  appendCallback(fn: () => void): this;  insertCallback(at: number, fn: () => void): this;
+}
+const Ease;  // Linear, and In, Out, InOut of Sine Quad Cubic Quart Quint Expo Circ Elastic Back Bounce: Ease.InOutSine
 
 const Mathf: {   // Unity's, where JavaScript's Math spells it differently; Math.max/pow/round stay JS's
   clamp(v, min, max): number;  clamp01(v): number;  lerp(a, b, t): number;  lerpUnclamped(a, b, t): number;

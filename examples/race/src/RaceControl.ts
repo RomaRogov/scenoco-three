@@ -76,7 +76,6 @@ export class RaceControl extends Behaviour {
     if (!player) return;
     const mine = player.node.getComponent(TrackPosition);
     const car = player.node.getComponent(ArcadeCar);
-    // In the frame a race is loaded again, the last one's cars are taken down around it.
     if (!mine || !car) return;
     const order = findObjectsOfType(TrackPosition).sort((a, b) => b.progress - a.progress);
     const place = order.indexOf(mine) + 1;

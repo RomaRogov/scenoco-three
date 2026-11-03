@@ -286,6 +286,7 @@ namespace SceNoCo
                 {
                     cam.clearFlags = hasBackground ? CameraClearFlags.SolidColor : cam.clearFlags;
                     cam.backgroundColor = background;
+                    Volumes.Enable(cam);
                 }
                 if (cameras.Count > 0) cameras[0].gameObject.tag = "MainCamera";
                 else warnings.Add($"{path}: no camera in the scene.");
@@ -382,6 +383,7 @@ namespace SceNoCo
                 }
                 else if (type == "ParticleSystem") Particles.Add(go, Obj(comp["fields"]), w => warnings.Add($"{Where(comp, n)}: {w}"));
                 else if (type == "UIDocument") MakeDocument(go, Obj(comp["fields"]), Where(comp, n));
+                else if (Volumes.Add(go, type, Obj(comp["fields"]))) { }
                 else if (!Physics.Add(go, type, Obj(comp["fields"]))) warnings.Add($"{Where(comp, n)}: {type} has no Unity counterpart here — left off.");
             }
 
@@ -390,6 +392,122 @@ namespace SceNoCo
                 foreach (var rr in go.GetComponentsInChildren<Renderer>(true)) rr.enabled = false;
             if (n.TryGetValue("active", out var act) && !(bool)act) go.SetActive(false);
             return go;
+        }
+
+        /// <summary>
+        /// A game's post effects as a URP Volume and its profile, one per node that has them. By type name and
+        /// serialized field, as the project's settings are, so a project without URP still compiles this.
+        /// </summary>
+        static class Volumes
+        {
+            const string Rendering = "UnityEngine.Rendering.{0}, Unity.RenderPipelines.Core.Runtime";
+            const string Universal = "UnityEngine.Rendering.Universal.{0}, Unity.RenderPipelines.Universal.Runtime";
+            static readonly Dictionary<GameObject, ScriptableObject> Profiles = new Dictionary<GameObject, ScriptableObject>();
+            static readonly HashSet<string> Written = new HashSet<string>();
+            static readonly string[] Effects = { "Bloom", "Tonemapping", "ColorAdjustments", "Vignette", "DepthOfField", "ChromaticAberration", "FilmGrain" };
+
+            public static bool Add(GameObject go, string type, Dictionary<string, object> f)
+            {
+                if (type == "Volume")
+                {
+                    Profile(go);
+                    var volume = new SerializedObject(go.GetComponent(Type.GetType(string.Format(Rendering, "Volume"))));
+                    volume.FindProperty("priority").floatValue = Num(f, "priority", 0);
+                    volume.ApplyModifiedPropertiesWithoutUndo();
+                    return true;
+                }
+                if (!Effects.Contains(type)) return false;
+                var effect = Type.GetType(string.Format(Universal, type));
+                if (effect == null) return false;
+                var profile = Profile(go);
+                var added = (ScriptableObject)profile.GetType().GetMethod("Add", new[] { typeof(Type), typeof(bool) }).Invoke(profile, new object[] { effect, false });
+                var o = new SerializedObject(added);
+                void Float(string name, float value) => Set(o, name, p => p.floatValue = value);
+                void Tint(string name, string field, string fallback) => Set(o, name, p => p.colorValue = f.TryGetValue(field, out var c) ? Hex((string)Obj(c)["color"]) : Hex(fallback));
+                switch (type)
+                {
+                    case "Bloom":
+                        Float("threshold", Num(f, "threshold", 0.9f));
+                        Float("intensity", Num(f, "intensity", 1));
+                        Float("scatter", Num(f, "scatter", 0.7f));
+                        Tint("tint", "tint", "#ffffff");
+                        break;
+                    case "Tonemapping":
+                        var mode = f.TryGetValue("mode", out var m) ? (string)m : "ACES";
+                        Set(o, "mode", p => p.enumValueIndex = mode == "ACES" ? 2 : mode == "Neutral" ? 1 : 0);
+                        break;
+                    case "ColorAdjustments":
+                        Float("postExposure", Num(f, "postExposure", 0));
+                        Float("contrast", Num(f, "contrast", 0));
+                        Float("hueShift", Num(f, "hueShift", 0));
+                        Float("saturation", Num(f, "saturation", 0));
+                        Tint("colorFilter", "colorFilter", "#ffffff");
+                        break;
+                    case "Vignette":
+                        Float("intensity", Num(f, "intensity", 0.3f));
+                        Float("smoothness", Num(f, "smoothness", 0.2f));
+                        Tint("color", "color", "#000000");
+                        if (f.TryGetValue("center", out var c))
+                        {
+                            var at = Floats(Obj(c)["v2"]);
+                            Set(o, "center", p => p.vector2Value = new Vector2(at[0], at[1]));
+                        }
+                        break;
+                    case "DepthOfField":
+                        Set(o, "mode", p => p.enumValueIndex = 2); // Bokeh
+                        Float("focusDistance", Num(f, "focusDistance", 10));
+                        Float("focalLength", Num(f, "focalLength", 50));
+                        Float("aperture", Num(f, "aperture", 5.6f));
+                        break;
+                    default:
+                        Float("intensity", Num(f, "intensity", 0.3f));
+                        break;
+                }
+                o.ApplyModifiedPropertiesWithoutUndo();
+                // Each is an object of its own in the profile's file, and its list is lost at save unless marked.
+                AssetDatabase.AddObjectToAsset(added, profile);
+                EditorUtility.SetDirty(added);
+                EditorUtility.SetDirty(profile);
+                return true;
+            }
+
+            /// <summary>Post Processing on for a camera, in a game with a Volume in any scene: one kept across loads shapes every level's camera.</summary>
+            public static void Enable(Camera camera)
+            {
+                if (Profiles.Count == 0 && !File.ReadAllText(DataPath).Contains("\"Volume\"")) return;
+                var data = Type.GetType(string.Format(Universal, "UniversalAdditionalCameraData"));
+                if (data == null) return;
+                var extra = camera.GetComponent(data) ?? camera.gameObject.AddComponent(data);
+                var o = new SerializedObject(extra);
+                o.FindProperty("m_RenderPostProcessing").boolValue = true;
+                o.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            static ScriptableObject Profile(GameObject go)
+            {
+                if (Profiles.TryGetValue(go, out var made)) return made;
+                var profileType = Type.GetType(string.Format(Rendering, "VolumeProfile"));
+                var path = $"Assets/Materials/Volume-{go.name}.asset";
+                for (var i = 2; !Written.Add(path); i++) path = $"Assets/Materials/Volume-{go.name}-{i}.asset";
+                Directory.CreateDirectory("Assets/Materials");
+                AssetDatabase.DeleteAsset(path);
+                var profile = ScriptableObject.CreateInstance(profileType);
+                AssetDatabase.CreateAsset(profile, path);
+                var volume = go.GetComponent(Type.GetType(string.Format(Rendering, "Volume"))) ?? go.AddComponent(Type.GetType(string.Format(Rendering, "Volume")));
+                var o = new SerializedObject(volume);
+                o.FindProperty("sharedProfile").objectReferenceValue = profile;
+                o.FindProperty("m_IsGlobal").boolValue = true;
+                o.ApplyModifiedPropertiesWithoutUndo();
+                Profiles[go] = profile;
+                return profile;
+            }
+
+            static void Set(SerializedObject o, string name, Action<SerializedProperty> value)
+            {
+                var parameter = o.FindProperty(name);
+                parameter.FindPropertyRelative("m_OverrideState").boolValue = true;
+                value(parameter.FindPropertyRelative("m_Value"));
+            }
         }
 
         /** Set the fields of a node's game components, walking the data and the built objects together. */

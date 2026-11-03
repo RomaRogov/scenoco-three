@@ -53,17 +53,15 @@ describe('SceneManager', () => {
     expect(world.getObjectByName('shard')).toBeUndefined();
   });
 
-  it('swaps scenes as Unity does: the last load is destroyed at the end of the frame, what was kept stays', () => {
+  it('swaps scenes: the last one is destroyed, what was kept stays', () => {
     const { world, frame } = game();
     SceneManager.load(Run);
     const keep = world.children[0]!.getComponent(Keep)!;
     SceneManager.load(One);
     frame();
-    expect(world.getObjectByName('one')).toBeDefined();
     expect((world.background as Color).getHexString()).toBe('ff0000'); // the loaded scene's backdrop draws
 
     SceneManager.load(Two);
-    expect(world.getObjectByName('one')).toBeDefined(); // still there until the frame ends
     frame();
     expect(world.getObjectByName('one')).toBeUndefined();
     expect(world.getObjectByName('two')).toBeDefined();
@@ -100,5 +98,53 @@ describe('SceneManager', () => {
     SceneManager.load(Two);
     frame();
     expect(freed).toEqual(['box', 'shadow map']);
+  });
+
+  it('loads as Unity does from a frame: the rest of it runs, the old scene goes, the new one wakes, sceneLoaded, then start', () => {
+    const { frame } = game();
+    const log: string[] = [];
+    class Old extends Behaviour {
+      go = false;
+      override update() {
+        if (this.go) {
+          this.go = false;
+          SceneManager.load(New);
+          log.push('load returned');
+        }
+      }
+      override lateUpdate() {
+        if (log.length) log.push('old lateUpdate');
+      }
+      override onDestroy() {
+        log.push('old onDestroy');
+      }
+    }
+    class Fresh extends Behaviour {
+      override awake() {
+        log.push('new awake');
+      }
+      override start() {
+        log.push('new start');
+      }
+    }
+    const New = () => (
+      <Scene>
+        <Fresh />
+      </Scene>
+    );
+    const old = ref<Old>();
+    SceneManager.load(() => (
+      <Scene>
+        <Old ref={old} />
+      </Scene>
+    ));
+    const loaded = () => log.push('sceneLoaded');
+    SceneManager.sceneLoaded.on(loaded);
+    frame();
+    old.current!.go = true;
+    frame();
+    frame();
+    SceneManager.sceneLoaded.off(loaded);
+    expect(log).toEqual(['load returned', 'old lateUpdate', 'old onDestroy', 'new awake', 'sceneLoaded', 'new start']);
   });
 });

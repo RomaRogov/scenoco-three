@@ -1,6 +1,6 @@
 # @scenoco-three/core
 
-Unity's behaviours on [three.js](https://threejs.org), with scenes written in TSX and no React.
+Unity-style behaviours for [three.js](https://threejs.org), with scenes written in TSX and no React.
 Part of [SceNoCo](https://github.com/RomaRogov/scenoco-three).
 
 ```bash

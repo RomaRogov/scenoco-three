@@ -45,3 +45,7 @@ cannot be carried across is listed as a warning, with the file and line it was w
 
 three.js is right-handed and Unity left-handed: the export mirrors Z, and divides light intensities
 by π.
+
+SceNoCo is not sponsored by or affiliated with Unity Technologies or its affiliates. Unity is a trademark or
+registered trademark of Unity Technologies or its affiliates in the U.S. and elsewhere. Nor is it affiliated with
+Demigiant, the maker of DOTween.

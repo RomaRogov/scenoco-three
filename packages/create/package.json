@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/create",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Start a SceNoCo game: `npm create @scenoco-three my-game`.",
   "keywords": [
     "three",

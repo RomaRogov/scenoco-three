@@ -16,9 +16,11 @@ declares; `tsc` checks the rest. The game's rules are tested in Vitest, in Node 
 canvas: `const game = simulate(Main)` builds the scene and runs nothing until the test steps it —
 `game.press(KeyCode.Space)`, `game.step(60)`,
 `expect(game.until(() => findObjectOfType(GameState)!.phase === 'over')).toBe(true)`, then
-`game.dispose()`. Frames have a fixed `dt`, so the answer is the same every run. In development the page drives the running game from
-`window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock, press keys, click, swipe,
-read behaviours by class. Evaluate in the page with any browser tool —
+`game.dispose()`. It takes pointers too — `game.swipe(game.worldToScreen(a), game.worldToScreen(b))`,
+`game.click('NextLevel')`. Frames have a fixed `dt`, so the answer is the same every run. In development the page drives the running game from
+`window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock (`__scenoco.play()` lets it run
+again: a game that looks frozen after `until` is held), press keys, click, `click('NextLevel')` for a
+`data-button`, swipe, read behaviours by class. Evaluate in the page with any browser tool —
 `async () => { await __scenoco.ready(); await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
 — then take its screenshot; a Playwright test makes the same calls through `page.evaluate`. A
 tool that can only open an address, read the console and take a screenshot puts the same calls in
@@ -70,8 +72,9 @@ placed more than once — a wall, a tree, a crate, static or not — is a prefab
 its props: `export const Wall = prefab(({ width = 1 }) => …)`, `<Wall position={[-9, 0, 0]} width={0.5} />`.
 The editor edits a prefab once for every copy and each copy's props on its tag; inside a plain
 component placed twice it edits nothing, since one edit there would change every use. A scene is a
-plain function returning `<Scene>`: `SceneManager.load(Level2)`; `dontDestroyOnLoad(this)` keeps a
-node across loads.
+plain function returning `<Scene>`: `SceneManager.load(Level2)`, from a frame, takes effect at its end, as in Unity; `dontDestroyOnLoad(this)`
+keeps a node across loads. A scene's `background`, `environment` and `fog` replace the last one's, unset
+ones too: a setting across levels is set from a kept behaviour on `SceneManager.sceneLoaded`.
 
 **Levels are the user's to edit.** What a designer arranges — a level, a puzzle, a wave, where the
 pickups are — is one element per object in a scene, `<Brick position={[2.55, -1, 0]} hits={2} />`,
@@ -90,6 +93,18 @@ through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)
 `new WaitForSeconds(2)`, `new WaitUntil(() => …)` or `null` (a frame). `Time.timeScale = 0` pauses:
 `update` keeps running with `dt` 0, while fixedUpdate, physics and `WaitForSeconds` stop — timing
 done with setTimeout or Date.now does not pause with it.
+
+**Motion is a tween.** The calls are modelled on DOTween's, in camelCase (SceNoCo is not affiliated with it):
+`node.doMove(to, 0.5).setEase(Ease.OutBack)`, `material.doFade(0, 0.3).setDelay(0.1)`,
+`Tween.sequence().append(a).join(b).appendCallback(fn)`, `yield tween.waitForCompletion()`. A value going
+from A to B over time is a tween; a class on a timer is `Tween.delayedCall(0.12, () => el.classList.remove('bump'))`;
+a coroutine is for flow that waits on the game: waves, a countdown, "until the ball lands". Never lerp by
+hand in a coroutine. A tween on a node ends with the node; give any other `.setLink(this)`. It runs on the
+game's clock; `.setUpdate(true)` is for what moves during a pause. `doMove` goes to a world position;
+`doLocalMove` to three's `position`, in the parent's space. `doRotate(new Vector3(0, 90, 0), 0.5)` is in
+degrees, as DOTween's is; an `Euler` is in radians, as three's always is. There is no `doPath`: a `SplineAnimate`
+from `@scenoco-three/splines` follows a curve. `playBackwards` and texture tweens are not there either:
+`tween.setLoops(2, LoopType.Yoyo)`, and `Tween.to(() => map.offset, (v) => map.offset.copy(v), to, 1)`.
 
 **UI is UI Toolkit's, written in HTML.** `index.html` is the UXML and its `<style>` the USS, so a
 game ports to Unity file by file:
@@ -162,4 +177,7 @@ From Unity: gameObject/transform → `this.node` · transform.localPosition → 
 Time.deltaTime → `update(dt)` or `Time.deltaTime` · Screen.width → `Screen.width` (not `innerWidth`) ·
 GetComponent<T>() → `getComponent(T)` · FindObjectOfType<T>() → `findObjectOfType(T)` ·
 Instantiate → `instantiate` · Destroy → `destroy` · Camera.main → `this.camera` ·
-StartCoroutine → `this.startCoroutine` · `yield return new WaitForSeconds(1)` → `yield new WaitForSeconds(1)`
+StartCoroutine → `this.startCoroutine` · `yield return new WaitForSeconds(1)` → `yield new WaitForSeconds(1)` ·
+transform.DOMove → `this.node.doMove` · material.DOFade → `material.doFade` · DOTween.Sequence() → `Tween.sequence()` ·
+DOTween.To → `Tween.to` · DOVirtual.DelayedCall → `Tween.delayedCall` · DOVirtual.Float → `Tween.float` ·
+URP's Volume → `<Volume />` beside `<Bloom />`, `<Tonemapping />` and the rest, on one node, from `@scenoco-three/postprocessing`

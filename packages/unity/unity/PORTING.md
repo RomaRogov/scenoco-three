@@ -39,6 +39,14 @@ is the rules for that. It is rewritten by every export.
   instantiates is a `GameObject` field set to its prefab asset. `findObjectOfType` is
   `FindFirstObjectByType`, `findObjectsOfType` is `FindObjectsByType<T>()` (before Unity 6.6,
   `FindObjectsByType<T>(FindObjectsSortMode.None)`).
+- **Tweens map to DOTween's calls**, once the project has DOTween (Asset Store, free; not part of this export):
+  `node.doMove(to, 0.5).setEase(Ease.OutBack)` is `transform.DOMove(to, 0.5f).SetEase(Ease.OutBack)`,
+  `Tween.sequence().append(a).join(b)` is `DOTween.Sequence().Append(a).Join(b)`,
+  `Tween.delayedCall(s, fn)` is `DOVirtual.DelayedCall(s, fn, false)`, `Tween.float` is `DOVirtual.Float`,
+  `Tween.to(get, set, to, d)` is `DOTween.To(get, set, to, d)`, `tween.setLink(this)` is
+  `.SetLink(gameObject)`, and `yield tween.waitForCompletion()` is `yield return tween.WaitForCompletion()`.
+  A tween on a node ended with the node without being told: add `.SetLink(gameObject)`. A rotation
+  given as a `Vector3` is degrees in both; an `Euler` was radians, so convert it.
 - **Coroutines**: a `*generator` is an `IEnumerator`, `this.startCoroutine(this.x())` is
   `StartCoroutine(X())`, `yield new WaitForSeconds(s)` is the same, `yield null` waits a frame.
 - **Events**: an `Event<T>` field is a C# `event Action<T>`; `listen(e, f)` is `e += f`, and its
@@ -118,12 +126,13 @@ skybox reflections in a scene with no environment. Lights divide by π; fog and 
 the scene. Cameras draw with no post-processing, as three's default renderer does. What `main.ts` set
 up in code is the port's:
 
-- **Tone mapping, exposure and bloom** (`renderer.toneMapping`, an `EffectComposer`) are a URP Volume:
+- **A `Volume` in a scene came across**: a URP Volume with its profile in `Assets/Materials`, and Post
+  Processing on for each camera. Bloom's and depth of field's settings do not carry over by number:
+  tune them against the web game.
+- **Tone mapping and an `EffectComposer` set up by hand** (`renderer.toneMapping`) are a URP Volume too:
   a profile with Tonemapping (ACES), Color Adjustments (post exposure is log₂ of three's
-  `toneMappingExposure`) and Bloom, on a GameObject kept across scenes, and Post Processing switched
-  on for each camera. Bloom's settings do not carry over by number: tune it against the web game. A
-  profile made from code needs `EditorUtility.SetDirty` before it is saved, or its list of components
-  is lost.
+  `toneMappingExposure`) and Bloom, on a GameObject kept across scenes. A profile made from code needs
+  `EditorUtility.SetDirty` before it is saved, or its list of components is lost.
 
 ## Checking the port
 

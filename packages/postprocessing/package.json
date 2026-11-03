@@ -1,0 +1,56 @@
+{
+  "name": "@scenoco-three/postprocessing",
+  "version": "1.1.0",
+  "description": "Post-processing for SceNoCo: URP's Volume, Bloom, Tonemapping and Color Adjustments by name, on three.js's EffectComposer.",
+  "keywords": [
+    "three",
+    "threejs",
+    "scenoco",
+    "game-engine",
+    "game-framework",
+    "gamedev",
+    "web-game",
+    "webgl",
+    "typescript",
+    "unity",
+    "post-processing",
+    "bloom",
+    "volume",
+    "urp"
+  ],
+  "homepage": "https://github.com/RomaRogov/scenoco-three/tree/main/packages/postprocessing#readme",
+  "bugs": "https://github.com/RomaRogov/scenoco-three/issues",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomaRogov/scenoco-three.git",
+    "directory": "packages/postprocessing"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": true,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scenoco-three/core": "^1.1.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.184.0"
+  }
+}

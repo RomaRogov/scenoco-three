@@ -1,5 +1,5 @@
 import { Quaternion, Vector2, Vector3, type Object3D, type PerspectiveCamera } from 'three';
-import { Behaviour, Input, Screen, Time, destroy, instantiate, type Prefab, type Yieldable } from '@scenoco-three/core';
+import { Behaviour, Ease, Input, Screen, Time, Tween, destroy, instantiate, type Prefab } from '@scenoco-three/core';
 import { Collider, Rigidbody, type Collision } from '@scenoco-three/rapier';
 import { LevelController } from './LevelController';
 import { Nest, Stone } from './markers';
@@ -7,7 +7,6 @@ import { ModelView } from './ModelView';
 import { MusicController } from './MusicController';
 import { TerrainMesh } from './TerrainMesh';
 import { UIController } from './UIController';
-import { Ease, hop, punch, tween } from './tween';
 import { unityEuler, unityTorque } from './unity';
 
 /**
@@ -38,10 +37,7 @@ export class EggController extends Behaviour {
     const self = EggController.instance;
     self.rb.isKinematic = false;
     self.gameStarted = true;
-    // DORotate(camRot, .5f).SetEase(Ease.OutBack)
-    const cam = self.camTrans;
-    const from = cam.quaternion.clone();
-    self.startCoroutine(tween(0.5, Ease.outBack, (t) => cam.quaternion.slerpQuaternions(from, self.camRot, t)));
+    self.camTrans.doLocalRotateQuaternion(self.camRot, 0.5).setEase(Ease.OutBack);
   }
 
   override start() {
@@ -92,7 +88,7 @@ export class EggController extends Behaviour {
     this.isDead = true;
     destroy(this.rb);
     MusicController.gameOver(false);
-    this.startCoroutine(this.win(other.node));
+    this.win(other.node);
   }
 
   override onCollisionEnter(other: Collision) {
@@ -106,26 +102,20 @@ export class EggController extends Behaviour {
   }
 
   /** Into the nest: a hop there, a flip, a bump; then the level is won. */
-  private *win(nest: Object3D): Generator<Yieldable> {
+  private win(nest: Object3D) {
     const node = this.node;
-    const from = node.position.clone();
     const to = node.parent!.worldToLocal(nest.getWorldPosition(new Vector3()));
-    const tilt = unityEuler(15, 0, 0);
-    const start = node.quaternion.clone();
-    // DOLocalRotate(right * 15, .5) OutBack, then (15, 720, 0) over .6 InSine, then back to zero in .2.
-    this.startCoroutine(
-      (function* (): Generator<Yieldable> {
-        yield* tween(0.5, Ease.outBack, (t) => node.quaternion.slerpQuaternions(start, tilt, t));
-        yield* tween(0.6, Ease.inSine, (t) => node.quaternion.copy(unityEuler(15, 720 * t, 0)));
-        const end = node.quaternion.clone();
-        yield* tween(0.2, Ease.linear, (t) => node.quaternion.slerpQuaternions(end, new Quaternion(), t));
-      })(),
-    );
-    // DOJump(nest, 1f, 1, .7f) InCirc
-    yield* tween(0.7, Ease.inCirc, (t) => node.position.lerpVectors(from, to, t).y += hop(t, 1));
-    LevelController.gameWon();
-    yield* tween(0.5, Ease.linear, (t) => node.position.copy(to).y -= 0.3 * punch(t));
-    UIController.gameOver(false);
+    Tween.sequence()
+      .append(node.doLocalRotateQuaternion(unityEuler(15, 0, 0), 0.5).setEase(Ease.OutBack))
+      .append(Tween.float(0, 720, 0.6, (y) => node.quaternion.copy(unityEuler(15, y, 0))).setEase(Ease.InSine))
+      .append(node.doLocalRotateQuaternion(new Quaternion(), 0.2).setEase(Ease.Linear))
+      .setLink(node);
+    Tween.sequence()
+      .append(node.doLocalJump(to, 1, 1, 0.7).setEase(Ease.InCirc))
+      .appendCallback(() => LevelController.gameWon())
+      .append(node.doPunchPosition(new Vector3(0, -0.3, 0), 0.5))
+      .appendCallback(() => UIController.gameOver(false))
+      .setLink(node);
   }
 
   /** Cracked: the shell falls in two, a fried egg spreads where it lay. */
@@ -142,12 +132,7 @@ export class EggController extends Behaviour {
     const ground = TerrainMesh.groundBelow(pose.position.clone().add(new Vector3(0, 0.5, 0)));
     const fried = instantiate(this.fried!, { position: ground, quaternion: TerrainMesh.tilt });
     fried.scale.setScalar(0.1);
-    this.startCoroutine(this.spread(fried));
+    fried.doScale(this.friedSize, 3).setEase(Ease.OutExpo).onComplete(() => UIController.gameOver(true));
     MusicController.gameOver(true);
-  }
-
-  private *spread(fried: Object3D): Generator<Yieldable> {
-    yield* tween(3, Ease.outExpo, (t) => fried.scale.setScalar(0.1 + (this.friedSize - 0.1) * t));
-    UIController.gameOver(true);
   }
 }

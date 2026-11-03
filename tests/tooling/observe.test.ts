@@ -9,11 +9,15 @@ const breakout = fileURLToPath(new URL('../../examples/breakout', import.meta.ur
 let server: ViteDevServer;
 let browser: Browser;
 let page: Page;
+const pageErrors: string[] = [];
 beforeAll(async () => {
   server = await createServer({ root: breakout, configFile: `${breakout}/vite.config.ts`, logLevel: 'silent', server: { port: 0, hmr: false } });
   await server.listen();
   browser = await chromium.launch({ channel: 'chrome' });
   page = await browser.newPage({ viewport: { width: 960, height: 640 } });
+  page.on('console', (message) => {
+    if (message.type() === 'error' && /Shader|WebGL/.test(message.text())) pageErrors.push(message.text());
+  });
   await page.goto(server.resolvedUrls!.local[0]!);
 }, 60_000);
 afterAll(async () => {
@@ -25,6 +29,25 @@ type Bridge = Record<string, (...args: unknown[]) => Promise<unknown>>;
 declare const __scenoco: Bridge;
 
 describe('the game from Playwright', () => {
+  it('draws through its Volume from the first scene on: shaders compiled, and a picture', async () => {
+    await page.waitForFunction(() => 'ready' in ((window as { __scenoco?: object }).__scenoco ?? {}));
+    await page.evaluate(() => __scenoco.ready!());
+    // Read in the frame it was drawn: the drawing buffer is cleared once the page has shown it.
+    const brightest = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) =>
+          requestAnimationFrame(() => {
+            const gl = document.querySelector('canvas')!.getContext('webgl2')!;
+            const pixels = new Uint8Array(gl.drawingBufferWidth * 4);
+            gl.readPixels(0, gl.drawingBufferHeight >> 1, gl.drawingBufferWidth, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            resolve(Math.max(...pixels.filter((_, i) => i % 4 !== 3)));
+          }),
+        ),
+    );
+    expect(pageErrors).toEqual([]);
+    expect(brightest).toBeGreaterThan(40);
+  });
+
   it('needs nothing but page.evaluate: exact frames, input, conditions and readings, from the bridge', async () => {
     // What an agent with only a browser tool does: evaluate in the page, with the bridge's own help to go on.
     await page.waitForFunction(() => 'ready' in (window as { __scenoco?: object }).__scenoco!);

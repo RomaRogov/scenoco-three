@@ -1,5 +1,5 @@
 /**
- * `@scenoco-three/core` — Unity's behaviours on three.js, with scenes written in TSX.
+ * `@scenoco-three/core` — Unity-style behaviours for three.js, with scenes written in TSX.
  *
  * ```tsx
  * export const Main = () => (
@@ -20,7 +20,7 @@
  */
 import './augment.js';
 
-export { play, instantiate, type Game, type PlayOptions, type InstantiateOptions } from './play.js';
+export { play, instantiate, gameOf, type Game, type PlayOptions, type InstantiateOptions } from './play.js';
 export { simulate, type Simulation, type SimulateOptions } from './simulate.js';
 export { SceneManager, dontDestroyOnLoad } from './scenes.js';
 export { prefab, ref, type Ref } from './jsx.js';
@@ -53,6 +53,10 @@ export {
   type RenderCamera,
   type Yieldable,
 } from './kernel/index.js';
+
+export { Tween, Sequence, LoopType, type Tweenable } from './tween/Tween.js';
+export { Ease, type EaseFunction } from './tween/Ease.js';
+export { RotateMode } from './tween/shortcuts.js';
 
 export { Mathf } from './Mathf.js';
 export { Random, type RandomState } from './Random.js';

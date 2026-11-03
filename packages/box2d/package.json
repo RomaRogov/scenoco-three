@@ -1,7 +1,7 @@
 {
   "name": "@scenoco-three/box2d",
-  "version": "1.0.0",
-  "description": "2D physics for SceNoCo on planck (Box2D), in Unity's shape: Rigidbody2D, the 2D colliders, PhysicsMaterial2D, Physics2D queries and layers, and the contact messages.",
+  "version": "1.1.0",
+  "description": "2D physics for SceNoCo on planck (Box2D), Unity-style: Rigidbody2D, the 2D colliders, PhysicsMaterial2D, Physics2D queries and layers, and the contact messages.",
   "keywords": [
     "three",
     "threejs",
@@ -51,7 +51,7 @@
     "typecheck": "npm --prefix ../core run build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@scenoco-three/core": "^1.0.0",
+    "@scenoco-three/core": "^1.1.0",
     "planck": "^1.5.0"
   },
   "peerDependencies": {

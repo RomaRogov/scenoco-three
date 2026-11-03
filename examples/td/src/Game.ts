@@ -1,7 +1,6 @@
 import { Vector3 } from 'three';
 import {
-  Behaviour, Coroutine, Input, KeyCode, SceneManager, Screen, Time, WaitForSeconds, WaitForSecondsRealtime, WaitUntil, destroy, findObjectOfType, findObjectsOfType, instantiate,
-  type Yieldable,
+  Behaviour, Input, KeyCode, SceneManager, Screen, Time, Tween, WaitForSeconds, WaitUntil, destroy, findObjectOfType, findObjectsOfType, instantiate,
 } from '@scenoco-three/core';
 import { BuildPad } from './BuildPad';
 import { CameraRig } from './CameraRig';
@@ -45,7 +44,7 @@ export class Game extends Behaviour {
   private shown = { gold: -1, lives: -1, wave: -1 };
   private cleanup: (() => void)[] = [];
   /** The next-wave button's pulse while it waits to be pressed. */
-  private pulse: Coroutine | null = null;
+  private pulse: Tween | null = null;
 
   get spec() {
     return LEVELS[this.level];
@@ -76,7 +75,7 @@ export class Game extends Behaviour {
       this.cleanup.push(() => card.removeEventListener('click', onClick));
     }
     // The gold buttons' light sweeps across them for as long as the level runs.
-    for (const shine of document.querySelectorAll<HTMLElement>('#ui .shine')) this.startCoroutine(sweep(shine));
+    for (const shine of document.querySelectorAll<HTMLElement>('#ui .shine')) sweep(shine).setLink(this);
     this.refreshHud();
   }
 
@@ -315,7 +314,7 @@ export class Game extends Behaviour {
     if (this.phase === 'won' || this.phase === 'lost') return;
     this.paused = paused;
     Time.timeScale = paused ? 0 : this.speed;
-    if (paused) this.startCoroutine(appear('pause'));
+    if (paused) appear('pause');
     else $('pause').classList.add('hidden');
     if (paused) this.select(null);
   }
@@ -347,7 +346,7 @@ export class Game extends Behaviour {
     $('won-text').textContent = last ? 'Every bastion stands. Well played!' : `${this.lives} of ${this.spec.lives} lives kept.`;
     const shown = [...$('won-stars').children] as HTMLElement[];
     shown.forEach((star) => star.classList.remove('show', 'got'));
-    this.startCoroutine(appear('won'));
+    appear('won');
     for (let i = 0; i < 3; i++) {
       yield new WaitForSeconds(0.35);
       shown[i]!.classList.add('show');
@@ -370,7 +369,7 @@ export class Game extends Behaviour {
     yield new WaitForSeconds(1);
     Time.timeScale = 1;
     $('lost-text').textContent = `Wave ${this.wave} of ${this.spec.waves.length} broke through.`;
-    this.startCoroutine(appear('lost'));
+    appear('lost');
   }
 
   // ── HUD ─────────────────────────────────────────────────────────────────────────────────
@@ -401,7 +400,7 @@ export class Game extends Behaviour {
     this.refreshCards();
     $('build-sheet').classList.add('open');
     // The cards come up one after another as it opens.
-    this.startCoroutine(arrive(KINDS.map((kind) => $(`build-${kind}`))));
+    arrive(KINDS.map((kind) => $(`build-${kind}`)));
   }
 
   private openTowerSheet(tower: Tower) {
@@ -458,19 +457,22 @@ export class Game extends Behaviour {
         return who;
       }),
     );
-    this.startCoroutine(this.showBanner());
+    this.showBanner();
   }
 
   /** In with a bounce, held, and up and away. */
-  private *showBanner(): Generator<Yieldable> {
+  private showBanner() {
     const banner = $('banner');
     banner.classList.remove('hidden', 'shown');
-    yield* arrive(banner);
-    banner.classList.add('shown');
-    yield new WaitForSecondsRealtime(1.9);
-    banner.classList.remove('shown');
-    yield new WaitForSecondsRealtime(0.5);
-    banner.classList.add('hidden');
+    arrive(banner);
+    Tween.sequence()
+      .appendCallback(() => banner.classList.add('shown'))
+      .appendInterval(1.9)
+      .appendCallback(() => banner.classList.remove('shown'))
+      .appendInterval(0.5)
+      .appendCallback(() => banner.classList.add('hidden'))
+      .setUpdate(true)
+      .setLink(this);
   }
 
   /** The ring fills clockwise from the top: each half turned into view inside its clip. */
@@ -484,10 +486,10 @@ export class Game extends Behaviour {
   private showNext(shown: boolean) {
     const next = $('next');
     next.classList.toggle('gone', !shown);
-    this.pulse?.stop();
+    this.pulse?.kill();
     this.pulse = null;
     next.classList.remove('pulse');
-    if (shown) this.pulse = this.startCoroutine(loop(next, 'pulse', 0.7));
+    if (shown) this.pulse = loop(next, 'pulse', 0.7).setLink(this);
   }
 
   /** Floating text over a point in the world. */
@@ -501,42 +503,35 @@ export class Game extends Behaviour {
     el.style.left = `${((p.x + 1) / 2) * 100}%`;
     el.style.top = `${((1 - p.y) / 2) * 100}%`;
     $('pops').appendChild(el);
-    this.startCoroutine(this.rise(el));
-  }
-
-  /** Up out of the point and large; then on up, fading; then gone. */
-  private *rise(el: HTMLElement): Generator<Yieldable> {
-    yield null;
-    el.classList.replace('start', 'mid');
-    yield new WaitForSecondsRealtime(0.15);
-    el.classList.remove('mid');
-    yield new WaitForSecondsRealtime(0.85);
-    el.remove();
+    // Up out of the point and large; then on up, fading; then gone.
+    Tween.delayedCall(0, () => el.classList.replace('start', 'mid')).setUpdate(true);
+    Tween.delayedCall(0.15, () => el.classList.remove('mid')).setUpdate(true);
+    Tween.delayedCall(1, () => el.remove()).setUpdate(true);
   }
 
   private bump(id: string) {
-    this.startCoroutine(flick($(id), 'bump', 0.12));
+    flick($(id), 'bump', 0.12);
   }
 
   private flash(id: string, name: string) {
-    this.startCoroutine(flick($(id), name, 0.05));
+    flick($(id), name, 0.05);
   }
 
   /** A life lost: the lives chip reddens and shakes. */
   private hurt() {
-    this.startCoroutine(flick($('lives-chip'), 'hurt', 0.45));
-    this.startCoroutine(shake($('lives-chip')));
+    flick($('lives-chip'), 'hurt', 0.45);
+    shake($('lives-chip'));
   }
 
   private refuse(el: HTMLElement) {
-    this.startCoroutine(shake(el));
+    shake(el);
     this.toast('Not enough gold');
     this.sfx('nope', 0.7);
   }
 
   private toast(text: string) {
     $('toast-text').textContent = text;
-    this.startCoroutine(flick($('toast'), 'shown', 1.12));
+    flick($('toast'), 'shown', 1.12);
   }
 
   private sfx(name: SoundName, volume = 1) {

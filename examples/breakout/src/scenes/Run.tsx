@@ -1,5 +1,6 @@
-import { Scene } from 'three';
+import { Group, Scene } from 'three';
 import { UIDocument } from '@scenoco-three/core';
+import { Bloom, ColorAdjustments, Tonemapping, Volume } from '@scenoco-three/postprocessing';
 import { Music } from '../Music';
 import { Progress } from '../Progress';
 import { Sfx } from '../Sfx';
@@ -16,5 +17,12 @@ export const Run = () => (
     <Progress levels={[Level1, Level2, Level3]} startingLives={3} pointsPerHit={50} />
     <Music volume={0.55} />
     <Sfx volume={0.8} />
+    {/* A filmic curve so the neon does not clip flat, and bloom on what is brighter than white. */}
+    <Group name="Look">
+      <Volume />
+      <Tonemapping mode="ACES" />
+      <ColorAdjustments postExposure={0.1375} />
+      <Bloom intensity={0.55} threshold={1} scatter={0.4} />
+    </Group>
   </Scene>
 );

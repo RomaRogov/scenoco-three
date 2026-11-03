@@ -98,6 +98,7 @@ running game from its browser tool.
 | [`@scenoco-three/box2d`](packages/box2d) | 2D physics on planck: `Rigidbody2D`, `BoxCollider2D`, `onCollisionEnter2D`. |
 | [`@scenoco-three/particles`](packages/particles) | Unity's `ParticleSystem` on three.quarks. |
 | [`@scenoco-three/audio`](packages/audio) | Unity's `AudioSource` on three.js's Web Audio. |
+| [`@scenoco-three/postprocessing`](packages/postprocessing) | URP's `Volume`, `Bloom` and the rest on three.js's `EffectComposer`. |
 | [`@scenoco-three/splines`](packages/splines) | Unity's Splines: tracks, rails and roads — meshes bent along a curve, prefabs placed by it, objects driven on it. |
 | [`@scenoco-three/terrain`](packages/terrain) | Unity's `Terrain` and `TerrainData`: ground from a heightmap, layers blended by weight, made in code or loaded from a compact file. |
 | [`@scenoco-three/unity`](packages/unity) | `scenoco-unity`: a game written into a Unity project — prefabs, scenes, meshes, materials, particles, the page as UI Toolkit, the input actions — with C# stubs holding its TypeScript, and commands that drive it in Play mode. |
@@ -220,4 +221,8 @@ For agents: [`llms.txt`](https://romarogov.github.io/scenoco-three/llms.txt) and
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE), with Robert Penner's easing equations under their own notice there.
+
+SceNoCo is not sponsored by or affiliated with Unity Technologies or its affiliates. Unity is a trademark or
+registered trademark of Unity Technologies or its affiliates in the U.S. and elsewhere. Nor is it affiliated with
+Demigiant, the maker of DOTween.

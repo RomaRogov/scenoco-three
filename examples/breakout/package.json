@@ -13,6 +13,7 @@
     "@scenoco-three/box2d": "*",
     "@scenoco-three/core": "*",
     "@scenoco-three/particles": "*",
+    "@scenoco-three/postprocessing": "*",
     "tetorica-fm2612": "^0.2.33"
   },
   "devDependencies": {

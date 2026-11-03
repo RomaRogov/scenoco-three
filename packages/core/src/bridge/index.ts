@@ -50,7 +50,12 @@ export function installBridge(
     await new Promise((done) => setTimeout(done, isHeld(runtime) ? 0 : (frames * 1000) / 60));
     await nextPaint();
   };
-  const hold = () => setHeld(runtime, true);
+  /** The first time the clock stops under a tool: a game that looks frozen is the usual way to learn it otherwise. */
+  let hint: string | null = 'clock held: frames pass only when stepped; __scenoco.play() resumes';
+  const hold = () => {
+    if (hint && !isHeld(runtime)) console.info(`SceNoCo: ${hint}`);
+    setHeld(runtime, true);
+  };
 
   const bridge = {
     /** What this is and how to call it — the first thing to read. */
@@ -58,7 +63,10 @@ export function installBridge(
       return HELP;
     },
     clock() {
-      return { held: isHeld(runtime), time: round(Time.time), frame: Time.frameCount, timeScale: Time.timeScale };
+      const held = isHeld(runtime);
+      const told = held && hint ? { hint } : null;
+      if (told) hint = null;
+      return { held, time: round(Time.time), frame: Time.frameCount, timeScale: Time.timeScale, ...told };
     },
     /**
      * Once the game has run its first frames. Behaviours start listening for input on their first
@@ -228,7 +236,7 @@ Input / SceneManager / THREE are in scope:
   telemetry("Player" | "Player.lane" | "#name")
 Input — as the player's, stepped while the clock is held; x, y in pixels from the window's top-left:
   press(key, frames = 6)  keyDown(key)  keyUp(key)      keys: "Space", "ArrowLeft", "a", "Enter", "Escape"
-  click(x, y)  pointerDown(x, y)  pointerMove(x, y)  pointerUp()  swipe([x, y], [x, y], frames = 8)
+  click(x, y) or click("NextLevel"), a data-button by name  pointerDown(x, y)  pointerMove(x, y)  pointerUp()  swipe([x, y], [x, y], frames = 8)
 Looking — take the screenshot with the browser's own tool:
   view({ cameraPos: [x, y, z], lookAt: [x, y, z] | "#name", fov }) draws from there until view(null) or play()
 CSS animations and timers in the page run in real time, not on the held clock: to wait for one, play() and let it finish.

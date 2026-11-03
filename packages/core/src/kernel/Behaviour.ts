@@ -115,7 +115,8 @@ export abstract class Behaviour<N extends Object3D = Object3D> {
    * `yield new WaitForSeconds(1)` a second of game time, `yield new WaitUntil(() => …)` for a
    * condition. Stops when the behaviour is disabled or destroyed. `this.startCoroutine(this.wave())`.
    */
-  startCoroutine(body: Generator<Yieldable, unknown, unknown>): Coroutine {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  startCoroutine(body: Generator<unknown, unknown, any>): Coroutine {
     const coroutine = new Coroutine(body);
     (this._coroutines ??= []).push(coroutine);
     return coroutine;

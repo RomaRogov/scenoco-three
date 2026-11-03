@@ -351,40 +351,51 @@ class InputClass {
   private readonly onPointerMove = (event: PointerEvent): void => {
     const element = this.element;
     if (!element) return;
-    const bounds = element.getBoundingClientRect();
-    const [x, y] = local(element, bounds, event);
-    if (this.hasMouseSample) {
-      this.mouseDelta.set(x - this.lastMouse.x, y - this.lastMouse.y);
-    }
-    this.hasMouseSample = true;
-    this.lastMouse.set(x, y);
-    this.mousePosition.set(x, y);
-    this.pointer.set((x / element.clientWidth) * 2 - 1, -(y / element.clientHeight) * 2 + 1);
+    const [x, y] = local(element, element.getBoundingClientRect(), event);
+    this.pointerMove(x, y, element.clientWidth, element.clientHeight);
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
-    const button = event.button as MouseButton;
+    const element = this.element;
+    const [x, y] = element ? local(element, element.getBoundingClientRect(), event) : [0, 0];
+    this.pointerDown(x as number, y as number, element?.clientWidth ?? 0, element?.clientHeight ?? 0, event.button as MouseButton);
+    element?.focus?.();
+  };
+
+  /** @internal the pointer moving, as the page's events say it — or a simulation does: pixels of a `width`×`height` screen. */
+  pointerMove(x: number, y: number, width: number, height: number): void {
+    if (this.hasMouseSample) this.mouseDelta.set(x - this.lastMouse.x, y - this.lastMouse.y);
+    this.hasMouseSample = true;
+    this.lastMouse.set(x, y);
+    this.mousePosition.set(x, y);
+    this.pointer.set((x / width) * 2 - 1, -(y / height) * 2 + 1);
+  }
+
+  /** @internal a press. A drag's movement counts from it: a finger has no hover, so its first move would otherwise read as a jump from wherever the last touch lifted. */
+  pointerDown(x: number, y: number, width: number, height: number, button: MouseButton = MouseButton.Left): void {
     this.buttonsHeld.add(button);
     this.buttonsPressed.add(button);
-    // A drag's movement counts from its press: a finger has no hover, so its first move would
-    // otherwise read as a jump from wherever the previous touch lifted.
-    const bounds = this.element?.getBoundingClientRect();
-    if (bounds) {
-      const [x, y] = local(this.element!, bounds, event);
-      this.lastMouse.set(x, y);
-      this.mousePosition.set(x, y);
-      this.pointer.set((x / this.element!.clientWidth) * 2 - 1, -(y / this.element!.clientHeight) * 2 + 1);
-      this.hasMouseSample = true;
-      this.mouseDelta.set(0, 0);
-    }
-    this.element?.focus?.();
-  };
+    if (!width) return;
+    this.pointerMove(x, y, width, height);
+    this.mouseDelta.set(0, 0);
+  }
+
+  /** @internal a release. */
+  pointerUp(button: MouseButton = MouseButton.Left): void {
+    this.buttonsHeld.delete(button);
+    this.buttonsReleased.add(button);
+  }
+
+  /** @internal a page's `data-button` pressed for one frame. */
+  pageButton(name: string): void {
+    this.pageNames.add(name);
+    this.pagePressed.add(name);
+  }
 
   private readonly onPagePointerDown = (event: PointerEvent): void => {
     const name = (event.target as Element | null)?.closest?.('[data-button]')?.getAttribute('data-button');
     if (!name) return;
-    this.pageNames.add(name);
-    this.pagePressed.add(name);
+    this.pageButton(name);
     this.pagePointers.set(event.pointerId, name);
   };
 
@@ -395,16 +406,12 @@ class InputClass {
   private readonly onPageClick = (event: MouseEvent): void => {
     if (event.detail !== 0) return;
     const name = (event.target as Element | null)?.closest?.('[data-button]')?.getAttribute('data-button');
-    if (!name) return;
-    this.pageNames.add(name);
-    this.pagePressed.add(name);
+    if (name) this.pageButton(name);
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
     this.pagePointers.delete(event.pointerId);
-    const button = event.button as MouseButton;
-    this.buttonsHeld.delete(button);
-    this.buttonsReleased.add(button);
+    this.pointerUp(event.button as MouseButton);
   };
 
   private readonly onWheel = (event: WheelEvent): void => {

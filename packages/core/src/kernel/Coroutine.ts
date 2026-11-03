@@ -73,9 +73,11 @@ export class Coroutine {
   private pending: { done: boolean; value?: unknown; error?: unknown; failed?: boolean } | null = null;
   private stopped = false;
 
-  private readonly body: Generator<Yieldable, unknown, unknown>;
+  private readonly body: Generator<unknown, unknown, any>;
 
-  constructor(body: Generator<Yieldable, unknown, unknown>) {
+  // What a generator yields is checked here as it yields, with the line to write instead: a model's
+  // `Generator<unknown>` is a fine coroutine, and refusing its type said nothing useful.
+  constructor(body: Generator<unknown, unknown, any>) {
     this.body = body;
   }
 
@@ -108,7 +110,7 @@ export class Coroutine {
     return this.resume(() => this.body.next(input));
   }
 
-  private resume(advance: () => IteratorResult<Yieldable, unknown>): boolean {
+  private resume(advance: () => IteratorResult<unknown, unknown>): boolean {
     const result = advance();
     if (result.done) {
       this.stopped = true;
@@ -118,7 +120,7 @@ export class Coroutine {
     return true;
   }
 
-  private wait(value: Yieldable): void {
+  private wait(value: unknown): void {
     if (value == null) return;
     if (value instanceof WaitForSeconds || value instanceof WaitForSecondsRealtime) {
       this.seconds = value.seconds;
@@ -141,6 +143,9 @@ export class Coroutine {
     } else if (typeof value === 'number') {
       this.stopped = true;
       throw new Error(`A coroutine yielded ${value}: write \`yield new WaitForSeconds(${value})\` — Unity's spelling, and it stops while Time.timeScale is 0.`);
+    } else if (typeof (value as { waitForCompletion?: unknown }).waitForCompletion === 'function') {
+      this.stopped = true;
+      throw new Error('A coroutine yielded a tween: write `yield tween.waitForCompletion()`.');
     } else {
       this.stopped = true;
       throw new Error(

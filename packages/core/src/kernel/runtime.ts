@@ -38,6 +38,8 @@ export class Runtime {
   unscaledDeltaTime = 0;
   /** True while `update` runs the frame, so a host can tell game code from a DOM handler. */
   updating = false;
+  /** @internal once, when this frame has ended. */
+  afterFrame: (() => void) | null = null;
 
   /**
    * @internal How far into the lifecycle behaviours go — `awake`, then `onEnable`, then `start`, then
@@ -82,6 +84,9 @@ export class Runtime {
       this.updating = false;
     }
     this.frame++;
+    const after = this.afterFrame;
+    this.afterFrame = null;
+    after?.();
   }
 
   /** @internal `start` for every behaviour waiting for it: each frame, and after an edit made while the clock is held. */

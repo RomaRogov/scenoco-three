@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Mesh, PerspectiveCamera, Scene } from 'three';
-import { Behaviour, Input, KeyCode, findObjectOfType, simulate } from '@scenoco-three/core';
+import { Vector3 } from 'three';
+import { Behaviour, Input, KeyCode, Screen, findObjectOfType, simulate } from '@scenoco-three/core';
 
 class GameState extends Behaviour {
   phase: 'ready' | 'playing' = 'ready';
@@ -51,5 +52,40 @@ describe('simulate', () => {
     // What another copy's Scene looks like from here: an Object3D by its flag, not by its class.
     const Other = () => ({ isObject3D: true, type: 'Scene' }) as never;
     expect(() => simulate(Other)).toThrow(/another copy of three\.js.*npm ls three.*dedupe: \['three'\]/);
+  });
+
+  it('takes a pointer as the page does: pixels of its size, a press, a drag, a release, and a button by name', () => {
+    const seen: string[] = [];
+    class Drag extends Behaviour {
+      override update() {
+        if (Input.getMouseButtonDown()) seen.push(`down ${Input.mousePosition.x},${Input.mousePosition.y}`);
+        if (Input.getMouseButtonUp()) seen.push(`up ${Input.mousePosition.x}`);
+        if (Input.getButtonDown('NextLevel')) seen.push('next');
+      }
+    }
+    const game = simulate(
+      () => (
+        <Scene>
+          <PerspectiveCamera position={[0, 0, 10]} />
+          <Drag />
+        </Scene>
+      ),
+      { size: [400, 800] },
+    );
+    game.step();
+    expect(Screen.width).toBe(400);
+    expect((game.camera as PerspectiveCamera).aspect).toBe(0.5);
+    const [x, y] = game.worldToScreen(new Vector3(0, 0, 0));
+    expect([x, y]).toEqual([200, 400]);
+    game.pointerDown(x, y);
+    game.step();
+    expect(Input.pointer.toArray()).toEqual([0, 0]);
+    game.pointerUp();
+    game.step();
+    game.swipe([200, 400], [300, 400], 4);
+    game.click('NextLevel');
+    expect(seen).toEqual(['down 200,400', 'up 200', 'down 225,400', 'up 300', 'next']);
+    game.dispose();
+    expect(Screen.width).toBe(1920);
   });
 });

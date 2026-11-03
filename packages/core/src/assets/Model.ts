@@ -1,4 +1,4 @@
-import type { AnimationClip, Object3D } from 'three';
+import { Group, type AnimationClip, type Object3D } from 'three';
 import { Asset } from './Asset.js';
 
 /** What the glTF loader hands back. Structural, so nothing here imports the addon's types. */
@@ -36,6 +36,9 @@ export class Model extends Asset<LoadedGltf> {
   }
 
   protected override async fetch(): Promise<LoadedGltf> {
+    // A test in Node has no page for a path to be relative to, and no use for the model's look: an
+    // empty model, as a texture is there, so a game's rules can be tested with its assets declared.
+    if (typeof document === 'undefined' && !/^[a-z][a-z\d+.-]*:/i.test(this.url)) return { scene: new Group(), animations: [] } as unknown as LoadedGltf;
     // Imported here so a project with no model ships neither addon — both are large.
     const [{ GLTFLoader }, skeletonUtils, { MeshoptDecoder }] = await Promise.all([
       import('three/addons/loaders/GLTFLoader.js'),

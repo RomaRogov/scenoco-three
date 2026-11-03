@@ -23,6 +23,17 @@ export function createInput(pass: (frames: number) => Promise<void>) {
       throw new Error(`${call}: (${shown(x)}, ${shown(y)}) is not a point — x and y are numbers, pixels from the window's top-left: ${example}.`);
     }
   };
+  /** A page's `data-button` by its name: its centre, so a button something covers fails as a player's click would. */
+  const centre = (call: string, name: string): [number, number] => {
+    const found = document.querySelector(`[data-button="${CSS.escape(name)}"]`);
+    if (!found) {
+      const names = [...document.querySelectorAll('[data-button]')].map((b) => b.getAttribute('data-button'));
+      throw new Error(`${call}: no data-button is called "${name}". The page has: ${names.join(', ') || 'none'}.`);
+    }
+    const r = found.getBoundingClientRect();
+    if (!r.width || !r.height) throw new Error(`${call}: the "${name}" button is hidden.`);
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  };
   const pointer = (type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number, buttons: number) => {
     const target = type === 'pointerup' ? (pointerTarget ?? document.elementFromPoint(x, y)) : document.elementFromPoint(x, y);
     if (!target) throw new Error(`nothing on the page at (${x}, ${y}) — the window is ${innerWidth}×${innerHeight}.`);
@@ -50,14 +61,16 @@ export function createInput(pass: (frames: number) => Promise<void>) {
     keyUp(name: string) {
       key('keyup', name);
     },
-    /** Click or tap at a point of the window, in pixels from its top-left; then a frame passes. */
-    async click(x: number, y: number) {
+    /** Click or tap a page's `data-button` by name, or a point of the window in pixels from its top-left; then a frame passes. */
+    async click(target: number | string, at?: number) {
+      const [x, y] = typeof target === 'string' ? centre('click', target) : [target, at as number];
       point('click', x, y);
       pointer('pointerdown', x, y, 1);
       pointer('pointerup', x, y, 0);
       await pass(1);
     },
-    pointerDown(x: number, y: number) {
+    pointerDown(target: number | string, at?: number) {
+      const [x, y] = typeof target === 'string' ? centre('pointerDown', target) : [target, at as number];
       point('pointerDown', x, y);
       pointer('pointerdown', x, y, 1);
     },

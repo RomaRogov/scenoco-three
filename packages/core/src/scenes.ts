@@ -1,6 +1,8 @@
 import { Object3D, Scene } from 'three';
 import { Behaviour } from './kernel/Behaviour.js';
-import { destroy, wake } from './kernel/lifecycle.js';
+import { Event } from './kernel/Event.js';
+import { destroy, flushDestroyed, wake } from './kernel/lifecycle.js';
+import { runtimeOf } from './kernel/registry.js';
 
 /**
  * Scenes are functions returning `<Scene>…</Scene>`, and `SceneManager` swaps them, as Unity's does.
@@ -14,12 +16,16 @@ let world: Scene | null = null;
 let onLoaded: () => void = () => {};
 /** The loaded scenes, oldest first. */
 const loaded: Scene[] = [];
+/** Loads asked for while another is under way, or until the frame ends. */
+const pending: { build: () => unknown; additive: boolean }[] = [];
+let loading = false;
 
 /** @internal `play` hands over the scene it draws, and is told after every load. */
 export function attachWorld(scene: Scene, changed: () => void): void {
   world = scene;
   onLoaded = changed;
   loaded.length = 0;
+  pending.length = 0;
 }
 
 /** @internal the game `play` made is gone: loads have nowhere to go until the next one. */
@@ -28,35 +34,72 @@ export function detachWorld(scene: Scene): void {
   world = null;
   onLoaded = () => {};
   loaded.length = 0;
+  pending.length = 0;
 }
 
-/** @internal build a scene into the world, replacing what was loaded unless `additive`. */
+/**
+ * @internal build a scene into the world, replacing what was loaded unless `additive`. It is built
+ * first, so a scene that throws leaves the last one running; then the last one is destroyed, and only
+ * then does the new one wake.
+ */
 export function loadInto(root: Scene, build: () => unknown, additive: boolean): Scene {
-  const built = build();
-  if (!(built instanceof Object3D)) {
-    // A three.js object that is not this three's: the project has two copies, and `instanceof` across them is false.
-    if ((built as { isObject3D?: boolean } | null)?.isObject3D) {
-      throw new Error(
-        `${build.name || 'A scene'} returned a three.js object from another copy of three.js than SceNoCo's: the project has two (\`npm ls three\` lists them). ` +
-          "Install one — `npm dedupe` — or, under Vite or Vitest, add `resolve: { dedupe: ['three'] }` to the config.",
-      );
+  const outer = loading;
+  loading = true;
+  let scene: Scene;
+  try {
+    const built = build();
+    if (!(built instanceof Object3D)) {
+      // A three.js object that is not this three's: the project has two copies, and `instanceof` across them is false.
+      if ((built as { isObject3D?: boolean } | null)?.isObject3D) {
+        throw new Error(
+          `${build.name || 'A scene'} returned a three.js object from another copy of three.js than SceNoCo's: the project has two (\`npm ls three\` lists them). ` +
+            "Install one — `npm dedupe` — or, under Vite or Vitest, add `resolve: { dedupe: ['three'] }` to the config.",
+        );
+      }
+      throw new Error(`${build.name || 'A scene'} must return an element — <Scene>…</Scene>.`);
     }
-    throw new Error(`${build.name || 'A scene'} must return an element — <Scene>…</Scene>.`);
+    scene = built instanceof Scene ? built : new Scene().add(built);
+    if (!additive) {
+      for (const old of loaded.splice(0)) destroy(old);
+      flushDestroyed();
+      // What only a top-level scene does in three.js — the backdrop, the fog, the environment — is
+      // the loaded scene's to say, so it moves to the scene that draws: what it does not set is unset.
+      root.background = scene.background;
+      root.environment = scene.environment;
+      root.fog = scene.fog;
+    }
+    loaded.push(scene);
+    root.add(scene);
+    onLoaded();
+    wake(scene);
+    SceneManager.sceneLoaded.emit(scene);
+  } finally {
+    loading = outer;
   }
-  const scene = built instanceof Scene ? built : new Scene().add(built);
-  if (!additive) {
-    for (const old of loaded.splice(0)) destroy(old);
-    // What only a top-level scene does in three.js — the backdrop, the fog, the environment — is
-    // the loaded scene's to say, so it moves to the scene that draws.
-    root.background = scene.background;
-    root.environment = scene.environment;
-    root.fog = scene.fog;
-  }
-  loaded.push(scene);
-  root.add(scene);
-  onLoaded();
-  wake(scene);
+  if (!outer) drain(root);
   return scene;
+}
+
+function drain(root: Scene): void {
+  const next = pending.shift();
+  if (next) loadInto(root, next.build, next.additive);
+}
+
+/** A load from a frame waits for the frame to end, so what is running finishes it; from outside one it happens now. */
+function request(build: () => unknown, additive: boolean): void {
+  const root = running();
+  pending.push({ build, additive });
+  if (loading) return;
+  const runtime = runtimeOf(root);
+  if (!runtime?.updating) return drain(root);
+  runtime.afterFrame = () => {
+    try {
+      drain(root);
+    } catch (error) {
+      pending.length = 0;
+      console.error(error);
+    }
+  };
 }
 
 function running(): Scene {
@@ -67,16 +110,19 @@ function running(): Scene {
 /** Unity's `SceneManager`, for scenes that are functions returning `<Scene>…</Scene>`. */
 export const SceneManager = {
   /**
-   * Unity's `LoadScene`: build `scene` and run it, and destroy the scene that was loaded —
-   * everything in it but what `dontDestroyOnLoad` kept. The old one goes at the end of this frame.
+   * Unity's `LoadScene`: from a frame, at the end of it. The scene that was loaded is destroyed, with
+   * everything in it but what `dontDestroyOnLoad` kept, then `scene` wakes. Its `background`,
+   * `environment` and `fog` replace the last scene's, unset ones included.
    */
-  load(scene: () => unknown): Scene {
-    return loadInto(running(), scene, false);
+  load(scene: () => unknown): void {
+    request(scene, false);
   },
-  /** Unity's `LoadScene` with `LoadSceneMode.Additive`: build `scene` beside what is loaded. */
-  loadAdditive(scene: () => unknown): Scene {
-    return loadInto(running(), scene, true);
+  /** Unity's `LoadScene` with `LoadSceneMode.Additive`: `scene` beside what is loaded, at the same moment. */
+  loadAdditive(scene: () => unknown): void {
+    request(scene, true);
   },
+  /** Unity's `sceneLoaded`: after a scene's `awake` and `onEnable`, before its `start`. */
+  sceneLoaded: new Event<[scene: Scene]>(),
   /** The scene loaded last. */
   get activeScene(): Scene | null {
     return loaded.at(-1) ?? null;
@@ -96,7 +142,9 @@ export function dontDestroyOnLoad(target: Object3D | Behaviour): void {
   const root = running();
   let node = target instanceof Behaviour ? target.node : target;
   // Up to the loaded scene it is in — or to the root, for a node already kept.
+  const asked = node;
   while (node.parent && node.parent !== root && !loaded.includes(node.parent as Scene)) node = node.parent;
+  if (node !== asked) console.warn(`dontDestroyOnLoad: "${asked.name || asked.type}" is under "${node.name || node.type}", so all of "${node.name || node.type}" is kept. To keep only the one, move it to the scene's root first.`);
   const i = loaded.indexOf(node as Scene);
   if (i !== -1) loaded.splice(i, 1); // a whole loaded scene: it stays where it is, and is no longer unloaded
   else if (node.parent !== root) root.attach(node);

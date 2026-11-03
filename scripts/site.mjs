@@ -87,6 +87,8 @@ const words = `
       Unity-style behaviours — awake, start, update, coroutines, prefabs, physics and input. Start a game with
       <code>npm create @scenoco-three my-game</code>.</p>
       <ul>${links.map(([label, href]) => `<li><a href="${href}">${label}</a></li>`).join('')}</ul>
+      <p>SceNoCo is not sponsored by or affiliated with Unity Technologies or its affiliates. Unity is a trademark or
+      registered trademark of Unity Technologies or its affiliates in the U.S. and elsewhere.</p>
     </main>`;
 const style = `.words { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }`;
 const index = join(OUT, 'index.html');

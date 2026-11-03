@@ -30,4 +30,10 @@ describe('models', () => {
     const size = geometry.boundingBox!.clone().applyMatrix4(mesh!.matrixWorld).getSize(geometry.boundingBox!.max.clone());
     expect(size.x).toBeCloseTo(1, 2);
   });
+
+  it('is empty in a test in Node, where a path has no page to be relative to', async () => {
+    const hero = sharedModel('/models/hero.glb');
+    await loadAssets(hero);
+    expect(hero.instantiate().children).toEqual([]);
+  });
 });

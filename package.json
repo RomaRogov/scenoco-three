@@ -2,7 +2,7 @@
   "name": "scenoco-workspace",
   "private": true,
   "version": "1.0.0",
-  "description": "Unity's behaviours on three.js, with scenes written in TSX and no React.",
+  "description": "Unity-style behaviours for three.js, with scenes written in TSX and no React.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,7 @@
     "packages/rapier",
     "packages/particles",
     "packages/audio",
+    "packages/postprocessing",
     "packages/splines",
     "packages/terrain",
     "packages/unity",
@@ -27,7 +28,7 @@
   "scripts": {
     "examples:dev": "npm --prefix examples/breakout run dev",
     "examples:build": "npm --prefix examples/breakout run build",
-    "build": "npm run build:core && npm run build:box2d && npm run build:rapier && npm run build:particles && npm run build:audio && npm run build:splines && npm run build:terrain && npm run build:tools && npm run build:unity && npm run build:editor",
+    "build": "npm run build:core && npm run build:box2d && npm run build:rapier && npm run build:particles && npm run build:audio && npm run build:postprocessing && npm run build:splines && npm run build:terrain && npm run build:tools && npm run build:unity && npm run build:editor",
     "build:core": "npm --prefix packages/core run build",
     "typecheck": "tsc --noEmit -p tsconfig.json && npm --prefix examples/breakout run check && npm --prefix examples/home run check && npm --prefix examples/race run check && npm --prefix examples/td run check && npm --prefix packages/create/template run check && npm --prefix examples/eggy run check",
     "typecheck:core": "npm --prefix packages/core run typecheck",
@@ -38,6 +39,7 @@
     "build:rapier": "npm --prefix packages/rapier run build",
     "build:particles": "npm --prefix packages/particles run build",
     "build:audio": "npm --prefix packages/audio run build",
+    "build:postprocessing": "npm --prefix packages/postprocessing run build",
     "build:splines": "npm --prefix packages/splines run build",
     "build:terrain": "npm --prefix packages/terrain run build",
     "check:lockfile": "node scripts/check-lockfile.mjs",

@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Behaviour, Input, KeyCode, SceneManager, Screen, WaitForSecondsRealtime, dontDestroyOnLoad, findObjectOfType, type Yieldable } from '@scenoco-three/core';
+import { Behaviour, Input, KeyCode, SceneManager, Screen, Tween, dontDestroyOnLoad, findObjectOfType } from '@scenoco-three/core';
 import { Paddle } from './Paddle.js';
 import type { Bonus } from './bonus.js';
 import type { GameState } from './GameState.js';
@@ -84,9 +84,9 @@ export class Progress extends Behaviour {
     // The page opens already black: the first level fades in from it, with no fade out first.
     this.load(0);
     // The splash's title arrives; PLAY pulses and the banner's hint blinks for as long as the run lasts.
-    this.startCoroutine(this.arrive(this.hud.title, 'arriving'));
-    this.startCoroutine(this.pulse(this.hud.playGlow, 'bright', 0.8));
-    this.startCoroutine(this.pulse(this.hud.hint, 'dim', 0.6));
+    this.arrive(this.hud.title, 'arriving');
+    this.pulse(this.hud.playGlow, 'bright', 0.8);
+    this.pulse(this.hud.hint, 'dim', 0.6);
   }
 
   override update(): void {
@@ -116,7 +116,7 @@ export class Progress extends Behaviour {
     if (combo !== this.drawnCombo) {
       this.drawnCombo = combo;
       this.hud.combo.textContent = combo > 1 ? `COMBO ×${combo}` : '';
-      if (combo > 1) this.startCoroutine(this.flick(this.hud.combo, 'bump', 0.09));
+      if (combo > 1) this.flick(this.hud.combo, 'bump', 0.09);
     }
     const running = this.paddle?.running ?? [];
     const names = running.map((e) => e.bonus).join();
@@ -128,7 +128,7 @@ export class Progress extends Behaviour {
         chip.classList.add(e.bonus);
         (chip.querySelector('.name') as HTMLElement).textContent = LABELS[e.bonus];
         // Only a bonus new since the last drawing pops in; the others are redrawn as they were.
-        if (!this.shownBonuses.has(e.bonus)) this.startCoroutine(this.arrive(chip, 'new'));
+        if (!this.shownBonuses.has(e.bonus)) this.arrive(chip, 'new');
         return chip;
       });
       this.hud.effects.replaceChildren(...chips);
@@ -158,7 +158,7 @@ export class Progress extends Behaviour {
     const points = this.pointsPerHit * hitsTaken * Math.max(1, combo);
     this.score += points;
     this.redraw();
-    this.startCoroutine(this.flick(this.hud.score, 'bump', 0.09));
+    this.flick(this.hud.score, 'bump', 0.09);
     this.popup(`+${points}`, at, combo > 1);
   }
 
@@ -167,8 +167,8 @@ export class Progress extends Behaviour {
     this.lives -= 1;
     // The pip that goes bursts first; the screen flashes red behind it.
     const pip = this.hud.lives.children[this.lives] as HTMLElement | undefined;
-    if (pip) this.startCoroutine(this.flick(pip, 'losing', 0.18));
-    this.startCoroutine(this.flick(this.hud.flash, 'on', 0.07));
+    if (pip) this.flick(pip, 'losing', 0.18);
+    this.flick(this.hud.flash, 'on', 0.07);
     this.redraw();
     return this.lives > 0;
   }
@@ -205,13 +205,8 @@ export class Progress extends Behaviour {
   private go(index: number): void {
     if (this.fading || !this.levels[index]) return;
     this.fading = true;
-    this.startCoroutine(this.fadeTo(index));
-  }
-
-  private *fadeTo(index: number) {
     this.hud.fade.classList.add('shut');
-    yield new WaitForSecondsRealtime(0.6); // the CSS transition's length
-    this.load(index);
+    this.after(0.6, () => this.load(index)); // the CSS transition's length
   }
 
   private load(index: number): void {
@@ -226,43 +221,47 @@ export class Progress extends Behaviour {
   private introduce(): void {
     this.hud.introStage.textContent = `STAGE ${this.index + 1}`;
     this.hud.introName.textContent = this.game?.levelName ?? '';
-    this.startCoroutine(this.sweep());
+    this.sweep();
   }
 
   /** In from the right, spaced wide; held; out to the left. */
-  private *sweep(): Generator<Yieldable> {
+  private sweep() {
     const intro = this.hud.intro;
     intro.classList.remove('shown', 'leave');
     intro.classList.add('enter');
-    yield new WaitForSecondsRealtime(0.2);
-    intro.classList.remove('enter');
-    intro.classList.add('shown');
-    yield new WaitForSecondsRealtime(1.25);
-    intro.classList.replace('shown', 'leave');
+    this.after(0.2, () => {
+      intro.classList.remove('enter');
+      intro.classList.add('shown');
+    });
+    this.after(1.45, () => intro.classList.replace('shown', 'leave'));
   }
 
-  // --- motion: a class on, and off again ---------------------------------------------------
+  // --- motion: a class on, and off again, on real time: the HUD moves during a pause ------
+
+  private after(seconds: number, fn: () => void) {
+    return Tween.delayedCall(seconds, fn).setUpdate(true).setLink(this);
+  }
 
   /** Into place from where `from` holds it: placed there at once, then — a frame later — moved in. */
-  private *arrive(element: HTMLElement, from: string): Generator<Yieldable> {
+  private arrive(element: HTMLElement, from: string) {
     element.classList.add(from);
-    yield null;
-    element.classList.remove(from);
+    this.after(0, () => element.classList.remove(from));
   }
 
   /** On for `seconds`, then off: the CSS moves it there and back. */
-  private *flick(element: HTMLElement, name: string, seconds: number): Generator<Yieldable> {
+  private flick(element: HTMLElement, name: string, seconds: number) {
     element.classList.add(name);
-    yield new WaitForSecondsRealtime(seconds);
-    element.classList.remove(name);
+    this.after(seconds, () => element.classList.remove(name));
   }
 
   /** On and off every `seconds`, for as long as the run lasts. */
-  private *pulse(element: HTMLElement, name: string, seconds: number): Generator<Yieldable> {
-    for (;;) {
-      element.classList.toggle(name);
-      yield new WaitForSecondsRealtime(seconds);
-    }
+  private pulse(element: HTMLElement, name: string, seconds: number) {
+    Tween.sequence()
+      .appendCallback(() => element.classList.toggle(name))
+      .appendInterval(seconds)
+      .setLoops(-1)
+      .setUpdate(true)
+      .setLink(this);
   }
 
   // --- drawing ----------------------------------------------------------------------------
@@ -294,7 +293,7 @@ export class Progress extends Behaviour {
     label.style.top = `${((1 - screen.y) / 2) * 100}%`;
     label.addEventListener('transitionend', (event) => event.propertyName === 'opacity' && label.remove());
     this.hud.popups.append(label);
-    this.startCoroutine(this.arrive(label, 'start'));
+    this.arrive(label, 'start');
   }
 }
 

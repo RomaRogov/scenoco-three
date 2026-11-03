@@ -35,3 +35,7 @@ tests/**/.tmp/
 
 # Written from the starter's rules card when core is packed (scripts/core-card.mjs)
 packages/core/AGENTS.md
+
+# Unity hides folders ending in ~ from its import; a package keeps its sources and samples in them.
+!Native~/
+!Samples~/
