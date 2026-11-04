@@ -58,10 +58,20 @@ export function installBridge(
   const stepFrames = (frames: number, dt: number): void => {
     for (let i = 0; i < frames; i++) frame(dt);
   };
-  /** Let frames pass: stepped when the clock is held, in real time otherwise. */
+  /**
+   * Let frames pass: stepped when the clock is held; otherwise the game's own, counted and not timed,
+   * so a slow machine does not see two presses inside one frame. A hidden page runs none, so it only
+   * waits their time; a visible one, however slow, gets half a second a frame and one more.
+   */
   const pass = async (frames: number): Promise<void> => {
     if (isHeld(runtime)) stepFrames(frames, DT);
-    else await new Promise((done) => setTimeout(done, (frames * 1000) / 60));
+    else {
+      const target = runtime.frame + frames;
+      const limit = performance.now() + (document.hidden ? (frames * 1000) / 60 : 1000 + frames * 500);
+      while (runtime.frame < target && !isHeld(runtime) && performance.now() < limit) {
+        await new Promise((done) => setTimeout(done, 4));
+      }
+    }
     await nextTask();
   };
   /** The first time the clock stops under a tool: a game that looks frozen is the usual way to learn it otherwise. */
@@ -251,7 +261,7 @@ Input / SceneManager / THREE are in scope:
 Input — as the player's, stepped while the clock is held; x, y in pixels from the window's top-left:
   press(key, frames = 6)  keyDown(key)  keyUp(key)      keys: "Space", "ArrowLeft", "a", "Enter", "Escape"
   click(x, y) or click("NextLevel"), a data-button by name  pointerDown(x, y)  pointerMove(x, y)  pointerUp()  swipe([x, y], [x, y], frames = 8)
-Looking — take the screenshot with the browser's own tool:
+Looking — take the screenshot with the browser's own tool. In the same script as the step, right after a new material first shows, it can be a frame behind: take it again:
   view({ cameraPos: [x, y, z], lookAt: [x, y, z] | "#name", fov }) draws from there until view(null) or play()
 CSS animations and timers in the page run in real time, not on the held clock: to wait for one, play() and let it finish.
 Start with ready(): it resolves once the game has run its first frames — a key pressed sooner goes nowhere.

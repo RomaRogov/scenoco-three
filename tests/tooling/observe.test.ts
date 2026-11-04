@@ -92,36 +92,21 @@ describe('the game from Playwright', () => {
     expect(paints).toBeLessThan(steps * 4); // waiting for a paint in both calls takes at least 4 per step
   }, 60_000);
 
-  it('a screenshot taken right after a step shows that step', async () => {
-    // Without a wait for the paint in the bridge, what the tool captures has to be the frame just stepped.
-    const red = (png: Buffer) =>
-      page.evaluate(async (base64) => {
-        const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
-        const canvas = new OffscreenCanvas(1, 1);
-        const context = canvas.getContext('2d')!;
-        context.drawImage(image, -480, -600);
-        return context.getImageData(0, 0, 1, 1).data[0]!;
-      }, png.toString('base64'));
-    // Red around the camera, on and off. The page dims it, so the two only have to tell apart.
-    await page.evaluate(() =>
-      __scenoco.eval!(`
-        const cover = new THREE.Mesh(new THREE.SphereGeometry(1), new THREE.MeshBasicMaterial({ color: '#ff0000', side: THREE.BackSide, depthTest: false, toneMapped: false, fog: false }));
-        cover.name = 'Cover';
-        cover.renderOrder = 999;
-        camera.add(cover);`),
-    );
-    // A new shader's first frames can reach the screen late, with or without a wait: past those.
-    await page.waitForTimeout(500);
-    for (let i = 0; i < 12; i++) {
-      const on = i % 2 === 0;
-      await page.evaluate(async (on) => {
-        await __scenoco.eval!(`node('Cover').visible = ${on}`);
-        await __scenoco.step!(1);
-      }, on);
-      const seen = await red(await page.screenshot());
-      if (on) expect(seen).toBeGreaterThan(30);
-      else expect(seen).toBeLessThan(20);
-    }
+  it('a press lets the game\'s frames pass, however slowly the machine draws them', async () => {
+    const passed = await page.evaluate(async () => {
+      // Frames that come late while timers do not, as with no GPU: a press timed at 60 a second ends too early.
+      const draw = window.requestAnimationFrame;
+      window.requestAnimationFrame = (callback) => setTimeout(() => draw.call(window, callback), 100) as unknown as number;
+      await __scenoco.play!();
+      const frame = async () => ((await __scenoco.clock!()) as { frame: number }).frame;
+      const before = await frame();
+      await __scenoco.press!('p', 6);
+      const after = await frame();
+      window.requestAnimationFrame = draw;
+      await __scenoco.pause!();
+      return after - before;
+    });
+    expect(passed).toBeGreaterThanOrEqual(7); // held for 6, and one to see it let go
   }, 60_000);
 
   it("answers a mistake with the game's own message", async () => {
