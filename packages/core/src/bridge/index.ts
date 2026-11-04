@@ -32,13 +32,27 @@ export function installBridge(
   const { learnClasses, byClass, nodeNamed, of, expression } = reading;
 
   /**
-   * Let the page draw what was stepped, so a screenshot taken next shows it. A hidden page never
+   * Let the page draw what was stepped, for a call that exists to be looked at. A hidden page never
    * paints, so this does not wait for longer than a tenth of a second.
    */
   const nextPaint = (): Promise<void> =>
     new Promise((done) => {
       setTimeout(done, 100);
       requestAnimationFrame(() => requestAnimationFrame(() => done()));
+    });
+  /**
+   * Give the page a turn: its timers, events and drawing go on while a tool steps in a loop. Not a
+   * paint, which would hold every step and reading to the display's rate, nor a timer, which
+   * browsers clamp to 4 ms. The page's loop still draws, and a screenshot is taken after it.
+   */
+  const nextTask = (): Promise<void> =>
+    new Promise((done) => {
+      const { port1, port2 } = new MessageChannel();
+      port1.onmessage = () => {
+        port1.close();
+        done();
+      };
+      port2.postMessage(null);
     });
 
   const stepFrames = (frames: number, dt: number): void => {
@@ -47,8 +61,8 @@ export function installBridge(
   /** Let frames pass: stepped when the clock is held, in real time otherwise. */
   const pass = async (frames: number): Promise<void> => {
     if (isHeld(runtime)) stepFrames(frames, DT);
-    await new Promise((done) => setTimeout(done, isHeld(runtime) ? 0 : (frames * 1000) / 60));
-    await nextPaint();
+    else await new Promise((done) => setTimeout(done, (frames * 1000) / 60));
+    await nextTask();
   };
   /** The first time the clock stops under a tool: a game that looks frozen is the usual way to learn it otherwise. */
   let hint: string | null = 'clock held: frames pass only when stepped; __scenoco.play() resumes';
@@ -94,7 +108,7 @@ export function installBridge(
     async step(frames = 1, dt = DT) {
       hold();
       stepFrames(frames, dt);
-      await nextPaint();
+      await nextTask();
       return bridge.clock();
     },
     /** Hold the clock and step until `code` is true, at most `maxFrames`. */
@@ -103,12 +117,12 @@ export function installBridge(
       const test = typeof code === 'string' ? expression(code) : code;
       for (let frame = 0; frame <= maxFrames; frame++) {
         if (test()) {
-          await nextPaint();
+          await nextTask();
           return { met: true, frames: frame, ...bridge.clock() };
         }
         if (frame < maxFrames) stepFrames(1, dt);
       }
-      await nextPaint();
+      await nextTask();
       return { met: false, frames: maxFrames, ...bridge.clock() };
     },
     /**
@@ -137,13 +151,13 @@ export function installBridge(
         done += n;
         sample();
       }
-      await nextPaint();
+      await nextTask();
       return rows;
     },
     /** The body of an async function, with the game's names in scope; what it returns, as JSON. */
     async eval(code: string): Promise<unknown> {
       const value = await reading.run(code);
-      await nextPaint();
+      await nextTask();
       // A behaviour returned whole reads as telemetry does: its fields and getters.
       if (value instanceof Behaviour) return { class: value.constructor.name, ...fields(value) };
       return plain(value, 3);
@@ -203,7 +217,7 @@ export function installBridge(
       node: nodeNamed,
       globals: { Time, get scene() { return get().scene; }, get camera() { return camera(); } },
     };
-    void runDrive(bridge as unknown as Record<string, (...args: unknown[]) => unknown>, script, scope);
+    void runDrive(bridge as unknown as Record<string, (...args: unknown[]) => unknown>, script, scope, nextPaint);
   }
   // Where an agent's browser tools look first: the console says what drives the game.
   console.info(

@@ -6,20 +6,104 @@
     <title>SceNoCo</title>
     <link rel="icon" href="data:," />
     <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt" />
+    <noscript><style>#stage { height: auto; } #frame { position: static; height: auto; overflow: visible; } .hero { position: static; height: auto; opacity: 1; transform: none; pointer-events: auto; } #view { display: none; }</style></noscript>
     <style>
-      html, body { margin: 0; height: 100%; background: #05070d; overflow: hidden; }
-      canvas { display: block; touch-action: none; }
+      html { background: #05070d; overflow-x: clip; }
+      html:has(body.source-open) { overflow: hidden; }
+      body { margin: 0; color: #c9d6ea; font: 17px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      canvas { display: block; }
+      /*
+       * The scene holds the screen while the page scrolls `--travel`, shrinking into a card under the
+       * headline; then both scroll away like the rest. A transform, so the canvas is not resized on
+       * every frame of the scroll. `--p` runs from 0 to 1, set by landing.ts.
+       */
+      #stage { --travel: 80svh; --end: 0.62; --p: 0; height: calc(100svh + var(--travel)); }
+      #frame { position: sticky; top: 0; height: 100svh; overflow: hidden; }
       /* The game draws in the view; the source panel takes its side of the page, as the editor's does. */
-      #view { position: fixed; top: 0; left: 0; right: 0; bottom: 0; transition: right 0.25s ease-out, bottom 0.25s ease-out; }
-      body.source-open #view { right: min(760px, 58vw); }
-      .what {
-        position: absolute; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
-        padding: 13px 26px; border-radius: 999px; border: 1px solid #2c4a6b;
-        background: rgb(10 16 28 / 0.82); color: #dbeafe; backdrop-filter: blur(6px);
-        font: 600 16px/1 system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: 0.02em;
-        text-decoration: none; white-space: nowrap; transition: border-color 0.15s, color 0.15s, background 0.15s;
+      #view {
+        position: absolute; inset: 0; overflow: hidden; transform-origin: 50% 100%;
+        transform: translateY(calc(var(--p) * -3svh)) scale(calc(1 - var(--p) * (1 - var(--end))));
+        border-radius: calc(var(--p) * 28px); outline: 1px solid rgb(74 240 224 / calc(var(--p) * 0.22));
+        transition: right 0.25s ease-out, bottom 0.25s ease-out;
       }
-      .what:hover, .what:focus-visible { border-color: #4af0e0; color: #ffffff; background: rgb(14 28 40 / 0.9); outline: none; }
+      body.source-open #view { right: min(760px, 58vw); }
+      .hero {
+        position: absolute; inset: 0 0 auto; height: calc((1 - var(--end)) * 100svh - 3svh); box-sizing: border-box;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.4svh;
+        padding: 12px 20px; text-align: center; opacity: calc((var(--p) - 0.55) / 0.45);
+        transform: translateY(calc((1 - var(--p)) * 24px)); pointer-events: none;
+      }
+      #stage.settled .hero { pointer-events: auto; }
+      .hero h1 { margin: 0; max-width: 20em; color: #fff; font-size: min(4.2vw, 7svh, 58px); line-height: 1.08; letter-spacing: -0.025em; text-wrap: balance; }
+      .hero p { margin: 0; max-width: 44em; font-size: min(17px, 2.4svh); line-height: 1.4; color: #9fb3cf; text-wrap: balance; }
+      .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+      .action {
+        padding: 10px 18px; border-radius: 999px; border: 1px solid #2c4a6b; color: #dbeafe; text-decoration: none;
+        font-weight: 600; font-size: 15px; line-height: 1.2; transition: border-color 0.15s, color 0.15s;
+      }
+      .action.main { background: #dbeafe; border-color: #dbeafe; color: #05070d; }
+      .action:hover, .action:focus-visible { border-color: #4af0e0; color: #fff; outline: none; }
+      .action.main:hover, .action.main:focus-visible { background: #4af0e0; border-color: #4af0e0; color: #05070d; }
+      @media (max-width: 760px), (orientation: portrait) {
+        #stage { --end: 0.66; }
+        .hero h1 { font-size: min(7.6vw, 4.6svh); }
+        .hero p { font-size: min(15px, 1.9svh); }
+        .action { padding: 8px 14px; font-size: 14px; }
+      }
+
+      /* The page under the scene. */
+      .page { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+      .page h2 { margin: 0; color: #fff; font-size: clamp(27px, 3.6vw, 42px); line-height: 1.12; letter-spacing: -0.02em; text-wrap: balance; }
+      .page p { margin: 0; }
+      .page a { color: #4af0e0; text-underline-offset: 3px; }
+      .page section { padding: clamp(56px, 9vw, 112px) 0 0; }
+      .take { display: grid; grid-template-columns: 5fr 6fr; gap: 16px clamp(32px, 6vw, 80px); padding: clamp(32px, 5vw, 56px) 0; border-top: 1px solid #16243a; }
+      .take:first-child { border-top: 0; padding-top: 0; }
+      .take div { display: grid; gap: 14px; }
+      .take small { color: #6b7f99; font-size: 14px; line-height: 1.5; }
+      .wide { display: block; box-sizing: border-box; width: 100%; height: auto; margin-top: clamp(32px, 5vw, 56px); border-radius: 14px; border: 1px solid #1c2c44; }
+      .code { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 32px; }
+      .code pre { margin: 0; padding: 18px 20px; overflow: auto; border-radius: 14px; border: 1px solid #1c2c44; background: #080d18; font: 13px/1.6 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: #c9d6ea; }
+      .start { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 24px; }
+      .start code { padding: 10px 16px; border-radius: 10px; border: 1px solid #1c2c44; background: #080d18; color: #fff; font: 15px/1.3 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+      .games { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 32px; }
+      .games a { display: block; border-radius: 14px; border: 1px solid #1c2c44; overflow: hidden; color: #dbeafe; text-decoration: none; font-weight: 600; transition: border-color 0.15s, transform 0.2s ease-out; }
+      .games a:hover, .games a:focus-visible { border-color: #4af0e0; transform: translateY(-3px); outline: none; }
+      .games img { display: block; width: 100%; height: auto; background: #080d18; }
+      .games span { display: block; padding: 12px 14px; font-size: 15px; }
+      details { border-top: 1px solid #16243a; }
+      details:first-of-type { margin-top: 24px; }
+      summary { padding: 16px 0; color: #dbeafe; font-weight: 600; cursor: pointer; }
+      summary:hover { color: #fff; }
+      details p { padding: 0 0 20px; max-width: 46em; color: #9fb3cf; }
+      footer.page { padding-top: 72px; padding-bottom: 48px; color: #6b7f99; font-size: 14px; line-height: 1.5; }
+      footer nav { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 20px; }
+      @media (max-width: 760px) {
+        .take, .code { grid-template-columns: minmax(0, 1fr); }
+        .code pre { font-size: 12px; }
+        .games { grid-template-columns: repeat(2, 1fr); }
+      }
+      /* Set by landing.ts, so what it never reveals is not hidden: no script, no fade. */
+      .will-reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.6s ease-out, transform 0.6s ease-out; }
+      .will-reveal.in { opacity: 1; transform: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .will-reveal { opacity: 1; transform: none; transition: none; }
+        #stage { --travel: 0svh; --end: 1; }
+        .hero { position: static; height: auto; opacity: 1; transform: none; pointer-events: auto; }
+        #frame { position: relative; height: auto; overflow: visible; }
+        #view { position: relative; height: 70svh; transform: none; }
+        #stage { height: auto; }
+      }
+      /* Says the page goes on, and lets a press through to the scene under it. */
+      .scroll-hint {
+        position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+        display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
+        color: #9fb3cf; font-size: 13px; line-height: 1; letter-spacing: 0.08em; white-space: nowrap;
+        opacity: calc(1 - var(--p) * 4);
+      }
+      .scroll-hint svg { display: block; animation: nudge 1.8s ease-in-out infinite; }
+      @keyframes nudge { 50% { transform: translateY(5px); } }
+      @media (prefers-reduced-motion: reduce) { .scroll-hint { display: none; } }
 
       /* The corner button and the panel it opens: this page's own source. */
       #source-button {
@@ -31,7 +115,7 @@
       }
       #source-button:hover, #source-button:focus-visible { border-color: #4af0e0; color: #ffffff; outline: none; }
       #source {
-        position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 58vw); display: flex; flex-direction: column;
+        position: fixed; z-index: 2; overscroll-behavior: contain; top: 0; right: 0; bottom: 0; width: min(760px, 58vw); display: flex; flex-direction: column;
         background: rgb(7 11 20 / 0.94); backdrop-filter: blur(8px); border-left: 1px solid #1c2c44; color: #c9d6ea;
         font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
       }
@@ -57,10 +141,162 @@
     </style>
   </head>
   <body>
-    <main id="view">
-      <a class="what" href="https://github.com/RomaRogov/scenoco-three#readme">What's that?</a>
-      <button id="source-button" aria-controls="source" aria-expanded="false">&lt;/&gt; Source</button>
+    <div id="stage">
+      <div id="frame">
+        <header class="hero">
+          <h1>Your coding agent can finally play the game it wrote.</h1>
+          <p>Unity's way of working on three.js, with scenes in TSX and a bridge that lets an LLM press, step, read and look at the running game.</p>
+          <div class="actions">
+            <a class="action main" href="#start">Start a game</a>
+            <a class="action" href="https://github.com/RomaRogov/scenoco-three">GitHub</a>
+          </div>
+        </header>
+        <div id="view">
+          <div class="scroll-hint" aria-hidden="true">
+            Scroll down
+            <svg width="18" height="10" viewBox="0 0 18 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l7 6 7-6" /></svg>
+          </div>
+          <button id="source-button" aria-controls="source" aria-expanded="false">&lt;/&gt; Source</button>
+        </div>
+      </div>
+    </div>
+
+    <main>
+      <div class="page">
+        <section id="why" aria-label="Why SceNoCo">
+          <article class="take" data-reveal>
+            <h2>An agent that can't play the game is only guessing.</h2>
+            <div>
+              <p>Reading code tells a model what should happen. SceNoCo lets it find out. In the browser it can hold the game's clock, step exact frames, press keys, read any field and take a screenshot of that frame.</p>
+              <p>A bot plays Breakout over 100 times faster than real time, so a whole level can be checked between two prompts.</p>
+              <small>In one test run with 10 planted bugs, Sonnet 5.5 found all 10 from the code either way. With the bridge it also confirmed all 10 in the running game; without it, 4.</small>
+            </div>
+          </article>
+          <article class="take" data-reveal>
+            <h2>Don't teach your model a new engine. It already knows two.</h2>
+            <div>
+              <p>Behaviours work like Unity's: <code>awake</code>, <code>start</code>, <code>update</code>, coroutines, prefabs. Everything on screen is plain three.js, so <code>&lt;Mesh&gt;</code> is <code>new Mesh()</code>.</p>
+              <p>There's no private vocabulary for an LLM to invent methods for. What it learned about both still applies.</p>
+            </div>
+          </article>
+          <article class="take" data-reveal>
+            <h2>A mistake should fail at the line that made it.</h2>
+            <div>
+              <p>Scenes are TSX, so <code>tsc</code> reads them. A misspelled attribute, a wrong value type or a reference to the wrong class is an error at the line it was written on, before anything runs.</p>
+              <p>Nothing is registered and nothing is looked up by name, so there's no table to forget to update.</p>
+            </div>
+          </article>
+          <article class="take" data-reveal>
+            <h2>Prompt to playable is the easy part. The tenth prompt is where games die.</h2>
+            <div>
+              <p>Vibe coding gets a first version out fast, then every change breaks something else. A SceNoCo scene only declares and its logic lives in small behaviours, so a change stays where it was made.</p>
+              <p>A person can still open it, read it and take over.</p>
+            </div>
+          </article>
+          <article class="take" data-reveal>
+            <h2>The editor belongs on the running game.</h2>
+            <div>
+              <p>Press Edit on the game you're already playing. Pause, step, move things and change any setting of any behaviour while you watch.</p>
+              <p>What you change is written back into the TSX, byte for byte around your edit. The file you and your agent share stays the only source.</p>
+            </div>
+          </article>
+          <img class="wide" data-reveal src="editor.jpg" width="1400" height="787" loading="lazy" alt="SceNoCo's editor open over a running game: the scene's nodes, and the selected one as live TSX" />
+          <article class="take" data-reveal style="margin-top: clamp(32px, 5vw, 56px)">
+            <h2>Starting on the web shouldn't trap you there.</h2>
+            <div>
+              <p>When a browser game earns a bigger life, <code>scenoco-unity</code> writes it into a real Unity project: prefabs, scenes, materials, particles, UI and input actions.</p>
+              <p>Your code arrives as C# stubs holding its TypeScript, ready for you or an agent to port.</p>
+            </div>
+          </article>
+        </section>
+
+        <section data-reveal aria-labelledby="code">
+          <h2 id="code">That's the whole model.</h2>
+          <div class="code">
+            <pre><code>// A behaviour: Unity's lifecycle
+export class Spinner extends Behaviour&lt;Mesh&gt; {
+  speed = 1;
+
+  update(dt: number) {
+    this.node.rotation.y += this.speed * dt;
+  }
+}</code></pre>
+            <pre><code>// A scene: every tag is a class you import
+export const Main = () =&gt; (
+  &lt;Scene&gt;
+    &lt;PerspectiveCamera position={[0, 2, 5]} /&gt;
+    &lt;Mesh&gt;
+      &lt;BoxGeometry /&gt;
+      &lt;MeshStandardMaterial color="orange" /&gt;
+      &lt;Spinner speed={2} /&gt;
+    &lt;/Mesh&gt;
+  &lt;/Scene&gt;
+);</code></pre>
+          </div>
+        </section>
+
+        <section data-reveal aria-labelledby="games">
+          <h2 id="games">Made with it. Play them here.</h2>
+          <div class="games">
+            <a href="breakout/"><img src="shots/breakout.jpg" width="640" height="480" loading="lazy" alt="Breakout" /><span>Breakout</span></a>
+            <a href="race/"><img src="shots/race.jpg" width="640" height="480" loading="lazy" alt="Spline Race" /><span>Spline Race</span></a>
+            <a href="td/"><img src="shots/td.jpg" width="640" height="480" loading="lazy" alt="Tiny Bastion" /><span>Tiny Bastion</span></a>
+            <a href="eggy/"><img src="shots/eggy.jpg" width="640" height="480" loading="lazy" alt="Eggy Roll" /><span>Eggy Roll</span></a>
+          </div>
+        </section>
+
+        <section id="start" data-reveal aria-labelledby="start-title">
+          <h2 id="start-title">Start with one line.</h2>
+          <div class="start">
+            <code>npm create @scenoco-three my-game</code>
+          </div>
+          <p style="margin-top: 18px">Working with an agent? Give it <a href="https://github.com/RomaRogov/scenoco-game">the skill</a>, or point it at <a href="llms.txt">llms.txt</a>.</p>
+        </section>
+
+        <section data-reveal aria-labelledby="questions">
+          <h2 id="questions">Questions</h2>
+          <details>
+            <summary>Is there a Unity-like game engine for three.js?</summary>
+            <p>SceNoCo is a Unity-style game framework on three.js. It brings Unity's component model, hooks, coroutines, prefabs, physics components and named input axes to the web, and rendering stays plain three.js. It's a framework you install from npm, not an engine you download.</p>
+          </details>
+          <details>
+            <summary>Can I vibe code a 3D game with Claude, ChatGPT or Cursor?</summary>
+            <p>Yes. Any AI coding agent that can edit files and drive a browser can write a SceNoCo game and test it. The starter ships a rules card the agent reads, and <code>npm run check</code> reports its mistakes at the line it wrote them.</p>
+          </details>
+          <details>
+            <summary>How do I make a browser game with an LLM?</summary>
+            <p>Run <code>npm create @scenoco-three my-game</code> and describe your game to your agent. It writes behaviours and TSX scenes, runs the check, then plays the game through <code>window.__scenoco</code> to confirm that it works.</p>
+          </details>
+          <details>
+            <summary>Can an AI agent test the game it builds?</summary>
+            <p>Yes. In development, the page exposes a bridge the agent reaches through Playwright or any browser tool. It can pause the clock, step frames, send input, wait for a condition, read game state and take screenshots.</p>
+          </details>
+          <details>
+            <summary>Can I port a three.js game to Unity?</summary>
+            <p>A SceNoCo game can. <code>scenoco-unity</code> writes scenes, prefabs, meshes, materials, particles, UI and input into a Unity project. Game logic arrives as C# stubs holding the TypeScript, to be ported by you or an agent.</p>
+          </details>
+          <details>
+            <summary>How is it different from React Three Fiber?</summary>
+            <p>Scenes use React Three Fiber's attribute rules, but there's no React and no reconciler: TSX builds the objects once. Game logic lives in Unity-style behaviours instead of hooks and components.</p>
+          </details>
+          <details>
+            <summary>Is it free?</summary>
+            <p>Yes. SceNoCo is open source under the MIT licence.</p>
+          </details>
+        </section>
+      </div>
     </main>
+
+    <footer class="page">
+      <nav aria-label="Links">
+        <a href="https://github.com/RomaRogov/scenoco-three#readme">README</a>
+        <a href="packages/core/API.md">API reference</a>
+        <a href="https://github.com/RomaRogov/scenoco-three">GitHub</a>
+        <a href="https://www.npmjs.com/package/@scenoco-three/core">npm</a>
+        <a href="llms.txt">llms.txt</a>
+      </nav>
+      <p>SceNoCo is not sponsored by or affiliated with Unity Technologies or its affiliates. Unity is a trademark or registered trademark of Unity Technologies or its affiliates in the U.S. and elsewhere.</p>
+    </footer>
     <aside id="source" hidden aria-label="This page's source">
       <header>
         <p>This page is these files. The scene only declares; what moves is a behaviour.</p>

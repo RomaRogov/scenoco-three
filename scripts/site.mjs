@@ -3,11 +3,11 @@
  * The project's site, built into `site/` for GitHub Pages:
  *
  * - `index.html` — `examples/home`, a SceNoCo scene: the word falls onto a grid, and a letter can be
- *   picked up and moved as in the editor. One button leads to the README, another shows its source.
+ *   picked up and moved as in the editor. Scrolling shrinks it into the landing page below.
  * - `<example>/` — every other example's production build, playable, in a folder of its own name.
  * - `llms.txt`, `llms-full.txt` and the markdown they link to — what coding agents read.
  * - What search engines read: the home page's title, description, preview card and structured data,
- *   the same in text for a crawler that does not run the scene, and `sitemap.xml` — submitted in the
+ *   its own text, which a crawler reads without running the scene, and `sitemap.xml` — submitted in the
  *   search consoles, since a project site under github.io cannot have a robots.txt of its own.
  *   `GOOGLE_SITE_VERIFICATION` and `BING_SITE_VERIFICATION`, when set, add the search consoles' tags.
  *
@@ -35,19 +35,33 @@ for (const [name, outDir] of [['home', OUT], ...examples.map((e) => [e.name, joi
 
 // What a search result or a link preview shows: the project's one sentence, from package.json.
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-const title = 'SceNoCo — Unity-style behaviours for three.js, scenes in TSX';
+const title = 'SceNoCo: Unity-style three.js game framework for LLMs';
 const description = escape(summary());
+const page = readFileSync(join(OUT, 'index.html'), 'utf8');
+const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+// The page's own questions, as it shows them: structured data has to match what a reader can open.
+const questions = [...page.matchAll(/<details>\s*<summary>(.*?)<\/summary>\s*<p>(.*?)<\/p>\s*<\/details>/gs)].map(([, q, a]) => ({
+  '@type': 'Question',
+  name: plain(q),
+  acceptedAnswer: { '@type': 'Answer', text: plain(a) },
+}));
 const structured = {
   '@context': 'https://schema.org',
-  '@type': 'SoftwareSourceCode',
-  name: 'SceNoCo',
-  description: summary(),
-  url: SITE,
-  codeRepository: REPO,
-  programmingLanguage: 'TypeScript',
-  runtimePlatform: 'Web browser (WebGL, three.js)',
-  license: 'https://opensource.org/licenses/MIT',
-  keywords: 'three.js, game engine, Unity, TSX, TypeScript, WebGL, game development, AI coding agents',
+  '@graph': [
+    {
+      '@type': 'SoftwareSourceCode',
+      name: 'SceNoCo',
+      description: summary(),
+      url: SITE,
+      codeRepository: REPO,
+      programmingLanguage: 'TypeScript',
+      runtimePlatform: 'Web browser (WebGL, three.js)',
+      license: 'https://opensource.org/licenses/MIT',
+      keywords:
+        'three.js game engine, three.js game framework, Unity-like web game engine, Unity for the web, vibe coding games, vibe code a game, AI game development, game development with LLMs, AI coding agents, browser games, TSX, TypeScript, WebGL',
+    },
+    { '@type': 'FAQPage', url: SITE, mainEntity: questions },
+  ],
 };
 const verification = [
   ['google-site-verification', process.env.GOOGLE_SITE_VERIFICATION],
@@ -69,36 +83,12 @@ const head = [
   ...verification.map(([name, token]) => `<meta name="${name}" content="${escape(token)}" />`),
   `<script type="application/ld+json">${JSON.stringify(structured)}</script>`,
 ];
-// The page itself is a scene on a canvas: this is what it says in words, for whoever cannot see it —
-// a screen reader, a crawler — and the links a crawler follows from here.
-const links = [
-  ['README', `${REPO}#readme`],
-  ['API reference', `${SITE}packages/core/API.md`],
-  ...examples.map((e) => [`${e.title.replace(/ — SceNoCo$/, '')}, playable`, `${SITE}${e.name}/`]),
-  ['llms.txt', `${SITE}llms.txt`],
-  ['Source on GitHub', REPO],
-  ['@scenoco-three/core on npm', 'https://www.npmjs.com/package/@scenoco-three/core'],
-];
-const words = `
-    <main class="words">
-      <h1>SceNoCo</h1>
-      <p>${description}</p>
-      <p>Scene · Node · Component: a three.js scene is a TSX file that only declares, and its logic lives in
-      Unity-style behaviours — awake, start, update, coroutines, prefabs, physics and input. Start a game with
-      <code>npm create @scenoco-three my-game</code>.</p>
-      <ul>${links.map(([label, href]) => `<li><a href="${href}">${label}</a></li>`).join('')}</ul>
-      <p>SceNoCo is not sponsored by or affiliated with Unity Technologies or its affiliates. Unity is a trademark or
-      registered trademark of Unity Technologies or its affiliates in the U.S. and elsewhere.</p>
-    </main>`;
-const style = `.words { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }`;
 const index = join(OUT, 'index.html');
 writeFileSync(
   index,
-  readFileSync(index, 'utf8')
+  page
     .replace(/<title>[^<]*<\/title>/, `<title>${escape(title)}</title>`)
-    .replace('</style>', `  ${style}\n    </style>`)
-    .replace('</head>', `  ${head.join('\n    ')}\n  </head>`)
-    .replace('<body>', `<body>${words}`),
+    .replace('</head>', `  ${head.join('\n    ')}\n  </head>`),
 );
 
 // For crawlers: what there is.

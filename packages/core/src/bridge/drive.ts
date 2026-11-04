@@ -315,7 +315,7 @@ const DRIVE_CALLS = ['pause', 'play', 'clock', 'step', 'outline', 'telemetry', '
  * answer is one console line, and the clock stays held after the last, so the screenshot taken next
  * shows that moment. It reads data only, so a link from anywhere can do no more than press keys.
  */
-export async function runDrive(bridge: Bridge, script: string, scope: DriveScope): Promise<void> {
+export async function runDrive(bridge: Bridge, script: string, scope: DriveScope, nextPaint: () => Promise<void>): Promise<void> {
   let calls: DriveCall[];
   try {
     calls = parseDrive(script);
@@ -343,5 +343,6 @@ export async function runDrive(bridge: Bridge, script: string, scope: DriveScope
       return;
     }
   }
+  await nextPaint();
   console.info(`[scenoco] done, held at frame ${(bridge.clock!() as { frame: number }).frame}: a screenshot now shows this frame. Open the address without ?drive= to play.`);
 }

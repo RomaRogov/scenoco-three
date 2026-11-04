@@ -1,6 +1,6 @@
 {
   "projectTitle": "SceNoCo",
-  "description": "Unity-style behaviours for three.js, with scenes written in TSX and no React.",
+  "description": "A Unity-style three.js game framework for building web games with LLMs and coding agents: behaviours, TSX scenes without React, a live editor, and export to Unity.",
   "folders": [
     "packages",
     "examples"

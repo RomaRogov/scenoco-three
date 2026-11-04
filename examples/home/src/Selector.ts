@@ -26,6 +26,7 @@ export class Selector extends Behaviour {
     });
     this.node.add(gizmo.getHelper());
     this.gizmo = gizmo;
+    this.touchScrolls(true);
     this.outline.visible = false;
     this.node.add(this.outline);
   }
@@ -52,5 +53,11 @@ export class Selector extends Behaviour {
     if (node) this.gizmo?.attach(node);
     else this.gizmo?.detach();
     this.outline.visible = node !== null;
+    this.touchScrolls(node === null);
+  }
+
+  /** A finger scrolls the page past the scene, until a letter is picked and the same drag moves it. TransformControls has set `none`. */
+  private touchScrolls(on: boolean) {
+    document.querySelector('canvas')!.style.touchAction = on ? 'pan-y' : 'none';
   }
 }

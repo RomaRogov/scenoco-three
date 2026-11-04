@@ -2,7 +2,7 @@
  * The "Source" button: this page's own files, as written, the scene first. Read at build time with
  * Vite's `?raw`, so what it shows is exactly what runs.
  */
-const files = import.meta.glob<string>(['./**/*.ts', './**/*.tsx', '!./source.ts'], { query: '?raw', import: 'default', eager: true });
+const files = import.meta.glob<string>(['./**/*.ts', './**/*.tsx', '!./source.ts', '!./landing.ts'], { query: '?raw', import: 'default', eager: true });
 
 const REPO = 'https://github.com/RomaRogov/scenoco-three/tree/main/examples/home/src';
 
@@ -61,6 +61,8 @@ export function installSourceButton(): void {
   }
 
   const open = (on: boolean) => {
+    // The panel and the view share the first screen: the page does not scroll under them.
+    if (on) scrollTo({ top: 0, behavior: 'instant' });
     panel.hidden = !on;
     document.body.classList.toggle('source-open', on);
     button.setAttribute('aria-expanded', String(on));

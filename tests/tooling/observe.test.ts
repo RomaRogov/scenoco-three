@@ -71,6 +71,51 @@ describe('the game from Playwright', () => {
     expect(await page.evaluate(() => __scenoco.clock!())).toEqual(before); // held: real time does not move it
   }, 60_000);
 
+  it('steps and reads faster than real time, frame by frame, as a bot does', async () => {
+    const frames = 300;
+    const seconds = await page.evaluate(async (frames) => {
+      const started = performance.now();
+      for (let i = 0; i < frames; i++) {
+        await __scenoco.eval!('return Time.frameCount');
+        await __scenoco.step!(1);
+      }
+      return (performance.now() - started) / 1000;
+    }, frames);
+    expect(seconds).toBeLessThan(frames / 60);
+  }, 30_000);
+
+  it('a screenshot taken right after a step shows that step', async () => {
+    // Without a wait for the paint in the bridge, what the tool captures has to be the frame just stepped.
+    const red = (png: Buffer) =>
+      page.evaluate(async (base64) => {
+        const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+        const canvas = new OffscreenCanvas(1, 1);
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, -480, -600);
+        return context.getImageData(0, 0, 1, 1).data[0]!;
+      }, png.toString('base64'));
+    // Red around the camera, on and off. The page dims it, so the two only have to tell apart.
+    await page.evaluate(() =>
+      __scenoco.eval!(`
+        const cover = new THREE.Mesh(new THREE.SphereGeometry(1), new THREE.MeshBasicMaterial({ color: '#ff0000', side: THREE.BackSide, depthTest: false, toneMapped: false, fog: false }));
+        cover.name = 'Cover';
+        cover.renderOrder = 999;
+        camera.add(cover);`),
+    );
+    // A new shader's first frames can reach the screen late, with or without a wait: past those.
+    await page.waitForTimeout(500);
+    for (let i = 0; i < 12; i++) {
+      const on = i % 2 === 0;
+      await page.evaluate(async (on) => {
+        await __scenoco.eval!(`node('Cover').visible = ${on}`);
+        await __scenoco.step!(1);
+      }, on);
+      const seen = await red(await page.screenshot());
+      if (on) expect(seen).toBeGreaterThan(30);
+      else expect(seen).toBeLessThan(20);
+    }
+  }, 30_000);
+
   it("answers a mistake with the game's own message", async () => {
     expect(await page.evaluate(() => __scenoco.eval!('return findAll(Brick).length'))).toBeGreaterThan(0);
     await expect(page.evaluate(() => __scenoco.eval!('return Game.state'))).rejects.toThrow(/Game is not defined\. This game's behaviour classes so far: .*GameState/);
