@@ -36,6 +36,8 @@
       #stage.settled .hero { pointer-events: auto; }
       .hero h1 { margin: 0; max-width: 20em; color: #fff; font-size: min(4.2vw, 7svh, 58px); line-height: 1.08; letter-spacing: -0.025em; text-wrap: balance; }
       .hero p { margin: 0; max-width: 44em; font-size: min(17px, 2.4svh); line-height: 1.4; color: #9fb3cf; text-wrap: balance; }
+      .hero .aside { max-width: none; font-size: clamp(11px, 1.7svh, 13px); color: #8094b0; }
+      .hero .aside a { color: #4af0e0; text-underline-offset: 3px; }
       .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
       .action {
         padding: 10px 18px; border-radius: 999px; border: 1px solid #2c4a6b; color: #dbeafe; text-decoration: none;
@@ -45,11 +47,13 @@
       .action:hover, .action:focus-visible { border-color: #4af0e0; color: #fff; outline: none; }
       .action.main:hover, .action.main:focus-visible { background: #4af0e0; border-color: #4af0e0; color: #05070d; }
       @media (max-width: 760px), (orientation: portrait) {
-        #stage { --end: 0.66; }
+        #stage { --end: 0.6; }
         .hero h1 { font-size: min(7.6vw, 4.6svh); }
         .hero p { font-size: min(15px, 1.9svh); }
         .action { padding: 8px 14px; font-size: 14px; }
       }
+      /* A phone on its side: the words need half the screen. */
+      @media (max-height: 480px) { #stage { --end: 0.5; } }
 
       /* The page under the scene. */
       .page { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
@@ -146,11 +150,11 @@
         <header class="hero">
           <h1>Your coding agent can finally play the game it wrote.</h1>
           <p>Unity's way of working on three.js, with scenes in TSX and a bridge that lets an LLM press, step, read and look at the running game.</p>
-          <p>Sorry guys, this landing was written by claude - by LLM for LLMs, heh. You can read my real thoughts in <a href="https://github.com/RomaRogov/scenoco-three#readme">README.md</a></p>
           <div class="actions">
             <a class="action main" href="#start">Start a game</a>
             <a class="action" href="https://github.com/RomaRogov/scenoco-three">GitHub</a>
           </div>
+          <p class="aside">Sorry guys, this landing was written by claude - by LLM for LLMs, heh. You can read my real thoughts in <a href="https://github.com/RomaRogov/scenoco-three#readme">README.md</a></p>
         </header>
         <div id="view">
           <div class="scroll-hint" aria-hidden="true">
