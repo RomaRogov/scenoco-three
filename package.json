@@ -2,7 +2,7 @@
   "name": "scenoco-workspace",
   "private": true,
   "version": "1.0.0",
-  "description": "A Unity-style three.js game framework for building web games with LLMs and coding agents: behaviours, TSX scenes without React, a live editor, and export to Unity.",
+  "description": "A Unity-style three.js game engine for building web games with LLMs and coding agents: behaviours, TSX scenes without React, a live editor, and export to Unity.",
   "type": "module",
   "license": "MIT",
   "repository": {

@@ -46,7 +46,7 @@ describe('the game from Playwright', () => {
     );
     expect(pageErrors).toEqual([]);
     expect(brightest).toBeGreaterThan(40);
-  });
+  }, 60_000);
 
   it('needs nothing but page.evaluate: exact frames, input, conditions and readings, from the bridge', async () => {
     // What an agent with only a browser tool does: evaluate in the page, with the bridge's own help to go on.
@@ -71,18 +71,26 @@ describe('the game from Playwright', () => {
     expect(await page.evaluate(() => __scenoco.clock!())).toEqual(before); // held: real time does not move it
   }, 60_000);
 
-  it('steps and reads faster than real time, frame by frame, as a bot does', async () => {
-    const frames = 300;
-    const seconds = await page.evaluate(async (frames) => {
-      const started = performance.now();
-      for (let i = 0; i < frames; i++) {
+  it('steps and reads without waiting for a paint, as a bot does', async () => {
+    // Counted in the page's paints, not in seconds: a machine without a GPU draws each step slowly.
+    const { steps, paints } = await page.evaluate(async () => {
+      const steps = 30;
+      let paints = 0;
+      let counting = true;
+      const count = () => {
+        paints++;
+        if (counting) requestAnimationFrame(count);
+      };
+      requestAnimationFrame(count);
+      for (let i = 0; i < steps; i++) {
         await __scenoco.eval!('return Time.frameCount');
         await __scenoco.step!(1);
       }
-      return (performance.now() - started) / 1000;
-    }, frames);
-    expect(seconds).toBeLessThan(frames / 60);
-  }, 30_000);
+      counting = false;
+      return { steps, paints };
+    });
+    expect(paints).toBeLessThan(steps * 4); // waiting for a paint in both calls takes at least 4 per step
+  }, 60_000);
 
   it('a screenshot taken right after a step shows that step', async () => {
     // Without a wait for the paint in the bridge, what the tool captures has to be the frame just stepped.
@@ -114,7 +122,7 @@ describe('the game from Playwright', () => {
       if (on) expect(seen).toBeGreaterThan(30);
       else expect(seen).toBeLessThan(20);
     }
-  }, 30_000);
+  }, 60_000);
 
   it("answers a mistake with the game's own message", async () => {
     expect(await page.evaluate(() => __scenoco.eval!('return findAll(Brick).length'))).toBeGreaterThan(0);

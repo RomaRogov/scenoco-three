@@ -1,8 +1,14 @@
 {
   "name": "@scenoco-three/core",
   "version": "1.1.1",
-  "description": "SceNoCo core: Unity-style behaviours for three.js — Behaviour, coroutines, Time, Input, SceneManager — with scenes written in TSX and no React.",
+  "description": "SceNoCo core: a Unity-style three.js game engine — Behaviour, coroutines, Time, Input, SceneManager — with scenes written in TSX and no React.",
   "keywords": [
+    "three.js",
+    "threejs-game-engine",
+    "browser-game",
+    "vibe-coding",
+    "llm",
+    "ai-agents",
     "three",
     "threejs",
     "scenoco",

@@ -3,6 +3,12 @@
   "version": "1.1.0",
   "description": "Start a SceNoCo game: `npm create @scenoco-three my-game`.",
   "keywords": [
+    "three.js",
+    "threejs-game-engine",
+    "browser-game",
+    "vibe-coding",
+    "llm",
+    "ai-agents",
     "three",
     "threejs",
     "scenoco",

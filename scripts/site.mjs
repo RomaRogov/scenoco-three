@@ -35,7 +35,7 @@ for (const [name, outDir] of [['home', OUT], ...examples.map((e) => [e.name, joi
 
 // What a search result or a link preview shows: the project's one sentence, from package.json.
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-const title = 'SceNoCo: Unity-style three.js game framework for LLMs';
+const title = 'SceNoCo: Unity-style three.js game engine for LLMs';
 const description = escape(summary());
 const page = readFileSync(join(OUT, 'index.html'), 'utf8');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
