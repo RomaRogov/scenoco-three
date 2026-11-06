@@ -65,7 +65,12 @@ export function packages() {
     .map((dir) => ({ dir, ...JSON.parse(read(`packages/${dir}/package.json`)) }))
     .filter((p) => !p.private)
     .sort((a, b) => (a.dir === 'core' ? -1 : b.dir === 'core' ? 1 : a.dir.localeCompare(b.dir)))
-    .map((p) => ({ name: p.name, description: p.description, readme: existsSync(join(ROOT, 'packages', p.dir, 'README.md')) ? `packages/${p.dir}/README.md` : null }));
+    .map((p) => ({
+      name: p.name,
+      description: p.description,
+      readme: existsSync(join(ROOT, 'packages', p.dir, 'README.md')) ? `packages/${p.dir}/README.md` : null,
+      api: p.dir !== 'core' && existsSync(join(ROOT, 'packages', p.dir, 'API.md')) ? `packages/${p.dir}/API.md` : null,
+    }));
 }
 
 /** Every document the site serves as markdown, in reading order: [path, label]. */
@@ -75,7 +80,7 @@ export function documents() {
     ['README.md', 'SceNoCo'],
     [CARD, 'The rules a SceNoCo game project gives its coding agent (the starter\'s AGENTS.md)'],
     ['packages/core/API.md', 'Every signature of @scenoco-three/core'],
-    ...own.map((p) => [p.readme, `${p.name}: ${p.description}`]),
+    ...own.flatMap((p) => [[p.readme, `${p.name}: ${p.description}`], ...(p.api ? [[p.api, `Every signature of ${p.name}`]] : [])]),
   ];
 }
 

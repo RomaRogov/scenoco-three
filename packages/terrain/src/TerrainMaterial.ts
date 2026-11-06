@@ -83,7 +83,7 @@ export class TerrainMaterial extends MeshStandardMaterial {
     const data = this.terrainData;
     const textures = data.textures;
     if (!textures) {
-      throw new Error(`TerrainMaterial: "${data.url}" has no layer textures. Load a file with its textures — new TerrainData(url, textures) — or give a runtime one terrainLayers.`);
+      throw new Error(`TerrainMaterial: "${data.url}" has no layer textures. Load a file with its textures — new TerrainData(url, textures) — give a runtime one terrainLayers, or draw the terrain with another material: <Terrain materialTemplate={…} />.`);
     }
     const tiles = data.terrainLayers.map((l) => l.tileSize);
     if (tiles.length !== this.layerCount) {

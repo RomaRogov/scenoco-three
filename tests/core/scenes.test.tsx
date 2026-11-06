@@ -75,6 +75,28 @@ describe('SceneManager', () => {
     expect(SceneManager.activeScene?.getObjectByName('one')).toBeDefined();
   });
 
+  it("draws what a behaviour sets on its own <Scene> after load, as Unity's RenderSettings", () => {
+    class Sky extends Behaviour<Scene> {
+      override start() {
+        this.node.background = new Color('#00ff00');
+        this.node.environmentIntensity = 0.5;
+        this.node.backgroundRotation.y = 1;
+      }
+    }
+    const Lit = () => (
+      <Scene backgroundBlurriness={0.3}>
+        <Sky />
+      </Scene>
+    );
+    const { world, frame } = game();
+    SceneManager.load(Lit);
+    expect(world.backgroundBlurriness).toBe(0.3); // set at load, with the rest of RenderSettings
+    frame();
+    expect((world.background as Color).getHexString()).toBe('00ff00');
+    expect(world.environmentIntensity).toBe(0.5);
+    expect(world.backgroundRotation.y).toBe(1);
+  });
+
   it('frees what a scene built when it goes, and leaves what it only named', () => {
     const { frame } = game();
     const paint = new MeshStandardMaterial(); // an assets.ts constant: every scene may name it

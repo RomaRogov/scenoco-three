@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3 } from 'three';
-import { Runtime, loadAssets, wake } from '@scenoco-three/core';
-import { Terrain, TerrainData, type TerrainMaterial } from '@scenoco-three/terrain';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Texture, Vector3 } from 'three';
+import { Runtime, loadAssets, simulate, wake } from '@scenoco-three/core';
+import { Terrain, TerrainData, TerrainLayer, type TerrainMaterial } from '@scenoco-three/terrain';
 import { provideCamera } from '../../packages/core/src/kernel/camera';
 
 const runtimes: Runtime[] = [];
-afterEach(() => runtimes.splice(0).forEach((r) => r.dispose()));
+afterEach(() => {
+  runtimes.splice(0).forEach((r) => r.dispose());
+  vi.unstubAllGlobals();
+});
 
 /** A `.terrain` file, written the way the asset lab writes one: as a data: URL. */
 async function terrainFile(heights: number[][], size: number, weights: number[][][], step = 0.01): Promise<string> {
@@ -87,6 +90,7 @@ describe('terrain', () => {
     const data = new TerrainData(await terrainFile(ramp, 20, [[[255]]]));
     await loadAssets(data);
     // The layers' textures as drawn need a canvas: stand-ins, since only the tiling is looked at.
+    vi.stubGlobal('OffscreenCanvas', class {});
     Object.defineProperty(data, 'textures', { get: () => ({ splats: {}, diffuse: {}, normal: {} }) });
     const scene = new Scene();
     const node = new Group();
@@ -196,6 +200,26 @@ describe('terrain', () => {
     expect(node.children.length).toBe(1);
     expect(box().min.y).toBeCloseTo(5, 5);
     expect(node.getComponent(Terrain)!.sampleHeight(new Vector3(3, 0, 2))).toBeCloseTo(5, 5);
+  });
+
+  it('draws plain grey with no layers, and in a test, which has no canvas to pack them on', () => {
+    const data = new TerrainData();
+    data.heightmapResolution = 33;
+    data.size = new Vector3(20, 4, 20);
+    const game = simulate(() => (
+      <Scene>
+        <Terrain terrainData={data} />
+      </Scene>
+    ));
+    const ground = () => (game.scene.getObjectByName('chunk 0,0') as Mesh).material as MeshStandardMaterial;
+    expect(ground().type).toBe('MeshStandardMaterial');
+    expect(ground().color.getHexString()).toBe('808080');
+
+    // Painted in code: still plain under a test, where nothing draws and Node has no OffscreenCanvas.
+    data.terrainLayers = [new TerrainLayer({ diffuseTexture: new Texture(), tileSize: 4 })];
+    game.step();
+    expect(ground().type).toBe('MeshStandardMaterial');
+    game.dispose();
   });
 });
 

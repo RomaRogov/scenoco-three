@@ -10,6 +10,7 @@ import { installEditor, markSpawned, sizeCanvas, startOpenedScene } from './edit
 import { Model } from './assets/Model.js';
 import type { Prefab } from './kernel/types.js';
 import { isPrefab } from './jsx.js';
+import { Event } from './kernel/Event.js';
 
 export interface PlayOptions {
   /**
@@ -140,6 +141,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      liveGames.delete(game);
       renderer.setAnimationLoop(null);
       removeEventListener('resize', resize);
       watch?.disconnect();
@@ -158,6 +160,8 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   };
   // Before the scene is built: its behaviours may ask for the game from their first awake.
   games.set(runtime, game);
+  liveGames.add(game);
+  gameStarted.emit(game);
   // In development the editor may have opened another scene: the page starts in it instead.
   let starting = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
   if (starting) void starting.finally(() => (starting = null));
@@ -173,7 +177,7 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
     Input.endFrame();
   };
   const closeBridge = import.meta.env?.DEV
-    ? installBridge(runtime, () => ({ scene, camera, gl: renderer, size: { width: size.x, height: size.y } }), frame)
+    ? installBridge(runtime, () => ({ scene, camera, gl: renderer, size: { width: size.x, height: size.y } }), frame, () => draw())
     : null;
 
   const timer = new Timer();
@@ -185,17 +189,26 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
       frame(timer.getDelta());
       editor?.afterFrame();
     }
+    draw();
+  });
+  return game;
+
+  /** Draw the frame: from the bridge's viewpoint when it holds one, else the game's camera. */
+  function draw(): void {
     if (autoCamera && !drawable(camera)) findCamera();
     const view = import.meta.env?.DEV ? viewOf(runtime) : null;
     if (view) renderer.render(scene, view);
     else if (camera || !autoCamera) game.render();
     else if (++framesWithoutCamera === 60) console.error(noCamera);
     if (view ?? camera) editor?.draw((view ?? camera)!);
-  });
-  return game;
+  }
 }
 
 const games = new WeakMap<Runtime, Game>();
+/** @internal the games running now, and each as it starts: for what applies to every game, as `QualitySettings`. */
+export const liveGames = new Set<Game>();
+/** @internal */
+export const gameStarted = new Event<[Game]>();
 
 /** The game `play` made that this node is running in: its renderer, camera and `render`. Null under `simulate`. */
 export function gameOf(node: Object3D): Game | null {

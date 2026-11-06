@@ -26,6 +26,8 @@ export function installBridge(
   get: () => ObservedState,
   /** One frame of the game, as the page's own loop runs it. */
   frame: (dt: number) => void = (dt) => runtime.update(dt),
+  /** Draw the game as it stands: what a hidden page, which paints nothing, gets after a step. */
+  draw: () => void = () => {},
 ): () => void {
   const restoreTimers = warnAboutTimers(runtime);
   const reading = createScope(get);
@@ -55,21 +57,45 @@ export function installBridge(
       port2.postMessage(null);
     });
 
+  /**
+   * A page out of sight — a background tab, a browser pane that is hidden — runs no frames and paints
+   * none, and only a background tab says so in `document.hidden`: a game that waits for its own frames
+   * never moves, and a screenshot shows an older one. From the first wait that sees no frame, the
+   * bridge steps the clock itself and draws each step. Said once.
+   */
+  let stalled = false;
+  const stall = (): void => {
+    if (stalled) return;
+    stalled = true;
+    console.warn('SceNoCo: the page runs no frames of its own — it is hidden or out of sight — so the bridge holds the clock, steps it, and draws each step. Show the page before a screenshot: one out of sight may not show the last frame.');
+  };
+  const noFrames = (): boolean => {
+    if (document.hidden) stall();
+    return stalled;
+  };
   const stepFrames = (frames: number, dt: number): void => {
     for (let i = 0; i < frames; i++) frame(dt);
+    if (frames > 0 && stalled) draw();
   };
   /**
-   * Let frames pass: stepped when the clock is held; otherwise the game's own, counted and not timed,
-   * so a slow machine does not see two presses inside one frame. A hidden page runs none, so it only
-   * waits their time; a visible one, however slow, gets half a second a frame and one more.
+   * Let frames pass: stepped when the clock is held, or the page runs none; otherwise the game's own,
+   * counted and not timed, so a slow machine does not see two presses inside one frame — however
+   * slow, it gets half a second a frame and one more. Not one in all that time: it runs none.
    */
   const pass = async (frames: number): Promise<void> => {
+    if (!isHeld(runtime) && noFrames()) hold();
     if (isHeld(runtime)) stepFrames(frames, DT);
     else {
-      const target = runtime.frame + frames;
-      const limit = performance.now() + (document.hidden ? (frames * 1000) / 60 : 1000 + frames * 500);
+      const start = runtime.frame;
+      const target = start + frames;
+      const limit = performance.now() + 1000 + frames * 500;
       while (runtime.frame < target && !isHeld(runtime) && performance.now() < limit) {
         await new Promise((done) => setTimeout(done, 4));
+      }
+      if (runtime.frame === start && !isHeld(runtime)) {
+        stall();
+        hold();
+        stepFrames(frames, DT);
       }
     }
     await nextTask();
@@ -97,9 +123,15 @@ export function installBridge(
      * frames, so a key pressed sooner goes nowhere: call this before anything else.
      */
     async ready(frames = 3) {
+      // Two seconds with no frame of its own: a first frame compiling its shaders takes less.
+      const deadline = performance.now() + 2000;
       while (runtime.frame < frames) {
+        if (!isHeld(runtime) && (noFrames() || performance.now() > deadline)) {
+          stall();
+          hold();
+        }
         if (isHeld(runtime)) stepFrames(frames - runtime.frame, DT);
-        else await new Promise((done) => requestAnimationFrame(done));
+        else await new Promise((done) => (requestAnimationFrame(() => done(null)), setTimeout(done, 100)));
       }
       return bridge.clock();
     },

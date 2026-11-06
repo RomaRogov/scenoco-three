@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Mesh, PerspectiveCamera, Scene } from 'three';
 import { Vector3 } from 'three';
 import { Behaviour, Input, KeyCode, Screen, findObjectOfType, simulate } from '@scenoco-three/core';
@@ -34,7 +34,10 @@ describe('simulate', () => {
   it("runs a scene with no canvas: a test steps it, presses keys and reads the game's rules", () => {
     const game = simulate(Main);
     const state = findObjectOfType(GameState)!;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(game.until(() => state.phase === 'playing', 30)).toBe(false); // nothing pressed, nothing starts
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^simulate: until\(\(\) => state\.phase === .playing.\) was still false after 30 frames\. Pass more: until\(condition, 120\)\.$/));
+    warn.mockRestore();
     game.press(KeyCode.Space);
     expect(state.phase).toBe('playing');
 

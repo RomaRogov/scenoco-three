@@ -419,6 +419,20 @@ describe('rapier', () => {
     }).toThrow(); // a copy: changing it would otherwise do nothing, silently
   });
 
+  it("takes a mass that is set, as Unity's Rigidbody.mass, before or after its colliders attach", () => {
+    const { scene, run } = world();
+    const b = ball(scene, 0);
+    b.body.useGravity = false;
+    b.body.mass = 5; // set in awake's place: before the collider is attached
+    run(0.05);
+    expect(b.body.mass).toBeCloseTo(5);
+    b.body.mass = 12; // and while it runs, as a growing marble does every step
+    expect(b.body.mass).toBeCloseTo(12);
+    b.body.velocity = new Vector3();
+    b.body.addForce(new Vector3(12, 0, 0), ForceMode.Impulse);
+    expect(b.body.velocity.x).toBeCloseTo(1);
+  });
+
   it('slides on a shared material by its combine mode, and a change to it reaches its colliders at once', () => {
     const { scene, run } = world();
     const ground = new Object3D();

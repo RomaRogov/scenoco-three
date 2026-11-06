@@ -50,6 +50,7 @@ export function addsToTypedNodes() {
 const Tower = prefab(({ level }: { level: number }) => <Group name="tower" userData={{ level }} />);
 const Placed = prefab(({ position }: { position: [number, number, number] }) => <Group position={position} />);
 const Crate = prefab(() => <Group />);
+const Wall = prefab(({ width = 1, label = 'wall' }) => <Group name={label} scale={[width, 1, 1]} />);
 const Plain = ({ name }: { name: string }) => <Group userData={{ name }} />;
 
 /**
@@ -63,6 +64,10 @@ export const Prefabs = () => (
     <Tower level={2} colour="red" />
     {/* @ts-expect-error position belongs to the tag, not the prefab's props */}
     <Placed position={[0, 0, 0]} />
+    <Wall position={[-9, 0, 0]} width={0.5} />
+    <Wall label="east" name="east wall" />
+    {/* @ts-expect-error props without a type take theirs from the defaults */}
+    <Wall width="wide" />
     <Plain name="HUD" />
     {/* @ts-expect-error a plain function's tag cannot place it */}
     <Plain name="HUD" position={[0, 1, 0]} />

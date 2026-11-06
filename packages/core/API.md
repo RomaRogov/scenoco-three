@@ -43,13 +43,16 @@ function gameOf(node: Object3D): Game | null;       // the game this node runs i
 function simulate(scene: () => JSX.Element, options?: {
   fixedDelta?: number;
   size?: [number, number];          // the screen in pixels: Screen, and what pointers are on. Default 1920×1080
+  page?: string;                    // the page as text — import page from '../index.html?raw' — its body, without
+                                    // scripts, in jsdom's document until dispose: the UI, and data-buttons to click
 }): Simulation;                     // no canvas, no loop:
                                     // a test in Node or jsdom (Vitest) steps it — the game's rules, frame-exact
 interface Simulation {
   readonly scene: Scene;
   readonly camera: PerspectiveCamera | OrthographicCamera | null;   // what this.camera is; nothing is drawn
   step(frames?: number, dt?: number): void;                         // default 1 frame of 1/60 s
-  until(condition: () => boolean, maxFrames?: number): boolean;     // steps until true: whether it came true (600)
+  until(condition: () => boolean, maxFrames?: number): boolean;     // steps until true: whether it came true (600);
+                                                                    // false warns in the console, naming the condition
   press(key: KeyCode, frames?: number): void;                       // held 6 frames, then let go
   keyDown(key: KeyCode): void;
   keyUp(key: KeyCode): void;
@@ -61,7 +64,9 @@ interface Simulation {
 }
 function ref<T>(): { current: T | null };
 function prefab<F extends (props: P) => JSX.Element>(build: F): F;  // export const Coin = prefab(() => <Mesh>…</Mesh>): one root;
-                                                                    // a function not wrapped is a plain component — its tag is its props
+                                                                    // a function not wrapped is a plain component — its tag is its props.
+                                                                    // Props are typed by their defaults — prefab(({ width = 1 }) => …) —
+                                                                    // or by a written type: ({ width }: { width: number })
 type Prefab<T extends Object3D = Object3D>;   // what prefab() makes, taking no props — as a field's type, or instantiate's
 function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: {   // a prefab, or a loaded model
   parent?: Object3D;                                  // default: the active scene — the next load destroys it, as in Unity
@@ -81,8 +86,11 @@ const SceneManager: {
 //   the rest of this frame    the old scene runs on, and activeScene is still the old one
 //   the new scene is built    constructors and attributes; a throw here leaves the old scene running
 //   old: onDisable, onDestroy everything but what dontDestroyOnLoad kept; what its elements built is freed
-//   background, environment and fog are replaced by the new scene's, unset ones too: a level with no fog
-//                             has none, whichever came before it. For a setting across levels, set it on
+//   background, environment and fog, and backgroundBlurriness, backgroundIntensity, backgroundRotation,
+//                             environmentIntensity, environmentRotation — Unity's RenderSettings — are the new
+//                             scene's, unset ones too: a level with no fog has none, whichever came before it.
+//                             From then on its <Scene>'s own properties are what draws: a behaviour on it may
+//                             set scene.environment at any time. For a setting across levels, set it on
 //                             game.scene from a kept behaviour that listens to sceneLoaded
 //   new: awake, onEnable      sceneLoaded fires
 //   the next frame            new: start. Input stays as it is; what instantiate placed in the old scene went with it
@@ -201,6 +209,21 @@ class UIDocument extends Behaviour {   // Unity's, with Scale With Screen Size: 
   match: number;                     // 0 matches the screen's width, 1 its height, as Unity blends them
   readonly rootVisualElement: HTMLElement;   // the root; it lets the pointer through, a control says pointer-events: auto
   readonly scale: number;            // screen pixels per reference pixel
+}
+
+const QualitySettings: {   // Unity's: levels for every running game; nothing changes until the game sets one
+  levels: QualityLevel[];    // lowest first; default Low, Medium, High. Change them before setting one
+  readonly names: string[];
+  getQualityLevel(): number;                 // 2 until set
+  setQualityLevel(index: number): void;      // applied at once, from how the renderer was set up: set it up first
+  activeQualityLevelChanged: Event<[previous: number, current: number]>;
+  readonly shadows: ShadowQuality;  readonly renderScale: number;  readonly postProcessing: boolean;   // the active level's
+};
+interface QualityLevel {
+  name: string;
+  shadows: ShadowQuality;    // ShadowQuality.Disable, HardOnly (three's BasicShadowMap), All (the renderer's shadowMap.type)
+  renderScale: number;       // URP's: the pixel ratio the game set up, times this. Low is 0.75
+  postProcessing: boolean;   // whether a Volume draws its effects (@scenoco-three/postprocessing); Low has none
 }
 
 const PlayerPrefs: {   // Unity's, on localStorage; kept in memory for the visit where storage is refused

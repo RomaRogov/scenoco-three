@@ -117,7 +117,9 @@ const prefabs = new WeakSet<Function>();
  * — and it is what `instantiate` and a `Prefab` field take. A function not made one is a plain TSX
  * component: its tag's attributes are its props, and nothing else.
  */
-export function prefab<F extends (props: never) => unknown>(build: F): F & { readonly [K in PrefabMarkKey]: true } {
+// `Function`, not a call signature: a signature would type the props from it, and `({ width = 1 })` then
+// takes `never`; with none, TypeScript reads the props from the defaults written.
+export function prefab<F extends Function>(build: F): F & { readonly [K in PrefabMarkKey]: true } {
   prefabs.add(build);
   return build as F & { readonly [K in PrefabMarkKey]: true };
 }

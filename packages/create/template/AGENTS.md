@@ -1,7 +1,8 @@
 # Project
 
 - `src/scenes/` holds scenes and prefabs (`.tsx`), `src/` everything else; `src/main.ts` starts it.
-- `npm run check` runs `tsc --noEmit` and `scenoco check src`; `npm run dev` serves the game.
+- `npm run check` runs `tsc --noEmit` and `scenoco check src`; `npm test` runs the tests, `src/**/*.test.ts`;
+  `npm run dev` serves the game — restarted after installing a package.
 
 # How SceNoCo works
 
@@ -13,11 +14,14 @@ read it instead of the package's source. Three's classes import from `three`, Sc
 
 **Checking it.** `scenoco check src`, from `@scenoco-three/tools`, checks that every `.tsx` file only
 declares; `tsc` checks the rest. The game's rules are tested in Vitest, in Node or jsdom, with no
-canvas: `const game = simulate(Main)` builds the scene and runs nothing until the test steps it —
+canvas: `const game = simulate(Main, { page })` — `import page from '../index.html?raw'`, so the UI is there
+too — builds the scene and runs nothing until the test steps it —
 `game.press(KeyCode.Space)`, `game.step(60)`,
 `expect(game.until(() => findObjectOfType(GameState)!.phase === 'over')).toBe(true)`, then
 `game.dispose()`. It takes pointers too — `game.swipe(game.worldToScreen(a), game.worldToScreen(b))`,
-`game.click('NextLevel')`. Frames have a fixed `dt`, so the answer is the same every run. In development the page drives the running game from
+`game.click('NextLevel')`. Frames have a fixed `dt`, so the answer is the same every run. Nothing is
+drawn: `gameOf(node)` is null, so code that needs the renderer guards only that —
+`const game = gameOf(this.node); if (game) game.renderer.toneMappingExposure = 1.2`. In development the page drives the running game from
 `window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock (`__scenoco.play()` lets it run
 again: a game that looks frozen after `until` is held), press keys, click, `click('NextLevel')` for a
 `data-button`, swipe, read behaviours by class. Evaluate in the page with any browser tool —
@@ -49,8 +53,14 @@ inside a `DirectionalLight` is where it shines, and moves with it.
 Unity's MonoBehaviour: `class X extends Behaviour<Mesh>` in a `.ts` file, with the same hooks in
 camelCase (awake, onEnable, start, fixedUpdate, update(dt), lateUpdate, onDisable, onDestroy;
 onValidate after the editor changed a field or moved a node it holds, to redo what start built).
-`this.node` is the three.js object it is on. Public fields are its settings, set as attributes when
+`this.node` is the three.js object it is on — `Behaviour<Mesh<BufferGeometry, MeshStandardMaterial>>`
+types its material too, with no cast. Public fields are its settings, set as attributes when
 it is attached as a TSX child of its node: `<Mesh><Spinner speed={2} /></Mesh>`.
+
+**Made in code.** A mesh or texture a behaviour generates is built in `awake`, built again in
+`onValidate`, and the old one disposed then and in `onDestroy`: `this.node.geometry.dispose();
+this.node.geometry = this.build()`. Pixels of an sRGB `DataTexture` are written with
+`color.getRGB(rgb, SRGBColorSpace)`, clamped to 0..1, then times 255.
 
 **Links.** A typed ref made in the scene function links two objects: `const paddle = ref<Group>()`,
 `<Group ref={paddle}>`, `<Follow target={paddle} />` — the field holds the object itself,
@@ -73,8 +83,10 @@ its props: `export const Wall = prefab(({ width = 1 }) => …)`, `<Wall position
 The editor edits a prefab once for every copy and each copy's props on its tag; inside a plain
 component placed twice it edits nothing, since one edit there would change every use. A scene is a
 plain function returning `<Scene>`: `SceneManager.load(Level2)`, from a frame, takes effect at its end, as in Unity; `dontDestroyOnLoad(this)`
-keeps a node across loads. A scene's `background`, `environment` and `fog` replace the last one's, unset
-ones too: a setting across levels is set from a kept behaviour on `SceneManager.sceneLoaded`.
+keeps a node across loads. A scene's `background`, `environment`, `fog` and their `…Intensity`,
+`…Rotation` and `backgroundBlurriness` are Unity's RenderSettings: set on its `<Scene>` — as attributes,
+or by a behaviour on it at any time — they draw. A load replaces them, unset ones too: a setting across
+levels is set from a kept behaviour on `SceneManager.sceneLoaded`.
 
 **Levels are the user's to edit.** What a designer arranges — a level, a puzzle, a wave, where the
 pickups are — is one element per object in a scene, `<Brick position={[2.55, -1, 0]} hits={2} />`,
@@ -120,16 +132,16 @@ game ports to Unity file by file:
   gamepad — is a class code puts on the root. A repeated item is a `<template>`, cloned. No
   `innerHTML`, no `data-` attribute but `data-button`, no inline style but one USS has, in `px` or `%`.
 - CSS is USS's: selectors by tag, `#id`, `.class`, descendant and child, `:hover` `:active` `:focus`
-  `:disabled` `:checked`; flexbox, saying its `flex-direction` every time (CSS's default is `row`,
-  USS's `column`); `position` relative or absolute with `left` `top` `right` `bottom`;
+  `:disabled` `:checked`; flexbox — the page's reset makes every `div` a column, as USS does, and a
+  border appear once it has a width; `position` relative or absolute with `left` `top` `right` `bottom`;
   lengths in `px` and `%`. Not there: `em`, `rem`, `vw`, `vh`, `calc`, `clamp`, `inset`, `gap` (use
   margins), grid, `z-index` (later in the page is on top), `line-height`, `::before`/`::after`,
   attribute selectors, `@media`, `@keyframes`, `!important`, gradients, `box-shadow`. Motion is a class
   toggled on an element whose CSS has a `transition`; wait for it with `transitionend`
   (`TransitionEndEvent`). A gradient or a shadow is an image (`node`-written PNGs are fine):
   `background-image`, or nine-sliced with `border-image: url(x.png) 36 fill / 36px / 24px` — USS's
-  `-unity-slice-*` at 36, on an element 24 px larger each way. `text-align` is USS's
-  `-unity-text-align`; `font-weight: bold`, `font-style: italic`, `text-shadow`, `letter-spacing`,
+  `-unity-slice-*` at 36, on an element 24 px larger each way. Write CSS's `text-align`: the
+  Unity export writes it as `-unity-text-align`; `font-weight: bold`, `font-style: italic`, `text-shadow`, `letter-spacing`,
   `opacity`, `border-radius`, `translate`, `rotate` and `scale` are USS's own. A font is an
   `@font-face` file, or `system-ui`: the platform's, as Unity's default font is.
 
@@ -153,21 +165,25 @@ and colliders on elements under it too, one compound body; a collider alone is s
 follows its node — and contacts arrive as `onCollisionEnter(collision)` / `onTriggerEnter(other)`.
 Unity's `Physics.raycast`, `CharacterController` and joints are there as Unity has them; everything
 else is Rapier's own API, used directly: `Physics.world`, `rb.rapierBody`, `collider.rapierCollider`.
-With rapier, `main.ts` starts with `await initRapier();`. box2d is the same in 2D, in the XY plane:
+With rapier, `main.ts` starts with `await initRapier();`, and so does a test, in `beforeAll`. A body's
+`mass` comes from its colliders' `density` until it is set, as Unity's does. Rapier has no rolling
+resistance: a ball rolls on a slope forever unless `angularDamping` or the game slows it. box2d is the same in 2D, in the XY plane:
 `Rigidbody2D`, `BoxCollider2D`, `Physics2D.raycast`, Unity's nine 2D joints, and `Physics2D.world` and
 `rb.planckBody` for planck's own.
 
 **More packages**, each in Unity's shape, each with its README in `node_modules/@scenoco-three/<name>/`:
 `particles` (`ParticleSystem`), `audio` (`AudioSource`), `splines` (`SplineContainer`, `SplineMesh`,
-`SplineAnimate`: tracks, rails, roads) and `terrain` (`Terrain`, `TerrainData`). Install one before
-writing your own.
+`SplineAnimate`: tracks, rails, roads), `terrain` (`Terrain`, `TerrainData`) and `postprocessing`
+(`Volume`). Every signature is in the package's `API.md`. Install one before writing your own.
 
 **Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so
 a scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands
 over to the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and
 widens with the screen. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
 and size it. `game.renderer` is three's WebGLRenderer, configured as three.js documents it —
-`game.renderer.shadowMap.enabled = true`. Inside a React app the game is one element of the page:
+`game.renderer.shadowMap.enabled = true`. Then `QualitySettings.setQualityLevel(0)` on a phone: Unity's
+levels — Low, Medium, High by default — scale shadows, resolution and post-processing from that setup.
+Inside a React app the game is one element of the page:
 `play(Main, { container })` in an effect, `game.dispose()` in its cleanup, and
 `scenoco({ include: 'src/game/**' })` beside `react({ exclude: /src\/game\// })` in `vite.config.ts`
 keeps the app's own TSX React's.
@@ -181,3 +197,4 @@ StartCoroutine → `this.startCoroutine` · `yield return new WaitForSeconds(1)`
 transform.DOMove → `this.node.doMove` · material.DOFade → `material.doFade` · DOTween.Sequence() → `Tween.sequence()` ·
 DOTween.To → `Tween.to` · DOVirtual.DelayedCall → `Tween.delayedCall` · DOVirtual.Float → `Tween.float` ·
 URP's Volume → `<Volume />` beside `<Bloom />`, `<Tonemapping />` and the rest, on one node, from `@scenoco-three/postprocessing`
+(a `Tonemapping` there sets `renderer.toneMapping` while it draws: set it in one place, not both)

@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Mesh,
+  MeshStandardMaterial,
   OrthographicCamera,
   PerspectiveCamera,
   Sphere,
@@ -45,7 +46,9 @@ interface Chunk {
  * ```
  *
  * The data has to be loaded first — `await loadAssets(terrains.meadow)` — and centres on the node.
- * It draws with a `TerrainMaterial` made from the data's layers, or with `materialTemplate`.
+ * It draws with a `TerrainMaterial` made from the data's layers, or with `materialTemplate`. With no
+ * layers it draws plain grey, as Unity's terrain does before it is painted; under `simulate()`, which
+ * draws nothing, so is every layer.
  */
 export class Terrain extends Behaviour {
   terrainData: TerrainData | null = null;
@@ -65,13 +68,13 @@ export class Terrain extends Behaviour {
   sideProjection = true;
 
   private chunks: Chunk[] = [];
-  private ownMaterial: TerrainMaterial | null = null;
+  private ownMaterial: Material | null = null;
   private dirty = false;
 
   override awake() {
     const data = this.terrainData;
     if (!data) throw new Error('Terrain needs terrainData={…}: a TerrainData, loaded with loadAssets.');
-    this.ownMaterial = this.materialTemplate ? null : new TerrainMaterial(data, { sideProjection: this.sideProjection });
+    this.pickMaterial();
     this.applyLook();
     this.makeChunks();
     // Heights, size or layers changed in code: the ground is made again, as Unity's terrain follows
@@ -137,9 +140,26 @@ export class Terrain extends Behaviour {
     this.chunks = [];
   }
 
+  /**
+   * The material made from the data's layers, or a plain one while it has none — or while nothing can
+   * draw them: packing layers needs a canvas, which Node has not.
+   */
+  private pickMaterial() {
+    if (this.materialTemplate) return;
+    const data = this.terrainData!;
+    const layered = data.terrainLayers.length > 0 && typeof OffscreenCanvas !== 'undefined';
+    if (layered && this.ownMaterial instanceof TerrainMaterial) this.ownMaterial.refresh();
+    else if (layered || !this.ownMaterial || this.ownMaterial instanceof TerrainMaterial) {
+      this.ownMaterial?.dispose();
+      this.ownMaterial = layered
+        ? new TerrainMaterial(data, { sideProjection: this.sideProjection })
+        : new MeshStandardMaterial({ color: '#808080', roughness: 0.92 });
+    }
+  }
+
   /** `tileScale` and `sideProjection` onto the material: they can change while the game runs. */
   private applyLook() {
-    if (!this.ownMaterial) return;
+    if (!(this.ownMaterial instanceof TerrainMaterial)) return;
     this.ownMaterial.tileScale = this.tileScale;
     this.ownMaterial.sideProjection = this.sideProjection;
   }
@@ -152,7 +172,7 @@ export class Terrain extends Behaviour {
     this.applyLook();
     if (this.dirty) {
       this.dirty = false;
-      this.ownMaterial?.refresh();
+      this.pickMaterial();
       this.makeChunks();
       return;
     }

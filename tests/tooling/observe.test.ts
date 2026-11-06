@@ -109,6 +109,28 @@ describe('the game from Playwright', () => {
     expect(passed).toBeGreaterThanOrEqual(7); // held for 6, and one to see it let go
   }, 60_000);
 
+  it('on a hidden page, which runs no frames, holds the clock and steps it, and says so once', async () => {
+    const warnings: string[] = [];
+    const listen = (m: { type(): string; text(): string }) => void (m.type() === 'warning' && warnings.push(m.text()));
+    page.on('console', listen);
+    const result = await page.evaluate(async () => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      try {
+        await __scenoco.play!();
+        const before = ((await __scenoco.clock!()) as { frame: number }).frame;
+        await __scenoco.press!('p', 3);
+        await __scenoco.press!('p', 3);
+        const after = (await __scenoco.clock!()) as { frame: number; held: boolean };
+        return { passed: after.frame - before, held: after.held };
+      } finally {
+        delete (document as { hidden?: boolean }).hidden;
+      }
+    });
+    page.off('console', listen);
+    expect(result).toEqual({ passed: 8, held: true });
+    expect(warnings.filter((w) => w.includes('the page runs no frames of its own'))).toHaveLength(1);
+  }, 60_000);
+
   it("answers a mistake with the game's own message", async () => {
     expect(await page.evaluate(() => __scenoco.eval!('return findAll(Brick).length'))).toBeGreaterThan(0);
     await expect(page.evaluate(() => __scenoco.eval!('return Game.state'))).rejects.toThrow(/Game is not defined\. This game's behaviour classes so far: .*GameState/);

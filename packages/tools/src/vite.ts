@@ -175,12 +175,27 @@ export function scenoco(options: ScenocoOptions = {}): Plugin {
           .catch((error: unknown) => send(res, 400, { error: error instanceof Error ? error.message : String(error) }));
       });
     },
+    // In development, lines in the page's console for whoever reads it — an agent above all: where a
+    // hot reload began, so errors above it are from before, and what a lost import needs.
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (_html, context) => (context.server ? [{ tag: 'script', attrs: { type: 'module' }, children: CLIENT, injectTo: 'head' }] : []),
+    },
     handleHotUpdate({ file }) {
       definitions?.touched(file);
       if (written.delete(file)) return [];
     },
   };
 }
+
+/** The page's side of the lines above: Vite's own client events. */
+const CLIENT = `if (import.meta.hot) {
+  import.meta.hot.on('vite:afterUpdate', (p) => console.info('SceNoCo: hot reload of ' + p.updates.map((u) => u.path).join(', ') + ': errors above this line are from before it.'));
+  import.meta.hot.on('vite:beforeFullReload', () => console.info('SceNoCo: the page reloads for a change: errors above this line are from before it.'));
+  addEventListener('error', (e) => {
+    if (/does not provide an export named/.test(e.message)) console.info('SceNoCo: a module imports a name another no longer exports, and a hot reload cannot recover from that: fix the import, then reload the page.');
+  });
+}`;
 
 /** @internal one editor request, answered as JSON. Exported for the test. */
 export async function handle(root: string, req: IncomingMessage, written: Set<string>): Promise<SceneJson> {

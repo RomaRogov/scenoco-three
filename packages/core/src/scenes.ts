@@ -37,6 +37,26 @@ export function detachWorld(scene: Scene): void {
   pending.length = 0;
 }
 
+/** What only a top-level scene does in three.js: Unity's `RenderSettings`. */
+const SETTINGS = [
+  'background', 'backgroundBlurriness', 'backgroundIntensity', 'backgroundRotation',
+  'environment', 'environmentIntensity', 'environmentRotation', 'fog',
+] as const;
+
+/**
+ * The loaded scene's settings are its to say, so they move to the scene that draws — what it does not
+ * set is unset — and from then on the loaded scene's own properties are the drawing scene's: a
+ * behaviour writing `scene.environment` on the `<Scene>` it lives in changes what is drawn.
+ */
+function forwardSettings(scene: Scene, root: Scene): void {
+  const from = scene as unknown as Record<string, unknown>;
+  const to = root as unknown as Record<string, unknown>;
+  for (const key of SETTINGS) {
+    to[key] = from[key];
+    Object.defineProperty(scene, key, { get: () => to[key], set: (value) => (to[key] = value), configurable: true, enumerable: true });
+  }
+}
+
 /**
  * @internal build a scene into the world, replacing what was loaded unless `additive`. It is built
  * first, so a scene that throws leaves the last one running; then the last one is destroyed, and only
@@ -62,11 +82,7 @@ export function loadInto(root: Scene, build: () => unknown, additive: boolean): 
     if (!additive) {
       for (const old of loaded.splice(0)) destroy(old);
       flushDestroyed();
-      // What only a top-level scene does in three.js — the backdrop, the fog, the environment — is
-      // the loaded scene's to say, so it moves to the scene that draws: what it does not set is unset.
-      root.background = scene.background;
-      root.environment = scene.environment;
-      root.fog = scene.fog;
+      forwardSettings(scene, root);
     }
     loaded.push(scene);
     root.add(scene);

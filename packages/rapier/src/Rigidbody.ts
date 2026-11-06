@@ -58,6 +58,7 @@ export class Rigidbody extends Behaviour {
   private _useGravity = true;
   private _linearDamping = 0;
   private _angularDamping = 0.05;
+  private _mass: number | null = null;
 
   // Unity applies these at once, so they are applied at once here too.
   get useGravity(): boolean {
@@ -109,9 +110,16 @@ export class Rigidbody extends Behaviour {
     return this._body;
   }
 
-  /** Total mass, from the colliders' density and size. */
+  /**
+   * Kilograms. From the colliders' `density` and size until it is set; set, it is the body's whatever
+   * its colliders, shared among them by volume — Unity's `Rigidbody.mass`, which may change every step.
+   */
   get mass(): number {
-    return this._body?.mass() ?? 0;
+    return this._body?.mass() ?? this._mass ?? 0;
+  }
+  set mass(value: number) {
+    this._mass = value;
+    this.applyMass();
   }
 
   /**
@@ -216,12 +224,22 @@ export class Rigidbody extends Behaviour {
     this.angularVelocity = this.angularVelocity;
   }
 
+  /** A mass that was set, shared among the colliders by volume: each keeps the inertia of its shape. */
+  private applyMass(): void {
+    if (this._mass === null || !this._body) return;
+    const colliders = [...this._attached.values()].filter((c) => !c.isSensor());
+    const volume = colliders.reduce((sum, c) => sum + c.volume(), 0);
+    for (const c of colliders) c.setMass(volume > 0 ? (this._mass * c.volume()) / volume : this._mass / colliders.length);
+    this._body.recomputeMassPropertiesFromColliders();
+  }
+
   /** @internal */
   attach(collider: Collider): void {
     if (!this._body || !this._physics || this._attached.has(collider)) return;
     const created = this._physics.createCollider(collider, this._body);
     collider._collider = created;
     this._attached.set(collider, created);
+    this.applyMass();
   }
 
   /** @internal */

@@ -9,7 +9,7 @@
  *
  * So: `npm pack` every package and, in the system temp directory, walk the path a user walks —
  *
- *   1. `npm create @scenoco-three`, from the packed starter: install, check, build, and the built
+ *   1. `npm create @scenoco-three`, from the packed starter: install, check, test, build, and the built
  *      page run in Chrome;
  *   2. a copy of the breakout example on the packed packages: install, `npm run check` (tsc, and
  *      `scenoco check`: a scene only declares), build, and the built page playing a round;
@@ -89,6 +89,7 @@ try {
   writeFileSync(join(starter, 'package.json'), `${JSON.stringify(starterManifest, null, 2)}\n`);
   run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error'], starter, false);
   run(npm, ['run', 'check'], starter, false);
+  run(npm, ['test'], starter, false);
   run(npm, ['run', 'build'], starter, false);
   await runBuiltPage(join(starter, 'dist'), async (page) => {
     await page.waitForFunction(() => (document.querySelector('canvas')?.width ?? 0) > 0, undefined, { timeout: 30_000 });

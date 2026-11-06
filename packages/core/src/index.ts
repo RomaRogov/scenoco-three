@@ -62,6 +62,7 @@ export { Mathf } from './Mathf.js';
 export { Random, type RandomState } from './Random.js';
 export { PlayerPrefs } from './PlayerPrefs.js';
 export { Screen } from './Screen.js';
+export { QualitySettings, ShadowQuality, type QualityLevel } from './QualitySettings.js';
 export { UIDocument } from './UIDocument.js';
 export { Input, type ButtonName } from './input/Input.js';
 export { KeyCode, MouseButton } from './input/KeyCode.js';

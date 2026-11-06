@@ -13,6 +13,12 @@ export interface SimulateOptions {
   fixedDelta?: number;
   /** The screen, in pixels: what `Screen` says and what pointer positions are on. Default 1920×1080. */
   size?: [width: number, height: number];
+  /**
+   * The game's page, as text — `import page from '../index.html?raw'` — so its UI is there: what
+   * `UIDocument` lays out and `click('Play')` presses. Its `<body>` without scripts becomes the
+   * document's, in jsdom, until `dispose`.
+   */
+  page?: string;
 }
 
 /** A point of the screen in pixels from its top-left, as the page's bridge takes them. */
@@ -55,6 +61,7 @@ export interface Simulation {
  * test of the game's rules gives the same answer every run. One game runs at a time.
  */
 export function simulate(build: () => unknown, options: SimulateOptions = {}): Simulation {
+  const restorePage = options.page === undefined ? null : showPage(options.page);
   const scene = new Scene();
   const runtime = new Runtime(scene, { fixedDelta: options.fixedDelta });
   let camera: RenderCamera | null = null;
@@ -89,7 +96,10 @@ export function simulate(build: () => unknown, options: SimulateOptions = {}): S
         if (condition()) return true;
         frame(dt);
       }
-      return condition();
+      if (condition()) return true;
+      // Easy to miss when the result is not asserted: a game whose rounds outgrew the default.
+      console.warn(`simulate: until(${condition.toString().replace(/\s+/g, ' ')}) was still false after ${maxFrames} frames. Pass more: until(condition, ${maxFrames * 4}).`);
+      return false;
     },
     keyDown: (key) => Input.key(key, true),
     keyUp: (key) => Input.key(key, false),
@@ -101,6 +111,10 @@ export function simulate(build: () => unknown, options: SimulateOptions = {}): S
     },
     click(target) {
       if (typeof target === 'string') {
+        if (restorePage && !document.querySelector(`[data-button="${target.replace(/["\\]/g, '\\$&')}"]`)) {
+          const names = [...document.querySelectorAll('[data-button]')].map((b) => b.getAttribute('data-button'));
+          throw new Error(`click: the page has no data-button called "${target}". It has: ${names.join(', ') || 'none'}.`);
+        }
         Input.pageButton(target);
         game.step();
         return;
@@ -137,7 +151,22 @@ export function simulate(build: () => unknown, options: SimulateOptions = {}): S
       detachWorld(scene);
       setScreenSize(...screen);
       Input.clear();
+      restorePage?.();
     },
   };
   return game;
+}
+
+/** The page's body, without its scripts, as the document's: and how to put the last one back. */
+function showPage(page: string): () => void {
+  if (typeof document === 'undefined' || typeof DOMParser === 'undefined') {
+    throw new Error("simulate: a page needs a document. Run the test in jsdom: test: { environment: 'jsdom' } in vite.config.ts.");
+  }
+  const parsed = new DOMParser().parseFromString(page, 'text/html');
+  for (const script of parsed.querySelectorAll('script')) script.remove();
+  const before = document.body.innerHTML;
+  document.body.innerHTML = parsed.body.innerHTML;
+  return () => {
+    document.body.innerHTML = before;
+  };
 }

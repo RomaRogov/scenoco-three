@@ -1124,5 +1124,15 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: object): Pro
   });
   const json = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`);
+  if (method === 'POST' && body) told(path, body as Written);
   return json;
+}
+
+type Written = { file?: string; name?: string; value?: unknown; expect?: { tag?: string } };
+
+/** A line for whoever else edits the file — an agent reading the console: the file changed under it. */
+function told(path: string, { file, name, value, expect }: Written): void {
+  const what = { set: `${name}=${JSON.stringify(value)}`, remove: `${name} removed`, duplicate: 'duplicated', delete: 'deleted' }[path];
+  if (!what || !file) return;
+  console.info(`SceNoCo: the editor wrote ${file}: <${expect?.tag ?? '?'}> ${what}. Read the file again before editing it.`);
 }

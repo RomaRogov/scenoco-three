@@ -5,7 +5,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { Behaviour, System, Time, gameOf, service, type BehaviourType, type Game } from '@scenoco-three/core';
+import { Behaviour, QualitySettings, System, Time, gameOf, service, type BehaviourType, type Game } from '@scenoco-three/core';
 import { Bloom, ChromaticAberration, ColorAdjustments, DepthOfField, FilmGrain, Tonemapping, Vignette } from './Effects.js';
 
 /** Everything that needs only the pixel it is at: one pass, so a few effects cost as little as one. */
@@ -108,6 +108,8 @@ class VolumeStack extends System {
     const renderer = game.renderer;
     const curve = this.pick(Tonemapping);
     renderer.toneMapping = curve ? CURVES[curve.mode] : this.plainCurve;
+    // A quality level without post-processing: the scene as the game draws it, its tone curve kept.
+    if (!QualitySettings.postProcessing) return this.plain!();
 
     const bloom = this.pick(Bloom);
     const grade = this.pick(ColorAdjustments);
