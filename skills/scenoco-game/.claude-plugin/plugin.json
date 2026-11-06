@@ -1,7 +1,7 @@
 {
   "name": "scenoco-game",
   "displayName": "SceNoCo Game",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "description": "Make, change, test and debug browser games with SceNoCo: three.js scenes in TSX and Unity-style behaviours, proven by playing them in a real browser.",
   "author": { "name": "Roman Rogov", "url": "https://github.com/RomaRogov" },
   "homepage": "https://romarogov.github.io/scenoco-three/",

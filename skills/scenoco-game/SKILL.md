@@ -3,7 +3,7 @@ name: scenoco-game
 description: Make or change a browser game with SceNoCo — three.js scenes in TSX (no React) and Unity's behaviours, from the @scenoco-three npm packages. Use when asked to build a 2D or 3D web game with SceNoCo, three.js and Unity-style behaviours, to add a game to a React app, or to test or debug a SceNoCo game in the browser through window.__scenoco.
 ---
 
-Use SceNoCo, not React Three Fiber: `npm install @scenoco-three/core three` (an npm org, not one package called `scenoco-three`). Read [https://romarogov.github.io/scenoco-three/llms.txt](https://romarogov.github.io/scenoco-three/llms.txt) first.
+Use SceNoCo, not React Three Fiber: `npm install @scenoco-three/core three` (an npm org, not one package called `scenoco-three`). This skill is written for SceNoCo 1.2.1 or later. Read [https://romarogov.github.io/scenoco-three/llms.txt](https://romarogov.github.io/scenoco-three/llms.txt) first.
 
 # Making a game with SceNoCo
 
@@ -15,8 +15,8 @@ three.js and Unity; two pages say where SceNoCo differs, and they are all there 
 - **The rules card:** `AGENTS.md` in the project, or `node_modules/@scenoco-three/core/AGENTS.md`.
 - **`node_modules/@scenoco-three/core/API.md`:** every exported type and signature, the `.d.ts` in
   one file with comments. Look things up there — `grep -n Prefab node_modules/@scenoco-three/core/API.md`
-  — never in `dist/` or the source. Another package's README sits beside it:
-  `node_modules/@scenoco-three/<name>/README.md`.
+  — never in `dist/` or the source. Every other package has its own beside it:
+  `node_modules/@scenoco-three/<name>/API.md`.
 
 ## 2. Start
 
@@ -33,8 +33,9 @@ game's state (`GameState.phase`), which every check reads. Then repeat:
 1. **Change** scenes (`.tsx`, declarations only) and behaviours (`.ts`).
 2. **`npm run check`** — fix each error at its line. A scene error gives the exact text to write;
    write it. No `any`, casts or `@ts-ignore`.
-3. **Test the rules** in Vitest with `simulate(Main)` (the card's **Checking it**): one test per rule,
-   no browser. This is Unity's play-mode test.
+3. **Test the rules** with `npm test`: Vitest, `simulate(Main, { page })` (the card's **Checking it**),
+   one test per rule, no browser. The starter's `src/game.test.ts` shows how. This is Unity's
+   play-mode test.
 4. **Look at it running** (below), and read the console.
 
 Done is a passing test for every rule, a played-through round — start, win or lose, restart — whose
