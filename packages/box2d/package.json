@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/box2d",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "2D physics for SceNoCo on planck (Box2D), Unity-style: Rigidbody2D, the 2D colliders, PhysicsMaterial2D, Physics2D queries and layers, and the contact messages.",
   "keywords": [
     "three",

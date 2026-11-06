@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/terrain",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Terrain for SceNoCo: Unity-shaped Terrain and TerrainData on three.js — a compact heightmap and ground layers splatted by weight, blended by height.",
   "keywords": [
     "three",

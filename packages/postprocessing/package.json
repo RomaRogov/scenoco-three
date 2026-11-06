@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/postprocessing",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Post-processing for SceNoCo: URP's Volume, Bloom, Tonemapping and Color Adjustments by name, on three.js's EffectComposer.",
   "keywords": [
     "three",

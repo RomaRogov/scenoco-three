@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/particles",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Particle effects for SceNoCo on three.quarks: a Unity-style ParticleSystem playing typed ParticleEffect data.",
   "keywords": [
     "three",

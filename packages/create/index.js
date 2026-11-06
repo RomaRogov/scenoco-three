@@ -20,8 +20,9 @@ if (existsSync(dir) && readdirSync(dir).length > 0) {
 }
 
 cpSync(fileURLToPath(new URL('./template', import.meta.url)), dir, { recursive: true });
-// npm drops a published `.gitignore`, so the starter carries it under another name.
+// npm drops a published `.gitignore` and `.npmrc`, so the starter carries them under other names.
 renameSync(join(dir, 'gitignore'), join(dir, '.gitignore'));
+renameSync(join(dir, 'npmrc'), join(dir, '.npmrc'));
 const manifest = join(dir, 'package.json');
 const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
 pkg.name = basename(dir).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
