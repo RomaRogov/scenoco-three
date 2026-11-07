@@ -61,6 +61,8 @@ namespace SceNoCo
             if (data.TryGetValue("input", out var input)) Try(() => Project.Input((string)input), "input actions");
 
             foreach (var m in List(data["meshes"])) Try(() => MakeMesh(Obj(m)), Str(Obj(m), "path"));
+            Terrains.Offsets.Clear();
+            if (data.TryGetValue("terrains", out var ts)) foreach (var t in List(ts)) Try(() => Terrains.Make(Obj(t)), Str(Obj(t), "path"));
             foreach (var m in List(data["materials"])) Try(() => MakeMaterial(Obj(m)), Str(Obj(m), "path"));
             AssetDatabase.SaveAssets();
 
@@ -384,6 +386,7 @@ namespace SceNoCo
                 else if (type == "ParticleSystem") Particles.Add(go, Obj(comp["fields"]), w => warnings.Add($"{Where(comp, n)}: {w}"));
                 else if (type == "UIDocument") MakeDocument(go, Obj(comp["fields"]), Where(comp, n));
                 else if (Volumes.Add(go, type, Obj(comp["fields"]))) { }
+                else if (Terrains.Add(go, type, Obj(comp["fields"]), w => warnings.Add($"{Where(comp, n)}: {w}"))) { }
                 else if (!Physics.Add(go, type, Obj(comp["fields"]))) warnings.Add($"{Where(comp, n)}: {type} has no Unity counterpart here — left off.");
             }
 
@@ -915,6 +918,98 @@ namespace SceNoCo
             static bool Bool(Dictionary<string, object> d, string key, bool fallback) => d.TryGetValue(key, out var v) && v is bool b ? b : fallback;
             static Color ColorOf(Dictionary<string, object> d, string key, Color fallback) =>
                 d.TryGetValue(key, out var v) && v is Dictionary<string, object> o && o.TryGetValue("color", out var hex) ? Hex((string)hex) : fallback;
+        }
+
+        /// <summary>
+        /// A game's terrain as Unity's own: a TerrainData asset holding its heights (0..1 of size.y, as the
+        /// exporter wrote them) and a layer per colour, and the Terrain and TerrainCollider on a child at the
+        /// data's corner — Unity's terrain starts at its object, SceNoCo's is centred on its node.
+        /// </summary>
+        static class Terrains
+        {
+            public static readonly Dictionary<string, Vector3> Offsets = new Dictionary<string, Vector3>();
+
+            public static void Make(Dictionary<string, object> t)
+            {
+                var path = Str(t, "path");
+                var data = AssetDatabase.LoadAssetAtPath<TerrainData>(path);
+                var created = data == null;
+                if (created) data = new TerrainData();
+                var n = (int)Num(t, "heightmapResolution", 33);
+                data.heightmapResolution = n;
+                data.size = V3(t["size"]);
+                var flat = Floats(t["heights"]);
+                var heights = new float[n, n];
+                for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) heights[y, x] = flat[y * n + x];
+                data.SetHeights(0, 0, heights);
+                if (created) SaveAsset(data, path);
+                // The layers live inside the data's asset, each with a one-pixel texture of its colour.
+                foreach (var old in AssetDatabase.LoadAllAssetRepresentationsAtPath(path)) Object.DestroyImmediate(old, true);
+                var specs = List(t["layers"]).Select(Obj).ToList();
+                var layers = specs.Select(spec =>
+                {
+                    var texture = new Texture2D(1, 1) { name = Str(spec, "name") + " colour" };
+                    texture.SetPixel(0, 0, Hex(Str(spec, "color")));
+                    texture.Apply();
+                    AssetDatabase.AddObjectToAsset(texture, data);
+                    var tile = Num(spec, "tileSize", 10);
+                    var layer = new TerrainLayer { name = Str(spec, "name"), diffuseTexture = texture, tileSize = new Vector2(tile, tile) };
+                    AssetDatabase.AddObjectToAsset(layer, data);
+                    return layer;
+                }).ToArray();
+                data.terrainLayers = layers;
+                if (layers.Length > 0)
+                {
+                    var a = (int)Num(t, "alphamapResolution", 16);
+                    data.alphamapResolution = a;
+                    var w = Floats(t["alphamaps"]);
+                    var maps = new float[a, a, layers.Length];
+                    for (var y = 0; y < a; y++) for (var x = 0; x < a; x++) for (var l = 0; l < layers.Length; l++) maps[y, x, l] = w[(y * a + x) * layers.Length + l];
+                    data.SetAlphamaps(0, 0, maps);
+                }
+                EditorUtility.SetDirty(data);
+                Offsets[path] = V3(t["offset"]);
+            }
+
+            public static bool Add(GameObject go, string type, Dictionary<string, object> f, Action<string> warn)
+            {
+                if (type != "Terrain" && type != "TerrainCollider") return false;
+                var path = f.TryGetValue("terrainData", out var v) && v is Dictionary<string, object> d && d.TryGetValue("asset", out var p) ? (string)p : null;
+                var data = path != null ? AssetDatabase.LoadAssetAtPath<TerrainData>(path) : null;
+                if (data == null)
+                {
+                    warn($"{type} has no exported terrainData — left off.");
+                    return true;
+                }
+                var child = go.transform.Find("Terrain")?.gameObject;
+                if (child == null)
+                {
+                    child = new GameObject("Terrain");
+                    child.transform.SetParent(go.transform, false);
+                    child.transform.localPosition = Offsets.TryGetValue(path, out var at) ? at : Vector3.zero;
+                    if ((go.transform.lossyScale - Vector3.one).sqrMagnitude > 1e-6f) warn("a Unity terrain ignores its object's scale — size the TerrainData instead.");
+                }
+                if (type == "Terrain")
+                {
+                    var terrain = child.AddComponent<Terrain>();
+                    terrain.terrainData = data;
+                    terrain.heightmapPixelError = Num(f, "heightmapPixelError", 5);
+                    terrain.shadowCastingMode = Bool(f, "castShadows", true) ? ShadowCastingMode.On : ShadowCastingMode.Off;
+                    var lit = Shader.Find("Universal Render Pipeline/Terrain/Lit");
+                    if (lit != null) terrain.materialTemplate = TerrainMaterial(lit);
+                }
+                else child.AddComponent<TerrainCollider>().terrainData = data;
+                return true;
+            }
+
+            /** URP's terrain material, one for the project: a terrain with none draws pink there. */
+            static Material TerrainMaterial(Shader lit)
+            {
+                const string path = "Assets/Terrains/TerrainLit.mat";
+                var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (mat == null) SaveAsset(mat = new Material(lit), path);
+                return mat;
+            }
         }
 
         static class Physics

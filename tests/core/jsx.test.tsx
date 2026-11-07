@@ -96,9 +96,11 @@ describe('TSX on three.js', () => {
   it('places and names a prefab tag’s root as a Unity instance; a plain function is a component, all props', () => {
     const seen: object[] = [];
     const Tower = prefab((props: { level: number }) => (seen.push(props), <Group name="tower" />));
-    const tower = (<Tower level={2} position={[1, 0, 2]} name="north tower" />) as unknown as Group;
+    const link = ref<Group>();
+    const tower = (<Tower level={2} position={[1, 0, 2]} name="north tower" ref={link} />) as unknown as Group;
     expect(tower.position.toArray()).toEqual([1, 0, 2]);
     expect(tower.name).toBe('north tower');
+    expect(link.current).toBe(tower); // a prefab tag's ref is its root
     expect(seen).toEqual([{ level: 2 }]);
 
     const Pair = prefab(() => (

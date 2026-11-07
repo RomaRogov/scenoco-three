@@ -310,7 +310,8 @@ export async function convertPage(root: string, documents: string[], options: { 
     // Classes are kept whether or not the page as written has them: code puts them on as the game runs.
     const ids = new Set([...inside].map((e) => e.attrs.id).filter(Boolean));
     const kept = rule.selectors.filter(
-      (sel) => [...sel.matchAll(/#([\w-]+)/g)].every((m) => ids.has(m[1]!)) && !/(^|[\s>])(html|body|canvas|head)\b/.test(sel),
+      // `:where(…)` is the page standing in for USS's own defaults: Unity has them, and USS has no `:where`.
+      (sel) => [...sel.matchAll(/#([\w-]+)/g)].every((m) => ids.has(m[1]!)) && !/(^|[\s>])(html|body|canvas|head)\b/.test(sel) && !sel.includes(':where('),
     );
     if (kept.length === 0) continue;
     const declarations = respell(rule);

@@ -50,13 +50,13 @@ describe('terrain', () => {
   it('reads heights and layers from a .terrain file', async () => {
     const data = new TerrainData(await terrainFile(ramp, 20, [[[255, 0], [0, 255]], [[0, 255], [255, 0]]]));
     await loadAssets(data);
-    expect(data.size.toArray()).toEqual([20, 10, 20]);
+    expect([data.width, data.depth]).toEqual([20, 20]);
     expect(data.heightmapResolution).toBe(3);
-    expect(data.alphamapLayers).toBe(2);
+    expect(data.terrainLayers.length).toBe(2);
     expect(data.terrainLayers.map((l) => l.name)).toEqual(['layer0', 'layer1']);
-    expect(data.getHeight(1, 1)).toBeCloseTo(7.5, 5);
-    expect(data.getInterpolatedHeight(0.25, 0)).toBeCloseTo(2.5, 5);
-    expect(data.getInterpolatedHeight(0.5, 0.25)).toBeCloseTo(6.25, 5);
+    expect(data.heightAt(0, 0)).toBeCloseTo(7.5, 5);
+    expect(data.heightAt(-5, -10)).toBeCloseTo(2.5, 5);
+    expect(data.heightAt(0, -5)).toBeCloseTo(6.25, 5);
   });
 
   it('builds its ground from the heights and samples them in world space', async () => {
@@ -169,16 +169,18 @@ describe('terrain', () => {
     }
   });
 
-  it('is made in code, as in Unity, and the ground follows every change', () => {
+  it('is made in code from a height function in metres, and the ground follows every change', () => {
     const data = new TerrainData();
     data.heightmapResolution = 65;
-    data.size = new Vector3(40, 10, 20);
-    // A ramp along x: 0 at -x, all of size.y at +x.
-    data.setHeights(0, 0, Array.from({ length: 65 }, () => Array.from({ length: 65 }, (_, c) => c / 64)));
-    expect(data.getHeights(64, 0, 1, 1)[0]![0]).toBeCloseTo(1, 5);
-    expect(data.getInterpolatedHeight(0.5, 0.5)).toBeCloseTo(5, 5);
+    data.width = 40;
+    data.depth = 20;
+    // A ramp along x: 0 at -x, 10 m at +x.
+    data.setHeights((x) => (x + 20) / 4);
+    expect(data.heights[64]).toBeCloseTo(10, 5);
+    expect(data.heightAt(0, 0)).toBeCloseTo(5, 5);
+    expect(data.heightAt(10, -3)).toBeCloseTo(7.5, 5);
     // Rising 10 m over 40: the normal leans back towards -x, 14° from straight up.
-    expect(data.getSteepness(0.5, 0.5)).toBeCloseTo((Math.atan(10 / 40) * 180) / Math.PI, 1);
+    expect(data.steepnessAt(0, 0)).toBeCloseTo((Math.atan(10 / 40) * 180) / Math.PI, 1);
 
     const scene = new Scene();
     const node = new Group();
@@ -195,7 +197,7 @@ describe('terrain', () => {
     expect(box().max.y).toBeCloseTo(10, 5);
 
     // Flattened to half height: the drawn ground follows at once.
-    data.setHeights(0, 0, Array.from({ length: 65 }, () => Array<number>(65).fill(0.5)));
+    data.setHeights(() => 5);
     runtime.update(1 / 60);
     expect(node.children.length).toBe(1);
     expect(box().min.y).toBeCloseTo(5, 5);
@@ -205,7 +207,7 @@ describe('terrain', () => {
   it('draws plain grey with no layers, and in a test, which has no canvas to pack them on', () => {
     const data = new TerrainData();
     data.heightmapResolution = 33;
-    data.size = new Vector3(20, 4, 20);
+    data.width = data.depth = 20;
     const game = simulate(() => (
       <Scene>
         <Terrain terrainData={data} />

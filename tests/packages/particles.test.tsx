@@ -33,4 +33,35 @@ describe('particles', () => {
     playing!.enabled = false;
     expect(playing!.isPlaying).toBe(false);
   });
+
+  it('bursts where its node was moved to in the same frame, as Unity does', () => {
+    const burst: ParticleEffect = {
+      duration: 0.5, looping: false, startLifetime: 1, startSpeed: 0, simulationSpace: 'World',
+      emission: { rateOverTime: 0, bursts: [{ time: 0, count: 10 }] }, shape: { type: 'Point' },
+    };
+    const scene = (
+      <Scene>
+        <Group>
+          <ParticleSystem effect={burst} playOnAwake={false} />
+        </Group>
+      </Scene>
+    ) as Scene;
+    const runtime = new Runtime(scene);
+    runtimes.push(runtime);
+    wake(scene);
+    const node = scene.children[0]!;
+    const fx = node.getComponent(ParticleSystem)!;
+    const centre = () => {
+      const system = fx.system!;
+      const live = system.particles.slice(0, system.particleNum);
+      return live.reduce((sum, p) => sum + p.position.x, 0) / live.length;
+    };
+    for (const x of [5, 25]) {
+      node.position.x = x;
+      fx.restart();
+      runtime.update(1 / 60);
+      expect(fx.particleCount).toBe(10);
+      expect(centre()).toBeCloseTo(x, 5);
+    }
+  });
 });

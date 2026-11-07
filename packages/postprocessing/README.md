@@ -6,7 +6,7 @@ Post effects, spelled the way URP spells them, on three.js's `EffectComposer`. P
 ```tsx
 <Group name="Look">
   <Volume />
-  <Bloom intensity={0.55} threshold={1} scatter={0.4} />
+  <Bloom intensity={1} threshold={0.9} />
   <Tonemapping mode="ACES" />
   <ColorAdjustments postExposure={0.14} saturation={10} />
   <Vignette intensity={0.3} />

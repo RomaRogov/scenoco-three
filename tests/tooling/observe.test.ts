@@ -71,6 +71,28 @@ describe('the game from Playwright', () => {
     expect(await page.evaluate(() => __scenoco.clock!())).toEqual(before); // held: real time does not move it
   }, 60_000);
 
+  it('replays the active scene the same way after reload, with a field set from the page', async () => {
+    const replays = await page.evaluate(async () => {
+      const play = async () => {
+        await __scenoco.reload!(3);
+        await __scenoco.keyDown!('ArrowLeft');
+        await __scenoco.step!(40);
+        await __scenoco.keyUp!('ArrowLeft');
+        await __scenoco.step!(80);
+        return __scenoco.eval!('return [find(Paddle).node.position.x, ...findAll(Ball).map((b) => b.node.position.toArray())].flat().map((v) => +v.toFixed(5))');
+      };
+      const first = await play();
+      const again = await play();
+      await __scenoco.set!('Paddle.speed', 4);
+      const slow = await play();
+      await __scenoco.set!('Paddle.speed');
+      return { first, again, slow, cleared: await play() };
+    });
+    expect(replays.again).toEqual(replays.first);
+    expect(replays.cleared).toEqual(replays.first);
+    expect((replays.slow as number[])[0]).not.toBe((replays.first as number[])[0]); // the field held through the reload
+  }, 60_000);
+
   it('steps and reads without waiting for a paint, as a bot does', async () => {
     // Counted in the page's paints, not in seconds: a machine without a GPU draws each step slowly.
     const { steps, paints } = await page.evaluate(async () => {

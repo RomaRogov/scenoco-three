@@ -51,8 +51,7 @@ export class River extends Behaviour<Mesh> {
     if (!data) throw new Error('River needs a Terrain in the scene: its water follows the ground.');
     const spline = new Spline(this.knots);
     const steps = Math.ceil(spline.getLength() / 2);
-    const side = data.size.x;
-    const ground = (x: number, z: number) => data.getInterpolatedHeight(x / side + 0.5, z / side + 0.5);
+    const ground = (x: number, z: number) => data.heightAt(x, z);
     const bed = Array.from({ length: steps + 1 }, (_, i) => {
       const p = spline.evaluatePosition(i / steps);
       return ground(p.x, p.z);

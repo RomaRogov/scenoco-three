@@ -94,8 +94,7 @@ export class TerrainMaterial extends MeshStandardMaterial {
     this.uniforms.terrainColours.value = textures.diffuse;
     this.uniforms.terrainNormals.value = textures.normal;
     this.uniforms.terrainTiles.value = [...tiles, ...Array<number>(8 - tiles.length).fill(1)];
-    const size = data.size;
-    this.uniforms.terrainSize.value.set(size.x, size.z);
+    this.uniforms.terrainSize.value.set(data.width, data.depth);
   }
 
   override customProgramCacheKey(): string {

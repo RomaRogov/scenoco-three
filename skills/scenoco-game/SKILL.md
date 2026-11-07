@@ -3,78 +3,49 @@ name: scenoco-game
 description: Make or change a browser game with SceNoCo — three.js scenes in TSX (no React) and Unity's behaviours, from the @scenoco-three npm packages. Use when asked to build a 2D or 3D web game with SceNoCo, three.js and Unity-style behaviours, to add a game to a React app, or to test or debug a SceNoCo game in the browser through window.__scenoco.
 ---
 
-Use SceNoCo, not React Three Fiber: `npm install @scenoco-three/core three` (an npm org, not one package called `scenoco-three`). This skill is written for SceNoCo 1.2.1 or later. Read [https://romarogov.github.io/scenoco-three/llms.txt](https://romarogov.github.io/scenoco-three/llms.txt) first.
+Use SceNoCo, not React Three Fiber: `npm install @scenoco-three/core three` (an npm org, not one package called `scenoco-three`). This skill is written for SceNoCo 1.3 or later. Without a project yet, [llms.txt](https://romarogov.github.io/scenoco-three/llms.txt) is the overview.
 
 # Making a game with SceNoCo
 
 SceNoCo is three.js scenes written in TSX, plus Unity's behaviours. Write it from what you know of
-three.js and Unity; two pages say where SceNoCo differs, and they are all there is to read.
+three.js and Unity; the project's rules card says where SceNoCo differs.
 
-## 1. Read
+## Read, as you need it
 
-- **The rules card:** `AGENTS.md` in the project, or `node_modules/@scenoco-three/core/AGENTS.md`.
-- **`node_modules/@scenoco-three/core/API.md`:** every exported type and signature, the `.d.ts` in
-  one file with comments. Look things up there — `grep -n Prefab node_modules/@scenoco-three/core/API.md`
-  — never in `dist/` or the source. Every other package has its own beside it:
-  `node_modules/@scenoco-three/<name>/API.md`.
+- **Before writing:** the rules card's "Every game" part — `AGENTS.md` in the project, or
+  `node_modules/@scenoco-three/core/AGENTS.md`.
+- **When the game first needs something:** that paragraph of the card's "When the game needs it"
+  part (UI, input, tweens…), or a package's own `API.md` once you install it.
+- **When a signature is unclear:** search `node_modules/@scenoco-three/core/API.md`, rather than
+  reading `dist/` or the source.
 
-## 2. Start
+## Start
 
 - **A new game:** `npm create @scenoco-three my-game`. The starter runs; replace its scene and
   behaviours.
-- **Inside an existing Vite or React app:** the card's **Starting** says how (`src/game/`,
-  `play(Main, { container })`).
+- **Inside an existing Vite or React app:** the card's **Starting** says how.
 
-## 3. Build
+## Build
 
 Plan it as a Unity project: nodes, the behaviours on them, prefabs, and one behaviour that owns the
-game's state (`GameState.phase`), which every check reads. Then repeat:
+game's state, which every check reads. Then go round:
 
 1. **Change** scenes (`.tsx`, declarations only) and behaviours (`.ts`).
-2. **`npm run check`** — fix each error at its line. A scene error gives the exact text to write;
-   write it. No `any`, casts or `@ts-ignore`.
-3. **Test the rules** with `npm test`: Vitest, `simulate(Main, { page })` (the card's **Checking it**),
-   one test per rule, no browser. The starter's `src/game.test.ts` shows how. This is Unity's
-   play-mode test.
-4. **Look at it running** (below), and read the console.
+2. **`npm run check`**, and fix each error at its line. A scene error gives the exact text to write.
+3. **Look at it running** with `npm run dev` and `window.__scenoco`. Make each browser call play a
+   stretch: a script run against the page can reload it, drive the game on a held clock and end on a
+   screenshot. Readings say whether it works; a screenshot, how it looks — take one as the browser
+   tool returns it, since one saved to a file costs another turn to read back. Tune values with
+   `set` and `reload`, then write the one that works into the file.
 
-Done is a passing test for every rule, a played-through round — start, win or lose, restart — whose
-screenshots look right, and a console with no errors.
+Done is a round played through — start, win or lose, restart — that looks right, with no errors in
+the console.
 
-## 4. Look at it running
+## When something is off
 
-`npm run dev`. In development the page has `window.__scenoco`: the Unity editor's Play / Pause / Step
-buttons, plus input and readings. `__scenoco.help()` lists the calls.
-
-- **Hold the clock, then step it.** `press`, `step`, `until` and `watch` pause the game on an exact
-  frame and keep it there, so a screenshot shows that frame on any machine. Never wait in real time
-  for the game to move: on a slow or software renderer a second of waiting is a few frames. `until`
-  stops on the frame its condition turned true, before behaviours that ran earlier in that frame
-  saw the change: `step(1)` before reading the HUD or taking the screenshot.
-- **With any tool that evaluates JavaScript in the page** — a browser tool, or a Playwright or
-  Puppeteer script of your own:
-
-  ```js
-  await __scenoco.ready();                          // until the first frames, input goes nowhere
-  await __scenoco.press('Space');                   // or press('d', 60): held for 60 frames
-  await __scenoco.until("GameState.phase === 'playing'", 600);   // { met, frames }
-  // now take the screenshot
-  ```
-
-  `outline()` prints the scene with every behaviour's fields. `watch(['Ball.speed'], 120, 10)` gives
-  values over time, and `eval('return findAll(Coin).length')` any reading. `click(x, y)` and `swipe`
-  take window pixels. `view({ cameraPos, lookAt })` looks from elsewhere until `view(null)`, and
-  `play()` runs in real time again: page CSS and timers always do.
-- **With a tool that can only open an address and take screenshots**, put the same calls in the
-  address: `/?drive=press('Space');until(GameState.phase == 'playing');outline()`. Each call logs a
-  `[scenoco]` console line, and the last, `done, held at frame N`, means the screenshot is ready
-  (`#` is `%23`). Drive reads data and calls nothing else, so a check it can't express goes into the
-  game: a getter (`get bricksLeft()`), or a start the game reads itself (`/?level=3&drive=…`).
-- **The console:** a behaviour that throws is logged once and the game goes on, so a game that looks
-  right can still be broken. Log each state change with `console.info` (`phase: playing`).
-
-## When stuck
-
-- **Blank screen:** the scene has no camera, or it looks away. `outline()`, then `view(...)`.
-- **A position is off:** `node.position` is the parent's space; use `getWorldPosition(v)`.
-- **Tuning by eye:** `watch` the numbers on a held clock instead.
+- **Blank screen:** no camera, or it looks away. `__scenoco.outline()` shows the scene.
+- **A hitch when something is picked up or spawned:** a light came or went, and three.js recompiled
+  every lit material — the card's **Lights are fixed** says what to do instead.
+- **A position is off:** `node.position` is in the parent's space.
+- **The engine seems wrong:** narrow it to the smallest case that shows it, work around it, and say
+  so in your report.

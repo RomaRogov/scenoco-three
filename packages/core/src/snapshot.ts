@@ -445,6 +445,16 @@ class Walk {
     }
     const plain = plainFields(o);
     if (plain) return { object: { type: (o.constructor as Function).name, fields: plain } };
+    // A package's value that says what it is as data — a terrain's heights — under the shared symbol.
+    const describe = (o as Record<PropertyKey, unknown>)[SNAPSHOT];
+    if (typeof describe === 'function') {
+      const fields: Record<string, SnapshotValue> = {};
+      for (const [k, item] of Object.entries(describe.call(o) as Record<string, unknown>)) {
+        const encoded = this.value(item, fields, k, `${where}.${k}`);
+        if (encoded !== undefined) fields[k] = encoded;
+      }
+      return { object: { type: (o.constructor as Function).name, fields } };
+    }
     // An object literal is data all the way down — a particle effect, with its colours and lists.
     const proto = Object.getPrototypeOf(o);
     if (proto === Object.prototype || proto === null) {
@@ -598,6 +608,9 @@ function plain(v: unknown): SnapshotValue | undefined {
 }
 
 /** An object's own values, when every one is a number, a boolean or a string — a settings object; else null. */
+/** A method a package's value describes itself with, as plain data, for an export. */
+const SNAPSHOT = Symbol.for('scenoco.snapshot');
+
 function plainFields(o: Record<string, unknown>): Record<string, number | boolean | string> | null {
   const entries = Object.entries(o).filter(([key]) => !key.startsWith('_'));
   if (entries.length === 0 || !entries.every(([, v]) => typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string')) return null;

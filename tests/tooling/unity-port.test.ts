@@ -28,6 +28,13 @@ describe('what a Unity port is handed', () => {
     expect(page.copies.size).toBeGreaterThan(10);
   });
 
+  it("leaves out the starter page's reset, which stands in for USS's own defaults", async () => {
+    const starter = fileURLToPath(new URL('../../packages/create/template', import.meta.url));
+    const uss = (await convertPage(starter, ['ui'], { fonts: false })).files.get('Assets/UI/Page.uss')!;
+    expect(uss).not.toMatch(/where|#ui \*|#ui VisualElement|#ui div/);
+    expect(uss).toContain('#hint');
+  });
+
   it("core's named axes as the project-wide input actions", () => {
     const asset = JSON.parse(inputActions(AXES as never));
     const map = asset.maps[0];

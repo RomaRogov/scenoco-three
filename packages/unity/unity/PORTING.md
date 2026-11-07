@@ -68,6 +68,13 @@ is the rules for that. It is rewritten by every export.
   saving anything.
 - **Particle systems** came across as Unity's own, module by module: `play()`, `stop()` and
   `isPlaying` are the same.
+- **Terrains** came across as Unity's `TerrainData` assets, with the `Terrain` and `TerrainCollider`
+  on a child named Terrain at the data's corner: SceNoCo's terrain is centred on its node with heights
+  in metres, Unity's starts at its object with heights 0..1 of `size.y`. A layer is its colour; a
+  layer's texture is set in Unity. In code, `terrain.sampleHeight(p)` is `Terrain.SampleHeight(p)`;
+  `data.heightAt(x, z)` (metres from the centre) is `terrain.SampleHeight` at that point under the
+  node, and `steepnessAt` is `terrainData.GetSteepness` at its 0..1 position. The game's own height
+  function, if it has one, ports as it is.
 
 ## Input
 

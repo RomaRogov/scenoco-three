@@ -46,7 +46,6 @@ export type RigidbodyConstraints = number;
  * change at any time, as in Unity — set it to pick a body up, clear it to let go.
  */
 export class Rigidbody extends Behaviour {
-  isKinematic = false;
   /** The fastest it may spin, radians per second — Unity's cap, 7 by default, so a body cannot spin up without end. */
   maxAngularVelocity = 7;
 
@@ -59,8 +58,19 @@ export class Rigidbody extends Behaviour {
   private _linearDamping = 0;
   private _angularDamping = 0.05;
   private _mass: number | null = null;
+  private _isKinematic = false;
 
-  // Unity applies these at once, so they are applied at once here too.
+  // Unity applies these at once, so they are applied at once here too: a velocity set right after
+  // letting go is the one the body leaves with.
+  get isKinematic(): boolean {
+    return this._isKinematic;
+  }
+  set isKinematic(on: boolean) {
+    if (on === this._isKinematic) return;
+    this._isKinematic = on;
+    if (this._body) this._physics?._retype(this, this._body);
+  }
+
   get useGravity(): boolean {
     return this._useGravity;
   }

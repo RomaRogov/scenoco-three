@@ -22,7 +22,8 @@ here, and may change in a minor release; a package written against them names th
 //   <Rigidbody2D ref={wheel} />  a behaviour's tag takes ref too: the component, for a field such as connectedBody
 //   <Tower projectile={Arrow} /> a prefab as a setting: projectile: Prefab | null = null
 //   <Pad position={[4, 0, 2]} /> a prefab(…) returns one root; its tag's position, rotation, scale and name are
-//                                that root's, as a Unity instance's Transform — the prefab's props are the rest
+//                                that root's, as a Unity instance's Transform — the prefab's props are the rest;
+//                                its ref={pad} is that root too
 // A scene file only declares: no loops, branches, handlers or calls — `scenoco check` says what to write instead.
 
 function play(scene: () => JSX.Element, options?: {
@@ -63,7 +64,7 @@ interface Simulation {
   dispose(): void;                                                  // onDestroy runs; input let go
 }
 function ref<T>(): { current: T | null };
-function prefab<F extends (props: P) => JSX.Element>(build: F): F;  // export const Coin = prefab(() => <Mesh>…</Mesh>): one root;
+function prefab<F extends Function>(build: F): F;  // export const Coin = prefab(() => <Mesh>…</Mesh>): one root;
                                                                     // a function not wrapped is a plain component — its tag is its props.
                                                                     // Props are typed by their defaults — prefab(({ width = 1 }) => …) —
                                                                     // or by a written type: ({ width }: { width: number })

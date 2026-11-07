@@ -52,6 +52,10 @@ export class Runtime {
   /** @internal */ readonly pendingStart: Behaviour[] = [];
   private readonly systems: System[] = [];
   private accumulator = 0;
+  /** @internal the next fixed step a whole `fixedDelta` away: a replay from here steps as the first run did. */
+  restartFixedStep(): void {
+    this.accumulator = 0;
+  }
 
   /**
    * How far the clock is between the last `fixedUpdate` and the next, 0..1 — what a system that

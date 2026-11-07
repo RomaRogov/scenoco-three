@@ -9,6 +9,10 @@
  */
 import * as THREE from 'three';
 import { Behaviour, Runtime, Time } from '../kernel/index.js';
+import { assignInit } from '../kernel/init.js';
+import { behavioursOn } from '../kernel/registry.js';
+import { Random } from '../Random.js';
+import { onBeforeWake, reloadActive } from '../scenes.js';
 import { isHeld, setHeld, setView } from '../host.js';
 import { runDrive, type DriveScope } from './drive.js';
 import { createInput } from './input.js';
@@ -107,6 +111,24 @@ export function installBridge(
     setHeld(runtime, true);
   };
 
+  /**
+   * Fields set from here — `Marble.speed` → 9 — on every live behaviour of the class, and on every one
+   * a scene load builds, before it wakes, as if its tag had said so: a value tried in the running game
+   * holds through `reload()`, until it is cleared.
+   */
+  const overrides = new Map<string, { type: string; field: string; value: unknown }>();
+  const override = (root: THREE.Object3D, live: boolean) =>
+    root.traverse((node) => {
+      for (const b of behavioursOn(node)) {
+        for (const o of overrides.values()) {
+          if (b.constructor.name !== o.type) continue;
+          assignInit(b, { [o.field]: o.value });
+          if (live) b.onValidate?.();
+        }
+      }
+    });
+  const stopOverrides = onBeforeWake((scene) => override(scene, false));
+
   const bridge = {
     /** What this is and how to call it — the first thing to read. */
     help(): string {
@@ -150,6 +172,38 @@ export function installBridge(
     async step(frames = 1, dt = DT) {
       hold();
       stepFrames(frames, dt);
+      await nextTask();
+      return bridge.clock();
+    },
+    /**
+     * Set a field on every `Type` in the game now — its `onValidate` runs, as after the editor's — and
+     * on every one a load builds from here on. `set('Marble.speed')` with no value clears it.
+     */
+    set(path: string, value?: unknown) {
+      const [type, field] = path.split('.');
+      const live = type ? (byClass().get(type) ?? []) : [];
+      if (!type || !field) throw new Error(`set('${path}'): name a behaviour's field — set('Marble.speed', 9).`);
+      if (!live.length && !learnClasses().has(type)) {
+        throw new Error(`set('${path}'): no ${type} is in the game. Live classes: ${[...byClass().keys()].sort().join(', ')}.`);
+      }
+      if (live.length && !(field in live[0]!)) throw new Error(`set('${path}'): ${type} has no field ${field}.`);
+      if (value === undefined) overrides.delete(path);
+      else {
+        overrides.set(path, { type, field, value });
+        override(get().scene, true);
+      }
+      return Object.fromEntries([...overrides].map(([k, o]) => [k, o.value]));
+    },
+    /**
+     * Unity's `LoadScene` of the active scene, now, with `Random` started over from `seed`: on the held
+     * clock, the same input then plays out the same way, so one call can replay a stretch for each of
+     * several values and compare them.
+     */
+    async reload(seed = 0) {
+      hold();
+      Random.initState(seed);
+      runtime.restartFixedStep();
+      if (!reloadActive()) throw new Error('reload(): no scene is loaded.');
       await nextTask();
       return bridge.clock();
     },
@@ -267,6 +321,7 @@ export function installBridge(
       "A tool that cannot run JavaScript in the page drives it from the address and reads the console: ?drive=press('Space');until(Game.over);outline()",
   );
   return () => {
+    stopOverrides();
     setHeld(runtime, false);
     setView(runtime, null);
     restoreTimers();
@@ -283,6 +338,10 @@ Clock — a held clock moves only when stepped, so every reading lands on an exa
   step(frames = 1)                      advance exactly this many frames
   until(code, maxFrames = 600)          step until code is true: until("GameState.phase === 'over'")
   watch([code, …], frames = 60, every = 10)   rows of values over time: watch(["Player.lane", "Time.time"])
+Tuning — try values in the running game, then write the one that works into the file:
+  set("Marble.speed", 9)                that field on every Marble now, and on every one a reload builds; set("Marble.speed") clears it
+  reload(seed = 0)                      the active scene again from its start, Random from seed: on a held clock the same input
+                                        plays out the same, so one call can replay a stretch per value and compare
 Reading — code is JavaScript where Player.lane is the first live Player's lane, #runner the node named "runner",
 and find(Type) / findAll(Type) / node(name) / getComponent(node, Type) and its kin / destroy / scene / camera / Time /
 Input / SceneManager / THREE are in scope:

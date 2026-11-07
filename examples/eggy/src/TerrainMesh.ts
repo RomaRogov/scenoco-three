@@ -45,7 +45,7 @@ export class TerrainMesh extends Behaviour {
   /** The ground's height at a point in this node's space. */
   static getHeight(pos: Vector3): number {
     const self = TerrainMesh.instance;
-    return self.terrainData!.getInterpolatedHeight(pos.x / self.size.x, (pos.z + self.size.y / 2) / self.size.y) + LIP;
+    return self.terrainData!.heightAt(pos.x - self.size.x / 2, pos.z) + LIP;
   }
 
   /** The slope's tilt: what lies flat on it is turned this way. */
@@ -113,18 +113,16 @@ export class TerrainMesh extends Behaviour {
     const data = this.terrainData!;
     // 2^k + 1 samples down the slope, about 3 a metre — Unity's grid was 70 across.
     data.heightmapResolution = this.size.x > 120 ? 513 : 257;
-    data.size = new Vector3(this.size.x, TOP - LIP, this.size.y);
-    const n = data.heightmapResolution;
+    data.width = this.size.x;
+    data.depth = this.size.y;
     const point = new Vector3();
-    const rows = Array.from({ length: n }, (_, r) =>
-      Array.from({ length: n }, (_, c) => {
-        // The last column drops off: the lip.
-        if (c === n - 1) return 0;
-        point.set((c / (n - 1)) * this.size.x, 0, -this.size.y / 2 + (r / (n - 1)) * this.size.y);
-        return (this.getHeightInternal(point) - LIP) / (TOP - LIP);
-      }),
-    );
-    data.setHeights(0, 0, rows);
+    // Metres above the lip, from the data's centre; the slope's own height function runs from x = 0.
+    data.setHeights((x, z) => {
+      // The last column drops off: the lip.
+      if (x >= this.size.x / 2 - 1e-6) return 0;
+      point.set(x + this.size.x / 2, 0, z);
+      return Math.min(Math.max(this.getHeightInternal(point) - LIP, 0), TOP - LIP);
+    });
     // The data's ground is centred on its node; the slope starts at x = 0, the lip at the bottom.
     this.ground?.position.set(this.size.x / 2, LIP, 0);
   }

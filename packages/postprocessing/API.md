@@ -7,7 +7,7 @@ through three.js's `EffectComposer`; everything not here is three.js, as three.j
 // A Volume and its effects, as components on one node — URP's Volume and Volume Profile:
 //   <Group name="Look">
 //     <Volume />
-//     <Bloom intensity={0.55} threshold={1} scatter={0.4} />
+//     <Bloom intensity={1} threshold={0.9} />
 //     <Tonemapping mode="ACES" />
 //   </Group>
 // Every field is read every frame, so it can be tweened; enabled = false drops one effect.
@@ -21,8 +21,8 @@ class Tonemapping extends Behaviour {   // sets renderer.toneMapping while it dr
   mode: 'None' | 'Neutral' | 'ACES';    // the renderer, not both. 'ACES'
 }
 class Bloom extends Behaviour {         // light above threshold spilling into what is around it
-  threshold: number;           // 0.9, in linear light: an emissive colour above 1 glows
-  intensity: number;           // 1
+  threshold: number;           // 0.9, in linear light, with URP's soft knee: an emissive colour above 1 glows
+  intensity: number;           // 1, as URP's: the glow added once
   scatter: number;             // 0.7: how far it spreads, 0..1
   tint: Color;                 // white
 }

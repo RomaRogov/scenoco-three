@@ -254,14 +254,15 @@ export function capsuleSize(radius: number, height: number, scale: Vector3): { h
 
 /**
  * What `TerrainCollider` reads: `@scenoco-three/terrain`'s `TerrainData` has this shape. Heights in
- * metres, row by row from -z, `heightmapResolution` a side, corner to corner over `size.x` × `size.z`
- * centred on the node.
+ * metres, row by row from -z, `heightmapResolution` a side, corner to corner over `width` × `depth`
+ * metres centred on the node.
  */
 export interface TerrainHeights {
   readonly url: string;
   readonly isLoaded: boolean;
   readonly heightmapResolution: number;
-  readonly size: Vector3;
+  readonly width: number;
+  readonly depth: number;
   readonly heights: Float32Array;
   /** Raised when the heights or the size change: the collider is made again. */
   readonly changed: Event<[]>;
@@ -302,8 +303,7 @@ export class TerrainCollider extends Collider {
     // Rapier's heightfield is column-major: the sample at row r (along z), column c (along x) is r + c * n.
     const heights = new Float32Array(n * n);
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) heights[r + c * n] = data.heights[r * n + c]!;
-    const size = data.size;
-    return RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, { x: size.x * scale.x, y: scale.y, z: size.z * scale.z });
+    return RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, { x: data.width * scale.x, y: scale.y, z: data.depth * scale.z });
   }
 }
 

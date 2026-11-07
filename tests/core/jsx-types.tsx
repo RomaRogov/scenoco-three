@@ -57,6 +57,7 @@ const Plain = ({ name }: { name: string }) => <Group userData={{ name }} />;
  * Typecheck-only: a prefab's tag places and names its root, and a prefab declaring those is told
  * where they belong; a plain function's tag is its props, and only a prefab is instantiated.
  */
+const wall = ref<Group>();
 export const Prefabs = () => (
   <Group>
     <Tower level={2} position={[1, 0, 2]} rotation={[0, Math.PI, 0]} scale={2} name="north tower" />
@@ -64,7 +65,7 @@ export const Prefabs = () => (
     <Tower level={2} colour="red" />
     {/* @ts-expect-error position belongs to the tag, not the prefab's props */}
     <Placed position={[0, 0, 0]} />
-    <Wall position={[-9, 0, 0]} width={0.5} />
+    <Wall position={[-9, 0, 0]} width={0.5} ref={wall} />
     <Wall label="east" name="east wall" />
     {/* @ts-expect-error props without a type take theirs from the defaults */}
     <Wall width="wide" />

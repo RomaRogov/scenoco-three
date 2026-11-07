@@ -94,7 +94,7 @@ export class Terrain extends Behaviour {
     const material = this.materialTemplate ?? this.ownMaterial!;
     const chunk = Math.min(CHUNK, cells);
     const martini = martiniFor(chunk + 1);
-    const size = data.size;
+    const size = { x: data.width, z: data.depth };
     const stepX = size.x / cells;
     const stepZ = size.z / cells;
     for (let row = 0; row < cells / chunk; row++) {
@@ -206,8 +206,7 @@ export class Terrain extends Behaviour {
   sampleHeight(worldPosition: Vector3): number {
     const data = this.terrainData!;
     const local = this.node.worldToLocal(scratch.copy(worldPosition));
-    const size = data.size;
-    local.y = data.getInterpolatedHeight(local.x / size.x + 0.5, local.z / size.z + 0.5);
+    local.y = data.heightAt(local.x, local.z);
     const ground = this.node.localToWorld(local).y;
     return ground - this.node.getWorldPosition(scratch).y;
   }
@@ -231,7 +230,7 @@ export class Terrain extends Behaviour {
     const n = data.heightmapResolution;
     const cells = n - 1;
     const size = Math.min(CHUNK, cells);
-    const { x: sizeX, z: sizeZ } = data.size;
+    const { width: sizeX, depth: sizeZ } = data;
     const stepX = sizeX / cells;
     const stepZ = sizeZ / cells;
     const { vertices, triangles } = chunk.tile.getMesh(LEVEL_ERRORS[level]);

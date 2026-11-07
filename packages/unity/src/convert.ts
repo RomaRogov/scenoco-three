@@ -119,6 +119,27 @@ export interface UnityMaterial {
   tiling?: number[];
 }
 
+/**
+ * A terrain as Unity's `TerrainData` wants it. SceNoCo's is centred on its node with heights in
+ * metres; Unity's starts at its object's corner with heights 0..1 of `size.y` above it, so the
+ * Terrain sits on a child at `offset`. Rows run along Unity's +z, which is three's -z.
+ */
+export interface UnityTerrain {
+  path: string;
+  /** Unity's `size`: width, the height span, length. */
+  size: number[];
+  /** Where the Terrain's child sits under the node: its corner and its lowest point. */
+  offset: number[];
+  heightmapResolution: number;
+  /** 0..1 of `size.y`, row by row from Unity's z = 0: `heights[y * n + x]`. */
+  heights: number[];
+  /** A power of two, as Unity needs, resampled from the game's. */
+  alphamapResolution: number;
+  /** 0..1, `alphamaps[(y * a + x) * layers + layer]`. */
+  alphamaps: number[];
+  layers: { name: string; tileSize: number; color: string }[];
+}
+
 export interface UnityPrefab {
   path: string;
   root: UnityNode;
@@ -135,6 +156,7 @@ export interface UnityScene {
 
 export interface UnityExport {
   meshes: UnityMesh[];
+  terrains: UnityTerrain[];
   materials: UnityMaterial[];
   /** Ordered so a nested prefab comes before the prefabs that use it. */
   prefabs: UnityPrefab[];
@@ -222,6 +244,21 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     return material(m, path, options.textures, copies, warnings);
   });
 
+  const terrains: UnityTerrain[] = [];
+  const terrainPath = new Map<string, string>();
+  const terrainOf = (fields: Record<string, SnapshotValue>): UnityValue => {
+    const key = JSON.stringify(fields);
+    let path = terrainPath.get(key);
+    if (!path) {
+      path = paths.take('Assets/Terrains', 'Terrain', '.asset');
+      terrainPath.set(key, path);
+      const t = terrain(fields, path);
+      terrains.push(t.terrain);
+      warnings.push(...t.warnings);
+    }
+    return { asset: path };
+  };
+
   const prefabPath = new Map<string, string>();
   const sceneName = new Map<string, string>();
   for (const p of snap.prefabs) {
@@ -238,6 +275,7 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     if ('component' in v) return { component: csName(v.component), node: v.node };
     if ('material' in v) return { asset: materialPath.get(v.material)! };
     if ('geometry' in v) return { asset: meshPath.get(v.geometry)! };
+    if ('object' in v && v.object.type === 'TerrainData') return terrainOf(v.object.fields);
     if ('object' in v) return { object: { type: v.object.type, fields: Object.fromEntries(Object.entries(v.object.fields).map(([k, f]) => [k, value(f)])) } };
     return v;
   };
@@ -337,7 +375,7 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     ignore2D: given.ignore2D.map(([a, b]) => [unityLayer(a), unityLayer(b)] as [number, number]),
     ignore3D: given.ignore3D.map(([a, b]) => [unityLayer(a), unityLayer(b)] as [number, number]),
   };
-  return { data: { meshes, materials, prefabs, scenes, layers, warnings }, scripts: scripts(snap, value, options.source), copies };
+  return { data: { meshes, terrains, materials, prefabs, scenes, layers, warnings }, scripts: scripts(snap, value, options.source), copies };
 }
 
 /** Every node reference in `roots` one root further along; the scene itself (`''`) is now the first root. */
@@ -373,6 +411,68 @@ class Paths {
     this.taken.add(path.toLowerCase());
     return path;
   }
+}
+
+const numbers = (v: SnapshotValue | undefined): number[] =>
+  v && typeof v === 'object' && 'array' in v ? v.array.map((x) => (typeof x === 'number' ? x : 0)) : [];
+
+/** A terrain's metres as Unity's TerrainData: mirrored in z, anchored at its corner, heights 0..1 of their span. */
+function terrain(f: Record<string, SnapshotValue>, path: string): { terrain: UnityTerrain; warnings: string[] } {
+  const warnings: string[] = [];
+  const width = f.width as number;
+  const depth = f.depth as number;
+  const n = f.heightmapResolution as number;
+  const metres = numbers(f.heights);
+  let low = Infinity;
+  let high = -Infinity;
+  for (const h of metres) {
+    low = Math.min(low, h);
+    high = Math.max(high, h);
+  }
+  if (!Number.isFinite(low)) low = high = 0;
+  // Unity's terrain needs some height to span; a flat one gets a metre.
+  const span = high - low || 1;
+  const heights = new Array<number>(n * n);
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) heights[(n - 1 - r) * n + c] = Math.round(((metres[r * n + c]! - low) / span) * 1e5) / 1e5;
+  }
+
+  const layerValues = f.terrainLayers && typeof f.terrainLayers === 'object' && 'array' in f.terrainLayers ? f.terrainLayers.array : [];
+  const layers = layerValues.map((l) => {
+    const fields = l && typeof l === 'object' && 'object' in l ? l.object.fields : {};
+    const color = fields.color && typeof fields.color === 'object' && 'color' in fields.color ? fields.color.color : '#808080';
+    if (fields.textured) warnings.push(`${path}: layer "${fields.name || 'unnamed'}" has a texture, which is not exported — it is its colour in Unity.`);
+    return { name: String(fields.name ?? ''), tileSize: Number(fields.tileSize ?? 10), color };
+  });
+  const a = f.alphamapResolution as number;
+  const bytes = numbers(f.alphamaps);
+  const unityA = Math.min(Math.max(2 ** Math.ceil(Math.log2(Math.max(a, 1))), 16), 2048);
+  const alphamaps: number[] = [];
+  if (layers.length > 0) {
+    for (let y = 0; y < unityA; y++) {
+      const r = Math.min(a - 1, Math.floor((1 - (y + 0.5) / unityA) * a));
+      for (let x = 0; x < unityA; x++) {
+        const c = Math.min(a - 1, Math.floor(((x + 0.5) / unityA) * a));
+        for (let l = 0; l < layers.length; l++) {
+          const byte = bytes.length ? bytes[l * a * a + r * a + c]! : l === 0 ? 255 : 0;
+          alphamaps.push(Math.round((byte / 255) * 1000) / 1000);
+        }
+      }
+    }
+  }
+  return {
+    terrain: {
+      path,
+      size: [width, span, depth],
+      offset: [-width / 2, low, -depth / 2],
+      heightmapResolution: n,
+      heights,
+      alphamapResolution: unityA,
+      alphamaps,
+      layers,
+    },
+    warnings,
+  };
 }
 
 function mesh(g: SnapshotGeometry, path: string): UnityMesh {

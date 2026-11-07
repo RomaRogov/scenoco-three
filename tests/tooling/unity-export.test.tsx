@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { BoxGeometry, DirectionalLight, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene } from 'three';
 import { Behaviour, prefab, ref } from '@scenoco-three/core';
 import { snapshot, type SnapshotNode } from '@scenoco-three/core/snapshot';
+import { Terrain, TerrainData, TerrainLayer } from '@scenoco-three/terrain';
 import { convert } from '../../packages/unity/src/convert.js';
 import { snapshotProject } from '../../packages/unity/src/export.js';
 
@@ -75,6 +76,36 @@ describe('unity export', () => {
     expect(scripts.get('GridBehaviour')).toContain('public class GridBehaviour : MonoBehaviour');
     expect(scripts.get('GridBehaviour')).toContain('public float size = 4f;');
     expect(scripts.get('Spawner')).toContain('public GameObject[] wave;');
+  });
+
+  it("writes a terrain's metres as Unity's TerrainData: from its corner, heights 0..1 of their span, mirrored in z", () => {
+    const ground = new TerrainData();
+    ground.width = 40;
+    ground.depth = 20;
+    ground.heightmapResolution = 33;
+    // 2 m at three's -z edge, 6 m at +z: Unity's row 0 is three's +z.
+    ground.setHeights((_, z) => 4 + z / 5);
+    ground.terrainLayers = [new TerrainLayer({ name: 'grass' }), new TerrainLayer({ name: 'rock' })];
+    ground.setAlphamaps((x) => (x < 0 ? [1, 0] : [0, 1]));
+    const World = () => (
+      <Scene>
+        <Group position={[0, 1, 0]}>
+          <Terrain terrainData={ground} />
+        </Group>
+      </Scene>
+    );
+    const { data } = convert(snapshot({ '/src/World.tsx': { World }, '/src/ground.ts': { ground } }));
+    const [t] = data.terrains;
+    expect(t!.size).toEqual([40, 4, 20]);
+    expect(t!.offset).toEqual([-20, 2, -10]);
+    expect(t!.heights[0]).toBe(1);
+    expect(t!.heights[32 * 33]).toBe(0);
+    // Two layers split down x, at a power-of-two resolution.
+    expect(t!.alphamapResolution).toBe(32);
+    expect(t!.alphamaps.slice(0, 2)).toEqual([1, 0]);
+    expect(t!.alphamaps.slice(31 * 2, 31 * 2 + 2)).toEqual([0, 1]);
+    const terrain = data.scenes[0]!.roots[0]!.components.find((c) => c.type === 'Terrain')!;
+    expect(terrain.fields.terrainData).toEqual({ asset: t!.path });
   });
 
   it("writes each behaviour's TypeScript into its C# stub, member by member", () => {

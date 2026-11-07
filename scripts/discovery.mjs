@@ -38,10 +38,11 @@ export function howItWorks() {
   return section.trim();
 }
 
-/** The rules card's "How SceNoCo works" paragraphs, its Unity mapping last — each as one line. */
+/** The rules card's "How SceNoCo works" paragraphs, its Unity mapping last — each as one line, its part headings left out. */
 export function rules() {
   return howItWorks()
     .split(/\n\s*\n/)
+    .filter((text) => !text.startsWith('#'))
     .map((text) => text.replace(/\s*\n\s*/g, ' ').trim());
 }
 

@@ -7,20 +7,22 @@ Ground from a heightmap, textured by layers, in the shape of Unity's terrain. Pa
 npm install @scenoco-three/terrain
 ```
 
-Made in code, as in Unity — heights are 0..1 of `size.y`, `[row][column]`, and the ground follows
-every change:
+Everything is in metres: x and z from the terrain's centre, heights from its node. Made in code from
+a height function — the same one the game can call to place things on the ground:
 
 ```ts
 // ground.ts
+export const hill = (x: number, z: number) => 4 * Math.exp(-(x * x + z * z) / 200);
 export const ground = new TerrainData();
-ground.heightmapResolution = 257;               // 2^k + 1 samples a side
-ground.size = new Vector3(80, 12, 80);          // width, height span, length in metres
-ground.setHeights(0, 0, rows);
+ground.width = 80;                              // metres along x
+ground.depth = 80;                              // metres along z
+ground.heightmapResolution = 129;               // 2^k + 1 samples a side
+ground.setHeights(hill);
 ground.terrainLayers = [
   new TerrainLayer({ diffuseTexture: sharedTexture(grassUrl), tileSize: 2 }),
-  new TerrainLayer({ diffuseTexture: sharedTexture(rockUrl), normalMapTexture: sharedTexture(rockNormalUrl), tileSize: 4 }),
+  new TerrainLayer({ color: new Color('#8a8070') }),       // no texture: a plain colour
 ];
-ground.setAlphamaps(0, 0, weights);             // [row][column][layer], 0..1
+ground.setAlphamaps((x, z) => (ground.steepnessAt(x, z) > 30 ? [0, 1] : [1, 0]));
 ```
 
 ```tsx

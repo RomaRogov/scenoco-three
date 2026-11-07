@@ -81,8 +81,10 @@ export function jsx(type: unknown, props: Props | null, _key?: unknown): unknown
     // Transform and name do. The rest of the tag is the function's props.
     const own: Props = {};
     const instance: [string, unknown][] = [];
+    let link: unknown;
     for (const [key, value] of Object.entries(all)) {
       if ((INSTANCE as readonly string[]).includes(key)) instance.push([key, value]);
+      else if (key === 'ref') link = value;
       else own[key] = value;
     }
     const name = type.name || 'prefab';
@@ -93,8 +95,13 @@ export function jsx(type: unknown, props: Props | null, _key?: unknown): unknown
     if (instance.length && (made as { isObject3D?: boolean } | null)?.isObject3D !== true) {
       throw new Error(`<${name} ${instance[0]![0]}>: ${name} returns no node to place — only a prefab whose root is an Object3D takes ${INSTANCE.join(', ')}.`);
     }
+    if (link !== undefined && (made as { isObject3D?: boolean } | null)?.isObject3D !== true) {
+      throw new Error(`<${name} ref>: ${name} returns no node to link — only a prefab whose root is an Object3D takes ref.`);
+    }
     for (const [key, value] of instance) applyProp(made as Record<string, unknown>, key, value, name);
-    remember(made, type, all);
+    if (link && typeof link === 'object' && 'current' in link) (link as Ref<unknown>).current = made;
+    // What the tag was written with, as the editor shows it: the link is the scene's, not a setting.
+    remember(made, type, link === undefined ? all : Object.fromEntries(Object.entries(all).filter(([k]) => k !== 'ref')));
     return made;
   }
 
@@ -261,10 +268,13 @@ type InstanceKey = (typeof INSTANCE)[number];
  * one of those itself is told where it belongs, at every tag that uses it.
  */
 export type PrefabProps<P> = [Extract<keyof P, InstanceKey>] extends [never]
-  ? P & Pick<PropsOf<Object3D>, InstanceKey>
-  : Omit<P, InstanceKey> & {
+  ? P & Pick<PropsOf<Object3D>, InstanceKey> & PrefabRef
+  : Omit<P, InstanceKey> & PrefabRef & {
       [K in Extract<keyof P, InstanceKey>]: `${K} belongs to the tag, as a Unity instance's Transform and name do: take it out of the prefab's props, and <Prefab ${K}={…} /> sets its root's.`;
     };
+
+/** A prefab tag's `ref` is its root, as a scene field in Unity takes the instance dragged into it. */
+type PrefabRef = { ref?: Ref<Object3D> };
 
 /**
  * A plain function's tag: its props, as anywhere TSX is written. Placing or naming it as an instance

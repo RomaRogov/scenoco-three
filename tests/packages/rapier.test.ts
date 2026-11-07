@@ -120,6 +120,18 @@ describe('rapier', () => {
     expect(b.node.position.y).toBeCloseTo(1, 1);
   });
 
+  it('keeps a velocity set in the same frame as letting go, as Unity does', () => {
+    const { scene, run } = world();
+    const b = ball(scene, 3);
+    b.body.useGravity = false;
+    b.body.isKinematic = true;
+    run(0.1);
+    b.body.isKinematic = false;
+    b.body.velocity = new Vector3(5, 0, 0);
+    run(0.5);
+    expect(b.node.position.x).toBeCloseTo(2.5, 1);
+  });
+
   it('moves a static collider with its node, so a scrolled pickup reaches a kinematic runner', () => {
     const { scene, run } = world();
     const runner = new Object3D();
@@ -180,7 +192,7 @@ describe('rapier', () => {
     // 5 samples a side over 40 m, a tilted plane: up 3 m a sample along x, 1 m along z.
     const n = 5;
     const heights = Float32Array.from({ length: n * n }, (_, i) => Math.floor(i / n) + 3 * (i % n));
-    const terrainData = { url: 'plane.terrain', isLoaded: true, heightmapResolution: n, size: new Vector3(40, 12, 40), heights, changed: new Event() };
+    const terrainData = { url: 'plane.terrain', isLoaded: true, heightmapResolution: n, width: 40, depth: 40, heights, changed: new Event() };
     const ground = new Object3D();
     ground.position.set(100, 2, 0);
     ground.scale.setScalar(0.5);
@@ -336,7 +348,7 @@ describe('rapier', () => {
     // A cone of a hill, its top one sample, and a cone mesh beside it: each ball falls onto the tip.
     const n = 33;
     const heights = Float32Array.from({ length: n * n }, (_, i) => 3 * Math.max(0, 1 - Math.hypot(Math.floor(i / n) - 16, (i % n) - 16) / 16));
-    const terrainData = { url: 'hill.terrain', isLoaded: true, heightmapResolution: n, size: new Vector3(20, 3, 20), heights, changed: new Event() };
+    const terrainData = { url: 'hill.terrain', isLoaded: true, heightmapResolution: n, width: 20, depth: 20, heights, changed: new Event() };
     const hill = new Object3D();
     hill.addComponent(TerrainCollider, { terrainData });
     const cone = new Mesh(new ConeGeometry(6, 3, 24));

@@ -22,7 +22,7 @@ export const Run = () => (
       <Volume />
       <Tonemapping mode="ACES" />
       <ColorAdjustments postExposure={0.1375} />
-      <Bloom intensity={0.55} threshold={1} scatter={0.4} />
+      <Bloom intensity={3} threshold={0.6} scatter={0.6} />
     </Group>
   </Scene>
 );

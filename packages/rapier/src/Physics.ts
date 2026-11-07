@@ -266,12 +266,36 @@ export class Physics extends System {
     if (typeof RAPIER.World !== 'function') {
       throw new Error('Rapier is not loaded: `await initRapier()` before the scene renders — it is WebAssembly.');
     }
+    this.makeWorld();
+  }
+
+  private makeWorld(): void {
     this.world = new RAPIER.World(Physics.gravity);
     // Contacts within a centimetre, Unity's default contact offset (Rapier's is a fifth of that):
     // a body hopping over uneven ground keeps its grip, rather than meeting it afresh at each landing.
     this.world.integrationParameters.normalizedPredictionDistance = 0.01;
     this.events = new RAPIER.EventQueue(true);
   }
+
+  /**
+   * A world emptied — the scene that held every body unloaded — is made again before anything joins
+   * it. Rapier hands out the slots it freed newest first, so a level loaded into a used world would be
+   * ordered otherwise inside and play out otherwise: in a fresh one, a level loaded again plays the same.
+   */
+  private renew(): void {
+    if (!this.used) return void (this.used = true);
+    if (this.world.colliders.len() > 0 || this.world.bodies.len() > (this.ground ? 1 : 0)) return;
+    this.events.free();
+    this.world.free();
+    this.ground = null;
+    this.colliders.clear();
+    this.retired.length = 0;
+    this.touching.clear();
+    this.contacts.length = 0;
+    this.forces.clear();
+    this.makeWorld();
+  }
+  private used = false;
 
   override onDestroy(): void {
     for (const rigidbody of this.bodies) rigidbody._body = null;
@@ -295,6 +319,7 @@ export class Physics extends System {
       .setLinearDamping(rigidbody.linearDamping)
       .setAngularDamping(rigidbody.angularDamping)
       .setGravityScale(rigidbody.useGravity ? 1 : 0);
+    this.renew();
     const body = this.world.createRigidBody(desc);
     body.userData = rigidbody; // Rapier's own place for it, so `hit.collider.parent()?.userData` works too
     this.bodies.add(rigidbody);
@@ -342,6 +367,7 @@ export class Physics extends System {
       desc.setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
       this.statics.add(collider);
     }
+    if (!body) this.renew();
     const created = this.world.createCollider(desc, body ?? undefined);
     this.colliders.set(created.handle, collider);
     this.queriesStale = true;
@@ -415,10 +441,10 @@ export class Physics extends System {
   }
 
   /**
-   * `isKinematic` changed: Unity switches the body there and then. One let go starts still from where
-   * its node was left, with no motion carried over from being moved.
+   * @internal `isKinematic` changed: Unity switches the body there and then. One let go starts still
+   * from where its node was left, with no motion carried over from being moved.
    */
-  private retype(rigidbody: Rigidbody, body: RAPIER.RigidBody): void {
+  _retype(rigidbody: Rigidbody, body: RAPIER.RigidBody): void {
     if (rigidbody.isKinematic) {
       body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
       this.poses.delete(rigidbody);
@@ -447,7 +473,6 @@ export class Physics extends System {
     const drivenByBody: Rigidbody[] = [];
     for (const rigidbody of this.bodies) {
       const body = rigidbody._body;
-      if (body && rigidbody.isKinematic !== body.isKinematic()) this.retype(rigidbody, body);
       if (!rigidbody.isKinematic || !body || !rigidbody.enabled) continue;
       if (moving(body)) {
         drivenByBody.push(rigidbody);

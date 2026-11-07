@@ -1,42 +1,21 @@
 # Project
 
 - `src/scenes/` holds scenes and prefabs (`.tsx`), `src/` everything else; `src/main.ts` starts it.
-- `npm run check` runs `tsc --noEmit` and `scenoco check src`; `npm test` runs the tests, `src/**/*.test.ts`;
-  `npm run dev` serves the game — restarted after installing a package.
+- `npm run check` runs `tsc --noEmit` and `scenoco check src`; `npm run dev` serves the game —
+  restarted after installing a package.
 
 # How SceNoCo works
 
 A game on SceNoCo: three.js scenes written in TSX — there is no React — and Unity's model of
 behaviours, named `Behaviour`. Everything not described here is plain three.js, TypeScript, DOM and
 CSS: write what you know. Every SceNoCo signature is in `node_modules/@scenoco-three/core/API.md` —
-read it instead of the package's source. Three's classes import from `three`, SceNoCo's (`Behaviour`,
+search it when one is unclear, instead of the package's source. Three's classes import from `three`, SceNoCo's (`Behaviour`,
 `play`, `prefab`, `ref`, `Input`, `Time`, …) from `@scenoco-three/core`.
 
-**Checking it.** `scenoco check src`, from `@scenoco-three/tools`, checks that every `.tsx` file only
-declares; `tsc` checks the rest. The game's rules are tested in Vitest, in Node or jsdom, with no
-canvas: `const game = simulate(Main, { page })` — `import page from '../index.html?raw'`, so the UI is there
-too — builds the scene and runs nothing until the test steps it —
-`game.press(KeyCode.Space)`, `game.step(60)`,
-`expect(game.until(() => findObjectOfType(GameState)!.phase === 'over')).toBe(true)`, then
-`game.dispose()`. It takes pointers too — `game.swipe(game.worldToScreen(a), game.worldToScreen(b))`,
-`game.click('NextLevel')`. Frames have a fixed `dt`, so the answer is the same every run. Nothing is
-drawn: `gameOf(node)` is null, so code that needs the renderer guards only that —
-`const game = gameOf(this.node); if (game) game.renderer.toneMappingExposure = 1.2`. In development the page drives the running game from
-`window.__scenoco` (`__scenoco.help()` lists it): hold and step its clock (`__scenoco.play()` lets it run
-again: a game that looks frozen after `until` is held), press keys, click, `click('NextLevel')` for a
-`data-button`, swipe, read behaviours by class. Evaluate in the page with any browser tool —
-`async () => { await __scenoco.ready(); await __scenoco.press('Space'); return __scenoco.until("GameState.phase === 'over'") }`
-— then take its screenshot; a Playwright test makes the same calls through `page.evaluate`. A
-tool that can only open an address, read the console and take a screenshot puts the same calls in
-the address, driving the game to the moment it needs to see:
-`/?drive=press('Space');until(GameState.phase == 'over');read(count(Brick))` logs one console line
-per call and holds the clock there for the screenshot (`#` is `%23` in an address). It reads data,
-not code — behaviours' fields and getters, `#node`s, `Time`, `count`/`find`/`findAll(Type)` — so a
-check it can't say goes in the game: a getter (`get bricksLeft()`), or a starting point the game
-reads itself (`/?level=3&drive=…`, read in `main.ts`).
-A behaviour that throws is logged once and the game goes on, as in Unity — read the console. Log
-each change of the game's state with `console.info` — `phase: playing`, `score: 3` — so the console
-alone shows the rules working.
+The card is in two parts: what every game uses, read now, and what some games use, each paragraph
+for when the game first needs it.
+
+## Every game
 
 **Scenes.** A `.tsx` file is a scene or a prefab, and it only declares — no hooks, loops, branches
 or handlers; `scenoco check` points at them. An object made from data with `new` — a font, a curve — is
@@ -57,15 +36,10 @@ onValidate after the editor changed a field or moved a node it holds, to redo wh
 types its material too, with no cast. Public fields are its settings, set as attributes when
 it is attached as a TSX child of its node: `<Mesh><Spinner speed={2} /></Mesh>`.
 
-**Made in code.** A mesh or texture a behaviour generates is built in `awake`, built again in
-`onValidate`, and the old one disposed then and in `onDestroy`: `this.node.geometry.dispose();
-this.node.geometry = this.build()`. Pixels of an sRGB `DataTexture` are written with
-`color.getRGB(rgb, SRGBColorSpace)`, clamped to 0..1, then times 255.
-
 **Links.** A typed ref made in the scene function links two objects: `const paddle = ref<Group>()`,
 `<Group ref={paddle}>`, `<Follow target={paddle} />` — the field holds the object itself,
 `target: Group | null = null`. A behaviour's tag takes `ref` too, linking that component:
-`<Rigidbody2D ref={wheel} />`, `<WheelJoint2D connectedBody={wheel} />`. In code, behaviours find
+`<Rigidbody2D ref={wheel} />`, `<WheelJoint2D connectedBody={wheel} />`; a prefab's tag, its root. In code, behaviours find
 each other as in Unity — `getComponent(T)`, `getComponentInChildren(T)`, `findObjectOfType(T)`,
 `findObjectsOfType(T)` — and can talk through `Event<T>` fields and `this.listen(event, fn)`. Unity's
 tags are empty behaviours — `class Enemy extends Behaviour {}`, `<Enemy />` on the node:
@@ -87,6 +61,51 @@ keeps a node across loads. A scene's `background`, `environment`, `fog` and thei
 `…Rotation` and `backgroundBlurriness` are Unity's RenderSettings: set on its `<Scene>` — as attributes,
 or by a behaviour on it at any time — they draw. A load replaces them, unset ones too: a setting across
 levels is set from a kept behaviour on `SceneManager.sceneLoaded`.
+
+**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so
+a scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands
+over to the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and
+widens with the screen. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
+and size it. `game.renderer` is three's WebGLRenderer, configured as three.js documents it —
+`game.renderer.shadowMap.enabled = true`. Then `QualitySettings.setQualityLevel(0)` on a phone: Unity's
+levels — Low, Medium, High by default — scale shadows, resolution and post-processing from that setup.
+Inside a React app the game is one element of the page:
+`play(Main, { container })` in an effect, `game.dispose()` in its cleanup, and
+`scenoco({ include: 'src/game/**' })` beside `react({ exclude: /src\/game\// })` in `vite.config.ts`
+keeps the app's own TSX React's.
+
+**Lights are fixed.** three.js compiles the number of lights into every lit material, so a light
+that comes or goes while the game runs — a pickup's glow destroyed with it, one switched with
+`visible` — recompiles them all: a hitch of a few hundred milliseconds. Keep the scene's lights
+for its whole life: dim one with `intensity = 0`, or move a few pooled lights to where they are
+needed; an emissive material glows with no light at all.
+
+**Space.** three.js is right-handed — x right, y up, z towards the viewer — where Unity is
+left-handed, z away; a camera looks down its own -z. Rotations are radians —
+`rotation={[-Math.PI / 2, 0, 0]}` lays a plane flat — where Unity's inspector shows degrees; 2D
+physics angles are degrees, as Unity's are.
+
+**Checking it.** `scenoco check src` checks that every `.tsx` file only declares; `tsc` checks the
+rest. In development the running game is driven from the page through `window.__scenoco` (`help()`
+lists it): it holds and steps the clock (`play()` lets it run again), presses keys, clicks and reads
+behaviours by class, so a reading lands on an exact frame. A tool that can only open an address puts
+the same calls in it: `?drive=…`. Each browser call costs a turn, so make each one do a whole stretch:
+a script run against the page — not inside it — can reload it, play a level through `__scenoco` and
+take the screenshot it ends on, all in one call. A reading says whether it works; a screenshot, how it
+looks. A value is tuned there, not in the file: `set('Marble.speed', 9)` changes the field in the
+running game and in every `reload()`, which plays the level again from its start the same way on a
+held clock — so one call tries several values side by side, and the file is edited once, with the one
+that works. `simulate(Main)` runs the same game with no canvas, stepped by code, when a test is wanted.
+
+A behaviour that throws is logged once and the game goes on, as in Unity. Log each change of the
+game's state with `console.info`, so the console alone shows the rules working.
+
+## When the game needs it
+
+**Made in code.** A mesh or texture a behaviour generates is built in `awake`, built again in
+`onValidate`, and the old one disposed then and in `onDestroy`: `this.node.geometry.dispose();
+this.node.geometry = this.build()`. Pixels of an sRGB `DataTexture` are written with
+`color.getRGB(rgb, SRGBColorSpace)`, clamped to 0..1, then times 255.
 
 **Levels are the user's to edit.** What a designer arranges — a level, a puzzle, a wave, where the
 pickups are — is one element per object in a scene, `<Brick position={[2.55, -1, 0]} hits={2} />`,
@@ -154,39 +173,12 @@ d-pad move the same axes, its buttons are `KeyCode.JoystickButton0…` and Unity
 `Fire1`/`Submit`), and `Input.getJoystickNames()` says whether one is there. A stick drawn on the page
 drives an axis with `Input.setAxis('Horizontal', x)`, and `null` when let go.
 
-**Space.** three.js is right-handed — x right, y up, z towards the viewer — where Unity is
-left-handed, z away; a camera looks down its own -z. Rotations are radians —
-`rotation={[-Math.PI / 2, 0, 0]}` lays a plane flat — where Unity's inspector shows degrees; 2D
-physics angles are degrees, as Unity's are.
-
-**Physics** is a package: `npm install @scenoco-three/rapier` (3D) or `@scenoco-three/box2d` (2D).
-Bodies and colliders are Unity's components — `<Rigidbody />` plus a collider on the same element,
-and colliders on elements under it too, one compound body; a collider alone is static and still
-follows its node — and contacts arrive as `onCollisionEnter(collision)` / `onTriggerEnter(other)`.
-Unity's `Physics.raycast`, `CharacterController` and joints are there as Unity has them; everything
-else is Rapier's own API, used directly: `Physics.world`, `rb.rapierBody`, `collider.rapierCollider`.
-With rapier, `main.ts` starts with `await initRapier();`, and so does a test, in `beforeAll`. A body's
-`mass` comes from its colliders' `density` until it is set, as Unity's does. Rapier has no rolling
-resistance: a ball rolls on a slope forever unless `angularDamping` or the game slows it. box2d is the same in 2D, in the XY plane:
-`Rigidbody2D`, `BoxCollider2D`, `Physics2D.raycast`, Unity's nine 2D joints, and `Physics2D.world` and
-`rb.planckBody` for planck's own.
-
-**More packages**, each in Unity's shape, each with its README in `node_modules/@scenoco-three/<name>/`:
-`particles` (`ParticleSystem`), `audio` (`AudioSource`), `splines` (`SplineContainer`, `SplineMesh`,
-`SplineAnimate`: tracks, rails, roads), `terrain` (`Terrain`, `TerrainData`) and `postprocessing`
-(`Volume`). Every signature is in the package's `API.md`. Install one before writing your own.
-
-**Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so
-a scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands
-over to the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and
-widens with the screen. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
-and size it. `game.renderer` is three's WebGLRenderer, configured as three.js documents it —
-`game.renderer.shadowMap.enabled = true`. Then `QualitySettings.setQualityLevel(0)` on a phone: Unity's
-levels — Low, Medium, High by default — scale shadows, resolution and post-processing from that setup.
-Inside a React app the game is one element of the page:
-`play(Main, { container })` in an effect, `game.dispose()` in its cleanup, and
-`scenoco({ include: 'src/game/**' })` beside `react({ exclude: /src\/game\// })` in `vite.config.ts`
-keeps the app's own TSX React's.
+**Packages.** More of Unity is there as packages, each in Unity's shape, for when a game needs one:
+`rapier` (3D physics: `Rigidbody`, colliders, `onCollisionEnter`, `Physics.raycast`, joints), `box2d`
+(the same in 2D), `particles` (`ParticleSystem`), `audio` (`AudioSource`), `splines`
+(`SplineContainer`: tracks, rails, roads), `terrain` (`Terrain`) and `postprocessing` (`Volume`).
+Install one with `npm install @scenoco-three/<name>`, and read its
+`node_modules/@scenoco-three/<name>/API.md` when you use it.
 
 From Unity: gameObject/transform → `this.node` · transform.localPosition → `this.node.position`
 (three's position is in the parent's space) · transform.position → `this.node.getWorldPosition(v)` ·
@@ -195,6 +187,4 @@ GetComponent<T>() → `getComponent(T)` · FindObjectOfType<T>() → `findObject
 Instantiate → `instantiate` · Destroy → `destroy` · Camera.main → `this.camera` ·
 StartCoroutine → `this.startCoroutine` · `yield return new WaitForSeconds(1)` → `yield new WaitForSeconds(1)` ·
 transform.DOMove → `this.node.doMove` · material.DOFade → `material.doFade` · DOTween.Sequence() → `Tween.sequence()` ·
-DOTween.To → `Tween.to` · DOVirtual.DelayedCall → `Tween.delayedCall` · DOVirtual.Float → `Tween.float` ·
-URP's Volume → `<Volume />` beside `<Bloom />`, `<Tonemapping />` and the rest, on one node, from `@scenoco-three/postprocessing`
-(a `Tonemapping` there sets `renderer.toneMapping` while it draws: set it in one place, not both)
+DOTween.To → `Tween.to` · DOVirtual.DelayedCall → `Tween.delayedCall` · DOVirtual.Float → `Tween.float`

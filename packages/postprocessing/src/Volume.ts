@@ -151,7 +151,7 @@ class VolumeStack extends System {
     passes.bloom.enabled = !!bloom;
     if (bloom) {
       passes.bloom.threshold = bloom.threshold;
-      passes.bloom.strength = bloom.intensity;
+      passes.bloom.strength = bloom.intensity / UNREAL_GAIN;
       passes.bloom.radius = bloom.scatter;
       (passes.bloom as unknown as { bloomTintColors: Vector3[] }).bloomTintColors.forEach((v) => v.set(bloom.tint.r, bloom.tint.g, bloom.tint.b));
     }
@@ -175,6 +175,29 @@ class VolumeStack extends System {
   }
 }
 
+/**
+ * URP's bloom: what is above the threshold, with a soft knee, spread by a blur that keeps its energy,
+ * then added `intensity` times. three's UnrealBloomPass keeps the whole of a pixel over its threshold
+ * and adds nine times its blur at strength 1 — three for "compatibility", times mip weights summing to
+ * three at any radius — so URP's values there wash a bright scene out. The threshold below is URP's
+ * prefilter, and the strength is divided by that gain.
+ */
+const UNREAL_GAIN = 9;
+const PREFILTER = /* glsl */ `
+  uniform sampler2D tDiffuse;
+  uniform float luminosityThreshold;
+  varying vec2 vUv;
+  void main() {
+    vec4 texel = texture2D(tDiffuse, vUv);
+    float brightness = max(texel.r, max(texel.g, texel.b));
+    float knee = luminosityThreshold * 0.5 + 1e-4;
+    float soft = clamp(brightness - luminosityThreshold + knee, 0.0, 2.0 * knee);
+    soft = soft * soft / (4.0 * knee);
+    float contribution = max(soft, brightness - luminosityThreshold) / max(brightness, 1e-4);
+    gl_FragColor = vec4(texel.rgb * contribution, 1.0);
+  }
+`;
+
 const WHITE = new Color('#ffffff');
 const MIDDLE = new Vector2(0.5, 0.5);
 
@@ -186,6 +209,8 @@ function makePasses(game: Game) {
   const scene = new RenderPass(game.scene, game.camera!);
   const lens = new BokehPass(game.scene, game.camera!, {});
   const bloom = new UnrealBloomPass(new Vector2(1, 1), 1, 0.7, 0.9);
+  bloom.materialHighPassFilter.fragmentShader = PREFILTER;
+  bloom.materialHighPassFilter.needsUpdate = true;
   const grade = new ShaderPass(GRADE);
   composer.addPass(scene);
   composer.addPass(lens);

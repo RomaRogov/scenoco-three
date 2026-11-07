@@ -19,6 +19,10 @@ const loaded: Scene[] = [];
 /** Loads asked for while another is under way, or until the frame ends. */
 const pending: { build: () => unknown; additive: boolean }[] = [];
 let loading = false;
+/** What built each loaded scene, so the active one can be loaded again. */
+const builders = new WeakMap<Scene, () => unknown>();
+/** @internal a development tool's word on a scene built and not yet woken: written over what its file wrote. */
+let beforeWake: (scene: Scene) => void = () => {};
 
 /** @internal `play` hands over the scene it draws, and is told after every load. */
 export function attachWorld(scene: Scene, changed: () => void): void {
@@ -85,8 +89,10 @@ export function loadInto(root: Scene, build: () => unknown, additive: boolean): 
       forwardSettings(scene, root);
     }
     loaded.push(scene);
+    builders.set(scene, build);
     root.add(scene);
     onLoaded();
+    beforeWake(scene);
     wake(scene);
     SceneManager.sceneLoaded.emit(scene);
   } finally {
@@ -164,4 +170,20 @@ export function dontDestroyOnLoad(target: Object3D | Behaviour): void {
   const i = loaded.indexOf(node as Scene);
   if (i !== -1) loaded.splice(i, 1); // a whole loaded scene: it stays where it is, and is no longer unloaded
   else if (node.parent !== root) root.attach(node);
+}
+
+/** @internal what runs on each scene built, before it wakes; returns the way to stop it. */
+export function onBeforeWake(fn: (scene: Scene) => void): () => void {
+  beforeWake = fn;
+  return () => {
+    if (beforeWake === fn) beforeWake = () => {};
+  };
+}
+
+/** @internal Unity's `LoadScene` of the active scene: built again from its function. False with none. */
+export function reloadActive(): boolean {
+  const build = loaded.at(-1) && builders.get(loaded.at(-1)!);
+  if (!build) return false;
+  request(build, false);
+  return true;
 }

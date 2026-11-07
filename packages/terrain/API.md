@@ -4,35 +4,36 @@ Every public signature of `@scenoco-three/terrain`. Read this instead of `src/`.
 is three.js, as three.js documents it. Its collider is `TerrainCollider`, in `@scenoco-three/rapier`.
 
 ```ts
-// ── the data: Unity's TerrainData ────────────────────────────────────────────────────────────
-// From a .terrain file (the asset lab's `lab terrain`), with its layers' textures by file name —
+// ── the data ─────────────────────────────────────────────────────────────────────────────────
+// Everything in metres in the terrain's own space: x and z from its centre, heights from its node.
+// Made in code from a height function — the same one the game calls to place things on the ground:
+//   export const ground = new TerrainData();  ground.width = 80;  ground.depth = 60;  ground.setHeights(hill);
+// or from a .terrain file (the asset lab's `lab terrain`), its layers' textures by file name:
 //   export const meadow = new TerrainData(meadowUrl, { grass: grassUrl, rock: rockUrl })   then await loadAssets(meadow)
-// or made in code, as in Unity: no URL, then the resolution, the size, the heights and the layers.
+// A Unity export writes it as Unity's TerrainData, in Unity's units.
 class TerrainData extends Asset {
   constructor(url?: string, textures?: Record<string, string>);
   readonly changed: Event<[]>;           // after any change to the heights, the size or the layers
-  size: Vector3;                         // width (x), height span (y), length (z), in metres
-  heightmapResolution: number;           // samples a side: 2^k + 1 — 33, 65, 129, 257, 513, 1025
-  alphamapResolution: number;            // weight samples a side
-  readonly alphamapLayers: number;       // how many ground layers
-  terrainLayers: readonly TerrainLayer[];   // in the order their weights are stored; at most MAX_TERRAIN_LAYERS (8)
+  width: number;                         // 100: metres along x
+  depth: number;                         // 100: metres along z
+  heightmapResolution: number;           // 33: samples a side, 2^k + 1 — 33, 65, 129, 257, 513, 1025; setting it flattens
   readonly heights: Float32Array;        // metres, row by row from -z
-  readonly textures: TerrainTextures | null;   // the layers on the GPU, packed when first drawn; null with no layers
-  setHeights(xBase: number, yBase: number, heights: ArrayLike<ArrayLike<number>>): void;   // heights[row][column], 0..1 of size.y — Unity's SetHeights
-  getHeights(xBase: number, yBase: number, width: number, height: number): number[][];     // [row][column], 0..1 of size.y
-  getHeight(x: number, y: number): number;                    // metres at a sample: x along the row, y the row
-  getInterpolatedHeight(x: number, y: number): number;        // metres between samples: x, y 0..1 across the terrain
-  getInterpolatedNormal(x: number, y: number, target?: Vector3): Vector3;   // in the terrain's space
-  getSteepness(x: number, y: number): number;                 // degrees from flat
-  setAlphamaps(x: number, y: number, maps: ArrayLike<ArrayLike<ArrayLike<number>>>): void;  // maps[row][column][layer], 0..1 — Unity's SetAlphamaps
-  getAlphamaps(x: number, y: number, width: number, height: number): number[][][];          // [row][column][layer]
+  setHeights(height?: (x: number, z: number) => number): void;   // every sample from height(x, z); none: `heights` as written
+  heightAt(x: number, z: number): number;                        // metres, between samples
+  normalAt(x: number, z: number, target?: Vector3): Vector3;     // in the terrain's space
+  steepnessAt(x: number, z: number): number;                     // degrees from flat
+  terrainLayers: readonly TerrainLayer[];   // at most MAX_TERRAIN_LAYERS (8); with none it draws plain grey
+  alphamapResolution: number;            // 32: weight samples a side
+  setAlphamaps(weights: (x: number, z: number) => ArrayLike<number>): void;   // a weight per layer at (x, z), normalized
+  readonly alphamaps: Uint8Array;        // 0..255, layer after layer, row by row from -z
+  readonly textures: TerrainTextures | null;   // the layers on the GPU, packed when first drawn
 }
-class TerrainLayer {                     // Unity's: a texture tiled every tileSize metres
-  constructor(init?: { name?: string; tileSize?: number; diffuseTexture?: Texture | null; normalMapTexture?: Texture | null });
+class TerrainLayer {                     // Unity's: a texture tiled every tileSize metres, or a plain colour
+  constructor(init?: { name?: string; tileSize?: number; diffuseTexture?: Texture | null; color?: Color; normalMapTexture?: Texture | null });
   name: string;
   tileSize: number;                      // 10
-  diffuseTexture: Texture | null;        // loaded before the terrain draws: sharedTexture(url) and loadAssets,
-                                         // or a CanvasTexture painted in code
+  diffuseTexture: Texture | null;        // loaded before the terrain draws: sharedTexture(url) and loadAssets, or made in code
+  color: Color;                          // #808080: the layer with no diffuseTexture
   normalMapTexture: Texture | null;      // none: flat
 }
 const MAX_TERRAIN_LAYERS = 8;

@@ -1,6 +1,19 @@
-import type { Object3D } from 'three';
-import { BatchedRenderer, ParticleSystem as QuarksSystem } from 'three.quarks';
+import type { BufferGeometry, Object3D } from 'three';
+import { BatchedRenderer, ParticleSystem as QuarksSystem, SpriteBatch } from 'three.quarks';
 import { configToParameters, type ParticleEffect } from './config.js';
+
+// A three.quarks sprite batch that outgrows its buffers disposes its old geometry, and with it the
+// quad's index, position, uv and normal buffers, which every other sprite batch shares: those then
+// draw from freed buffers ("no buffer is bound to enabled attribute"). Detached first, only its own go.
+const setupBuffers = SpriteBatch.prototype.setupBuffers;
+SpriteBatch.prototype.setupBuffers = function (this: SpriteBatch) {
+  const old = (this as unknown as { geometry?: BufferGeometry }).geometry;
+  if (old) {
+    old.setIndex(null);
+    for (const name of ['position', 'uv', 'normal']) old.deleteAttribute(name);
+  }
+  setupBuffers.call(this);
+};
 
 /**
  * Live effects and the thing that draws them: a three.quarks batch, the systems in it, and the
@@ -44,6 +57,10 @@ export class ParticleBatch {
 
   /** Advance every effect in the batch. Appearance, so it moves with the frame. */
   step(deltaTime: number): void {
+    // three.quarks emits from the emitter's matrixWorld, which three refreshes only when it draws:
+    // a node moved this frame would emit where it was last frame — a burst played where it was moved
+    // to would come out at the previous spot. Emit from where the node is now, as Unity does.
+    for (const system of this.systems) system.emitter.updateWorldMatrix(true, false);
     this.object.update(deltaTime);
   }
 
