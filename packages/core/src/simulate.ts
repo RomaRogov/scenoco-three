@@ -16,7 +16,7 @@ export interface SimulateOptions {
   /**
    * The game's page, as text — `import page from '../index.html?raw'` — so its UI is there: what
    * `UIDocument` lays out and `click('Play')` presses. Its `<body>` without scripts becomes the
-   * document's, in jsdom, until `dispose`.
+   * document's, and its `<style>` elements join the document's head, in jsdom, until `dispose`.
    */
   page?: string;
 }
@@ -157,16 +157,21 @@ export function simulate(build: () => unknown, options: SimulateOptions = {}): S
   return game;
 }
 
-/** The page's body, without its scripts, as the document's: and how to put the last one back. */
+/**
+ * The page's body, without its scripts, as the document's, with its `<style>` elements: a HUD
+ * hidden by a class is hidden here too. And how to put the last one back.
+ */
 function showPage(page: string): () => void {
   if (typeof document === 'undefined' || typeof DOMParser === 'undefined') {
     throw new Error("simulate: a page needs a document. Run the test in jsdom: test: { environment: 'jsdom' } in vite.config.ts.");
   }
   const parsed = new DOMParser().parseFromString(page, 'text/html');
   for (const script of parsed.querySelectorAll('script')) script.remove();
+  const styles = [...parsed.head.querySelectorAll('style')].map((s) => document.head.appendChild(document.importNode(s, true)));
   const before = document.body.innerHTML;
   document.body.innerHTML = parsed.body.innerHTML;
   return () => {
     document.body.innerHTML = before;
+    for (const style of styles) style.remove();
   };
 }

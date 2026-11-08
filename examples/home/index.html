@@ -82,6 +82,7 @@
       details p { padding: 0 0 20px; max-width: 46em; color: #9fb3cf; }
       footer.page { padding-top: 72px; padding-bottom: 48px; color: #6b7f99; font-size: 14px; line-height: 1.5; }
       footer nav { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 20px; }
+      footer .featured { margin-bottom: 20px; }
       @media (max-width: 760px) {
         .take, .code { grid-template-columns: minmax(0, 1fr); }
         .code pre { font-size: 12px; }
@@ -300,6 +301,15 @@ export const Main = () =&gt; (
         <a href="https://www.npmjs.com/package/@scenoco-three/core">npm</a>
         <a href="llms.txt">llms.txt</a>
       </nav>
+      <div class="featured">
+        <a href="https://threejsresources.com/tool/scenoco?ref=badge" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; gap: 10px; padding: 6px 12px; background-color: #000000; border: 1px solid #333333; border-radius: 8px; text-decoration: none; font-family: sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: all 0.2s ease;">
+          <img src="https://threejsresources.com/logo.svg" alt="Three.js Resources Logo" style="width: 20px; height: 20px; object-fit: contain; filter: brightness(0) invert(1);" />
+          <div style="display: flex; flex-direction: column; line-height: 1.1;">
+            <span style="color: #ffffff; font-weight: 400; font-size: 10px;">Featured on</span>
+            <span style="color: #ffffff; font-weight: 600; font-size: 12px;">Three.js Resources</span>
+          </div>
+        </a>
+      </div>
       <p>SceNoCo is not sponsored by or affiliated with Unity Technologies or its affiliates. Unity is a trademark or registered trademark of Unity Technologies or its affiliates in the U.S. and elsewhere.</p>
     </footer>
     <aside id="source" hidden aria-label="This page's source">

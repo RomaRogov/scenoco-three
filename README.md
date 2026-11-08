@@ -1,5 +1,7 @@
 # SceNoCo
 
+[![Featured on Three.js Resources](https://img.shields.io/badge/Featured_on-Three.js_Resources-000000?logo=threedotjs&logoColor=white)](https://threejsresources.com/tool/scenoco?ref=badge)
+
 **"Scene", "Node" and "Component" combined together to represent the idea. And to book a cool name.**
 
 An effective and lightweight framework to create web games - friendly for LLMs as well as for users.<br>

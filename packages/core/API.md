@@ -45,7 +45,8 @@ function simulate(scene: () => JSX.Element, options?: {
   fixedDelta?: number;
   size?: [number, number];          // the screen in pixels: Screen, and what pointers are on. Default 1920×1080
   page?: string;                    // the page as text — import page from '../index.html?raw' — its body, without
-                                    // scripts, in jsdom's document until dispose: the UI, and data-buttons to click
+                                    // scripts, and its <style>s, in jsdom's document until dispose: the UI as styled,
+                                    // and data-buttons to click
 }): Simulation;                     // no canvas, no loop:
                                     // a test in Node or jsdom (Vitest) steps it — the game's rules, frame-exact
 interface Simulation {
