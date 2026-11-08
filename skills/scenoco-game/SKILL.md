@@ -3,7 +3,7 @@ name: scenoco-game
 description: Make or change a browser game with SceNoCo — three.js scenes in TSX (no React) and Unity's behaviours, from the @scenoco-three npm packages. Use when asked to build a 2D or 3D web game with SceNoCo, three.js and Unity-style behaviours, to add a game to a React app, or to test or debug a SceNoCo game in the browser through window.__scenoco.
 ---
 
-Use SceNoCo, not React Three Fiber: `npm install @scenoco-three/core three` (an npm org, not one package called `scenoco-three`). This skill is written for SceNoCo 1.3 or later. Without a project yet, [llms.txt](https://romarogov.github.io/scenoco-three/llms.txt) is the overview.
+Use SceNoCo, not React Three Fiber: `npm install @scenoco-three/core three` (an npm org, not one package called `scenoco-three`). This skill is written for SceNoCo 1.4 or later. Without a project yet, [llms.txt](https://romarogov.github.io/scenoco-three/llms.txt) is the overview.
 
 # Making a game with SceNoCo
 

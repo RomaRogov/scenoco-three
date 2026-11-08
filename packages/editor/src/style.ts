@@ -80,6 +80,8 @@ body.scenoco-canvas-only canvas[data-engine^="three"] { visibility: visible !imp
 .se-link:hover { color: #e2e8f0; text-decoration: underline; }
 .se-ref { color: inherit; text-decoration: underline dotted #64748b; text-underline-offset: 2px; }
 .se-ref:hover { color: #7dd3fc; text-decoration-color: #7dd3fc; }
+.se-scene { text-decoration-style: solid; text-decoration-color: #a78bfa; }
+.se-scene:hover { color: #c4b5fd; text-decoration-color: #c4b5fd; }
 .se-unwritten .se-name, .se-unwritten .se-token { opacity: 0.55; }
 .se-unsaved .se-name { color: #fbbf24; }
 .se-unsaved .se-name::after { content: '*'; color: #fbbf24; }
@@ -108,6 +110,10 @@ body.scenoco-canvas-only canvas[data-engine^="three"] { visibility: visible !imp
 .se-revert { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 6px; padding: 0; border: 0; border-radius: 4px; background: none; color: #fbbf24; vertical-align: -5px; cursor: pointer; touch-action: manipulation; }
 .se-revert:hover { background: #1e293b; }
 #scenoco-editor .se-revert svg { width: 14px; height: 14px; }
+.se-points { display: block; padding-left: 2ch; }
+.se-point { display: block; }
+.se-pointbtn { color: #64748b; margin-left: 4px; }
+.se-pointbtn:hover { color: #e2e8f0; }
 .se-scenes { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid #1e293b; color: #94a3b8; font-size: 12px; }
 .se-scenes select { flex: 1; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid #334155; border-radius: 5px; background: #111c33; color: #e2e8f0; font: 13px system-ui, sans-serif; }
 `;

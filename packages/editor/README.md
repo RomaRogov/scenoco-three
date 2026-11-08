@@ -32,7 +32,9 @@ and a production build never contains it.
   Drag the panel's inner edge to resize it; the browser remembers the width and the height.
 - **The selection as its TSX.** The tag that made it — `<Keep position={[0, 0.9, 26.8]} />` — and
   the behaviours on it, each value live and editable in place: numbers, vectors, rotations in
-  degrees, colours, flags, strings, and one-of-a-few values as a list — `alignTo="world"`, three's
+  degrees, colours, flags, strings, lists of any of those — a spline's `knots`, waypoints, a
+  palette — an item a line, with one added after an item or removed — and one-of-a-few values as a
+  list — `alignTo="world"`, three's
   `side={DoubleSide}` (imported for you when the file lacks it). What each field is comes from its
   declared type, as the project's TypeScript (7 or later) reads it; `private` fields are not shown.
   A behaviour lists every public field, those the file leaves out greyed at their defaults — and so
@@ -42,9 +44,10 @@ and a production build never contains it.
   shows what the file says; a value changed and not saved, or moved by the game, has a reset
   button at the end of its line that puts back what the file says — or, for one the file does not
   write, the value before the change. Focusing position, rotation or scale picks the gizmo's mode.
-  Everything else — `material={paint.wall}`, a ref — is shown as written, each name in it a link
-  to where it is declared: `terrains` and `meadow` in `{terrains.meadow}` are two links, found by the
-  project's own TypeScript (7 or later) through its imports.
+  Everything else — `material={paint.wall}`, a ref, a prefab — is shown as written, each name in it
+  a link: a ref's, to the node it refers to, which it selects (`target={player}`, each item of
+  `[a, b]`); any other, to where it is declared: `terrains` and `meadow` in `{terrains.meadow}` are
+  two links, found by the project's own TypeScript (7 or later) through its imports.
 - **Constructor arguments too.** `args={[…]}` shows one line per argument, named for the
   constructor's parameter — `skyColor`, `groundColor`, `intensity` — and what an element's children
   made, such as `<PlaneGeometry>`, shows under its node. An argument changes the live object

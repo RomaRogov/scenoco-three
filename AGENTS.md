@@ -80,6 +80,30 @@ Words of its own, each defined where it lives:
 - **given**, **own** — the attributes an element was written with, and a prefab root's own element apart from the tag that placed it (`provenance.ts`).
 - **held** — a clock that moves only when stepped (`host.ts`).
 
+## Inside the editor
+
+`packages/editor/src`: the interface only. It reaches the game through core's `EditHost` and the
+files through the dev server, and keeps what it knows in a `Model` the interface reads.
+
+| Where | What |
+| --- | --- |
+| `index.tsx` | `mount`: the panel beside the game, its parts wired; `page.ts` fits the page beside it, `keys.ts` the shortcuts |
+| `model/Model.ts` | `Model`: the editor's state as the interface uses it — selection's view, changes, prefab mode, settings — over the parts below |
+| `model/types.ts` | what the interface draws: `View`, `Tag`, `Attr` and their words |
+| `model/values.ts` | a value as shown, as live and as written, and which values are editable (`kindOf`, `listItem`) |
+| `model/view.ts` | `Reader`: a node as the TSX that made it, and where each attribute is written or why not |
+| `model/history.ts` | `History`: every change — live at once, unsaved until Save, undone and redone |
+| `model/server.ts` | `SceneFiles`: the dev server's answers about scene files — elements, types, links — and its writes |
+| `model/structure.ts` `model/settings.ts` | Duplicate and Delete; what this browser keeps |
+| `ui/` | React: `App` lays out `Toolbar`, `Tree`, `Inspector`; a tag is `Lines`, a value `fields` or, read-only, `Shown` |
+
+Words of its own, each defined in `model/types.ts`:
+- **written** — the file writes the attribute; **unsaved** — changed since the last Save.
+- **live only** — a change the file does not take (spawned, made in code), and why; **locked** — shown,
+  not edited: what a prefab is made of, outside prefab mode.
+- **wide** — every copy of the prefab takes the change; **stage** — the prefab being edited, prefab mode.
+- **prop**, **arg** — a prop of a function's tag (setting it calls the function again), one item of `args`.
+
 ## What good looks like here
 
 - **Unity's names, three.js's objects.** An API reads as "works as in Unity" or it is three.js's

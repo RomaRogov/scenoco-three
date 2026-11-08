@@ -1,0 +1,14 @@
+{
+  "name": "scenoco",
+  "description": "SceNoCo's plugins for Claude Code: making browser games with three.js scenes in TSX and Unity-style behaviours.",
+  "owner": { "name": "Roman Rogov", "url": "https://github.com/RomaRogov" },
+  "plugins": [
+    {
+      "name": "scenoco-game",
+      "source": "./",
+      "description": "Make, change, test and debug browser games with SceNoCo: three.js scenes in TSX and Unity-style behaviours, proven by playing them in a real browser.",
+      "category": "development",
+      "tags": ["gamedev", "game-development", "threejs", "webgl", "unity", "browser-game", "tsx"]
+    }
+  ]
+}

@@ -64,8 +64,10 @@ levels is set from a kept behaviour on `SceneManager.sceneLoaded`.
 
 **Starting.** `main.ts` runs `const game = play(Main);`. The scene's first visible camera draws it, so
 a scene puts its camera in, as in Unity — one without draws nothing; `visible = false` on it hands
-over to the next, as Unity's `camera.enabled` does. An `OrthographicCamera` keeps its height and
-widens with the screen. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
+over to the next, as Unity's `camera.enabled` does. A camera keeps its height, as in Unity, and its
+width follows the screen: on a narrow one — a phone held upright — the sides are cut. A behaviour on
+the camera keeps the play area in view by its `aspect` or `Screen`, as the starter's `Follow` backs off
+to keep `width` across. `play(Main, { autoCamera: false })` leaves cameras to you: set `game.camera`
 and size it. `game.renderer` is three's WebGLRenderer, configured as three.js documents it —
 `game.renderer.shadowMap.enabled = true`. Then `QualitySettings.setQualityLevel(0)` on a phone: Unity's
 levels — Low, Medium, High by default — scale shadows, resolution and post-processing from that setup.

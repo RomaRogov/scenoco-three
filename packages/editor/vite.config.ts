@@ -8,7 +8,7 @@ export default defineConfig({
   // A library build leaves `process.env.NODE_ENV` for a bundler that never comes: say it here.
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
-    lib: { entry: 'src/main.tsx', formats: ['es'], fileName: () => 'editor.js' },
+    lib: { entry: 'src/index.tsx', formats: ['es'], fileName: () => 'editor.js' },
     target: 'es2022',
   },
 });
