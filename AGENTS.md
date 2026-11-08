@@ -124,12 +124,13 @@ npm test             # vitest — lean suite in zone folders under tests/
 npm run examples:dev # the breakout example
 npm run smoke:pack   # the packed tarballs, installed outside the workspace and played
 npm run site         # the Pages site in site/: the README, the examples, llms.txt, the editor
-npm run discovery    # context7.json again, after the root package.json's description or the rules card changed
+npm run discovery    # context7.json again, after the root package.json's description or RULES in scripts/discovery.mjs changed
 ```
 
 `context7.json`, `llms.txt` and the site's meta description take their words from the root
-`package.json`'s `description` and the starter's rules card (`scripts/discovery.mjs`); nothing there
-is written a second time. Core ships the card's "How SceNoCo works" as its own `AGENTS.md`, written by its
+`package.json`'s `description` and the starter's rules card (`scripts/discovery.mjs`). The one
+exception is Context7's rules, 255 characters each at most: a short restatement of the card in
+`RULES` there, to keep in step when the card's directives change. Core ships the card's "How SceNoCo works" as its own `AGENTS.md`, written by its
 `prepack` (`scripts/core-card.mjs`) — edit the starter's card, never that copy. The README is free to read as a letter.
 
 Tests live in the root `tests/` in zone folders (`core/`, `packages/`, `tooling/`); one test per

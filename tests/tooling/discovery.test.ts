@@ -7,8 +7,8 @@ const json = (path: string) => JSON.parse(readFileSync(new URL(path, root), 'utf
 const discovery = () => import(new URL('scripts/discovery.mjs', root).href) as Promise<{ context7(): unknown }>;
 
 describe('what agents and registries read', () => {
-  it('context7.json is derived from the README and the rules card', async () => {
-    // Out of date after either one changed: `npm run discovery` writes it again.
+  it('context7.json is derived from package.json and the rules Context7 takes, 255 characters each', async () => {
+    // Out of date after either one changed — or a rule too long to write: `npm run discovery` writes it again.
     expect(json('context7.json')).toEqual((await discovery()).context7());
   });
 
