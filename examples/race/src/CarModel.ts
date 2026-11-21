@@ -1,5 +1,5 @@
 import { Color, type Mesh, type MeshStandardMaterial, type Object3D } from 'three';
-import { Behaviour, instantiate, type Model } from '@scenoco-three/core';
+import { Behaviour } from '@scenoco-three/core';
 import { ArcadeCar } from './ArcadeCar.js';
 
 /**
@@ -9,17 +9,13 @@ import { ArcadeCar } from './ArcadeCar.js';
  * two to steer.
  */
 export class CarModel extends Behaviour {
-  model: Model | null = null;
   color = new Color('#e2412f');
 
   override awake(): void {
-    if (!this.model) throw new Error('CarModel has no model: give it model={models.car}.');
-    const view = instantiate(this.model, { parent: this.node });
     let paint: MeshStandardMaterial | null = null;
-    view.traverse((o) => {
+    this.node.traverse((o) => {
       const mesh = o as Mesh;
       if (!mesh.isMesh) return;
-      mesh.castShadow = true;
       const material = mesh.material as MeshStandardMaterial;
       if (material.name !== 'paint') return;
       paint ??= material.clone();
@@ -28,7 +24,7 @@ export class CarModel extends Behaviour {
     });
     const car = this.node.getComponent(ArcadeCar);
     if (!car) return;
-    const part = (name: string): Object3D | null => view.getObjectByName(name) ?? null;
+    const part = (name: string): Object3D | null => this.node.getObjectByName(name) ?? null;
     car.body = part('body');
     car.frontLeft = part('wheel_FL');
     car.frontRight = part('wheel_FR');

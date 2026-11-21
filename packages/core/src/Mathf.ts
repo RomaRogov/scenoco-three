@@ -69,39 +69,43 @@ export const Mathf = {
   /**
    * 2D Perlin noise, about 0..1 — smooth hills with features one unit apart: scale the coordinates
    * to scale them. The same point gives the same value every time; offset `x` to get another field.
+   * Unity's own, to the last digit: Perlin's improved noise at z = 0, in 32-bit floats, as `(n + 0.69) / 1.483`.
    */
   perlinNoise(x: number, y: number): number {
-    const xi = Math.floor(x);
-    const yi = Math.floor(y);
-    const xf = x - xi;
-    const yf = y - yi;
-    const u = fade(xf);
-    const v = fade(yf);
-    const a = PERM[(xi & 255)]! + (yi & 255);
-    const b = PERM[((xi + 1) & 255)]! + (yi & 255);
-    const value = lerp(
-      lerp(grad(PERM[a]!, xf, yf), grad(PERM[b]!, xf - 1, yf), u),
-      lerp(grad(PERM[a + 1]!, xf, yf - 1), grad(PERM[b + 1]!, xf - 1, yf - 1), u),
+    const f = Math.fround;
+    // Unity's field is mirrored about each axis: (-x, y) reads as (x, y).
+    x = f(Math.abs(x));
+    y = f(Math.abs(y));
+    const fx = Math.floor(x);
+    const fy = Math.floor(y);
+    const X = fx & 255;
+    const Y = fy & 255;
+    x = f(x - fx);
+    y = f(y - fy);
+    const u = fade(x);
+    const v = fade(y);
+    const A = PERM[X]! + Y;
+    const B = PERM[X + 1]! + Y;
+    const n = lerp(
       v,
+      lerp(u, grad(PERM[PERM[A]!]!, x, y), grad(PERM[PERM[B]!]!, f(x - 1), y)),
+      lerp(u, grad(PERM[PERM[A + 1]!]!, x, f(y - 1)), grad(PERM[PERM[B + 1]!]!, f(x - 1), f(y - 1))),
     );
-    // Perlin's 2D noise spans about -0.7..0.7: stretched to Unity's 0..1.
-    return (value / 0.7 + 1) / 2;
+    return f(f(n + 0.69) / 1.483);
   },
 };
 
-const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const fade = (t: number) => {
+  const f = Math.fround;
+  return f(f(f(t * t) * t) * f(f(t * f(f(t * 6) - 15)) + 10));
+};
+const lerp = (t: number, a: number, b: number) => Math.fround(a + Math.fround(t * Math.fround(b - a)));
+/** The 3D noise's gradient at z = 0: twelve directions picked by the hash's low four bits. */
 function grad(hash: number, x: number, y: number): number {
-  switch (hash & 7) {
-    case 0: return x + y;
-    case 1: return -x + y;
-    case 2: return x - y;
-    case 3: return -x - y;
-    case 4: return x;
-    case 5: return -x;
-    case 6: return y;
-    default: return -y;
-  }
+  const h = hash & 15;
+  const u = h < 8 ? x : y;
+  const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
+  return Math.fround(((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v));
 }
 
 // Ken Perlin's reference permutation, twice over so lookups never wrap.

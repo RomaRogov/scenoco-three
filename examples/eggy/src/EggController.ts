@@ -3,7 +3,6 @@ import { Behaviour, Ease, Input, Screen, Time, Tween, destroy, instantiate, type
 import { Collider, Rigidbody, type Collision } from '@scenoco-three/rapier';
 import { LevelController } from './LevelController';
 import { Nest, Stone } from './markers';
-import { ModelView } from './ModelView';
 import { MusicController } from './MusicController';
 import { TerrainMesh } from './TerrainMesh';
 import { UIController } from './UIController';
@@ -16,6 +15,8 @@ import { unityEuler, unityTorque } from './unity';
  */
 export class EggController extends Behaviour {
   camContainer: Object3D | null = null;
+  /** The whole egg's model, hidden when it cracks in two. */
+  shell: Object3D | null = null;
   topPart: Prefab | null = null;
   bottomPart: Prefab | null = null;
   fried: Prefab | null = null;
@@ -124,8 +125,7 @@ export class EggController extends Behaviour {
     const node = this.node;
     destroy(this.rb);
     destroy(this.getComponent(Collider)!);
-    const view = this.getComponent(ModelView)!.view!;
-    view.visible = false;
+    this.shell!.visible = false;
     const pose = { position: node.getWorldPosition(new Vector3()), quaternion: node.getWorldQuaternion(new Quaternion()) };
     for (const part of [this.topPart!, this.bottomPart!]) instantiate(part, pose);
     // The fried egg lies on the slope under it, as Unity's settled there, growing from a tenth of its size.

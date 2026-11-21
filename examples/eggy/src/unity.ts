@@ -6,9 +6,6 @@ import { Euler, Quaternion, Vector3 } from 'three';
  * parts change sign. The models were exported in the same frame.
  */
 
-/** A Unity position. */
-export const unityPosition = (x: number, y: number, z: number): Vector3 => new Vector3(x, y, -z);
-
 /** A Unity rotation, as its quaternion is stored in a scene or prefab. */
 export const unityQuaternion = (x: number, y: number, z: number, w: number): Quaternion => new Quaternion(-x, -y, z, w);
 

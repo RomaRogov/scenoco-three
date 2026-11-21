@@ -21,4 +21,13 @@ describe('Random', () => {
       expect(Random.rotation.length()).toBeCloseTo(1);
     }
   });
+
+  it("gives Unity's own numbers for a seed: Random.InitState(1) in Unity 6 read these", () => {
+    Random.initState(1);
+    expect([Random.value, Random.value, Random.value].map((v) => +v.toPrecision(7))).toEqual([0.9996847, 0.7742628, 0.6809838]);
+    Random.initState(1);
+    expect([Random.range(22, 61), Random.range(22, 61), Random.range(22, 61)].map((v) => +v.toPrecision(7))).toEqual([22.0123, 30.80375, 34.44163]);
+    Random.initState(1);
+    expect([Random.rangeInt(0, 7), Random.rangeInt(0, 7), Random.rangeInt(0, 7)]).toEqual([3, 4, 3]);
+  });
 });

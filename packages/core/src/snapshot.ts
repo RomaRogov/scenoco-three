@@ -28,8 +28,10 @@ import {
   type Texture,
 } from 'three';
 import { Behaviour, behavioursOn } from './kernel/index.js';
-import { isBehaviourClass, isClass, isPrefab } from './jsx.js';
+import { isBehaviourClass, isClass, isPrefab, modelOf } from './jsx.js';
 import { prefabOf, sourceOf } from './provenance.js';
+import { Asset } from './assets/Asset.js';
+import { Model } from './assets/Model.js';
 import { writtenOf } from './kernel/index.js';
 
 /** A value a behaviour's field holds, as data. Vectors are three.js's, untouched: right-handed, Y up. */
@@ -55,7 +57,9 @@ export type SnapshotValue =
    * or an object literal — a particle effect — with every value encoded as a field is.
    */
   | { object: { type: string; fields: Record<string, SnapshotValue> } }
-  | { geometry: string };
+  | { geometry: string }
+  /** A file the game loads — a model, a sound — by the URL it loads it from, and the class that loads it. */
+  | { file: string; type: string };
 
 export interface SnapshotComponent {
   /** The class's name: a game's own when `game`, else a package's (`Rigidbody`, `BoxCollider2D`). */
@@ -110,8 +114,15 @@ export interface SnapshotNode {
   light?: SnapshotLight;
   camera?: SnapshotCamera;
   components: SnapshotComponent[];
-  /** A nested prefab: `<ArrowBase />` written with no attributes. Its contents are that prefab's, so there are no children here. */
+  /**
+   * A placed prefab. Written with no attributes (`<ArrowBase />`) it is that prefab itself and holds
+   * nothing here; given attributes (`<Brick hits={2} />`) it holds what this copy is built as, `given`,
+   * for a Unity placement to write where it differs from the prefab.
+   */
   prefab?: string;
+  given?: boolean;
+  /** A placed model, `prefab(model)`: the URL it loads from. What it holds is the file's, none of it here. */
+  model?: string;
   children: SnapshotNode[];
 }
 
@@ -134,6 +145,9 @@ export interface SnapshotGeometry {
   position: number[];
   normal?: number[];
   uv?: number[];
+  /** Vertex colours, linear, as three keeps them: 3 or 4 numbers a vertex, `colorSize` saying which. */
+  color?: number[];
+  colorSize?: number;
   index: number[];
   groups: { start: number; count: number; materialIndex: number }[];
 }
@@ -176,6 +190,10 @@ export interface Snapshot {
   geometries: Record<string, SnapshotGeometry>;
   materials: Record<string, SnapshotMaterial>;
   classes: Record<string, SnapshotClass>;
+  /** Each exported model prefab, `file#export`, by the URL its model loads from. */
+  models: Record<string, string>;
+  /** A model's settings where they differ from the default (both shadows on), by its URL. */
+  modelSettings: Record<string, { castShadow: boolean; receiveShadow: boolean }>;
   /** What could not be written down, each with where it was declared. */
   warnings: string[];
 }
@@ -200,18 +218,28 @@ export function snapshot(modules: Record<string, Module>): Snapshot {
   const classes: Record<string, SnapshotClass> = {};
   const gameClasses = new Map<Function, string>();
   const names = new Map<object, string>();
+  const models: Record<string, string> = {};
+  const modelSettings: Snapshot['modelSettings'] = {};
+  const noteModel = (model: Model) => {
+    if (!model.castShadow || !model.receiveShadow) modelSettings[model.url] = { castShadow: model.castShadow, receiveShadow: model.receiveShadow };
+  };
 
   // What the modules export: prefabs and scenes (functions in .tsx), behaviour classes, and the names shared
   // materials and geometries go by.
   for (const [file, mod] of Object.entries(modules)) {
     for (const [name, value] of Object.entries(mod)) {
-      if (isBehaviourClass(value)) {
+      const model = modelOf(value);
+      if (model) (models[`${file}#${name}`] = model.url), noteModel(model);
+      else if (isBehaviourClass(value)) {
         if (!gameClasses.has(value)) gameClasses.set(value, file);
         classes[value.name] ??= { file, defaults: {} };
       } else if (typeof value === 'function' && file.endsWith('.tsx') && !isClass(value)) {
         // A prefab, or a scene; any other function is a component, copied in where it is used.
         if (isPrefab(value) || (build(value, '', []) as Scene | null)?.isScene) prefabIds.set(value, `${file}#${name}`);
       } else if (value && typeof value === 'object') {
+        // A model the game names, alone or in a table, though no scene places it: code instantiates it.
+        if (value instanceof Model) noteModel(value);
+        else if (Object.getPrototypeOf(value) === Object.prototype) for (const inner of Object.values(value)) if (inner instanceof Model) noteModel(inner);
         if (isNamed(value)) names.has(value) || names.set(value, name);
         else if (Object.getPrototypeOf(value) === Object.prototype) {
           for (const [key, inner] of Object.entries(value)) if (isNamed(inner) && !names.has(inner)) names.set(inner, key);
@@ -269,14 +297,14 @@ export function snapshot(modules: Record<string, Module>): Snapshot {
     if (again && fingerprint(built) !== fingerprint(again)) {
       warnings.push(`${id}: two builds differ — a value in its TSX changes each time (Math.random, a clock). Exported the first; make it a constant, or set it from a behaviour.`);
     }
-    const walk = new Walk(built, id, { prefabIds, gameClasses, geometryId, materialId, warnings });
+    const walk = new Walk(built, id, { prefabIds, gameClasses, geometryId, materialId, noteModel, warnings });
     const prefab: SnapshotPrefab = { id, file, name, scene: (built as Scene).isScene === true, root: walk.root };
     if ((built as Scene).isScene) Object.assign(prefab, sceneSettings(built as Scene, id, warnings));
     prefabs.push(prefab);
   }
 
   for (const [type, file] of gameClasses) classes[type.name] = { file, defaults: defaultsOf(type as new () => Behaviour, prefabs) };
-  return { prefabs, geometries, materials, classes, warnings };
+  return { prefabs, geometries, materials, classes, models, modelSettings, warnings };
 }
 
 function isNamed(value: unknown): value is Material | BufferGeometry {
@@ -314,6 +342,7 @@ interface WalkContext {
   gameClasses: Map<Function, string>;
   geometryId: (g: BufferGeometry) => string;
   materialId: (m: Material, hint: string) => string;
+  noteModel: (model: Model) => void;
   warnings: string[];
 }
 
@@ -360,12 +389,22 @@ class Walk {
     if (source) out.source = source;
 
     const made = prefabOf(n);
-    const nested = made && !made.given ? this.ctx.prefabIds.get(made.prefab) : undefined;
-    if (nested && (!isRoot || nested !== this.id)) {
-      // `<ArrowBase />` with nothing written on it is ArrowBase itself: a reference, not a copy.
-      out.prefab = nested;
-      if (isRoot) out.name = this.id.split('#')[1]!;
+    const model = made && modelOf(made.prefab);
+    if (model) {
+      out.model = model.url;
+      this.ctx.noteModel(model);
+      // Named after its file, as Unity names a placed model, unless its tag names it.
+      if (typeof made!.props.name !== 'string' || isRoot) out.name = made!.prefab.name.replace(/\.[^.]*$/, '');
       return out;
+    }
+    const nested = made ? this.ctx.prefabIds.get(made.prefab) : undefined;
+    if (nested && (!isRoot || nested !== this.id)) {
+      out.prefab = nested;
+      // A copy nothing names is named after its prefab, as Unity names a placement.
+      if (!n.name || isRoot) out.name = (isRoot ? this.id : nested).split('#')[1]!;
+      // `<ArrowBase />` with nothing written on it is ArrowBase itself: a reference, not a copy.
+      if (!made!.given) return out;
+      out.given = true;
     }
 
     this.content(n, out, path || this.id);
@@ -412,6 +451,8 @@ class Walk {
     if (v === null || v === undefined) return null;
     if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return v;
     if (typeof v === 'function') {
+      const model = modelOf(v);
+      if (model) return this.ctx.noteModel(model), { file: model.url, type: 'Model' };
       const id = this.ctx.prefabIds.get(v);
       if (id) return { prefab: id };
       this.warnings.push(`${where}: a function that is not an exported prefab — not exported.`);
@@ -455,6 +496,14 @@ class Walk {
       }
       return { object: { type: (o.constructor as Function).name, fields } };
     }
+    // A file loaded by URL — a model, a sound clip — which a port imports as its own asset.
+    if (v instanceof Model) this.ctx.noteModel(v);
+    if (v instanceof Asset) return { file: v.url, type: (o.constructor as Function).name };
+    // An image file a field holds — read as data, a height stamp — is imported as a texture of its own.
+    if ((o as unknown as Texture).isTexture) {
+      const src = imageSource(o as unknown as Texture);
+      if (src && !src.startsWith('data:')) return { file: src, type: 'Texture2D' };
+    }
     // An object literal is data all the way down — a particle effect, with its colours and lists.
     const proto = Object.getPrototypeOf(o);
     if (proto === Object.prototype || proto === null) {
@@ -465,7 +514,7 @@ class Walk {
       }
       return { object: { type: 'Object', fields } };
     }
-    this.warnings.push(`${where}: a ${(o.constructor as Function | undefined)?.name ?? 'value'} is not exported — numbers, strings, vectors, colours, nodes, prefabs, materials, settings objects and lists of them are.`);
+    this.warnings.push(`${where}: a ${(o.constructor as Function | undefined)?.name ?? 'value'} is not exported — numbers, strings, vectors, colours, nodes, prefabs, materials, files, settings objects and lists of them are.`);
     return undefined;
   }
 
@@ -533,6 +582,8 @@ function describeGeometry(g: BufferGeometry, name: string | undefined): Snapshot
   const uv = attribute(g.getAttribute('uv') as BufferAttribute);
   if (normal) out.normal = normal;
   if (uv) out.uv = uv;
+  const color = g.getAttribute('color') as BufferAttribute | undefined;
+  if (color) (out.color = attribute(color)), (out.colorSize = color.itemSize);
   return out;
 }
 
@@ -559,9 +610,7 @@ function describeMaterial(m: Material, name: string, source: string | undefined,
   for (const slot of ['map', 'emissiveMap'] as const) {
     const texture = any[slot] as Texture | null | undefined;
     if (!texture) continue;
-    const image = texture.image as { src?: string; currentSrc?: string; toDataURL?: (type: string) => string } | undefined;
-    // A texture drawn in code is its canvas: written down as the image it holds.
-    const src = image?.currentSrc || image?.src || image?.toDataURL?.('image/png');
+    const src = imageSource(texture);
     if (src) out[slot] = src;
     else warnings.push(`${source ?? name}: a ${slot} that is neither an image nor a canvas is not exported.`);
     if (texture.repeat.x !== 1 || texture.repeat.y !== 1) out.repeat = [texture.repeat.x, texture.repeat.y];
@@ -615,4 +664,10 @@ function plainFields(o: Record<string, unknown>): Record<string, number | boolea
   const entries = Object.entries(o).filter(([key]) => !key.startsWith('_'));
   if (entries.length === 0 || !entries.every(([, v]) => typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string')) return null;
   return Object.fromEntries(entries) as Record<string, number | boolean | string>;
+}
+
+/** Where a texture's pixels come from: its file's URL, or a canvas drawn in code as a PNG data URL. */
+export function imageSource(texture: Texture): string | undefined {
+  const image = texture.image as { src?: string; currentSrc?: string; toDataURL?: (type: string) => string } | undefined;
+  return image?.currentSrc || image?.src || image?.toDataURL?.('image/png') || undefined;
 }

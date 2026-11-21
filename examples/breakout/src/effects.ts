@@ -17,7 +17,11 @@ export function score(name: SfxName, key: number, step: number): Score {
   switch (name) {
     case 'break': {
       // A bright metal pluck on the combo's note, a fifth above it a breath later, and a crack of noise.
-      const n = degree(A + 24, step);
+      // The climb stops where the fifth would pass MIDI 116 (6.6 kHz), the YM2612's highest pitch: the
+      // chip has no setting above it, and asking for one throws.
+      let climb = step;
+      while (climb > 0 && degree(A + 24, climb) + 7 > 116) climb--;
+      const n = degree(A + 24, climb);
       at.push([0, (e) => (e.voice(0, 'arp', 0), e.voice(1, 'arp', 10), e.note(0, n))]);
       at.push([0.025, (e) => e.note(1, n + 7)]);
       at.push([0.07, (e) => (e.release(0), e.release(1))]);

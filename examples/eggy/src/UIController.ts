@@ -1,4 +1,4 @@
-import { Behaviour, SceneManager, type Yieldable } from '@scenoco-three/core';
+import { Behaviour, Input, KeyCode, SceneManager, type Yieldable } from '@scenoco-three/core';
 import { EggController } from './EggController';
 import { LevelController } from './LevelController';
 import { Main } from './scenes/Main';
@@ -50,8 +50,12 @@ export class UIController extends Behaviour {
     element('level').textContent = `LEVEL ${LevelController.currentLevel}`;
     this.count.textContent = String(LevelController.starsOverall);
     this.play.disabled = false;
-    this.play.onclick = () => this.startGame();
     this.startCoroutine(this.enter());
+  }
+
+  override update() {
+    // The play button, or Space.
+    if (Input.getButtonDown('Play') || Input.getKeyDown(KeyCode.Space)) this.startGame();
   }
 
   /** In from where the last game left them: placed off screen at once, then moved in. */

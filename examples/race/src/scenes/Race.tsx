@@ -2,6 +2,7 @@ import { Color, DirectionalLight, Fog, Group, HemisphereLight, Mesh, Object3D, P
 import { UIDocument, ref } from '@scenoco-three/core';
 import { SplineAnimate, SplineContainer, SplineInstantiate, SplineMesh } from '@scenoco-three/splines';
 import { Terrain } from '@scenoco-three/terrain';
+import { Tonemapping, Volume } from '@scenoco-three/postprocessing';
 import { ground, models } from '../assets';
 import { ChaseCamera } from '../ChaseCamera';
 import { Car, Drone, Lamp } from '../prefabs';
@@ -29,6 +30,12 @@ export const Race = () => {
       <DirectionalLight position={[40, 80, 30]} intensity={2.2} castShadow shadow-bias={-0.0004}>
         <SunFollow radius={45} ahead={25} mapSize={2048} />
       </DirectionalLight>
+
+      {/* The picture: ACES, as URP's Volume and its profile. */}
+      <Group name="look">
+        <Volume />
+        <Tonemapping mode="ACES" />
+      </Group>
 
       <PerspectiveCamera position={[0, 80, 30]} args={[55, 1, 0.1, 600]}>
         <ChaseCamera />

@@ -1,10 +1,9 @@
 import { Group, Mesh, PlaneGeometry } from 'three';
 import { prefab } from '@scenoco-three/core';
 import { BoxCollider, MeshCollider, Rigidbody, SphereCollider } from '@scenoco-three/rapier';
-import { materials, models } from '../assets';
-import { unity } from '../layout';
+import { EggBottomModel, EggTopModel, FriedModel, Stone1Model, Stone2Model, Stone3Model, materials } from '../assets';
 import { Stone } from '../markers';
-import { ModelView } from '../ModelView';
+import { ModelMaterials } from '../ModelMaterials';
 import { StarController } from '../StarController';
 
 // The Unity prefabs. A stone's model sits as high as Unity's prefab lifted it; its collider is
@@ -14,7 +13,8 @@ export const Stone1 = prefab(() => (
   <Group name="stone">
     <Stone />
     <Group position={[0, 0.49, 0]}>
-      <ModelView model={models.stone1} material={materials.stone} />
+      <Stone1Model />
+      <ModelMaterials material={materials.stone} />
       <MeshCollider />
     </Group>
   </Group>
@@ -24,7 +24,8 @@ export const Stone2 = prefab(() => (
   <Group name="stone">
     <Stone />
     <Group position={[0, 0.7, 0]}>
-      <ModelView model={models.stone2} material={materials.stone} />
+      <Stone2Model />
+      <ModelMaterials material={materials.stone} />
       <MeshCollider />
     </Group>
   </Group>
@@ -34,7 +35,8 @@ export const Stone3 = prefab(() => (
   <Group name="stone">
     <Stone />
     <Group position={[0, 0.04, 0]}>
-      <ModelView model={models.stone3} material={materials.stone} />
+      <Stone3Model />
+      <ModelMaterials material={materials.stone} />
       <MeshCollider />
     </Group>
   </Group>
@@ -42,7 +44,7 @@ export const Stone3 = prefab(() => (
 
 /** A star: a sprite 2.58 m by 2.26 m (star.png at 600 pixels a metre), caught by a 0.7 m trigger. */
 export const Star = prefab(() => (
-  <Group name="star" quaternion={unity.starRotation}>
+  <Group name="star" rotation={[1.5708, -0.8727, 1.5708]}>
     <Mesh material={materials.star}>
       <PlaneGeometry args={[2.583, 2.257]} />
       <SphereCollider radius={0.7} isTrigger />
@@ -59,7 +61,8 @@ export const EggTop = prefab(() => (
   <Group name="shell top">
     <Rigidbody />
     <MeshCollider convex density={2.15} layer={layers.shell} />
-    <ModelView model={models.eggTop} material={materials.egg} />
+    <EggTopModel />
+    <ModelMaterials material={materials.egg} />
   </Group>
 ));
 
@@ -67,7 +70,8 @@ export const EggBottom = prefab(() => (
   <Group name="shell bottom">
     <Rigidbody />
     <MeshCollider convex density={2.15} layer={layers.shell} />
-    <ModelView model={models.eggBottom} material={materials.egg} />
+    <EggBottomModel />
+    <ModelMaterials material={materials.egg} />
   </Group>
 ));
 
@@ -78,6 +82,7 @@ export const Fried = prefab(() => (
         the ground it rests on never reaches its middle — a thin box pressed in there was pushed down
         through the slope. Its bottom is the model's. */}
     <BoxCollider size={[2.4, 1.5, 2.3]} center={[0.1, 0.68, 0.02]} layer={layers.fried} />
-    <ModelView model={models.fried} materials={{ white: materials.friedWhite, yolk: materials.friedYolk }} castShadow={false} receiveShadow />
+    <FriedModel />
+    <ModelMaterials materials={[materials.friedWhite, materials.friedYolk]} />
   </Group>
 ));

@@ -28,9 +28,10 @@ const track = ref<Group>();
   and the spline, and all that is built along it, follows.
 - `SplineMesh` — bends a modelled piece (a road section with its kerbs, a rail, a fence) along the
   spline, repeated end to end; a `Model` keeps its materials. The piece runs along +Z with +Y up and
-  bends where it has edge loops. Compressed glTF (gltfpack `-cc`) is fine.
-- `SplineExtrude` — a round or square tube: a pipe, a cable. `radius`, `sides`, `segmentsPerUnit`,
-  `capped`, `range`.
+  bends where it has edge loops. Compressed glTF (gltfpack `-cc`) is fine. Unity has no built-in for it:
+  the Unity export adds SceNoCo's port, `SplineMesh.cs`.
+- `SplineExtrude` — Unity's, vertex for vertex: a round or square tube (a pipe, a cable) or a flat
+  `road` strip a texture paints. `shape`, `radius`, `sides`, `segmentsPerUnit`, `capped`, `range`, `flipNormals`.
 - `SplineInstantiate` — prefabs along the spline by `spacing` or `instanceCount`, with
   `positionOffset`, `rotationOffset`, `alignTo`.
 - `SplineAnimate` — moves its node along the spline by `duration` or `maxSpeed`; `loop` is `once`,

@@ -28,6 +28,21 @@ describe('what a Unity port is handed', () => {
     expect(page.copies.size).toBeGreaterThan(10);
   });
 
+  it("the tower defence's page: a class rule gives taps back only to what carries the class, and data-button is kept", async () => {
+    const td = fileURLToPath(new URL('../../examples/td', import.meta.url));
+    const { files } = await convertPage(td, ['ui'], { fonts: false });
+    const uxml = files.get('Assets/UI/ui.uxml')!;
+    // `.btn { pointer-events: auto }` is the buttons', not every element's: the full-screen vignette lets taps through.
+    expect(uxml).toMatch(/name="vignette"[^>]*picking-mode="Ignore"/);
+    expect(uxml).toMatch(/name="build-archer"(?![^>]*picking-mode)/);
+    // A template whose root is a button takes taps: a level's card, cloned under a list that doesn't.
+    expect(files.get('Assets/UI/level.uxml')).toMatch(/<ui:Button class="level">/);
+    // A sized background tiles, as CSS's does by default: USS has to be told.
+    expect(files.get('Assets/UI/Page.uss')).toMatch(/background-size: 260px;\s*background-repeat: repeat;/);
+    // A button the page names only by `data-button` is found by its class.
+    expect(uxml).toMatch(/<ui:Button class="round button-Pause"/);
+  });
+
   it("leaves out the starter page's reset, which stands in for USS's own defaults", async () => {
     const starter = fileURLToPath(new URL('../../packages/create/template', import.meta.url));
     const uss = (await convertPage(starter, ['ui'], { fonts: false })).files.get('Assets/UI/Page.uss')!;

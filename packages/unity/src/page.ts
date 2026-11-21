@@ -56,6 +56,8 @@ export interface PageOutput {
   downloads: Map<string, string>;
   /** Each document's UXML, by the element it names. */
   documents: Map<string, string>;
+  /** Each `<template>`'s UXML, by its id. */
+  templates: Map<string, string>;
   warnings: string[];
 }
 
@@ -176,7 +178,7 @@ async function webFonts(html: string, warnings: string[]): Promise<{ faces: Face
  * its templates, and its style.
  */
 export async function convertPage(root: string, documents: string[], options: { fonts?: boolean } = {}): Promise<PageOutput> {
-  const out: PageOutput = { files: new Map(), copies: new Map(), downloads: new Map(), documents: new Map(), warnings: [] };
+  const out: PageOutput = { files: new Map(), copies: new Map(), downloads: new Map(), documents: new Map(), templates: new Map(), warnings: [] };
   const file = join(root, 'index.html');
   if (!existsSync(file) || documents.length === 0) return out;
   const html = readFileSync(file, 'utf8');
@@ -196,9 +198,14 @@ export async function convertPage(root: string, documents: string[], options: { 
 
   // Picking. Core's UIDocument takes pointer events off its element, and the page gives them back
   // where a player taps: pointer-events is inherited, and the last rule that sets it on an element
-  // wins. A rule that gives them back counts whatever classes it names — code puts `.shown` on as the
-  // game runs, and USS has no picking to switch — while UI Toolkit picks nothing hidden anyway.
-  const loose = (sel: string) => sel.replace(/\.[\w-]+|::?[\w-]+(\([^)]*\))?/g, '') || '*';
+  // wins. A rule that gives them back counts the classes code adds as the game runs — `.shown`, which no
+  // element of the page carries yet, and USS has no picking to switch — while UI Toolkit picks nothing
+  // hidden anyway. A class the page does carry (`.btn`) still has to match: `.btn` is not every element.
+  const carried = new Set(all(tree).flatMap((e) => (e.attrs.class ?? '').split(/\s+/).filter(Boolean)));
+  const loose = (sel: string): string | null => {
+    const kept = sel.replace(/\.([\w-]+)/g, (whole, name: string) => (carried.has(name) ? whole : '')).replace(/::?[\w-]+(\([^)]*\))?/g, '').trim();
+    return kept || null;
+  };
   const picking = new Map<Element, boolean>();
   const pickable = (e: Element): boolean => {
     if (picking.has(e)) return picking.get(e)!;
@@ -206,11 +213,13 @@ export async function convertPage(root: string, documents: string[], options: { 
     for (const r of parsed.rules)
       for (const [p, v] of r.declarations) {
         if (p !== 'pointer-events') continue;
-        if (v === 'none' ? r.selectors.some((sel) => !sel.includes(':') && matches(sel, e)) : r.selectors.some((sel) => matches(loose(sel), e))) value = v !== 'none';
+        if (v === 'none' ? r.selectors.some((sel) => !sel.includes(':') && matches(sel, e)) : r.selectors.some((sel) => { const l = loose(sel); return l !== null && matches(l, e); })) value = v !== 'none';
       }
-    // A document's element starts without them, and so does a template's, which code adds under one.
-    const top = roots.includes(e) || e.parent?.tag === 'template';
-    const result = value ?? (top || !e.parent || !inside.has(e.parent) ? !top : pickable(e.parent));
+    // A document's element starts without them. A template's inherits from no element of the page — code
+    // adds it under one — so it starts without them too, unless it is a button: a level's card.
+    const ofTemplate = e.parent?.tag === 'template';
+    const top = roots.includes(e) || ofTemplate;
+    const result = value ?? (ofTemplate ? e.tag === 'button' : top || !e.parent || !inside.has(e.parent) ? !top : pickable(e.parent));
     picking.set(e, result);
     return result;
   };
@@ -267,6 +276,11 @@ export async function convertPage(root: string, documents: string[], options: { 
           break; // below, together
         case 'text-align':
           result.push(['-unity-text-align', { center: 'middle-center', left: 'middle-left', right: 'middle-right' }[value] ?? 'middle-left']);
+          break;
+        case 'background-size':
+          result.push([prop, value]);
+          // A sized image tiles in CSS, which repeats by default; USS draws it once unless told.
+          if (!own.has('background-repeat') && !/^(cover|contain|100% 100%|auto)$/.test(value)) result.push(['background-repeat', 'repeat']);
           break;
         case 'border': {
           const [width, , color] = value.split(/\s+(?![^(]*\))/);
@@ -334,7 +348,10 @@ export async function convertPage(root: string, documents: string[], options: { 
     const tag = e.tag === 'button' ? 'ui:Button' : e.tag === 'div' && (e.text || kids.length === 0) ? 'ui:Label' : 'ui:VisualElement';
     const attrs: string[] = [];
     if (e.attrs.id) attrs.push(`name="${escape(e.attrs.id)}"`);
-    if (e.attrs.class) attrs.push(`class="${escape(e.attrs.class)}"`);
+    // A `data-button` — core's Input names its clicks — is a class, so a port finds every button of a
+    // name, id or none: `root.Query(className: "button-Pause")`.
+    const classes = [e.attrs.class, e.attrs['data-button'] ? `button-${e.attrs['data-button']}` : undefined].filter(Boolean).join(' ');
+    if (classes) attrs.push(`class="${escape(classes)}"`);
     if (e.text) attrs.push(`text="${escape(e.text)}"`);
     if (e.attrs.style) attrs.push(`style="${escape(e.attrs.style)}"`);
     if (!pickable(e)) attrs.push('picking-mode="Ignore"');
@@ -353,7 +370,9 @@ export async function convertPage(root: string, documents: string[], options: { 
   for (const t of templates) {
     const content = t.children.filter((c) => c.tag !== 'script');
     if (content.length !== 1) out.warnings.push(`index.html: <template id="${t.attrs.id}"> holds ${content.length} elements — a template's UXML holds its first.`);
-    if (content[0]) out.files.set(`Assets/UI/${t.attrs.id}.uxml`, uxml(content[0]));
+    if (!content[0]) continue;
+    out.files.set(`Assets/UI/${t.attrs.id}.uxml`, uxml(content[0]));
+    out.templates.set(t.attrs.id!, `Assets/UI/${t.attrs.id}.uxml`);
   }
   return out;
 }

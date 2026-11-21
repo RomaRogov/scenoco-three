@@ -1,5 +1,5 @@
 import { CanvasTexture, ClampToEdgeWrapping, MeshBasicMaterial, MeshStandardMaterial, RingGeometry, SRGBColorSpace, SpriteMaterial } from 'three';
-import { sharedModel, sharedTexture, type Loadable } from '@scenoco-three/core';
+import { prefab, sharedModel, sharedTexture, type Loadable } from '@scenoco-three/core';
 import { TerrainData } from '@scenoco-three/terrain';
 
 import goblinUrl from './models/goblin.glb?url';
@@ -39,10 +39,10 @@ export const models = {
   frost: sharedModel(frostUrl),
   castle: sharedModel(castleUrl),
   cave: sharedModel(caveUrl),
-  pad: sharedModel(padUrl),
-  arrow: sharedModel(arrowUrl),
-  cannonball: sharedModel(cannonballUrl),
-  shard: sharedModel(shardUrl),
+  pad: sharedModel(padUrl, { castShadow: false }),
+  arrow: sharedModel(arrowUrl, { castShadow: false }),
+  cannonball: sharedModel(cannonballUrl, { castShadow: false }),
+  shard: sharedModel(shardUrl, { castShadow: false }),
   pine: sharedModel(pineUrl),
   pineSnow: sharedModel(pineSnowUrl),
   tree: sharedModel(treeUrl),
@@ -50,6 +50,24 @@ export const models = {
   lantern: sharedModel(lanternUrl),
   bridge: sharedModel(bridgeUrl),
 };
+
+/** The models placed in scenes, each a prefab as Unity makes one of every model file: `<GoblinModel scale={1.656} />`. */
+export const ArrowModel = prefab(models.arrow);
+export const CannonballModel = prefab(models.cannonball);
+export const ShardModel = prefab(models.shard);
+export const GoblinModel = prefab(models.goblin);
+export const WolfModel = prefab(models.wolf);
+export const OrcModel = prefab(models.orc);
+export const TrollModel = prefab(models.troll);
+export const ArcherModel = prefab(models.archer);
+export const CannonModel = prefab(models.cannon);
+export const MageModel = prefab(models.mage);
+export const FrostModel = prefab(models.frost);
+export const PadModel = prefab(models.pad);
+export const LanternModel = prefab(models.lantern);
+export const CastleModel = prefab(models.castle);
+export const CaveModel = prefab(models.cave);
+export const BridgeModel = prefab(models.bridge);
 
 // Each level's layer textures, by file name.
 const layerFiles = import.meta.glob<string>('./levels/*/layers/*.jpg', { query: '?url', import: 'default', eager: true });

@@ -1,6 +1,6 @@
 import { DoubleSide, MeshBasicMaterial, MeshStandardMaterial, RepeatWrapping } from 'three';
 import type { Texture } from 'three';
-import { sharedModel, sharedTexture } from '@scenoco-three/core';
+import { prefab, sharedModel, sharedTexture } from '@scenoco-three/core';
 import { sharedClip } from '@scenoco-three/audio';
 
 import eggUrl from './models/egg.glb?url';
@@ -17,12 +17,22 @@ export const models = {
   egg: sharedModel(eggUrl),
   eggTop: sharedModel(eggTopUrl),
   eggBottom: sharedModel(eggBottomUrl),
-  fried: sharedModel(friedUrl),
+  fried: sharedModel(friedUrl, { castShadow: false }),
   nest: sharedModel(nestUrl),
   stone1: sharedModel(stone1Url),
   stone2: sharedModel(stone2Url),
   stone3: sharedModel(stone3Url),
 };
+
+/** The models as prefabs to place, as Unity makes one of every model file. */
+export const EggModel = prefab(models.egg);
+export const EggTopModel = prefab(models.eggTop);
+export const EggBottomModel = prefab(models.eggBottom);
+export const FriedModel = prefab(models.fried);
+export const NestModel = prefab(models.nest);
+export const Stone1Model = prefab(models.stone1);
+export const Stone2Model = prefab(models.stone2);
+export const Stone3Model = prefab(models.stone3);
 
 // As stored, no colour space: the game lights in gamma, as the Unity project did (gamma.ts).
 const tiled = { wrapS: RepeatWrapping, wrapT: RepeatWrapping } as const;

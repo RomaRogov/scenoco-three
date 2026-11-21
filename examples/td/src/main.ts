@@ -1,5 +1,5 @@
 import { log } from './phoneLog';
-import { ACESFilmicToneMapping, PCFShadowMap } from 'three';
+import { PCFShadowMap } from 'three';
 import { loadAssets, play } from '@scenoco-three/core';
 import { allAssets } from './assets';
 import { Menu } from './scenes/Menu';
@@ -29,8 +29,6 @@ log('assets loaded');
 const game = play(Menu);
 game.renderer.shadowMap.enabled = shadowsWork(game.renderer.getContext());
 game.renderer.shadowMap.type = PCFShadowMap;
-game.renderer.toneMapping = ACESFilmicToneMapping;
-game.renderer.toneMappingExposure = 1.1;
 // Phones have dense screens: past 1.5× the extra pixels cost GPU memory and heat, and show little.
 const touch = matchMedia('(pointer: coarse)').matches;
 game.renderer.setPixelRatio(Math.min(window.devicePixelRatio, touch ? 1.5 : 2));

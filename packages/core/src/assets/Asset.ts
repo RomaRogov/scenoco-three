@@ -84,15 +84,28 @@ export function trackLoad(value: object, load: Promise<unknown>): void {
   pending.set(value, load.catch(() => undefined));
 }
 
+/** Values that load as an asset: a model's prefab is its model. */
+const standsFor = new WeakMap<object, Asset<unknown>>();
+
+/** @internal `value` loads as `asset` does: `loadAssets(value)` waits for the asset. */
+export function loadsAs(value: object, asset: Asset<unknown>): void {
+  standsFor.set(value, asset);
+}
+
+/** @internal The asset a value stands for, as {@link loadsAs} recorded it. */
+export function assetOf(value: unknown): Asset<unknown> | undefined {
+  return value && (typeof value === 'object' || typeof value === 'function') ? standsFor.get(value) : undefined;
+}
+
 /** Anything {@link loadAssets} knows how to wait for. */
 export type Loadable = Asset<unknown> | object;
 
 /**
  * Wait for every asset in the list — `await loadAssets(hero, music)` in `main.ts`, before `play`.
- * Takes textures as well as `Asset`s, loads them in parallel, and costs nothing for one already loaded.
+ * Takes textures and a model's prefab as well as `Asset`s, loads them in parallel, and costs nothing for one already loaded.
  */
 export async function loadAssets(...assets: readonly Loadable[]): Promise<void> {
   await Promise.all(
-    assets.map((asset) => (asset instanceof Asset ? asset.load() : pending.get(asset))),
+    assets.map((asset) => (asset instanceof Asset ? asset.load() : (standsFor.get(asset)?.load() ?? pending.get(asset)))),
   );
 }

@@ -2,8 +2,8 @@
 /**
  * scenoco-unity <unity-project> [--root <game>] [--headed]
  *
- * Writes the game's prefabs, scenes, meshes and materials into a Unity project: Unity builds them
- * with its own API the next time it compiles (or from the menu, SceNoCo ▸ Import).
+ * Writes the game's prefabs and scenes into a Unity project as Scenoco's text, with the meshes and
+ * materials they name: Unity builds them the next time it compiles (or from the menu, SceNoCo ▸ Import).
  */
 import { resolve } from 'node:path';
 import { snapshotProject, writeUnity } from './export.js';
@@ -35,15 +35,17 @@ if (!project || args.length > 1 || unknown) {
 
 try {
   const snap = await snapshotProject(root, { headed });
-  const { converted, scripts, modules, warnings } = await writeUnity(snap, project, root);
+  const { converted, twins, packages, scripts, modules, warnings } = await writeUnity(snap, project, root);
   const d = converted.data;
   console.log(`${d.prefabs.length} prefabs, ${d.scenes.length} scenes, ${d.meshes.length} meshes, ${d.materials.length} materials → ${resolve(project)}`);
   if (scripts.length) console.log(`C# stubs for ${scripts.join(', ')} in Assets/Scripts — the fields are wired, each method holds its TypeScript to port.`);
   if (modules.length) console.log(`The rest of the code, as TypeScript in Assets/Scripts/Modules: ${modules.map((m) => m.replace(/^\/src\//, '')).join(', ')}.`);
   if (d.ui && Object.keys(d.ui.documents).length) console.log(`The page as UXML and USS in Assets/UI: ${Object.values(d.ui.documents).join(', ')}.`);
   for (const w of warnings) console.log(`warning: ${w}`);
-  console.log('Porting rules: Assets/SceNoCo/PORTING.md. Driving the game in Play mode: unity command scenoco.help (needs com.unity.pipeline).');
-  for (const w of d.warnings) console.log(`warning: ${w}`);
+  console.log(`Scenes and prefabs as Scenoco's text: ${twins.join(', ')}.`);
+  if (packages.length) console.log(`Added to Packages/manifest.json: ${packages.join(', ')}.`);
+  console.log('Porting rules: Assets/SceNoCo/PORTING.md. The port is checked with Diceload simulations (its unity-game skill is copied into .claude/skills).');
+  for (const w of new Set(d.warnings)) console.log(`warning: ${w}`);
   console.log('Unity builds them when it next compiles, or from SceNoCo ▸ Import.');
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

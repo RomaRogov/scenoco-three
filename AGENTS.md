@@ -41,10 +41,12 @@ not memory.
 - `packages/create` — the starter `npm create @scenoco-three` copies; `template/AGENTS.md` is the
   rules card a model reads in a project, so a change to the API is a change there too.
 - `packages/unity` — `scenoco-unity`: the game written into a Unity project. Core's `snapshot` (dev
-  only) describes what the TSX declares; `convert.ts` mirrors it into Unity's space, `page.ts` turns the
-  page into UXML and USS, `input.ts` the named axes into input actions, `stub.ts` the code into C#
-  stubs holding its TypeScript, and the C# in `unity/` — importer, driver commands, `PORTING.md` — is
-  copied into the project, where the importer builds it with Unity's API.
+  only) describes what the TSX declares; `convert.ts` mirrors it into Unity's space, `twin.ts` writes
+  its prefabs and scenes as Scenoco's text (`.uprefab`, `.uscene`; `com.roro.scenoco` builds them),
+  `page.ts` turns the page into UXML and USS, `input.ts` the named axes into input actions, `stub.ts`
+  the code into C# stubs holding its TypeScript. The C# in `unity/` — the importer, which makes the
+  assets the text names, and `PORTING.md` — is copied into the project; the port is checked with
+  Diceload simulations (`com.roro.diceload`), and the export adds both packages to its manifest.
 - `unity/com.scenoco.ymfm` — a Unity package, not an npm one: tetorica-fm2612's YM2612 (ymfm) and Sega PSG
   as a native plugin for macOS, iOS, Android and Windows, with tetorica's API in C#. For a game whose port
   plays them, added by hand; the exporter knows nothing of it. `Native~/build.sh` rebuilds it.

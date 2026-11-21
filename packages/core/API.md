@@ -69,6 +69,8 @@ function prefab<F extends Function>(build: F): F;  // export const Coin = prefab
                                                                     // a function not wrapped is a plain component — its tag is its props.
                                                                     // Props are typed by their defaults — prefab(({ width = 1 }) => …) —
                                                                     // or by a written type: ({ width }: { width: number })
+function prefab(model: Model): Prefab;             // a model file's prefab, as Unity makes one: export const Goblin = prefab(sharedModel(url));
+                                                                    // <Goblin scale={0.4} /> places its root; loadAssets(Goblin) loads it
 type Prefab<T extends Object3D = Object3D>;   // what prefab() makes, taking no props — as a field's type, or instantiate's
 function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: {   // a prefab, or a loaded model
   parent?: Object3D;                                  // default: the active scene — the next load destroys it, as in Unity
@@ -284,8 +286,9 @@ const AXES: Record<AxisName, …>;  const AXIS_NAMES: AxisName[];   // Unity's d
 // What a node's own elements built (<BoxGeometry> inside a <Mesh>) is freed when the node is destroyed —
 // a scene load included. What a scene only names in a prop (material={paint.wall}) is never freed by it.
 function sharedTexture(url: string, settings?: TextureSettings): Texture;   // one per URL; the image arrives later
-function sharedModel(url: string): Model;    // a glTF: await loadAssets(model), then model.instantiate(); meshopt-compressed (gltfpack -cc) loads too
-class Model extends Asset<GLTF> { readonly clips: AnimationClip[]; instantiate(): Object3D }
+function sharedModel(url: string, settings?: ModelSettings): Model;   // a glTF: await loadAssets(model); placed with prefab(model), or model.instantiate(); meshopt (gltfpack -cc) loads too
+type ModelSettings = { castShadow?: boolean; receiveShadow?: boolean };  // every mesh of every copy; both on by default, as Unity's renderers
+class Model extends Asset<GLTF> { castShadow: boolean; receiveShadow: boolean; readonly clips: AnimationClip[]; instantiate(): Object3D }
 // A model's clips play through an Animator on its root, or on a node above it. No controller: the
 // states are the clips' names, and every state loops.
 //   const hero = instantiate(heroModel, { parent: this.node }); this.animator = hero.addComponent(Animator);

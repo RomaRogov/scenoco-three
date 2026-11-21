@@ -69,7 +69,7 @@ export { KeyCode, MouseButton } from './input/KeyCode.js';
 export { AXES, AXIS_NAMES, type AxisName } from './input/axes.js';
 
 export { Asset, loadAssets, type Loadable } from './assets/Asset.js';
-export { Model, sharedModel } from './assets/Model.js';
+export { Model, sharedModel, type ModelSettings } from './assets/Model.js';
 export { Animator, type AnimatorStateInfo } from './animation/Animator.js';
 export { sharedTexture, type TextureSettings } from './assets/textures.js';
 

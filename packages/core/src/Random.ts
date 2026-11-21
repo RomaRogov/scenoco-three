@@ -37,19 +37,20 @@ export const Random = {
     s = [value[0] >>> 0, value[1] >>> 0, value[2] >>> 0, value[3] >>> 0];
   },
 
-  /** 0 up to 1. */
+  /** 0 to 1, both included: Unity's, from the low 23 bits, as a 32-bit float. */
   get value(): number {
-    return next() / 4294967296;
+    return Math.fround((next() & 0x7fffff) / 0x7fffff);
   },
 
-  /** A number from `min` up to `max`. */
+  /** A number from `min` to `max`: Unity's, in 32-bit floats, measured against its own for one seed. */
   range(min: number, max: number): number {
-    return min + (max - min) * Random.value;
+    const t = Random.value;
+    return Math.fround(Math.fround(t * min) + Math.fround(Math.fround(1 - t) * max));
   },
 
   /** A whole number from `min` up to `max - 1` — Unity's `Range(int, int)`: `rangeInt(0, items.length)`. */
   rangeInt(min: number, max: number): number {
-    return max <= min ? min : min + Math.floor((max - min) * Random.value);
+    return max <= min ? min : min + (next() % (max - min));
   },
 
   /** A point inside a circle of radius 1, every spot as likely. */

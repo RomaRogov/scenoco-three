@@ -63,7 +63,8 @@ describe('splines', () => {
     ) as Scene;
     run(scene);
     const geometry = (scene.children[0] as Mesh).geometry;
-    expect(geometry.getAttribute('position').count).toBe(11 * 9);
+    // Unity's rings: ceil(10 m × 1) of them, each its 8 sides with no seam vertex.
+    expect(geometry.getAttribute('position').count).toBe(10 * 8);
     geometry.computeBoundingBox();
     expect(geometry.boundingBox!.max.x - geometry.boundingBox!.min.x).toBeCloseTo(2, 3);
     // Every face's normal, from its winding, points away from the spline's axis.
@@ -75,6 +76,29 @@ describe('splines', () => {
       const outward = new Vector3(a!.x + b!.x + c!.x, a!.y + b!.y + c!.y, 0);
       expect(face.dot(outward)).toBeGreaterThan(0);
     }
+  });
+
+  it("extrudes Unity's road: a top as wide as the radius, shoulders below, u across and v in metres", () => {
+    const scene = (
+      <Scene>
+        <Mesh>
+          <SplineContainer knots={[[0, 0, 0], [10, 0, 0]]} />
+          <SplineExtrude shape="road" radius={12} segmentsPerUnit={1} capped={false} />
+        </Mesh>
+      </Scene>
+    ) as Scene;
+    run(scene);
+    const geometry = (scene.children[0] as Mesh).geometry;
+    const [p, n, uv] = (['position', 'normal', 'uv'] as const).map((name) => geometry.getAttribute(name));
+    expect(p!.count).toBe(10 * 4);
+    // Ring 0, running +X: its right (+Z here) shoulder first, as Unity's index 0, at u = 1.
+    close(new Vector3().fromBufferAttribute(p!, 0), 0, -1.2, 7.2);
+    close(new Vector3().fromBufferAttribute(p!, 1), 0, 0, 6);
+    close(new Vector3().fromBufferAttribute(p!, 2), 0, 0, -6);
+    expect([uv!.getX(0), uv!.getX(1), uv!.getX(2), uv!.getX(3)].map((u) => +u.toFixed(3))).toEqual([1, 0.667, 0.333, 0]);
+    expect(uv!.getY(9 * 4)).toBeCloseTo(10, 3);
+    // Smoothed with the 45° shoulders, as Unity does: the top edge leans out, still mostly up.
+    expect(n!.getY(1)).toBeCloseTo(0.863, 2);
   });
 
   it('places prefabs by spacing, facing along the spline, offset to its right', () => {

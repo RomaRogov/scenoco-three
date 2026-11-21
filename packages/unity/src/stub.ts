@@ -58,6 +58,8 @@ const KEYWORDS = new Set(
 );
 
 const pascal = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
+/** A member's C# name: PascalCase, and never its class's own — `Punch.punch()` is `Punch.DoPunch()`. */
+const memberName = (name: string, owner: string) => (pascal(name) === owner ? `Do${pascal(name)}` : pascal(name));
 const safe = (name: string) => (KEYWORDS.has(name) ? `@${name}` : name);
 
 /** The class `name` declared in `code`, or undefined when it is not there. */
@@ -99,7 +101,9 @@ export function readClass(code: string, file: string, name: string): ClassSource
       if (!body) continue;
       const params = (fn.params as Node[]).map((p) => {
         const id = (p.type === 'AssignmentPattern' ? p.left : p.type === 'TSParameterProperty' ? p.parameter : p) as Node;
-        return { name: (id.name as string | undefined) ?? 'arg', type: typeText(id.typeAnnotation as Node | null) };
+        // Untyped with a default, it is the default's type: `step = 0` is a number.
+        const given = p.type === 'AssignmentPattern' ? literalType(p.right as Node) : '';
+        return { name: (id.name as string | undefined) ?? 'arg', type: typeText(id.typeAnnotation as Node | null) || given };
       });
       let returns = typeText(fn.returnType as Node | null);
       if (!returns) returns = fn.generator ? 'Generator' : fn.async ? 'Promise<void>' : returnsValue(body) ? 'unknown' : 'void';
@@ -119,6 +123,30 @@ export function readClass(code: string, file: string, name: string): ClassSource
 }
 
 type Node = { type: string; start: number; end: number; [key: string]: unknown };
+
+/** The type of a literal default — `0`, `'a'`, `true` — or '' for anything else. */
+function literalType(n: Node): string {
+  if (n.type === 'UnaryExpression' && n.operator === '-') return literalType(n.argument as Node);
+  if (n.type !== 'Literal') return '';
+  const v = n.value;
+  return typeof v === 'number' ? 'number' : typeof v === 'string' ? 'string' : typeof v === 'boolean' ? 'boolean' : '';
+}
+
+/**
+ * Every type alias a module declares, by name: `type Bonus = 'none' | 'laser'` — what a signature that
+ * names one means, wherever in the game it was declared.
+ */
+export function typeAliases(code: string, file: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const { program } = parseSync(file, code, { lang: file.endsWith('.tsx') ? 'tsx' : 'ts' }) as unknown as { program: { body: Node[] } };
+  for (const statement of program.body) {
+    const inner = (statement.declaration as Node | undefined) ?? statement;
+    if (inner.type !== 'TSTypeAliasDeclaration') continue;
+    const t = inner.typeAnnotation as Node;
+    out.set((inner.id as Node).name as string, code.slice(t.start, t.end));
+  }
+  return out;
+}
 
 /**
  * A module's code outside the classes named — its imports left out too: the interfaces, types,
@@ -184,19 +212,22 @@ function dedent(text: string): string[] {
  * A TypeScript type as C#, where the type says it: `number` is `float`, a node is its `Transform`,
  * an element of the page is a `VisualElement`. Undefined when it does not.
  */
-export function csType(ts: string, classes: Map<string, string>): string | undefined {
-  const t = ts.trim().replace(/^readonly\s+/, '');
-  if (!t) return undefined;
+export function csType(ts: string, classes: Map<string, string>, aliases: Map<string, string> = new Map(), depth = 0): string | undefined {
+  const t = ts.trim().replace(/^readonly\s+/, '').replace(/^\|\s*/, '');
+  if (!t || depth > 8) return undefined;
+  const again = (text: string) => csType(text, classes, aliases, depth + 1);
   const parts = splitTop(t, '|').map((p) => p.trim()).filter((p) => p !== 'null' && p !== 'undefined');
   if (parts.length > 1) {
-    if (parts.every((p) => /^(['"]).*\1$/.test(p))) return 'string';
-    if (parts.every((p) => /^-?\d/.test(p))) return 'float';
-    return undefined;
+    // A union of one C# type — names of a union of strings, aliases of numbers — is that type.
+    const types = new Set(parts.map((p) => (/^(['"]).*\1$/.test(p) ? 'string' : /^-?\d/.test(p) ? 'float' : again(p))));
+    return types.size === 1 ? [...types][0] : undefined;
   }
   const one = parts[0] ?? '';
-  if (one.startsWith('(') && one.endsWith(')')) return csType(one.slice(1, -1), classes);
+  if (one.startsWith('(') && one.endsWith(')')) return again(one.slice(1, -1));
+  // The keys of an object are its names.
+  if (one.startsWith('keyof ')) return 'string';
   if (one.endsWith('[]')) {
-    const inner = csType(one.slice(0, -2), classes);
+    const inner = again(one.slice(0, -2));
     return inner && inner !== 'void' ? `${inner}[]` : undefined;
   }
   if (/^(['"]).*\1$/.test(one)) return 'string';
@@ -208,17 +239,22 @@ export function csType(ts: string, classes: Map<string, string>): string | undef
   const generic = /^(\w+)(?:<(.*)>)?$/.exec(one);
   if (!generic) return undefined;
   const [, name, args] = generic as unknown as [string, string, string | undefined];
-  if (name === 'Array' && args) return csType(`${args}[]`, classes);
+  if (name === 'Array' && args) return again(`${args}[]`);
+  // Narrowed, it is still what it narrows: `Exclude<Bonus, 'none'>` is a Bonus.
+  if (/^(Exclude|Extract|NonNullable|Readonly)$/.test(name) && args) return again(splitTop(args, ',')[0]!);
+  if (name === 'HTMLTemplateElement') return 'VisualTreeAsset';
   if (name === 'Generator' || name === 'Iterator' || name === 'IterableIterator') return 'IEnumerator';
   if (name === 'Promise') {
-    const inner = args ? csType(args, classes) : 'void';
+    const inner = args ? again(args) : 'void';
     return inner === 'void' ? 'Awaitable' : inner ? `Awaitable<${inner}>` : undefined;
   }
   if (SAME.has(name)) return name;
   if (name === 'Object3D' || name === 'Group' || name === 'Mesh' || name === 'Scene') return 'Transform';
   if (name === 'Behaviour') return 'MonoBehaviour';
   if (/^HTML\w*Element$/.test(name)) return 'VisualElement';
-  return classes.get(name);
+  if (classes.has(name)) return classes.get(name);
+  const alias = aliases.get(name);
+  return alias !== undefined && !args ? again(alias) : undefined;
 }
 
 /** `text` split at `separator` where it is not inside brackets of any kind. */
@@ -250,6 +286,7 @@ export function stubClass(
   wired: Map<string, string>,
   classes: Map<string, string>,
   outside: string[] = [],
+  aliases: Map<string, string> = new Map(),
 ): string {
   const lines: string[] = [];
   const comment = (text: string[], indent: string) => text.map((l) => (l ? `${indent}// ${l}` : `${indent}//`));
@@ -283,11 +320,11 @@ export function stubClass(
     } else if (m.kind === 'get' || m.kind === 'set') {
       continue;
     } else {
-      block.push(...method(m, classes));
+      block.push(...method(m, classes, aliases, name));
     }
     body.push(block);
   }
-  body.push(...properties(source.members, classes));
+  body.push(...properties(source.members, classes, aliases, name));
 
   lines.push(...body.flatMap((b, i) => (i ? ['', ...b] : b)), '}', '');
   if (outside.length) {
@@ -300,20 +337,22 @@ export function stubClass(
     );
   }
   const usings = ['using System.Collections;', 'using UnityEngine;'];
-  if (lines.some((l) => !l.trimStart().startsWith('//') && l.includes('VisualElement'))) usings.push('using UnityEngine.UIElements;');
+  if (lines.some((l) => !l.trimStart().startsWith('//') && /\bVisual(Element|TreeAsset)\b/.test(l))) usings.push('using UnityEngine.UIElements;');
   return [...usings, '', ...lines].join('\n');
 }
 
-function method(m: Member, classes: Map<string, string>): string[] {
+function method(m: Member, classes: Map<string, string>, aliases: Map<string, string>, owner = ''): string[] {
   const message = MESSAGES.has(m.name) && !m.isStatic;
-  const returns = csType(m.returns!, classes) ?? 'object';
+  const returns = csType(m.returns!, classes, aliases) ?? 'object';
   // Core hands `update` the frame's time; Unity's Update takes nothing and reads Time.deltaTime.
   const dropped = message && !WITH_ARGUMENT.test(m.name) ? m.params! : [];
-  const params = (dropped.length ? [] : m.params!).map((p) => `${csType(p.type, classes) ?? 'object'} ${safe(p.name)}`).join(', ');
+  const params = (dropped.length ? [] : m.params!).map((p) => `${csType(p.type, classes, aliases) ?? 'object'} ${safe(p.name)}`).join(', ');
   const modifiers = message ? '' : `${m.access} ${m.isStatic ? 'static ' : ''}`;
   const placeholder = returns === 'void' ? [] : returns === 'IEnumerator' ? ['        yield break;'] : ['        return default;'];
+  const own = memberName(m.name, owner);
   return [
-    `    ${modifiers}${returns} ${pascal(m.name)}(${params})`,
+    ...(own !== pascal(m.name) ? [`    // ${pascal(m.name)} in TypeScript: C# has no member named after its class.`] : []),
+    `    ${modifiers}${returns} ${own}(${params})`,
     '    {',
     ...dropped.map((p) => `        // Unity passes no ${p.name}: ${m.name === 'fixedUpdate' ? 'Time.fixedDeltaTime' : 'Time.deltaTime'} is the frame's time.`),
     `        // ${m.head} {`,
@@ -325,14 +364,14 @@ function method(m: Member, classes: Map<string, string>): string[] {
 }
 
 /** Getters and setters as C# properties, one per name. */
-function properties(members: Member[], classes: Map<string, string>): string[][] {
+function properties(members: Member[], classes: Map<string, string>, aliases: Map<string, string>, owner = ''): string[][] {
   const out: string[][] = [];
   const names = [...new Set(members.filter((m) => m.kind === 'get' || m.kind === 'set').map((m) => m.name))];
   for (const name of names) {
     const get = members.find((m) => m.kind === 'get' && m.name === name);
     const set = members.find((m) => m.kind === 'set' && m.name === name);
     const first = get ?? set!;
-    const type = csType(get?.returns ?? set?.params?.[0]?.type ?? '', classes) ?? 'object';
+    const type = csType(get?.returns ?? set?.params?.[0]?.type ?? '', classes, aliases) ?? 'object';
     const accessor = (m: Member, word: string, placeholder: string[]) => [
       `        ${word}`,
       '        {',
@@ -344,7 +383,7 @@ function properties(members: Member[], classes: Map<string, string>): string[][]
     ];
     out.push([
       ...first.doc.map((l) => (l ? `    // ${l}` : '    //')),
-      `    ${first.access} ${first.isStatic ? 'static ' : ''}${type} ${pascal(name)}`,
+      `    ${first.access} ${first.isStatic ? 'static ' : ''}${type} ${memberName(name, owner)}`,
       '    {',
       ...(get ? accessor(get, 'get', ['            return default;']) : []),
       ...(set ? accessor(set, 'set', []) : []),

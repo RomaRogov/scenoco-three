@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@scenoco-three/core": "*",
+    "@scenoco-three/postprocessing": "*",
     "@scenoco-three/splines": "*",
     "@scenoco-three/rapier": "*",
     "@scenoco-three/terrain": "*"

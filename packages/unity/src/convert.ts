@@ -19,7 +19,8 @@ import type {
   SnapshotPrefab,
   SnapshotValue,
 } from '@scenoco-three/core/snapshot';
-import { outsideClasses, readClass, stubClass } from './stub.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { outsideClasses, readClass, stubClass, type ClassSource } from './stub.js';
 
 export type UnityValue =
   | null
@@ -83,8 +84,12 @@ export interface UnityNode {
   components: UnityComponent[];
   /** A nested prefab's asset path. */
   prefab?: string;
+  /** A placed prefab given attributes: what this copy is built as, to compare with the prefab. */
+  given?: boolean;
   /** Its Unity layer, from a collider's `layer`: SceNoCo's layer n is Unity's user layer n + 7. */
   layer?: number;
+  /** A placed model's objects that hold a mesh, as paths of names from its root, as glTFast names them. */
+  meshNodes?: string[][];
   children: UnityNode[];
   source?: string;
 }
@@ -94,6 +99,8 @@ export interface UnityMesh {
   vertices: number[];
   normals?: number[];
   uv?: number[];
+  /** Vertex colours, RGBA, linear: a material with `vertexColors` draws them. */
+  colors?: number[];
   /** One triangle list per submesh, wound for Unity. */
   submeshes: number[][];
 }
@@ -117,6 +124,8 @@ export interface UnityMaterial {
   emissionTexture?: string;
   /** How often the textures repeat: three's `texture.repeat`, Unity's tiling. */
   tiling?: number[];
+  /** Multiplied by the mesh's vertex colours: URP's Particles shaders, which Lit and Unlit are not. */
+  vertexColors?: boolean;
 }
 
 /**
@@ -137,7 +146,8 @@ export interface UnityTerrain {
   alphamapResolution: number;
   /** 0..1, `alphamaps[(y * a + x) * layers + layer]`. */
   alphamaps: number[];
-  layers: { name: string; tileSize: number; color: string }[];
+  /** Each layer's colour, and its textures' asset paths once the exporter copied them in. */
+  layers: { name: string; tileSize: number; color: string; texture?: string; normalMap?: string }[];
 }
 
 export interface UnityPrefab {
@@ -168,6 +178,13 @@ export interface UnityExport {
   ui?: { documents: Record<string, string>; theme: string };
   /** The project-wide input actions asset. */
   input?: string;
+  /**
+   * A model whose copies differ from Unity's defaults (`sharedModel(url, { castShadow: false })`), as a
+   * prefab variant of its file with its renderers set: what its placements and fields name instead.
+   */
+  modelVariants: { path: string; model: string; castShadow: boolean; receiveShadow: boolean }[];
+  /** Images a behaviour's field holds — read as data, a height stamp — imported pixel for pixel. */
+  dataTextures: string[];
   warnings: string[];
 }
 
@@ -204,8 +221,13 @@ const UNITY_NAMES = new Set(
 /** A game behaviour's C# class name. */
 export const csName = (type: string) => (UNITY_NAMES.has(type) ? `${type}Behaviour` : type);
 
+/** Where each kind of loaded file goes in the Unity project. */
+const FILE_FOLDERS: Record<string, string> = { Model: 'Assets/Models', AudioClip: 'Assets/Audio', Texture2D: 'Assets/Textures' };
+
 const flipV = ([x, y, z]: number[]) => [x!, y!, z === 0 ? 0 : -z!];
 const flipQ = ([x, y, z, w]: number[]) => [x === 0 ? 0 : -x!, y === 0 ? 0 : -y!, z!, w!];
+/** A rate about each axis — degrees a second about x, y and z — mirrors as a rotation does: x and y turn the other way. */
+const flipAxes = ([x, y, z]: number[]) => [x === 0 ? 0 : -x!, y === 0 ? 0 : -y!, z!];
 
 export interface ConvertOptions {
   /** The scene `main.ts` plays: listed first in Build Settings. */
@@ -215,12 +237,19 @@ export interface ConvertOptions {
   source?: (file: string) => string | null;
   /** The game's layers as SceNoCo numbers them: names, and the pairs its physics ignores. */
   layers?: { names: Record<number, string>; ignore2D: [number, number][]; ignore3D: [number, number][] };
+  /** Every type alias the game declares, by name: what a stub's signature that names one means. */
+  aliases?: Map<string, string>;
+  /** The page's `<template>`s as UXML, by id: `chip` → `Assets/UI/chip.uxml`. */
+  templates?: Record<string, string>;
+  /** Files the game loads that no field may name — a table of sounds — copied in all the same. */
+  files?: { url: string; type: string }[];
 }
 
 export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted {
   const warnings = [...snap.warnings];
   const paths = new Paths();
   const copies = new Map<string, string>();
+  const read = readSources(snap, options);
 
   // three draws a geometry's groups only for a mesh given a list of materials; with one material it
   // draws everything with it. A BoxGeometry has six groups, so this decides whether it is one submesh or six.
@@ -241,18 +270,29 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
   const materials: UnityMaterial[] = Object.entries(snap.materials).map(([id, m]) => {
     const path = paths.take('Assets/Materials', m.name, '.mat');
     materialPath.set(id, path);
-    return material(m, path, options.textures, copies, warnings);
+    return material(m, path, options.textures, copies, warnings, read.emits);
   });
 
   const terrains: UnityTerrain[] = [];
   const terrainPath = new Map<string, string>();
+  // The world scale of the node being converted: what a terrain on it is drawn at.
+  let worldScale = 1;
   const terrainOf = (fields: Record<string, SnapshotValue>): UnityValue => {
-    const key = JSON.stringify(fields);
+    const key = `${worldScale} ${JSON.stringify(fields)}`;
     let path = terrainPath.get(key);
     if (!path) {
-      path = paths.take('Assets/Terrains', 'Terrain', '.asset');
+      path = paths.take('Assets/Terrains', typeof fields.name === 'string' && fields.name ? fields.name : 'Terrain', '.asset');
       terrainPath.set(key, path);
-      const t = terrain(fields, path);
+      // A layer's texture files, copied in once each, under the terrain's own folder.
+      const copy = (url: string) => {
+        const found = options.textures?.(url);
+        if (!found) return undefined;
+        // Each terrain's own folder: levels name their layers alike (every map's `grass.jpg`), and one file each.
+        const to = `Assets/Textures/Terrain/${path!.replace(/^.*\/|\.asset$/g, '')}/${found.name}`;
+        copies.set(found.file, to);
+        return to;
+      };
+      const t = terrain(fields, path, copy, worldScale);
       terrains.push(t.terrain);
       warnings.push(...t.warnings);
     }
@@ -266,13 +306,52 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     else prefabPath.set(p.id, paths.take('Assets/Prefabs', p.name, '.prefab'));
   }
 
+  /** A behaviour's field: a rate about each axis mirrors as a rotation, every other value as itself. */
+  const field = (type: string, name: string, v: SnapshotValue): UnityValue => {
+    if (read.axes.has(`${type}.${name}`) && v && typeof v === 'object' && 'v3' in v) return { v3: flipAxes(v.v3) };
+    // A list of [x, y, z] — a path's points written as tuples — is a list of points: Vector3[], mirrored.
+    if (v && typeof v === 'object' && 'array' in v && v.array.length && v.array.every((p) => p && typeof p === 'object' && 'array' in p && p.array.length === 3 && p.array.every((x) => typeof x === 'number')))
+      return { array: v.array.map((p) => ({ v3: flipV((p as { array: number[] }).array) })) };
+    return value(v);
+  };
+  // A file the game loads — a model, a sound — copied in once, by its URL: Unity imports it (a .glb with glTFast).
+  const filePath = new Map<string, string | null>();
+  const modelVariants: UnityExport['modelVariants'] = [];
+  const dataTextures: string[] = [];
+  const fileOf = (url: string, type: string): UnityValue => {
+    if (!filePath.has(url)) {
+      const found = options.textures?.(url);
+      if (!found) {
+        warnings.push(`${url}: the ${type} was not found in the project — its fields are left empty.`);
+        filePath.set(url, null);
+      } else {
+        const ext = found.name.slice(found.name.lastIndexOf('.'));
+        const path = paths.take(FILE_FOLDERS[type] ?? 'Assets/Files', found.name.slice(0, -ext.length), ext);
+        copies.set(found.file, path);
+        filePath.set(url, path);
+      }
+    }
+    const path = filePath.get(url);
+    if (!path) return null;
+    if (type === 'Texture2D' && !dataTextures.includes(path)) dataTextures.push(path);
+    const settings = type === 'Model' ? snap.modelSettings?.[url] : undefined;
+    if (!settings) return { asset: path };
+    let variant = modelVariants.find((v) => v.model === path);
+    if (!variant) {
+      variant = { path: paths.take('Assets/Models', path.replace(/^.*\/|\.[^.]*$/g, ''), '.prefab'), model: path, ...settings };
+      modelVariants.push(variant);
+    }
+    return { asset: variant.path };
+  };
   const value = (v: SnapshotValue): UnityValue => {
     if (v === null || typeof v !== 'object') return v;
+    if ('file' in v) return fileOf(v.file, v.type);
     if ('v3' in v) return { v3: flipV(v.v3) };
     if ('quat' in v) return { quat: flipQ(v.quat) };
     if ('array' in v) return { array: v.array.map(value) };
     if ('prefab' in v) return sceneName.get(v.prefab) ?? (prefabPath.has(v.prefab) ? { asset: prefabPath.get(v.prefab)! } : null);
-    if ('component' in v) return { component: csName(v.component), node: v.node };
+    // A game behaviour named as Unity's own is renamed; a package's component is Unity's, by its name.
+    if ('component' in v) return { component: snap.classes[v.component] ? csName(v.component) : v.component, node: v.node };
     if ('material' in v) return { asset: materialPath.get(v.material)! };
     if ('geometry' in v) return { asset: meshPath.get(v.geometry)! };
     if ('object' in v && v.object.type === 'TerrainData') return terrainOf(v.object.fields);
@@ -280,8 +359,20 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     return v;
   };
 
+  for (const f of options.files ?? []) fileOf(f.url, f.type);
   let ambient: UnityScene['ambient'];
   const node = (n: SnapshotNode): UnityNode => {
+    const outer = worldScale;
+    const [sx, sy, sz] = n.scale;
+    worldScale *= sx!;
+    if (n.components.some((c) => c.type === 'Terrain') && (Math.abs(sx! - sy!) > 1e-6 || Math.abs(sx! - sz!) > 1e-6)) warnings.push(`${n.source ?? n.name}: a terrain under a scale that differs by axis — Unity sizes it by x.`);
+    try {
+      return convertNode(n);
+    } finally {
+      worldScale = outer;
+    }
+  };
+  const convertNode = (n: SnapshotNode): UnityNode => {
     const out: UnityNode = {
       name: n.name,
       position: flipV(n.position),
@@ -291,12 +382,15 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
       renderersEnabled: true,
       components: n.components.map((c) => {
         const fields: Record<string, UnityValue> = {};
-        for (const [k, v] of Object.entries(c.fields)) fields[k] = value(v);
+        for (const [k, v] of Object.entries(c.fields)) fields[k] = c.game ? field(c.type, k, v) : value(v);
+        // A template the class clones is a field Unity wires: its UXML.
+        if (c.game) for (const [k, path] of read.templates.get(c.type) ?? []) fields[k] ??= { asset: path };
+        if (c.game) for (const [k, ref] of read.prefabs.get(c.type) ?? []) fields[k] ??= value(ref);
         const component: UnityComponent = { type: c.game ? csName(c.type) : c.type, game: c.game, fields };
         if (c.source) component.source = c.source;
         return component;
       }),
-      children: n.children.map(node),
+      children: siblings(n.children.map(node)),
     };
     if (n.source) out.source = n.source;
     // A collider's layer is its object's in Unity.
@@ -309,12 +403,29 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     }
     if (n.prefab) {
       const path = prefabPath.get(n.prefab);
-      if (path) out.prefab = path;
-      else warnings.push(`${n.source ?? n.name}: nested ${n.prefab} is not a prefab of its own — left empty.`);
+      if (path) {
+        out.prefab = path;
+        if (n.given) out.given = true;
+      }
+      // Given attributes, it holds what it is built as: copied in.
+      else if (!n.given) warnings.push(`${n.source ?? n.name}: nested ${n.prefab} is not a prefab of its own — left empty.`);
+    }
+    if (n.model) {
+      // A placed model is the model file, placed as a prefab is. glTFast mirrors a model in x where this
+      // export mirrors the world in z: half a turn about its own up puts it back as three draws it.
+      const file = fileOf(n.model, 'Model');
+      if (file && typeof file === 'object' && 'asset' in file) {
+        out.prefab = file.asset;
+        const found = options.textures?.(n.model);
+        if (found && /\.glb$/i.test(found.file)) out.meshNodes = glbMeshNodes(found.file);
+        const [x, y, z, w] = out.rotation as [number, number, number, number];
+        out.rotation = [-z, w, x, -y].map((c) => (c === 0 ? 0 : c));
+      }
     }
     if (n.geometry) out.mesh = meshPath.get(n.geometry);
-    if (n.materials && n.geometry) out.materials = n.materials.map((id) => materialPath.get(id)!);
-    if (n.geometry) {
+    // A mesh whose geometry its code builds (a river's ribbon) still has its renderer and material.
+    if (n.materials) out.materials = n.materials.map((id) => materialPath.get(id)!);
+    if (n.geometry || n.materials) {
       out.castShadows = n.castShadow;
       out.receiveShadows = n.receiveShadow;
     }
@@ -352,10 +463,11 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     }
     ambient = undefined;
     const root = node(p.root);
-    // The scene's own components, if any, need an object to live on: the first root, before the
-    // scene's children — so a reference into the scene, a path of child indices, moves one along.
+    // The scene's own components, if any, need an object to live on: one that holds the whole scene, as
+    // three's Scene does — so DontDestroyOnLoad on it keeps the scene, and GetComponentInParent finds it.
+    // A reference into the scene, a path of child indices, starts one level down.
     const roots = root.components.length
-      ? shiftNodes([{ ...root, name: p.name, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], children: [] }, ...root.children])
+      ? nestNodes([{ ...root, name: p.name, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }])
       : root.children;
     const scene: UnityScene = { path: `Assets/Scenes/${sceneName.get(p.id)}.unity`, roots };
     if (p.background) scene.background = p.background;
@@ -375,18 +487,86 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
     ignore2D: given.ignore2D.map(([a, b]) => [unityLayer(a), unityLayer(b)] as [number, number]),
     ignore3D: given.ignore3D.map(([a, b]) => [unityLayer(a), unityLayer(b)] as [number, number]),
   };
-  return { data: { meshes, terrains, materials, prefabs, scenes, layers, warnings }, scripts: scripts(snap, value, options.source), copies };
+  return { data: { meshes, terrains, materials, prefabs, scenes, layers, modelVariants, dataTextures, warnings }, scripts: scripts(snap, field, read, options, warnings), copies };
 }
 
-/** Every node reference in `roots` one root further along; the scene itself (`''`) is now the first root. */
-function shiftNodes(roots: UnityNode[]): UnityNode[] {
+/** What the game's TypeScript says beyond the snapshot, read once for the whole export. */
+interface Sources {
+  /** Each behaviour's class, parsed. */
+  classes: Map<string, ClassSource>;
+  /** `Type.field` of each Vector3 field a rotation is set from: a rate about each axis. */
+  axes: Set<string>;
+  /** The templates each class clones, by field: `Progress` → `chip` → `Assets/UI/chip.uxml`. */
+  templates: Map<string, Map<string, string>>;
+  /** Whether any behaviour sets a material's emissive: then every lit material can glow. */
+  emits: boolean;
+  /** The prefabs each class names in its code (`instantiate(Goblin)`), by field: `Game` → `goblin` → the prefab. */
+  prefabs: Map<string, Map<string, SnapshotValue>>;
+}
+
+function readSources(snap: Snapshot, options: ConvertOptions): Sources {
+  const out: Sources = { classes: new Map(), axes: new Set(), templates: new Map(), emits: false, prefabs: new Map() };
+  const prefabNames: (readonly [string, SnapshotValue])[] = [
+    ...snap.prefabs.filter((p) => !p.scene).map((p) => [p.name, { prefab: p.id }] as const),
+    // A model's prefab is the model file, as Unity's model prefab is.
+    ...Object.entries(snap.models ?? {}).map(([id, url]) => [id.split('#')[1]!, { file: url, type: 'Model' }] as const),
+  ];
+  const templates = options.templates ?? {};
+  for (const [type, info] of Object.entries(snap.classes)) {
+    const code = options.source?.(info.file);
+    if (!code) continue;
+    if (/\.emissive(Intensity)?\b/.test(code)) out.emits = true;
+    const cls = readClass(code, info.file, type);
+    if (!cls) continue;
+    out.classes.set(type, cls);
+    const fields = new Set(cls.members.filter((m) => m.kind === 'field').map((m) => m.name));
+    for (const m of cls.members) {
+      for (const line of m.body ?? []) {
+        // `rotation.x += this.speed.x * k`: the field is a rate about the axes.
+        const set = /(?:\.rotation|\.eulerAngles|\.rotate\w*\()(?:[.\w]*\s*[-+*/]?=)?(.*)$/.exec(line);
+        if (set) for (const [, name] of set[1]!.matchAll(/this\.(\w+)/g)) if (fields.has(name!)) out.axes.add(`${type}.${name}`);
+        // `this.chip = element('chip')`, where `chip` is a template's id.
+        const clone = /this\.(\w+)\s*=\s*[^;]*?\(\s*['"`]#?([\w-]+)['"`]/.exec(line);
+        if (clone && fields.has(clone[1]!) && templates[clone[2]!]) {
+          const own = out.templates.get(type) ?? new Map<string, string>();
+          own.set(clone[1]!, templates[clone[2]!]!);
+          out.templates.set(type, own);
+        }
+      }
+    }
+    // A template named anywhere else in the class — `clone('who')` through a helper — is a field of its
+    // own: the id's name, or `<id>Template` where the class has a member called that already.
+    const own = out.templates.get(type) ?? new Map<string, string>();
+    const taken = new Set(cls.members.map((m) => m.name));
+    const wired = new Set(own.values());
+    const text = cls.members.map((m) => m.text).join('\n');
+    for (const [id, path] of Object.entries(templates)) {
+      if (wired.has(path) || !new RegExp(`['"\`]#?${id}['"\`]`).test(text)) continue;
+      const name = id.replace(/-(\w)/g, (_, c: string) => c.toUpperCase());
+      own.set(taken.has(name) ? `${name}Template` : name, path);
+    }
+    if (own.size) out.templates.set(type, own);
+    // A prefab the class names in its code — it imports and instantiates it — is a field Unity wires: the
+    // prefab's name in camelCase (`Goblin` → `goblin`), or `<name>Prefab` where that name is a member already.
+    const spawns = new Map<string, SnapshotValue>();
+    const written = new Set(Object.keys(info.defaults ?? {}));
+    for (const [name, ref] of prefabNames) {
+      if (!new RegExp(`\\b${name}\\b`).test(text)) continue;
+      const camel = name.charAt(0).toLowerCase() + name.slice(1);
+      const field = taken.has(camel) || written.has(camel) ? `${camel}Prefab` : camel;
+      spawns.set(field, ref);
+    }
+    if (spawns.size) out.prefabs.set(type, spawns);
+  }
+  return out;
+}
+
+/** Every node reference in `roots` under the one root that now holds them; the scene itself (`''`) is that root. */
+function nestNodes(roots: UnityNode[]): UnityNode[] {
   const shift = (v: UnityValue): UnityValue => {
     if (!v || typeof v !== 'object') return v;
     if ('array' in v) return { array: v.array.map(shift) };
-    if ('node' in v) {
-      const [first, ...rest] = v.node === '' ? ['-1'] : v.node.split('/');
-      return { ...v, node: [String(Number(first) + 1), ...rest].join('/') };
-    }
+    if ('node' in v) return { ...v, node: v.node === '' ? '0' : `0/${v.node}` };
     return v;
   };
   const visit = (n: UnityNode): UnityNode => ({
@@ -395,6 +575,20 @@ function shiftNodes(roots: UnityNode[]): UnityNode[] {
     children: n.children.map(visit),
   });
   return roots.map(visit);
+}
+
+/**
+ * Siblings of one name made apart as Unity's Duplicate names them — `Mesh`, `Mesh (1)` — so a placed
+ * prefab's override can say which child it changes (three names an unnamed mesh after its type).
+ */
+function siblings(children: UnityNode[]): UnityNode[] {
+  const seen = new Map<string, number>();
+  for (const c of children) {
+    const k = seen.get(c.name) ?? 0;
+    seen.set(c.name, k + 1);
+    if (k > 0) c.name = `${c.name} (${k})`;
+  }
+  return children;
 }
 
 function hasComponents(n: SnapshotNode): boolean {
@@ -417,7 +611,11 @@ const numbers = (v: SnapshotValue | undefined): number[] =>
   v && typeof v === 'object' && 'array' in v ? v.array.map((x) => (typeof x === 'number' ? x : 0)) : [];
 
 /** A terrain's metres as Unity's TerrainData: mirrored in z, anchored at its corner, heights 0..1 of their span. */
-function terrain(f: Record<string, SnapshotValue>, path: string): { terrain: UnityTerrain; warnings: string[] } {
+/**
+ * `scale` is the node's own scale in the world: Unity draws a Terrain at its data's size whatever its
+ * transform's scale, so a terrain under a scaled node takes the scale into its size and its tiling.
+ */
+function terrain(f: Record<string, SnapshotValue>, path: string, copy: (url: string) => string | undefined = () => undefined, scale = 1): { terrain: UnityTerrain; warnings: string[] } {
   const warnings: string[] = [];
   const width = f.width as number;
   const depth = f.depth as number;
@@ -441,8 +639,10 @@ function terrain(f: Record<string, SnapshotValue>, path: string): { terrain: Uni
   const layers = layerValues.map((l) => {
     const fields = l && typeof l === 'object' && 'object' in l ? l.object.fields : {};
     const color = fields.color && typeof fields.color === 'object' && 'color' in fields.color ? fields.color.color : '#808080';
-    if (fields.textured) warnings.push(`${path}: layer "${fields.name || 'unnamed'}" has a texture, which is not exported — it is its colour in Unity.`);
-    return { name: String(fields.name ?? ''), tileSize: Number(fields.tileSize ?? 10), color };
+    const texture = typeof fields.texture === 'string' ? copy(fields.texture) : undefined;
+    const normalMap = typeof fields.normalMap === 'string' ? copy(fields.normalMap) : undefined;
+    if (fields.textured && !texture) warnings.push(`${path}: layer "${fields.name || 'unnamed'}" has a texture made in code, which is not exported — it is its colour in Unity.`);
+    return { name: String(fields.name ?? ''), tileSize: Number(fields.tileSize ?? 10) * scale, color, ...(texture ? { texture } : {}), ...(normalMap ? { normalMap } : {}) };
   });
   const a = f.alphamapResolution as number;
   const bytes = numbers(f.alphamaps);
@@ -463,7 +663,7 @@ function terrain(f: Record<string, SnapshotValue>, path: string): { terrain: Uni
   return {
     terrain: {
       path,
-      size: [width, span, depth],
+      size: [width * scale, span * scale, depth * scale],
       offset: [-width / 2, low, -depth / 2],
       heightmapResolution: n,
       heights,
@@ -480,6 +680,7 @@ function mesh(g: SnapshotGeometry, path: string): UnityMesh {
   const out: UnityMesh = { path, vertices, submeshes: [] };
   if (g.normal) out.normals = g.normal.map((v, i) => (i % 3 === 2 && v !== 0 ? -v : v));
   if (g.uv) out.uv = g.uv;
+  if (g.color) out.colors = g.colorSize === 4 ? g.color : g.color.flatMap((v, i) => (i % 3 === 2 ? [v, 1] : [v]));
   // Mirrored with its camera, a triangle still winds counter-clockwise on screen — three's front, Unity's back.
   const wind = (from: number, count: number) => {
     const out: number[] = [];
@@ -495,7 +696,7 @@ function mesh(g: SnapshotGeometry, path: string): UnityMesh {
   return out;
 }
 
-function material(m: SnapshotMaterial, path: string, textures: TextureSource | undefined, copies: Map<string, string>, warnings: string[]): UnityMaterial {
+function material(m: SnapshotMaterial, path: string, textures: TextureSource | undefined, copies: Map<string, string>, warnings: string[], emits = false): UnityMaterial {
   const lit = !/Basic/.test(m.type);
   const out: UnityMaterial = {
     path,
@@ -511,8 +712,10 @@ function material(m: SnapshotMaterial, path: string, textures: TextureSource | u
     out.smoothness = m.roughness !== undefined ? 1 - m.roughness : m.shininess !== undefined ? Math.min(1, m.shininess / 100) : 0.5;
     out.metallic = m.metalness ?? 0;
   }
-  if (m.emissive && m.emissive !== '#000000' && (m.emissiveIntensity ?? 1) > 0) {
-    out.emission = m.emissive;
+  // URP draws emission only with its keyword on: a material whose code may light it later — black now,
+  // a colour set from a behaviour — keeps it on, or setting _EmissionColor at runtime draws nothing.
+  if ((m.emissiveIntensity ?? 1) > 0 && ((m.emissive && m.emissive !== '#000000') || (emits && lit))) {
+    out.emission = m.emissive ?? '#000000';
     out.emissionIntensity = m.emissiveIntensity ?? 1;
   }
   for (const [slot, key] of [['map', 'texture'], ['emissiveMap', 'emissionTexture']] as const) {
@@ -525,7 +728,7 @@ function material(m: SnapshotMaterial, path: string, textures: TextureSource | u
     } else warnings.push(`${m.source ?? m.name}: ${slot} ${url.startsWith('data:') ? '(drawn in code)' : url} was not found in the project — left off.`);
   }
   if (m.repeat) out.tiling = m.repeat;
-  if (m.vertexColors) warnings.push(`${m.source ?? m.name}: vertex colours are not exported.`);
+  if (m.vertexColors) out.vertexColors = true;
   if (m.flatShading) warnings.push(`${m.source ?? m.name}: flat shading is not exported — the mesh keeps its normals.`);
   return out;
 }
@@ -595,14 +798,17 @@ function mix(a: string, b: string): string {
  * written, started from the defaults a fresh instance holds — and, from its TypeScript, every other
  * member with that member's code inside it as comments, for a port to write in place.
  */
-function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue, source?: (file: string) => string | null): Map<string, string> {
+function scripts(snap: Snapshot, value: (type: string, field: string, v: SnapshotValue) => UnityValue, read: Sources, options: ConvertOptions, warnings: string[]): Map<string, string> {
+  const source = options.source;
   const seen = new Map<string, Map<string, UnityValue[]>>();
   const visit = (n: SnapshotNode) => {
     for (const c of n.components) {
       if (!c.game) continue;
       const fields = seen.get(c.type) ?? new Map<string, UnityValue[]>();
       seen.set(c.type, fields);
-      for (const [k, v] of Object.entries(c.fields)) fields.set(k, [...(fields.get(k) ?? []), value(v)]);
+      for (const [k, v] of Object.entries(c.fields)) fields.set(k, [...(fields.get(k) ?? []), value(c.type, k, v)]);
+      for (const [k, path] of read.templates.get(c.type) ?? []) if (!(k in c.fields)) fields.set(k, [...(fields.get(k) ?? []), { asset: path }]);
+      for (const [k, ref] of read.prefabs.get(c.type) ?? []) if (!(k in c.fields)) fields.set(k, [...(fields.get(k) ?? []), value(c.type, k, ref)]);
     }
     n.children.forEach(visit);
   };
@@ -615,23 +821,37 @@ function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue, source
   for (const type of new Set([...seen.keys(), ...Object.keys(snap.classes)])) {
     const info = snap.classes[type];
     const wired = new Map<string, string>();
+    const usings = new Set<string>();
     for (const [name, values] of seen.get(type) ?? []) {
       const cs = csType(values);
+      // A stub that does not compile stops the Editor at Safe Mode before anything can be ported: a type
+      // only goes into C# when it is known to be there — the game's own, or Unity's with its namespace.
+      const known = cs === undefined ? undefined : knownType(cs, classes);
+      if (cs && known === undefined) {
+        warnings.push(`${type}.${name} holds a ${cs}, which has no C# type here — the stub leaves it as a comment: declare it when porting.`);
+        wired.set(name, `    // ${name}: a ${cs} in TypeScript, which has no C# type here — declare it when porting`);
+        continue;
+      }
+      if (known) usings.add(known);
       const fallback = info?.defaults[name];
-      const init = fallback === undefined ? '' : csValue(value(fallback), cs);
+      const init = fallback === undefined ? '' : csValue(value(type, name, fallback), cs);
       wired.set(name, cs ? `    public ${cs} ${name}${init ? ` = ${init}` : ''};` : `    // ${name}: always empty where it is written, so its type is unknown`);
     }
+    const using = (text: string) => {
+      const missing = [...usings].filter((u) => !text.includes(`using ${u};`)).map((u) => `using ${u};\n`).join('');
+      return missing + text;
+    };
     const name = csName(type);
     const code = info && source?.(info.file);
-    const cls = code ? readClass(code, info.file, type) : undefined;
+    const cls = read.classes.get(type);
     if (cls) {
       const file = info!.file;
       const outside = outsideGiven.has(file) ? [] : outsideClasses(code!, file, Object.keys(snap.classes).filter((t) => snap.classes[t]!.file === file));
       outsideGiven.add(file);
-      out.set(name, stubClass(name, file, cls, wired, classes, outside).replace(/^(public class)/m, `${name !== type ? `// Named ${name}: Unity has its own ${type}.\n` : ''}$1`));
+      out.set(name, using(stubClass(name, file, cls, wired, classes, outside, options.aliases).replace(/^(public class)/m, `${name !== type ? `// Named ${name}: Unity has its own ${type}.\n` : ''}$1`)));
       continue;
     }
-    out.set(name, [
+    out.set(name, using([
       'using UnityEngine;',
       '',
       `// The fields ${info?.file ?? 'the game'} sets on ${type} in its scenes and prefabs. Port its logic here;`,
@@ -642,9 +862,38 @@ function scripts(snap: Snapshot, value: (v: SnapshotValue) => UnityValue, source
       ...wired.values(),
       '}',
       '',
-    ].join('\n'));
+    ].join('\n')));
   }
   return out;
+}
+
+/**
+ * The C# types a stub may name, by the namespace each needs: Unity's own that a SceNoCo package's
+ * component or an asset becomes. Anything else stays a comment, so a stub always compiles.
+ */
+const NAMESPACES: Record<string, string> = {
+  ...Object.fromEntries(
+    ('float int bool string Vector2 Vector3 Vector4 Quaternion Color GameObject Transform Material Mesh Texture Texture2D AudioClip ' +
+      'AudioSource AudioListener Camera Light Rigidbody Rigidbody2D Collider Collider2D BoxCollider SphereCollider CapsuleCollider ' +
+      'MeshCollider BoxCollider2D CircleCollider2D CapsuleCollider2D PolygonCollider2D EdgeCollider2D Joint2D HingeJoint2D ' +
+      'FixedJoint2D SpringJoint2D DistanceJoint2D WheelJoint2D SliderJoint2D HingeJoint FixedJoint SpringJoint ConfigurableJoint ' +
+      'CharacterJoint Terrain TerrainData TerrainCollider TerrainLayer ParticleSystem Animator MeshFilter MeshRenderer Renderer ' +
+      'PhysicsMaterial PhysicsMaterial2D MonoBehaviour Behaviour Component Sprite')
+      .split(' ')
+      .map((t) => [t, 'UnityEngine']),
+  ),
+  ...Object.fromEntries('SplineContainer SplineAnimate SplineInstantiate SplineExtrude'.split(' ').map((t) => [t, 'UnityEngine.Splines'])),
+  ...Object.fromEntries('UIDocument VisualTreeAsset VisualElement PanelSettings'.split(' ').map((t) => [t, 'UnityEngine.UIElements'])),
+  Volume: 'UnityEngine.Rendering',
+  VolumeProfile: 'UnityEngine.Rendering',
+  SplineMesh: 'SceNoCo',
+};
+
+/** The namespace a stub needs for `cs` (an array of it too); '' for a class of the game; undefined when unknown. */
+function knownType(cs: string, classes: Map<string, string>): string | undefined {
+  const base = cs.replace(/(\[\])+$/, '');
+  if ([...classes.values()].includes(base)) return '';
+  return NAMESPACES[base];
 }
 
 function csType(values: UnityValue[]): string | undefined {
@@ -660,12 +909,24 @@ function csType(values: UnityValue[]): string | undefined {
   if ('color' in known) return 'Color';
   if ('component' in known) return (known as { component: string }).component;
   if ('node' in known) return 'Transform';
-  if ('asset' in known) return known.asset.endsWith('.prefab') ? 'GameObject' : known.asset.endsWith('.mat') ? 'Material' : 'Mesh';
+  if ('asset' in known) return assetType(known.asset);
   if ('array' in known) {
     const inner = csType(values.flatMap((v) => (v && typeof v === 'object' && 'array' in v ? v.array : [])));
     return inner ? `${inner}[]` : undefined;
   }
   return undefined;
+}
+
+/** The C# type of an asset, by its file: a model imports as a GameObject, as a prefab does. */
+export function assetType(path: string): string {
+  if (/\.(prefab|glb|gltf)$/i.test(path)) return 'GameObject';
+  if (path.endsWith('.mat')) return 'Material';
+  if (path.endsWith('.uxml')) return 'VisualTreeAsset';
+  if (/\.(wav|mp3|ogg|m4a|aiff?|flac)$/i.test(path)) return 'AudioClip';
+  if (/\.(png|jpe?g|webp|tga)$/i.test(path)) return 'Texture2D';
+  if (path.startsWith('Assets/Terrains/')) return 'TerrainData';
+  if (path.startsWith('Assets/Materials/Physics/')) return 'PhysicsMaterial';
+  return 'Mesh';
 }
 
 function csValue(v: UnityValue, type: string | undefined): string {
@@ -686,4 +947,31 @@ function csValue(v: UnityValue, type: string | undefined): string {
     return items.length && items.every(Boolean) ? `{ ${items.join(', ')} }` : '';
   }
   return '';
+}
+
+/**
+ * The objects of a .glb that hold a mesh, as glTFast builds them under the model's root: one per node
+ * of its scene, named as the node is, or `Node-<index>` when it has no name.
+ */
+export function glbMeshNodes(file: string): string[][] {
+  if (!existsSync(file)) return [];
+  const bytes = readFileSync(file);
+  if (bytes.readUInt32LE(0) !== 0x46546c67) return [];
+  const length = bytes.readUInt32LE(12);
+  const json = JSON.parse(bytes.subarray(20, 20 + length).toString('utf8')) as {
+    scene?: number;
+    scenes?: { nodes?: number[] }[];
+    nodes?: { name?: string; mesh?: number; children?: number[] }[];
+  };
+  const nodes = json.nodes ?? [];
+  const out: string[][] = [];
+  const walk = (index: number, path: string[]) => {
+    const node = nodes[index];
+    if (!node) return;
+    const here = [...path, node.name || `Node-${index}`];
+    if (node.mesh !== undefined) out.push(here);
+    for (const child of node.children ?? []) walk(child, here);
+  };
+  for (const root of json.scenes?.[json.scene ?? 0]?.nodes ?? []) walk(root, []);
+  return out;
 }

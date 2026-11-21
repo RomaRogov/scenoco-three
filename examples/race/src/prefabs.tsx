@@ -2,7 +2,7 @@ import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, Spher
 import { prefab } from '@scenoco-three/core';
 import { BoxCollider, Rigidbody, RigidbodyConstraints } from '@scenoco-three/rapier';
 import { ArcadeCar } from './ArcadeCar';
-import { models } from './assets';
+import { CarBody } from './assets';
 import { CarModel } from './CarModel';
 import { CarDriver } from './CarDriver';
 import { TrackPosition } from './TrackPosition';
@@ -19,7 +19,8 @@ export const Car = prefab(
       <BoxCollider size={[2, 0.9, 4.4]} center={[0, 0.65, 0]} friction={0.1} />
       <TrackPosition />
       <ArcadeCar />
-      <CarModel model={models.car} color={color} />
+      <CarBody />
+      <CarModel color={color} />
       <CarDriver human={human} lane={lane} pace={pace} />
     </Group>
   ),

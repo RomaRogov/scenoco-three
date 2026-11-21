@@ -1,46 +1,48 @@
-import { BufferGeometry, Float32BufferAttribute, Vector2, type Mesh, type Object3D } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Vector2, Vector3, type Mesh, type Object3D } from 'three';
 import { Behaviour } from '@scenoco-three/core';
 import { containerFor, type SplineContainer } from './SplineContainer.js';
 import { FrameReader } from './frames.js';
 
-/** A cross-section point: across (`x`, to the right) and up (`y`), its normal, and its `u` texture coordinate. */
-interface ProfilePoint {
-  x: number;
-  y: number;
-  nx: number;
-  ny: number;
-  u: number;
-}
+/** Unity's three built-in shapes, as `IExtrudeShape.GetPosition` returns them before the radius scales them. */
+const SHAPES = {
+  circle: (sides: number) => Array.from({ length: sides }, (_, i) => [Math.cos((i * 2 * Math.PI) / sides), Math.sin((i * 2 * Math.PI) / sides)] as const),
+  square: () => [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]] as const,
+  // Its own list read backwards, as Unity's `Road` does: right shoulder, the top, left shoulder.
+  road: () => [[0.6, -0.1], [0.5, 0], [-0.5, 0], [-0.6, -0.1]] as const,
+};
 
 /**
- * Builds its mesh's geometry along a spline — Unity's `SplineExtrude`: a tube for a pipe, a rail, a
- * cable. `'circle'` has `sides` sides; `'square'` has hard edges. A road, a track, a fence is a
- * modelled piece bent along the spline instead: `SplineMesh`.
+ * Builds its mesh's geometry along a spline — Unity's `SplineExtrude`, vertex for vertex: a tube
+ * for a pipe, a rail, a cable (`'circle'`, `'square'`), or a flat strip for a road (`'road'`).
  *
  * ```tsx
- * <Mesh>
- *   <MeshStandardMaterial color="#888" metalness={0.8} />
- *   <SplineExtrude container={track} radius={0.1} sides={12} />
+ * <Mesh receiveShadow>
+ *   <MeshStandardMaterial map={textures.road} />
+ *   <SplineExtrude container={track} shape="road" radius={12} />
  * </Mesh>
  * ```
  *
- * The texture's `v` runs along the spline in units of the diameter, so a square texture keeps its
- * aspect; repeat it with `wrapT = RepeatWrapping`.
+ * `radius` scales the shape: a circle's radius, a square's side, and a road's width across its top
+ * — its shoulders slope a tenth of that further out and down. Texture `u` runs across (a road's
+ * top is its middle third, the shoulders the outer thirds); `v` is metres along the spline, so
+ * set the texture's `repeat.y` to 1 / the length it covers. Normals are smoothed across the faces.
  */
 export class SplineExtrude extends Behaviour<Mesh> {
   /** The spline: a ref to the node holding the `SplineContainer`. Left out, the one on this node. */
   container: SplineContainer | Object3D | null = null;
-  shape: 'circle' | 'square' = 'circle';
-  /** The tube's radius. */
-  radius = 0.25;
+  shape: 'circle' | 'square' | 'road' = 'circle';
   /** The circle's sides. */
   sides = 8;
-  /** Cross-sections per world unit of length. */
+  /** Rings per unit of length. */
   segmentsPerUnit = 4;
   /** Close a tube's ends. An open spline only. */
   capped = true;
+  /** The shape's scale: a circle's radius, a square's side, a road's width. */
+  radius = 0.25;
   /** The part of the spline to cover, as `t` from and to. */
   range = new Vector2(0, 1);
+  /** Wind the faces the other way, facing in. */
+  flipNormals = false;
 
   override start(): void {
     this.rebuild();
@@ -56,99 +58,90 @@ export class SplineExtrude extends Behaviour<Mesh> {
   rebuild(): void {
     const container = containerFor(this, this.container, 'SplineExtrude');
     const reader = new FrameReader(container, this.node);
-    const profile = this.profile();
-    const [from, to] = [this.range.x, this.range.y];
-    const length = reader.length * Math.abs(to - from);
-    const rings = Math.max(2, Math.ceil(length * this.segmentsPerUnit) + 1);
-    const width = this.radius * 2;
+    const shape = this.shape === 'circle' ? SHAPES.circle(Math.max(2, Math.round(this.sides))) : SHAPES[this.shape]();
+    const wrapped = this.shape !== 'road';
+    const sides = shape.length; // a road's ends don't meet: its 3 faces take 4 points
+    const from = Math.min(this.range.x, this.range.y);
+    const to = Math.max(this.range.x, this.range.y);
+    const length = reader.length;
+    const segments = Math.max(2, Math.ceil(length * (to - from) * this.segmentsPerUnit));
+    const closed = container.closed && Math.abs(1 - (to - from)) < Number.EPSILON;
+    const capped = this.capped && !container.closed;
+    const flip = this.flipNormals;
 
     const positions: number[] = [];
-    const normals: number[] = [];
     const uvs: number[] = [];
     const indices: number[] = [];
-    let frame = reader.at(from);
-    for (let i = 0; i < rings; i++) {
-      const along = i / (rings - 1);
-      frame = reader.at(from + (to - from) * along, frame);
-      for (const p of profile) {
-        const { position: o, right: r, up: n } = frame;
-        positions.push(o.x + r.x * p.x + n.x * p.y, o.y + r.y * p.x + n.y * p.y, o.z + r.z * p.x + n.z * p.y);
-        normals.push(r.x * p.nx + n.x * p.ny, r.y * p.nx + n.y * p.ny, r.z * p.nx + n.z * p.ny);
-        uvs.push(p.u, (along * length) / width);
+    const ring = (segment: number, caps: boolean) => {
+      const t = from + (to - from) * (segment / (segments - 1));
+      const { position: o, right: r, up: n } = reader.at(container.closed ? t - Math.floor(t) : Math.min(1, Math.max(0, t)));
+      for (let k = 0; k < sides; k++) {
+        const index = flip ? sides - k - 1 : k;
+        const [sx, sy] = shape[index]!;
+        const [x, y] = [sx * this.radius, sy * this.radius];
+        positions.push(o.x + r.x * x + n.x * y, o.y + r.y * x + n.y * y, o.z + r.z * x + n.z * y);
+        if (caps) uvs.push(sx / 2, sy / 2);
+        else if (wrapped) {
+          const ut = index / (sides + (sides % 2));
+          uvs.push(1 - Math.abs(ut - Math.floor(ut + 0.5)) * 2, t * length);
+        } else uvs.push(1 - index / (sides - 1), t * length);
+      }
+    };
+    for (let i = 0; i < segments; i++) ring(i, false);
+
+    // Unity winds clockwise in its left-handed space; the same faces here are counter-clockwise.
+    const faces = wrapped ? sides : sides - 1;
+    for (let i = 0; i < (closed ? segments : segments - 1); i++) {
+      for (let k = 0; k < faces; k++) {
+        const a = i * sides + k;
+        const b = i * sides + ((k + 1) % sides);
+        const c = ((i + 1) % segments) * sides + k;
+        const d = ((i + 1) % segments) * sides + ((k + 1) % sides);
+        indices.push(a, c, b, b, c, d);
       }
     }
-    // Quads between neighbouring rings, wound so the outside faces out.
-    const stride = profile.length;
-    for (let i = 0; i < rings - 1; i++) {
-      for (let j = 0; j < stride - 1; j++) {
-        if (this.shape === 'square' && j % 2 === 1) continue; // between two edges' duplicated corners
-        const a = i * stride + j;
-        const b = a + stride;
-        indices.push(a, b, a + 1, a + 1, b, b + 1);
-      }
-    }
-    if (this.capped && !container.closed) {
-      this.cap(reader.at(from), -1, profile, positions, normals, uvs, indices);
-      this.cap(reader.at(to), 1, profile, positions, normals, uvs, indices);
+    if (capped) {
+      const start = segments * sides;
+      const end = start + sides;
+      ring(0, true);
+      ring(segments - 1, true);
+      for (let k = 0; k < sides - 2; k++) indices.push(start, start + k + 1, start + k + 2, end, end + k + 2, end + k + 1);
     }
 
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('normal', new Float32BufferAttribute(smoothNormals(positions, indices, closed ? sides : 0, segments), 3));
     geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
     geometry.computeBoundingSphere();
     this.node.geometry.dispose();
     this.node.geometry = geometry;
   }
+}
 
-  private profile(): ProfilePoint[] {
-    const r = this.radius;
-    if (this.shape === 'square') {
-      // Four edges, each with its own two corners, so each face is flat-shaded.
-      const out: ProfilePoint[] = [];
-      for (let e = 0; e < 4; e++) {
-        const a0 = Math.PI / 4 + (e * Math.PI) / 2;
-        const a1 = a0 + Math.PI / 2;
-        const mid = a0 + Math.PI / 4;
-        const s = r * Math.SQRT2;
-        out.push(
-          { x: Math.cos(a0) * s, y: Math.sin(a0) * s, nx: Math.cos(mid), ny: Math.sin(mid), u: e / 4 },
-          { x: Math.cos(a1) * s, y: Math.sin(a1) * s, nx: Math.cos(mid), ny: Math.sin(mid), u: (e + 1) / 4 },
-        );
-      }
-      return out;
-    }
-    const sides = Math.max(3, Math.round(this.sides));
-    return Array.from({ length: sides + 1 }, (_, j) => {
-      const a = (j / sides) * Math.PI * 2;
-      return { x: Math.cos(a) * r, y: Math.sin(a) * r, nx: Math.cos(a), ny: Math.sin(a), u: j / sides };
-    });
+/**
+ * Unity's `AutosmoothNormals` at its 180° angle: each vertex the mean of its triangles' unit
+ * normals; on a closed spline the first and last rings, which meet, then share theirs.
+ */
+function smoothNormals(positions: number[], indices: number[], seamSides: number, segments: number): number[] {
+  const normals = new Array<number>(positions.length).fill(0);
+  const [a, b, c, ab, ac] = [new Vector3(), new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+  for (let i = 0; i < indices.length; i += 3) {
+    const [ia, ib, ic] = [indices[i]!, indices[i + 1]!, indices[i + 2]!];
+    a.fromArray(positions, ia * 3);
+    b.fromArray(positions, ib * 3);
+    c.fromArray(positions, ic * 3);
+    const face = ab.subVectors(b, a).cross(ac.subVectors(c, a)).normalize();
+    for (const v of [ia, ib, ic]) for (let j = 0; j < 3; j++) normals[v * 3 + j]! += face.getComponent(j);
   }
-
-  /** A fan over a tube's end, facing back along the spline at the start and forward at the end. */
-  private cap(
-    frame: ReturnType<FrameReader['at']>,
-    facing: 1 | -1,
-    profile: ProfilePoint[],
-    positions: number[],
-    normals: number[],
-    uvs: number[],
-    indices: number[],
-  ): void {
-    const { position: o, right: r, up: n, forward: f } = frame;
-    const center = positions.length / 3;
-    positions.push(o.x, o.y, o.z);
-    normals.push(f.x * facing, f.y * facing, f.z * facing);
-    uvs.push(0.5, 0.5);
-    for (const p of profile) {
-      positions.push(o.x + r.x * p.x + n.x * p.y, o.y + r.y * p.x + n.y * p.y, o.z + r.z * p.x + n.z * p.y);
-      normals.push(f.x * facing, f.y * facing, f.z * facing);
-      uvs.push(0.5 + p.x / (2 * this.radius), 0.5 + p.y / (2 * this.radius));
-    }
-    for (let j = 1; j < profile.length; j++) {
-      if (facing < 0) indices.push(center, center + j, center + j + 1);
-      else indices.push(center, center + j + 1, center + j);
-    }
+  const n = new Vector3();
+  const norm = (v: number) => n.fromArray(normals, v * 3).normalize().toArray(normals, v * 3);
+  for (let v = 0; v < positions.length / 3; v++) norm(v);
+  const last = (segments - 1) * seamSides;
+  for (let k = 0; k < seamSides; k++) {
+    n.fromArray(normals, k * 3).add(new Vector3().fromArray(normals, (last + k) * 3)).normalize();
+    n.toArray(normals, k * 3);
+    n.toArray(normals, (last + k) * 3);
   }
+  return normals;
 }

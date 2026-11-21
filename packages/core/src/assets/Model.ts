@@ -9,26 +9,33 @@ interface LoadedGltf {
 
 /**
  * A glTF/GLB model — a prefab that came from a file, and something `instantiate` takes.
+ * `prefab(model)` makes it a tag to place in TSX.
  *
  * No wrapper node: the model's own root is the node you get. Each instance is a `SkeletonUtils`
  * clone, so skinned meshes rebind to their own skeleton while geometry, materials and textures
  * stay shared.
  */
 export class Model extends Asset<LoadedGltf> {
+  /** Every mesh of a copy casts shadows: on by default, as a Unity renderer's. */
+  castShadow = true;
+  /** Every mesh of a copy takes shadows: on by default, as a Unity renderer's. */
+  receiveShadow = true;
+
   /** The animation clips the file ships with, for an `AnimationMixer` to play. Empty until loaded. */
   get clips(): readonly AnimationClip[] {
     return this.isLoaded ? (this.value.animations ?? []) : [];
   }
 
-  /** A fresh copy of the model's root. `instantiate` calls this; call it for an unparented node. */
+  /** A fresh copy of the model's root, its meshes' shadows as the model says. `instantiate` calls this; call it for an unparented node. */
   instantiate(): Object3D {
-    if (!cloneSkinned) {
-      throw new Error(
-        `[scenoco] Model "${this.url}" was cloned before its loader finished. ` +
-          'Await it first: `await loadAssets(theModel)`.',
-      );
-    }
-    const copy = cloneSkinned(this.value.scene);
+    // `value` throws, naming the missed `loadAssets`, before the load finishes. Loaded, the skeleton-aware
+    // clone is at hand — except for the empty model a test in Node gets, which three's own clone copies.
+    const copy = cloneTree(this.value.scene);
+    copy.traverse((o) => {
+      if (!(o as { isMesh?: boolean }).isMesh) return;
+      o.castShadow = this.castShadow;
+      o.receiveShadow = this.receiveShadow;
+    });
     // three.js's own field for this, so an `Animator` on the instance finds its clips without
     // a reference to the asset.
     if (this.clips.length > 0) copy.animations = [...this.clips];
@@ -62,13 +69,17 @@ export class Model extends Asset<LoadedGltf> {
   }
 }
 
-/** The model for a URL — one per URL, shared by everything that asks. */
-export function sharedModel(url: string): Model {
+/** How every copy of a model draws, set once for its file: `sharedModel(url, { castShadow: false })`. */
+export type ModelSettings = Partial<Pick<Model, 'castShadow' | 'receiveShadow'>>;
+
+/** The model for a URL — one per URL, shared by everything that asks; `settings` are the model's, as a texture's are. */
+export function sharedModel(url: string, settings?: ModelSettings): Model {
   let model = cache.get(url);
   if (!model) {
     model = new Model(url);
     cache.set(url, model);
   }
+  if (settings) Object.assign(model, settings);
   return model;
 }
 

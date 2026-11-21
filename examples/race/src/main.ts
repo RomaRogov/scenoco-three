@@ -1,4 +1,4 @@
-import { ACESFilmicToneMapping, PCFShadowMap } from 'three';
+import { PCFShadowMap } from 'three';
 import { loadAssets, play } from '@scenoco-three/core';
 import { initRapier } from '@scenoco-three/rapier';
 import { allAssets } from './assets';
@@ -26,7 +26,6 @@ await Promise.all([initRapier().then(arrived), ...allAssets.map((asset) => loadA
 const game = play(Race);
 game.renderer.shadowMap.enabled = shadowsWork(game.renderer.getContext());
 game.renderer.shadowMap.type = PCFShadowMap;
-game.renderer.toneMapping = ACESFilmicToneMapping;
 // keepFrameRate (frameRate.ts) is off for now: it took a load's slow frames for a slow device and
 // lowered capable ones. Its extras, when it comes back: SunFollow.limit 1024, then 512, then 0.
 // Gone once the first frame is drawn: compiling its shaders is the last wait, and the screen covers it.

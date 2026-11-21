@@ -117,7 +117,9 @@ placing them by hand, as behaviours: snap to a grid in `onValidate` — with a `
 turn it off — clamp a value, keep to a path.
 
 **Assets.** A glTF model is `const hero = sharedModel('/hero.glb')`, awaited with
-`await loadAssets(hero)` in `main.ts`, then `instantiate(hero, { parent: this.node })`; its clips play
+`await loadAssets(hero)` in `main.ts`. A model is a prefab, as in Unity: `export const Hero =
+prefab(hero)`, placed as `<Hero scale={0.5} />` or by `instantiate(Hero)`. Its meshes cast and take
+shadows; `sharedModel(url, { castShadow: false })` says otherwise for every copy. Its clips play
 through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)`). A texture is
 `sharedTexture(url)`: one per URL, shared by every material that uses it.
 

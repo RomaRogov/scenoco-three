@@ -1,6 +1,6 @@
-import { sharedModel, type Loadable } from '@scenoco-three/core';
-import { TerrainData } from '@scenoco-three/terrain';
+import { prefab, sharedModel, type Loadable } from '@scenoco-three/core';
 import roadUrl from './models/road.glb?url';
+import { TerrainData } from '@scenoco-three/terrain';
 import carUrl from './models/car.glb?url';
 import pineUrl from './models/pine.glb?url';
 import treeUrl from './models/tree.glb?url';
@@ -17,6 +17,9 @@ export const models = {
   tree: sharedModel(treeUrl),
   rock: sharedModel(rockUrl),
 };
+
+/** The car's model, to place as a prefab: Unity makes one of every model file. */
+export const CarBody = prefab(models.car);
 
 /**
  * The ground: the asset lab's `lab terrain terrain/track.json` — hills, a rise inside the loop and

@@ -289,16 +289,29 @@ export class TerrainData extends Asset<State> {
   }
 
   /** What a Unity export reads: the heights in metres and the layers, as plain data. */
+  // A layer given its texture, loaded from a file: that file's URL (not one drawn in code).
   [Symbol.for('scenoco.snapshot')](): Record<string, unknown> {
     const s = this.value;
+    // A file's layers name their textures by file: the URLs a port copies.
+    const urls = this.textureUrls;
+    const fileOf = (name: string, normal: boolean) =>
+      urls ? Object.entries(urls).find(([path]) => new RegExp(`(^|/)${name}${normal ? '\\.normal' : ''}\\.(jpe?g|png|webp)$`).test(path))?.[1] : undefined;
     return {
+      name: this.url ? this.url.replace(/^.*\/|\.[^.]*$/g, '') : undefined,
       width: s.width,
       depth: s.depth,
       heightmapResolution: s.heightmapResolution,
       heights: Array.from(s.heights, (h) => Math.round(h * 1e4) / 1e4),
       alphamapResolution: s.alphamapResolution,
       alphamaps: Array.from(s.alphamaps),
-      terrainLayers: s.terrainLayers.map((l) => ({ name: l.name, tileSize: l.tileSize, color: l.color, textured: !!(l.diffuseTexture ?? this.textureUrls) })),
+      terrainLayers: s.terrainLayers.map((l) => ({
+        name: l.name,
+        tileSize: l.tileSize,
+        color: l.color,
+        textured: !!(l.diffuseTexture ?? this.textureUrls),
+        texture: fileOf(l.name, false) ?? urlOf(l.diffuseTexture),
+        normalMap: fileOf(l.name, true) ?? urlOf(l.normalMapTexture),
+      })),
     };
   }
 
@@ -460,4 +473,11 @@ function stack(images: (CanvasImageSource | string)[], colorSpace?: ColorSpace):
   if (colorSpace) texture.colorSpace = colorSpace;
   texture.needsUpdate = true;
   return texture;
+}
+
+/** The file a texture was loaded from, if it was. */
+function urlOf(texture: Texture | null | undefined): string | undefined {
+  const image = texture?.image as { currentSrc?: string; src?: string } | undefined;
+  const src = image?.currentSrc || image?.src;
+  return src && !src.startsWith('data:') ? src : undefined;
 }

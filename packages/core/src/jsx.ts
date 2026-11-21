@@ -14,7 +14,9 @@ import { afterNodeDestroyed } from './kernel/lifecycle.js';
 import { disposeBuilt, ownedBy } from './dispose.js';
 import { handOver, record, remember, type Source } from './provenance.js';
 import { Behaviour } from './kernel/Behaviour.js';
-import type { BehaviourInit, ConstructableBehaviour, PrefabMarkKey, RefLike } from './kernel/types.js';
+import type { BehaviourInit, ConstructableBehaviour, Prefab, PrefabMarkKey, RefLike } from './kernel/types.js';
+import { assetOf, loadsAs } from './assets/Asset.js';
+import { Model } from './assets/Model.js';
 import type { Object3D } from 'three';
 
 /** A typed link to an element, set when the element is made: `const hero = ref<Mesh>()`, `<Mesh ref={hero}>`. */
@@ -126,9 +128,37 @@ const prefabs = new WeakSet<Function>();
  */
 // `Function`, not a call signature: a signature would type the props from it, and `({ width = 1 })` then
 // takes `never`; with none, TypeScript reads the props from the defaults written.
-export function prefab<F extends Function>(build: F): F & { readonly [K in PrefabMarkKey]: true } {
+export function prefab(model: Model): Prefab;
+export function prefab<F extends Function>(build: F): F & { readonly [K in PrefabMarkKey]: true };
+export function prefab(build: Function | Model): Function {
+  if (build instanceof Model) return modelPrefab(build);
   prefabs.add(build);
-  return build as F & { readonly [K in PrefabMarkKey]: true };
+  return build;
+}
+
+/**
+ * A model's prefab, as Unity makes one of every model file: `export const Goblin = prefab(models.goblin)`,
+ * placed as `<Goblin scale={0.4} />`. Each copy is the model's own root, its meshes casting and
+ * receiving shadows as a Unity renderer's do. `loadAssets(Goblin)` loads the model.
+ */
+function modelPrefab(model: Model): Prefab {
+  const file = model.url.replace(/[?#].*$/, '').replace(/^.*\//, '');
+  const build = () => {
+    if (!model.isLoaded) {
+      throw new Error(`<${file}>: its model is not loaded yet — await loadAssets(…) with it before the scene that places it is built.`);
+    }
+    return model.instantiate();
+  };
+  Object.defineProperty(build, 'name', { value: file });
+  prefabs.add(build);
+  loadsAs(build, model);
+  return build as unknown as Prefab;
+}
+
+/** @internal The model a prefab is made from, if it is a model's. */
+export function modelOf(value: unknown): Model | undefined {
+  const asset = assetOf(value);
+  return asset instanceof Model ? asset : undefined;
 }
 
 /** Whether `prefab()` made this function a prefab. */

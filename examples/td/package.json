@@ -12,6 +12,7 @@
     "@scenoco-three/audio": "*",
     "@scenoco-three/core": "*",
     "@scenoco-three/particles": "*",
+    "@scenoco-three/postprocessing": "*",
     "@scenoco-three/splines": "*",
     "@scenoco-three/terrain": "*"
   },

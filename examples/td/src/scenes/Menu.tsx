@@ -4,6 +4,7 @@ import { AudioSource } from '@scenoco-three/audio';
 import { MenuCamera } from '../MenuCamera';
 import { MenuController } from '../MenuController';
 import { Sfx, sounds } from '../Sfx';
+import { Look } from './Look';
 import { MeadowWorld } from './worlds';
 
 /** The title: the first map turning slowly under the level cards. */
@@ -17,6 +18,7 @@ export const Menu = () => (
       shadow-mapSize={[1024, 1024]} shadow-camera-left={-36} shadow-camera-right={36}
       shadow-camera-top={36} shadow-camera-bottom={-36} shadow-camera-far={90} shadow-bias={-0.0005}
     />
+    <Look />
     <PerspectiveCamera fov={45}>
       <MenuCamera />
     </PerspectiveCamera>

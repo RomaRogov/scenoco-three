@@ -1,6 +1,7 @@
 import { Color, DirectionalLight, Fog, HemisphereLight, PerspectiveCamera, Scene } from 'three';
 import { CameraRig } from '../CameraRig';
 import { LevelRules } from './Level';
+import { Look } from './Look';
 import { FrostWorld } from './worlds';
 
 export const Frost = () => (
@@ -13,6 +14,7 @@ export const Frost = () => (
       shadow-mapSize={[1024, 1024]} shadow-camera-left={-36} shadow-camera-right={36}
       shadow-camera-top={36} shadow-camera-bottom={-36} shadow-camera-far={110} shadow-bias={-0.0005}
     />
+    <Look />
     <PerspectiveCamera fov={40}>
       <CameraRig ground={7} wideCentre={[0, -1.216]} />
     </PerspectiveCamera>

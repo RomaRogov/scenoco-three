@@ -1,8 +1,12 @@
 // Written by scenoco-unity on every export — edits here are overwritten.
 //
-// Builds what Assets/SceNoCo/export.json describes with Unity's own API: mesh and material assets,
-// prefabs (nested ones as nested prefabs), and scenes. It runs by itself after the export's scripts
-// compile, or from SceNoCo ▸ Import. Re-importing updates assets in place, so references to them hold.
+// Makes what Assets/SceNoCo/export.json describes and the game's scenes and prefabs name: meshes,
+// materials, terrains, physics and particle materials, post-processing profiles, UI panels, and the
+// project's settings — with Unity's own API, updating each asset in place so references to it hold.
+// Then the scenes and prefabs themselves: their text (.uscene, .uprefab) goes beside where they
+// belong, and Scenoco (com.roro.scenoco) builds each .unity and .prefab from it — on a later export,
+// changes only what changed. What the text has no place for, a scene's lighting, is set on the scene
+// after. It runs by itself after the export's scripts compile, or from SceNoCo ▸ Import.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -23,7 +27,13 @@ namespace SceNoCo
     public static class Importer
     {
         const string DataPath = "Assets/SceNoCo/export.json";
+        /// <summary>Written once the recommended rendering settings are set: later imports leave them to the port.</summary>
+        const string RecommendedPath = "ProjectSettings/SceNoCoRecommended.txt";
         const string PendingPath = "Assets/SceNoCo/.pending";
+        /// <summary>Where the export leaves the scenes' and prefabs' text: Unity imports nothing in a folder ending in ~.</summary>
+        const string Staged = "Assets/SceNoCo/Twins~";
+        // Each twin as the last import left it, after Scenoco wrote it: what tells a port's edit from an export.
+        const string Placed = "Assets/SceNoCo/Placed~";
 
         static Importer()
         {
@@ -31,17 +41,29 @@ namespace SceNoCo
             EditorApplication.update += WhenSettled;
         }
 
+        static double nextLook;
+
+        // Watched for as long as the Editor runs, not once after a reload: an export that changes no code
+        // reloads nothing, and its .pending would wait unread. A look a second costs one file check.
         static void WhenSettled()
         {
+            if (EditorApplication.timeSinceStartup < nextLook) return;
+            nextLook = EditorApplication.timeSinceStartup + 1;
             if (EditorApplication.isCompiling || EditorApplication.isUpdating || EditorApplication.isPlayingOrWillChangePlaymode) return;
-            EditorApplication.update -= WhenSettled;
-            if (File.Exists(PendingPath)) Import();
+            if (!File.Exists(PendingPath)) return;
+            try { Import(); }
+            catch (Exception error)
+            {
+                // Once, not every second: the export stays where it is for SceNoCo ▸ Import.
+                File.Delete(PendingPath);
+                Debug.LogException(error);
+                Debug.LogError("SceNoCo: the import stopped (above). Fix it, then SceNoCo ▸ Import.");
+            }
         }
 
         static readonly List<string> warnings = new List<string>();
         /// <summary>What the last import could not carry across, each with where it was written.</summary>
         public static IReadOnlyList<string> Warnings => warnings;
-        static Dictionary<string, object> ui;
 
         [MenuItem("SceNoCo/Import")]
         public static void Import()
@@ -49,49 +71,161 @@ namespace SceNoCo
             if (!File.Exists(DataPath))
             {
                 Debug.LogError($"SceNoCo: no {DataPath} — run scenoco-unity first.");
+                if (File.Exists(PendingPath)) File.Delete(PendingPath);
                 return;
             }
             warnings.Clear();
             AssetDatabase.Refresh();
             var data = (Dictionary<string, object>)Json.Parse(File.ReadAllText(DataPath));
             foreach (var w in List(data["warnings"])) warnings.Add((string)w);
-            ui = data.TryGetValue("ui", out var u) ? Obj(u) : null;
-            Try(Project.Recommended, "rendering settings");
+            // The rendering settings are a starting point, set by the first import only: a port that changes
+            // one — a game lit in gamma — keeps its choice through every export after.
+            if (!File.Exists(RecommendedPath))
+            {
+                Try(Project.Recommended, "rendering settings");
+                File.WriteAllText(RecommendedPath, "SceNoCo set this project's rendering settings once. Delete this file to set them again on the next import.\n");
+            }
             if (data.TryGetValue("layers", out var layers)) Try(() => Project.Layers(Obj(layers)), "layers");
             if (data.TryGetValue("input", out var input)) Try(() => Project.Input((string)input), "input actions");
 
+            // The assets the text names, before the text is built.
+            var rerooted = false;
+            Try(() => rerooted = ModelRoots(), "the models' import settings");
+            if (data.TryGetValue("dataTextures", out var stamps))
+                foreach (var t in List(stamps)) Try(() => DataTexture((string)t), (string)t);
+            if (data.TryGetValue("modelVariants", out var variants))
+                foreach (var v in List(variants)) Try(() => ModelVariant(Obj(v)), Str(Obj(v), "path"));
             foreach (var m in List(data["meshes"])) Try(() => MakeMesh(Obj(m)), Str(Obj(m), "path"));
-            Terrains.Offsets.Clear();
-            if (data.TryGetValue("terrains", out var ts)) foreach (var t in List(ts)) Try(() => Terrains.Make(Obj(t)), Str(Obj(t), "path"));
+            foreach (var t in List(data["terrains"])) Try(() => MakeTerrain(Obj(t)), Str(Obj(t), "path"));
+            if (data.TryGetValue("terrainMaterial", out var tm)) Try(() => TerrainMaterial((string)tm), (string)tm);
             foreach (var m in List(data["materials"])) Try(() => MakeMaterial(Obj(m)), Str(Obj(m), "path"));
+            foreach (var m in List(data["physicsMaterials"])) Try(() => PhysicsMaterial(Obj(m)), Str(Obj(m), "path"));
+            foreach (var b in List(data["particleMaterials"])) Try(() => ParticleMaterial((string)b), $"Particles-{b}");
+            foreach (var v in List(data["volumes"])) Try(() => Volumes.Make(Obj(v)), Str(Obj(v), "path"));
+            var theme = data.TryGetValue("theme", out var th) ? (string)th : null;
+            foreach (var p in List(data["panels"])) Try(() => MakePanel(Obj(p), theme), Str(Obj(p), "path"));
             AssetDatabase.SaveAssets();
 
-            var prefabs = List(data["prefabs"]).Select(Obj).ToList();
-            // First every prefab's objects and components, then their fields: a field may name a prefab saved later.
-            foreach (var p in prefabs) Try(() => SavePrefab(p), Str(p, "path"));
-            foreach (var p in prefabs) Try(() => WirePrefab(p), Str(p, "path"));
+            // The scenes and prefabs: their text in place, built by Scenoco.
+            // A twin the port edited since the last import is the port's: kept, with the export beside it to merge.
+            var twins = List(data["twins"]).Select(t => (string)t).ToList();
+            var kept = new HashSet<string>();
+            foreach (var twin in twins)
+                Try(() =>
+                {
+                    var rel = twin.Substring("Assets/".Length);
+                    var placed = Path.Combine(Placed, rel);
+                    if (File.Exists(twin) && File.Exists(placed) && Text(twin) != Text(placed))
+                    {
+                        kept.Add(twin);
+                        warnings.Add($"{twin}: edited since the last export — kept. This export's is {Path.Combine(Staged, rel)}: merge what it changes by hand, or delete {placed} and import again to take it whole.");
+                        return;
+                    }
+                    Directory.CreateDirectory(Path.GetDirectoryName(twin));
+                    File.Copy(Path.Combine(Staged, rel), twin, true);
+                }, twin);
+            AssetDatabase.Refresh();
+            var status = Scenoco.Files.Sync();
+            foreach (var line in status.Split('\n'))
+                if (twins.Any(t => line.StartsWith(t + ":")) && !line.Contains(": Synced")) warnings.Add(line);
+            foreach (var twin in twins.Where(t => !kept.Contains(t) && File.Exists(t)))
+                Try(() =>
+                {
+                    var placed = Path.Combine(Placed, twin.Substring("Assets/".Length));
+                    Directory.CreateDirectory(Path.GetDirectoryName(placed));
+                    File.Copy(twin, placed, true);
+                }, twin);
 
             var scenes = List(data["scenes"]).Select(Obj).ToList();
-            reopen = null;
-            for (var i = 0; i < scenes.Count; i++)
-            {
-                var s = scenes[i];
-                var first = i == 0;
-                Try(() => SaveScene(s, first), Str(s, "path"));
-            }
-            var paths = scenes.Select(s => Str(s, "path")).ToList();
-            // An empty untitled scene stood in for the first exported one, or an open scene was rebuilt: open it again.
-            if (reopen != null && paths.Count > 0) EditorSceneManager.OpenScene(reopen == "" ? paths[0] : reopen, OpenSceneMode.Single);
+            foreach (var s in scenes) Try(() => Lighting(s), Str(s, "path"));
+            var paths = scenes.Select(s => Str(s, "path")).Where(File.Exists).ToList();
             EditorBuildSettings.scenes = paths.Select(p => new EditorBuildSettingsScene(p, true))
                 .Concat(EditorBuildSettings.scenes.Where(s => !paths.Contains(s.path))).ToArray();
+            Try(Skill, "the unity-game skill");
 
             File.Delete(PendingPath);
+            // A model given its root just now: the prefabs placing it re-import after this pass, losing their
+            // overrides on the old root. Once they have, a second pass builds the text into them again.
+            if (rerooted) File.WriteAllText(PendingPath, "models re-rooted");
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             foreach (var w in warnings) Debug.LogWarning($"SceNoCo: {w}");
-            Debug.Log($"SceNoCo: imported {prefabs.Count} prefabs, {scenes.Count} scenes, {List(data["meshes"]).Count} meshes, {List(data["materials"]).Count} materials"
+            Debug.Log($"SceNoCo: imported {twins.Count(t => t.EndsWith(".uprefab"))} prefabs, {scenes.Count} scenes, {List(data["meshes"]).Count} meshes, {List(data["materials"]).Count} materials"
                 + (warnings.Count > 0 ? $" — {warnings.Count} warnings above." : "."));
         }
+
+        /// <summary>
+        /// Every model glTFast imports gets a root of its own, as three.js's loader gives it a scene: by
+        /// default glTFast makes a lone node the root, and a placement's Transform then replaces that
+        /// node's own (a quantized model's decoding scale) where three keeps both.
+        /// </summary>
+        static bool ModelRoots()
+        {
+            var changed = false;
+            if (!AssetDatabase.IsValidFolder("Assets/Models")) return false;
+            foreach (var guid in AssetDatabase.FindAssets("", new[] { "Assets/Models" }))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!path.EndsWith(".glb") && !path.EndsWith(".gltf")) continue;
+                var importer = AssetImporter.GetAtPath(path);
+                if (importer == null) continue;
+                var settings = new SerializedObject(importer);
+                // glTFast's SceneObjectCreation: Never 0, Always 1, WhenMultipleRootNodes 2.
+                var creation = settings.FindProperty("instantiationSettings.sceneObjectCreation");
+                if (creation == null || creation.intValue == 1) continue;
+                creation.intValue = 1;
+                settings.ApplyModifiedPropertiesWithoutUndo();
+                importer.SaveAndReimport();
+                changed = true;
+            }
+            return changed;
+        }
+
+        /// <summary>
+        /// An image a behaviour reads as data — a height stamp, a map — imported pixel for pixel, as the
+        /// browser decodes it: readable, uncompressed, no mipmaps, and never resized to a power of two.
+        /// </summary>
+        static void DataTexture(string path)
+        {
+            if (!(AssetImporter.GetAtPath(path) is TextureImporter importer)) return;
+            if (importer.isReadable && importer.npotScale == TextureImporterNPOTScale.None && !importer.mipmapEnabled
+                && importer.textureCompression == TextureImporterCompression.Uncompressed) return;
+            importer.isReadable = true;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.mipmapEnabled = false;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.SaveAndReimport();
+        }
+
+        /// <summary>
+        /// A model whose every copy draws otherwise than Unity's defaults — <c>sharedModel(url, { castShadow: false })</c> —
+        /// as a prefab variant of its file with its renderers set. Placements and fields name the variant.
+        /// </summary>
+        static void ModelVariant(Dictionary<string, object> v)
+        {
+            var path = Str(v, "path");
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(Str(v, "model"));
+            if (model == null)
+            {
+                warnings.Add($"{path}: its model {Str(v, "model")} did not import — placements of it are empty.");
+                return;
+            }
+            var copy = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            try
+            {
+                foreach (var r in copy.GetComponentsInChildren<Renderer>(true))
+                {
+                    r.shadowCastingMode = (bool)v["castShadow"] ? ShadowCastingMode.On : ShadowCastingMode.Off;
+                    r.receiveShadows = (bool)v["receiveShadow"];
+                }
+                // Over an existing variant, in place: its GUID, and so every reference to it, stays.
+                PrefabUtility.SaveAsPrefabAsset(copy, path);
+            }
+            finally { Object.DestroyImmediate(copy); }
+        }
+
+        // A file's text with its line endings made one: a checkout may have changed them, not the port.
+        static string Text(string path) => File.ReadAllText(path).Replace("\r\n", "\n");
 
         static void Try(Action action, string what)
         {
@@ -127,6 +261,11 @@ namespace SceNoCo
                 var f = Floats(u);
                 mesh.uv = Enumerable.Range(0, f.Length / 2).Select(i => new Vector2(f[i * 2], f[i * 2 + 1])).ToArray();
             }
+            if (m.TryGetValue("colors", out var c))
+            {
+                var f = Floats(c);
+                mesh.colors = Enumerable.Range(0, f.Length / 4).Select(i => new Color(f[i * 4], f[i * 4 + 1], f[i * 4 + 2], f[i * 4 + 3])).ToArray();
+            }
             var subs = List(m["submeshes"]);
             mesh.subMeshCount = subs.Count;
             for (var i = 0; i < subs.Count; i++) mesh.SetTriangles(Floats(subs[i]).Select(x => (int)x).ToArray(), i);
@@ -139,7 +278,11 @@ namespace SceNoCo
         static void MakeMaterial(Dictionary<string, object> m)
         {
             var lit = Str(m, "shader") == "lit";
-            var shader = Shader.Find(lit ? "Universal Render Pipeline/Lit" : "Universal Render Pipeline/Unlit")
+            // Vertex colours: URP's Particles shaders multiply by them (Color Mode Multiply), lit or not; Lit and Unlit ignore them.
+            var colours = m.TryGetValue("vertexColors", out var vc) && (bool)vc;
+            var shader = Shader.Find(colours
+                    ? (lit ? "Universal Render Pipeline/Particles/Lit" : "Universal Render Pipeline/Particles/Unlit")
+                    : (lit ? "Universal Render Pipeline/Lit" : "Universal Render Pipeline/Unlit"))
                 ?? Shader.Find(lit ? "Standard" : "Unlit/Color");
             var path = Str(m, "path");
             var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
@@ -223,76 +366,153 @@ namespace SceNoCo
             AssetDatabase.CreateFolder(parent, Path.GetFileName(path));
         }
 
-        // --- prefabs and scenes ------------------------------------------------------------------
 
-        static void SavePrefab(Dictionary<string, object> p)
+        /// <summary>A terrain's heights and colour layers, in place: the layers live inside the data's asset, each with a one-pixel texture of its colour.</summary>
+        static void MakeTerrain(Dictionary<string, object> t)
         {
-            var path = Str(p, "path");
-            Folder(Path.GetDirectoryName(path));
-            var go = Build(Obj(p["root"]), null);
-            PrefabUtility.SaveAsPrefabAsset(go, path);
-            Object.DestroyImmediate(go);
-        }
-
-        static void WirePrefab(Dictionary<string, object> p)
-        {
-            var path = Str(p, "path");
-            var root = PrefabUtility.LoadPrefabContents(path);
-            try
+            var path = Str(t, "path");
+            var data = AssetDatabase.LoadAssetAtPath<TerrainData>(path);
+            var created = data == null;
+            if (created) data = new TerrainData();
+            var n = (int)Num(t, "heightmapResolution", 33);
+            data.heightmapResolution = n;
+            data.size = V3(t["size"]);
+            var flat = Floats(t["heights"]);
+            var heights = new float[n, n];
+            for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) heights[y, x] = flat[y * n + x];
+            data.SetHeights(0, 0, heights);
+            if (created) SaveAsset(data, path);
+            // Only what an earlier import added: Unity keeps the splat maps in this asset too, and
+            // SetAlphamaps fails ("splatdatabase alphamap 0 is null") once they are gone.
+            foreach (var old in AssetDatabase.LoadAllAssetRepresentationsAtPath(path))
+                if (old is TerrainLayer || (old is Texture2D added && added.name.EndsWith(" colour"))) Object.DestroyImmediate(old, true);
+            var layers = List(t["layers"]).Select(Obj).Select(spec =>
             {
-                Wire(Obj(p["root"]), root, root);
-                PrefabUtility.SaveAsPrefabAsset(root, path);
+                // The layer's own texture, copied in by the export; else its colour, as a one-pixel texture.
+                var texture = spec.ContainsKey("texture") ? AssetDatabase.LoadAssetAtPath<Texture2D>(Str(spec, "texture")) : null;
+                if (texture == null)
+                {
+                    if (spec.ContainsKey("texture")) warnings.Add($"{path}: layer texture {Str(spec, "texture")} did not import — the layer is its colour.");
+                    texture = new Texture2D(1, 1) { name = Str(spec, "name") + " colour" };
+                    texture.SetPixel(0, 0, Hex(Str(spec, "color")));
+                    texture.Apply();
+                    AssetDatabase.AddObjectToAsset(texture, data);
+                }
+                var tile = Num(spec, "tileSize", 10);
+                var layer = new TerrainLayer { name = Str(spec, "name"), diffuseTexture = texture, tileSize = new Vector2(tile, tile) };
+                if (spec.ContainsKey("normalMap")) layer.normalMapTexture = NormalMap(Str(spec, "normalMap"));
+                AssetDatabase.AddObjectToAsset(layer, data);
+                return layer;
+            }).ToArray();
+            data.terrainLayers = layers;
+            if (layers.Length > 0)
+            {
+                var a = (int)Num(t, "alphamapResolution", 16);
+                data.alphamapResolution = a;
+                var w = Floats(t["alphamaps"]);
+                var maps = new float[a, a, layers.Length];
+                for (var y = 0; y < a; y++) for (var x = 0; x < a; x++) for (var l = 0; l < layers.Length; l++) maps[y, x, l] = w[(y * a + x) * layers.Length + l];
+                data.SetAlphamaps(0, 0, maps);
             }
-            finally { PrefabUtility.UnloadPrefabContents(root); }
+            EditorUtility.SetDirty(data);
         }
 
-        /// <summary>The scene to open once the import is done: "" for the first exported one.</summary>
-        static string reopen;
+        /// <summary>A texture imported as a normal map: Unity reads one only when its importer says so.</summary>
+        static Texture2D NormalMap(string path)
+        {
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer && importer.textureType != TextureImporterType.NormalMap)
+            {
+                importer.textureType = TextureImporterType.NormalMap;
+                importer.SaveAndReimport();
+            }
+            var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (texture == null) warnings.Add($"{path}: the normal map did not import.");
+            return texture;
+        }
 
-        static void SaveScene(Dictionary<string, object> s, bool first)
+        /// <summary>URP's terrain material, one for the project: a terrain with none draws pink there.</summary>
+        static void TerrainMaterial(string path)
+        {
+            if (AssetDatabase.LoadAssetAtPath<Material>(path) != null) return;
+            var shader = Shader.Find("Universal Render Pipeline/Terrain/Lit") ?? Shader.Find("Nature/Terrain/Standard");
+            SaveAsset(new Material(shader), path);
+        }
+
+        /// <summary>A collider's friction and bounciness: one PhysicsMaterial (or 2D) per pair.</summary>
+        static void PhysicsMaterial(Dictionary<string, object> m)
+        {
+            var path = Str(m, "path");
+            float friction = Num(m, "friction", 0.5f), bounce = Num(m, "bounciness", 0);
+            if (Num(m, "dimensions", 3) == 2)
+            {
+                var two = AssetDatabase.LoadAssetAtPath<PhysicsMaterial2D>(path);
+                if (two == null) SaveAsset(two = new PhysicsMaterial2D(), path);
+                two.friction = friction;
+                two.bounciness = bounce;
+                EditorUtility.SetDirty(two);
+                return;
+            }
+            var three = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>(path);
+            if (three == null) SaveAsset(three = new PhysicsMaterial(), path);
+            three.dynamicFriction = three.staticFriction = friction;
+            three.bounciness = bounce;
+            EditorUtility.SetDirty(three);
+        }
+
+        /// <summary>One particle material per blending, shared by every system: URP's particle shader, Unity's soft round sprite.</summary>
+        static void ParticleMaterial(string blending)
+        {
+            var path = $"Assets/Materials/Particles-{blending}.mat";
+            if (AssetDatabase.LoadAssetAtPath<Material>(path) != null) return;
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Particles/Standard Unlit");
+            var mat = new Material(shader);
+            mat.SetTexture("_BaseMap", AssetDatabase.GetBuiltinExtraResource<Texture2D>("Default-Particle.psd"));
+            mat.SetFloat("_Surface", 1);
+            mat.SetFloat("_Blend", blending == "Additive" ? 2 : 0);
+            mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)(blending == "Additive" ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
+            mat.SetFloat("_ZWrite", 0);
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)RenderQueue.Transparent;
+            SaveAsset(mat, path);
+        }
+
+        /// <summary>Panel Settings for a UIDocument's element, scaling as core's UIDocument does.</summary>
+        static void MakePanel(Dictionary<string, object> p, string theme)
+        {
+            var path = Str(p, "path");
+            var panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(path);
+            if (panel == null) SaveAsset(panel = ScriptableObject.CreateInstance<PanelSettings>(), path);
+            if (theme != null) panel.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(theme);
+            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+            var size = Floats(p["referenceResolution"]);
+            panel.referenceResolution = new Vector2Int(Mathf.RoundToInt(size[0]), Mathf.RoundToInt(size[1]));
+            panel.match = Num(p, "match", 0.5f);
+            panel.sortingOrder = Num(p, "sortingOrder", 0);
+            EditorUtility.SetDirty(panel);
+        }
+
+        // --- scenes: what their text has no place for ------------------------------------------------
+
+        /// <summary>
+        /// A scene's fog, ambient light and reflections, which a scene keeps outside its objects: set on the scene
+        /// Scenoco built, opened beside whatever is open, saved and closed again.
+        /// </summary>
+        static void Lighting(Dictionary<string, object> s)
         {
             var path = Str(s, "path");
-            Folder(Path.GetDirectoryName(path));
-            // A scene of its own, beside whatever is open: nothing the user has open is touched. Unity
-            // cannot add one beside an untitled scene, nor save over an open one, so an untouched untitled
-            // scene or this very scene open is replaced instead, and opened again at the end.
-            var open = SceneManager.GetSceneByPath(path);
-            if (open.IsValid() && open.isDirty) throw new Exception("it is open with unsaved changes — save or discard them, then import again");
-            var beside = open.IsValid() && SceneManager.sceneCount > 1;
-            if (beside) EditorSceneManager.CloseScene(open, true);
-            var previous = SceneManager.GetActiveScene();
-            var untitled = SceneManager.sceneCount == 1 && string.IsNullOrEmpty(previous.path);
-            if (untitled && previous.isDirty) throw new Exception("the open scene is untitled and has unsaved changes — save or discard it, then import again");
-            var single = untitled || previous.path == path;
-            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, single ? NewSceneMode.Single : NewSceneMode.Additive);
-            if (single) { reopen ??= untitled ? "" : path; previous = default; }
+            if (!File.Exists(path)) return;                                       // Scenoco's status says why
+            var scene = SceneManager.GetSceneByPath(path);
+            var open = scene.IsValid() && scene.isLoaded;
+            if (open && scene.isDirty) throw new Exception("its lighting was not set: it is open with unsaved changes — save or discard them, then import again");
+            if (!open) scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+            var active = SceneManager.GetActiveScene();
             SceneManager.SetActiveScene(scene);
             try
             {
-                var roots = List(s["roots"]).Select(Obj).ToList();
-                var built = roots.Select(r => Build(r, null)).ToList();
-                // References between a scene's roots go through a holder that lists them as its children.
-                var holder = new GameObject("__scenoco");
-                foreach (var go in built) go.transform.SetParent(holder.transform, false);
-                for (var i = 0; i < roots.Count; i++) Wire(roots[i], built[i], holder);
-                foreach (var go in built) go.transform.SetParent(null, false);
-                Object.DestroyImmediate(holder);
-                if (first) MakeInput();
-
                 RenderSettings.skybox = null;
-                Color background = Color.black;
-                var hasBackground = s.TryGetValue("background", out var bg);
-                if (hasBackground) background = Hex((string)bg);
-                var cameras = built.SelectMany(go => go.GetComponentsInChildren<Camera>(true)).ToList();
-                foreach (var cam in cameras)
-                {
-                    cam.clearFlags = hasBackground ? CameraClearFlags.SolidColor : cam.clearFlags;
-                    cam.backgroundColor = background;
-                    Volumes.Enable(cam);
-                }
-                if (cameras.Count > 0) cameras[0].gameObject.tag = "MainCamera";
-                else warnings.Add($"{path}: no camera in the scene.");
-
                 if (s.TryGetValue("fog", out var f))
                 {
                     var fog = Obj(f);
@@ -329,100 +549,58 @@ namespace SceNoCo
                 // three lights a surface with no environment by nothing but its lights: no skybox reflections either.
                 RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
                 RenderSettings.customReflectionTexture = null;
-                RenderSettings.reflectionIntensity = s.ContainsKey("environment") ? 1 : 0;
-                EditorSceneManager.SaveScene(scene, path);
+                RenderSettings.reflectionIntensity = 0;
+                EditorSceneManager.SaveScene(scene);
             }
             finally
             {
-                if (previous.IsValid())
-                {
-                    SceneManager.SetActiveScene(previous);
-                    EditorSceneManager.CloseScene(scene, true);
-                    if (beside) EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
-                }
+                if (active.IsValid() && active != scene) SceneManager.SetActiveScene(active);
+                if (!open && SceneManager.sceneCount > 1) EditorSceneManager.CloseScene(scene, true);
             }
         }
 
-        /** A node and everything under it, with its components added and not yet set. */
-        static GameObject Build(Dictionary<string, object> n, Transform parent)
+        /// <summary>Diceload's skill, for the agent porting the game: copied into the project's .claude/skills once.</summary>
+        static void Skill()
         {
-            GameObject go;
-            if (n.TryGetValue("prefab", out var prefab))
-            {
-                var asset = AssetDatabase.LoadAssetAtPath<GameObject>((string)prefab);
-                if (asset == null) throw new Exception($"nested prefab {prefab} is missing");
-                go = (GameObject)PrefabUtility.InstantiatePrefab(asset);
-            }
-            else go = new GameObject();
-            go.name = Str(n, "name");
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = V3(n["position"]);
-            var r = Floats(n["rotation"]);
-            go.transform.localRotation = new Quaternion(r[0], r[1], r[2], r[3]);
-            go.transform.localScale = V3(n["scale"]);
-            if (n.TryGetValue("layer", out var layer)) go.layer = Convert.ToInt32(layer, CultureInfo.InvariantCulture);
-
-            if (n.TryGetValue("mesh", out var mesh))
-            {
-                go.AddComponent<MeshFilter>().sharedMesh = AssetDatabase.LoadAssetAtPath<Mesh>((string)mesh);
-                var renderer = go.AddComponent<MeshRenderer>();
-                var mats = n.TryGetValue("materials", out var ms) ? List(ms).Select(x => AssetDatabase.LoadAssetAtPath<Material>((string)x)).ToArray() : new Material[0];
-                renderer.sharedMaterials = mats;
-                renderer.shadowCastingMode = n.TryGetValue("castShadows", out var cs) && (bool)cs ? ShadowCastingMode.On : ShadowCastingMode.Off;
-                renderer.receiveShadows = n.TryGetValue("receiveShadows", out var rs) && (bool)rs;
-            }
-            if (n.TryGetValue("light", out var l)) MakeLight(go, Obj(l));
-            if (n.TryGetValue("camera", out var c)) MakeCamera(go, Obj(c));
-
-            foreach (var comp in List(n["components"]).Select(Obj))
-            {
-                var type = Str(comp, "type");
-                if ((bool)comp["game"])
-                {
-                    var t = GameType(type);
-                    if (t == null) warnings.Add($"{Where(comp, n)}: no MonoBehaviour named {type} — it has a stub in Assets/Scripts unless a class of that name exists elsewhere.");
-                    else go.AddComponent(t);
-                }
-                else if (type == "ParticleSystem") Particles.Add(go, Obj(comp["fields"]), w => warnings.Add($"{Where(comp, n)}: {w}"));
-                else if (type == "UIDocument") MakeDocument(go, Obj(comp["fields"]), Where(comp, n));
-                else if (Volumes.Add(go, type, Obj(comp["fields"]))) { }
-                else if (Terrains.Add(go, type, Obj(comp["fields"]), w => warnings.Add($"{Where(comp, n)}: {w}"))) { }
-                else if (!Physics.Add(go, type, Obj(comp["fields"]))) warnings.Add($"{Where(comp, n)}: {type} has no Unity counterpart here — left off.");
-            }
-
-            foreach (var child in List(n["children"]).Select(Obj)) Build(child, go.transform);
-            if (n.TryGetValue("renderersEnabled", out var re) && !(bool)re)
-                foreach (var rr in go.GetComponentsInChildren<Renderer>(true)) rr.enabled = false;
-            if (n.TryGetValue("active", out var act) && !(bool)act) go.SetActive(false);
-            return go;
+            const string to = ".claude/skills/unity-game";
+            if (Directory.Exists(to)) return;
+            var package = UnityEditor.PackageManager.PackageInfo.FindForPackageName("com.roro.diceload");
+            var from = package == null ? null : Path.Combine(package.resolvedPath, "Skills~/unity-game");
+            if (from == null || !Directory.Exists(from)) throw new Exception("com.roro.diceload is not in the project — add it to Packages/manifest.json");
+            Directory.CreateDirectory(to);
+            foreach (var file in Directory.GetFiles(from)) File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
         }
 
-        /// <summary>
-        /// A game's post effects as a URP Volume and its profile, one per node that has them. By type name and
-        /// serialized field, as the project's settings are, so a project without URP still compiles this.
-        /// </summary>
+        /// <summary>A game's post effects as a URP Volume profile. By type name and serialized field, so a project without URP still compiles this.</summary>
         static class Volumes
         {
             const string Rendering = "UnityEngine.Rendering.{0}, Unity.RenderPipelines.Core.Runtime";
             const string Universal = "UnityEngine.Rendering.Universal.{0}, Unity.RenderPipelines.Universal.Runtime";
-            static readonly Dictionary<GameObject, ScriptableObject> Profiles = new Dictionary<GameObject, ScriptableObject>();
-            static readonly HashSet<string> Written = new HashSet<string>();
-            static readonly string[] Effects = { "Bloom", "Tonemapping", "ColorAdjustments", "Vignette", "DepthOfField", "ChromaticAberration", "FilmGrain" };
 
-            public static bool Add(GameObject go, string type, Dictionary<string, object> f)
+            public static void Make(Dictionary<string, object> v)
             {
-                if (type == "Volume")
+                var path = Str(v, "path");
+                var profileType = Type.GetType(string.Format(Rendering, "VolumeProfile")) ?? throw new Exception("URP is not in this project");
+                // Made anew each time: its effects are objects of their own in the profile's file.
+                var existing = AssetDatabase.LoadMainAssetAtPath(path);
+                ScriptableObject profile;
+                if (existing != null && existing.GetType() == profileType)
                 {
-                    Profile(go);
-                    var volume = new SerializedObject(go.GetComponent(Type.GetType(string.Format(Rendering, "Volume"))));
-                    volume.FindProperty("priority").floatValue = Num(f, "priority", 0);
-                    volume.ApplyModifiedPropertiesWithoutUndo();
-                    return true;
+                    profile = (ScriptableObject)existing;
+                    foreach (var old in AssetDatabase.LoadAllAssetRepresentationsAtPath(path)) Object.DestroyImmediate(old, true);
+                    var list = new SerializedObject(profile);
+                    list.FindProperty("components").ClearArray();
+                    list.ApplyModifiedPropertiesWithoutUndo();
                 }
-                if (!Effects.Contains(type)) return false;
+                else SaveAsset(profile = ScriptableObject.CreateInstance(profileType), path);
+                foreach (var e in List(v["effects"]).Select(Obj)) Effect(profile, Str(e, "type"), Obj(e["fields"]));
+                EditorUtility.SetDirty(profile);
+            }
+
+            static void Effect(ScriptableObject profile, string type, Dictionary<string, object> f)
+            {
                 var effect = Type.GetType(string.Format(Universal, type));
-                if (effect == null) return false;
-                var profile = Profile(go);
+                if (effect == null) { warnings.Add($"{type}: not a URP effect here — left out of the Volume."); return; }
                 var added = (ScriptableObject)profile.GetType().GetMethod("Add", new[] { typeof(Type), typeof(bool) }).Invoke(profile, new object[] { effect, false });
                 var o = new SerializedObject(added);
                 void Float(string name, float value) => Set(o, name, p => p.floatValue = value);
@@ -470,39 +648,6 @@ namespace SceNoCo
                 // Each is an object of its own in the profile's file, and its list is lost at save unless marked.
                 AssetDatabase.AddObjectToAsset(added, profile);
                 EditorUtility.SetDirty(added);
-                EditorUtility.SetDirty(profile);
-                return true;
-            }
-
-            /// <summary>Post Processing on for a camera, in a game with a Volume in any scene: one kept across loads shapes every level's camera.</summary>
-            public static void Enable(Camera camera)
-            {
-                if (Profiles.Count == 0 && !File.ReadAllText(DataPath).Contains("\"Volume\"")) return;
-                var data = Type.GetType(string.Format(Universal, "UniversalAdditionalCameraData"));
-                if (data == null) return;
-                var extra = camera.GetComponent(data) ?? camera.gameObject.AddComponent(data);
-                var o = new SerializedObject(extra);
-                o.FindProperty("m_RenderPostProcessing").boolValue = true;
-                o.ApplyModifiedPropertiesWithoutUndo();
-            }
-
-            static ScriptableObject Profile(GameObject go)
-            {
-                if (Profiles.TryGetValue(go, out var made)) return made;
-                var profileType = Type.GetType(string.Format(Rendering, "VolumeProfile"));
-                var path = $"Assets/Materials/Volume-{go.name}.asset";
-                for (var i = 2; !Written.Add(path); i++) path = $"Assets/Materials/Volume-{go.name}-{i}.asset";
-                Directory.CreateDirectory("Assets/Materials");
-                AssetDatabase.DeleteAsset(path);
-                var profile = ScriptableObject.CreateInstance(profileType);
-                AssetDatabase.CreateAsset(profile, path);
-                var volume = go.GetComponent(Type.GetType(string.Format(Rendering, "Volume"))) ?? go.AddComponent(Type.GetType(string.Format(Rendering, "Volume")));
-                var o = new SerializedObject(volume);
-                o.FindProperty("sharedProfile").objectReferenceValue = profile;
-                o.FindProperty("m_IsGlobal").boolValue = true;
-                o.ApplyModifiedPropertiesWithoutUndo();
-                Profiles[go] = profile;
-                return profile;
             }
 
             static void Set(SerializedObject o, string name, Action<SerializedProperty> value)
@@ -512,188 +657,6 @@ namespace SceNoCo
                 value(parameter.FindPropertyRelative("m_Value"));
             }
         }
-
-        /** Set the fields of a node's game components, walking the data and the built objects together. */
-        static void Wire(Dictionary<string, object> n, GameObject go, GameObject root)
-        {
-            var games = List(n["components"]).Select(Obj).Where(c => (bool)c["game"]).ToList();
-            foreach (var comp in games)
-            {
-                var t = GameType(Str(comp, "type"));
-                var behaviour = t == null ? null : go.GetComponent(t);
-                if (behaviour == null) continue;
-                var so = new SerializedObject(behaviour);
-                foreach (var field in Obj(comp["fields"]))
-                {
-                    var prop = so.FindProperty(field.Key);
-                    if (prop == null)
-                    {
-                        warnings.Add($"{Where(comp, n)}: {t.Name} has no serialized field {field.Key} — add a public one to wire it.");
-                        continue;
-                    }
-                    try { Set(prop, field.Value, root); }
-                    catch (Exception e) { warnings.Add($"{Where(comp, n)}: {t.Name}.{field.Key}: {e.Message}"); }
-                }
-                so.ApplyModifiedPropertiesWithoutUndo();
-            }
-            Physics.WireJoints(n, go, root, warnings.Add);
-            if (n.ContainsKey("prefab")) return; // a nested prefab is wired in its own asset
-            var children = List(n["children"]).Select(Obj).ToList();
-            for (var i = 0; i < children.Count && i < go.transform.childCount; i++) Wire(children[i], go.transform.GetChild(i).gameObject, root);
-        }
-
-        static void Set(SerializedProperty p, object v, GameObject root)
-        {
-            if (p.isArray && p.propertyType != SerializedPropertyType.String)
-            {
-                var items = v is Dictionary<string, object> d && d.TryGetValue("array", out var a) ? List(a) : new List<object>();
-                p.arraySize = items.Count;
-                for (var i = 0; i < items.Count; i++) Set(p.GetArrayElementAtIndex(i), items[i], root);
-                return;
-            }
-            var o = v as Dictionary<string, object>;
-            switch (p.propertyType)
-            {
-                case SerializedPropertyType.Float: p.floatValue = Convert.ToSingle(v, CultureInfo.InvariantCulture); return;
-                case SerializedPropertyType.Integer: p.intValue = (int)Math.Round(Convert.ToDouble(v, CultureInfo.InvariantCulture)); return;
-                case SerializedPropertyType.Boolean: p.boolValue = (bool)v; return;
-                case SerializedPropertyType.String: p.stringValue = Convert.ToString(v, CultureInfo.InvariantCulture); return;
-                case SerializedPropertyType.Enum:
-                    if (v is string name)
-                    {
-                        var plain = new Func<string, string>(x => x.Replace("_", "").Replace("-", "").ToLowerInvariant());
-                        var index = Array.FindIndex(p.enumNames, e => plain(e) == plain(name));
-                        if (index < 0) throw new Exception($"'{name}' is none of {string.Join(", ", p.enumNames)}");
-                        p.enumValueIndex = index;
-                    }
-                    else p.enumValueIndex = (int)Convert.ToDouble(v, CultureInfo.InvariantCulture);
-                    return;
-                case SerializedPropertyType.Vector2: { var f = Floats(o["v2"]); p.vector2Value = new Vector2(f[0], f[1]); return; }
-                case SerializedPropertyType.Vector3: p.vector3Value = V3(o["v3"]); return;
-                case SerializedPropertyType.Vector4: { var f = Floats(o["v4"]); p.vector4Value = new Vector4(f[0], f[1], f[2], f[3]); return; }
-                case SerializedPropertyType.Quaternion: { var f = Floats(o["quat"]); p.quaternionValue = new Quaternion(f[0], f[1], f[2], f[3]); return; }
-                case SerializedPropertyType.Color: p.colorValue = Hex(Str(o, "color")); return;
-                case SerializedPropertyType.ObjectReference: p.objectReferenceValue = Reference(p, o, root); return;
-            }
-            throw new Exception($"a {p.propertyType} field is not set by the importer");
-        }
-
-        static Object Reference(SerializedProperty p, Dictionary<string, object> o, GameObject root)
-        {
-            if (o == null) return null;
-            // "PPtr<$Transform>": what the field holds.
-            var wanted = p.type.StartsWith("PPtr<$") ? p.type.Substring(6, p.type.Length - 7) : p.type;
-            GameObject go = null;
-            if (o.TryGetValue("asset", out var asset))
-            {
-                var loaded = AssetDatabase.LoadMainAssetAtPath((string)asset);
-                if (!(loaded is GameObject prefab)) return loaded;
-                go = prefab;
-            }
-            else if (o.TryGetValue("node", out var node)) go = Find(root, (string)node);
-            if (go == null) throw new Exception("its target was not found");
-            if (wanted == "GameObject") return go;
-            if (wanted == "Transform") return go.transform;
-            var component = o.TryGetValue("component", out var c) ? (string)c : wanted;
-            var t = GameType(component) ?? GameType(wanted);
-            return t != null ? go.GetComponent(t) : go.GetComponent(wanted);
-        }
-
-        // --- the page and input ------------------------------------------------------------------
-
-        /// <summary>A UIDocument for the page's element: its UXML, and Panel Settings that scale as core's UIDocument does.</summary>
-        static void MakeDocument(GameObject go, Dictionary<string, object> f, string where)
-        {
-            var element = f.TryGetValue("element", out var e) ? (string)e : "ui";
-            var documents = ui != null && ui.TryGetValue("documents", out var d) ? Obj(d) : new Dictionary<string, object>();
-            if (!documents.TryGetValue(element, out var uxml))
-            {
-                warnings.Add($"{where}: no UXML for the element \"{element}\" — the page has no element with that id.");
-                return;
-            }
-            var path = $"Assets/UI/{element}.panel.asset";
-            var panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(path);
-            if (panel == null)
-            {
-                panel = ScriptableObject.CreateInstance<PanelSettings>();
-                SaveAsset(panel, path);
-            }
-            panel.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(Str(ui, "theme"));
-            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-            panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-            var size = f.TryGetValue("referenceResolution", out var r) ? Floats(Obj(r)["v2"]) : new[] { 1280f, 720f };
-            panel.referenceResolution = new Vector2Int(Mathf.RoundToInt(size[0]), Mathf.RoundToInt(size[1]));
-            panel.match = Num(f, "match", 0.5f);
-            // In the page's order: an element written later draws over an earlier one.
-            panel.sortingOrder = documents.Keys.ToList().IndexOf(element);
-            EditorUtility.SetDirty(panel);
-            var doc = go.AddComponent<UIDocument>();
-            doc.panelSettings = panel;
-            doc.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>((string)uxml);
-        }
-
-        /// <summary>The first scene's Input object: the UI's EventSystem and its Input System module, kept for the whole game.</summary>
-        static void MakeInput()
-        {
-            var go = new GameObject("Input");
-            foreach (var name in new[] { "UnityEngine.EventSystems.EventSystem, UnityEngine.UI", "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem", "SceNoCo.KeepAcrossScenes, Assembly-CSharp" })
-            {
-                var t = Type.GetType(name);
-                if (t != null) go.AddComponent(t);
-                else warnings.Add($"Input: {name.Split(',')[0]} is not in this project — add the Input System and UI packages.");
-            }
-        }
-
-        static GameObject Find(GameObject root, string path)
-        {
-            var t = root.transform;
-            if (path.Length == 0) return root;
-            foreach (var step in path.Split('/'))
-            {
-                var i = int.Parse(step, CultureInfo.InvariantCulture);
-                if (i >= t.childCount) return null;
-                t = t.GetChild(i);
-            }
-            return t.gameObject;
-        }
-
-        static void MakeLight(GameObject go, Dictionary<string, object> l)
-        {
-            var light = go.AddComponent<Light>();
-            var type = Str(l, "type");
-            light.type = type == "Directional" ? LightType.Directional : type == "Spot" ? LightType.Spot : LightType.Point;
-            light.color = Hex(Str(l, "color"));
-            light.intensity = Num(l, "intensity", 1);
-            light.shadows = l.TryGetValue("shadows", out var s) && (bool)s ? LightShadows.Soft : LightShadows.None;
-            if (l.ContainsKey("range")) light.range = Num(l, "range", 10);
-            if (l.ContainsKey("spotAngle")) light.spotAngle = Num(l, "spotAngle", 30);
-            if (l.ContainsKey("innerSpotAngle")) light.innerSpotAngle = Num(l, "innerSpotAngle", 21);
-        }
-
-        static void MakeCamera(GameObject go, Dictionary<string, object> c)
-        {
-            var cam = go.AddComponent<Camera>();
-            cam.orthographic = (bool)c["orthographic"];
-            cam.nearClipPlane = Num(c, "near", 0.1f);
-            cam.farClipPlane = Num(c, "far", 1000);
-            if (cam.orthographic) cam.orthographicSize = Num(c, "size", 5);
-            else cam.fieldOfView = Num(c, "fov", 60);
-        }
-
-        static readonly Dictionary<string, Type> types = new Dictionary<string, Type>();
-        static Type GameType(string name)
-        {
-            if (types.TryGetValue(name, out var known)) return known;
-            var found = TypeCache.GetTypesDerivedFrom<MonoBehaviour>()
-                .FirstOrDefault(t => t.Name == name && !t.Assembly.FullName.StartsWith("Unity"));
-            types[name] = found;
-            return found;
-        }
-
-        static string Where(Dictionary<string, object> comp, Dictionary<string, object> node) =>
-            comp.TryGetValue("source", out var s) ? (string)s : node.TryGetValue("source", out var ns) ? (string)ns : Str(node, "name");
-
-        // --- physics: SceNoCo's rapier and box2d components are Unity's own --------------------
 
         /// <summary>The project's own settings: what a three.js game draws and reads like, in Unity 6.</summary>
         static class Project
@@ -783,518 +746,6 @@ namespace SceNoCo
             }
         }
 
-        /// <summary>
-        /// A SceNoCo ParticleSystem's effect — Shuriken's modules under Shuriken's names — as Unity's own
-        /// ParticleSystem. three.quarks emits along +Z like Unity; the mirror on Z turns a cone or a hemisphere round.
-        /// </summary>
-        static class Particles
-        {
-            public static void Add(GameObject go, Dictionary<string, object> f, Action<string> warn)
-            {
-                if (!f.TryGetValue("effect", out var e) || !(e is Dictionary<string, object> eo) || !eo.ContainsKey("object"))
-                {
-                    warn("ParticleSystem has no effect it could read — left off.");
-                    return;
-                }
-                var c = Fields(eo);
-                var ps = go.AddComponent<ParticleSystem>();
-                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                var main = ps.main;
-                main.duration = Num(c, "duration", 5);
-                main.loop = Bool(c, "looping", true);
-                main.prewarm = Bool(c, "prewarm", false);
-                main.startLifetime = Num(c, "startLifetime", 5);
-                main.startSpeed = Num(c, "startSpeed", 5);
-                main.startSize = Num(c, "startSize", 1);
-                main.startRotation = Num(c, "startRotation", 0) * Mathf.Deg2Rad;
-                main.startColor = ColorOf(c, "startColor", Color.white);
-                main.gravityModifier = Num(c, "gravityModifier", 0);
-                main.simulationSpace = Str(c, "simulationSpace") == "World" ? ParticleSystemSimulationSpace.World : ParticleSystemSimulationSpace.Local;
-                main.playOnAwake = !f.TryGetValue("playOnAwake", out var awake) || (bool)awake;
-                main.scalingMode = ParticleSystemScalingMode.Hierarchy;
-
-                var emission = ps.emission;
-                var em = Sub(c, "emission");
-                emission.rateOverTime = Num(em, "rateOverTime", 10);
-                if (em.TryGetValue("bursts", out var bursts))
-                    emission.SetBursts(List(Obj(bursts)["array"]).Select(b => Fields(Obj(b))).Select(b => new ParticleSystem.Burst(Num(b, "time", 0), (short)Num(b, "count", 0))).ToArray());
-
-                var shape = ps.shape;
-                var sh = Sub(c, "shape");
-                var type = sh.ContainsKey("type") ? Str(sh, "type") : "Cone";
-                shape.radius = Num(sh, "radius", 1);
-                shape.angle = Num(sh, "angle", 25);
-                shape.arc = Num(sh, "arc", 360);
-                switch (type)
-                {
-                    case "Sphere": shape.shapeType = ParticleSystemShapeType.Sphere; break;
-                    case "Hemisphere": shape.shapeType = ParticleSystemShapeType.Hemisphere; shape.rotation = new Vector3(0, 180, 0); break;
-                    case "Circle": shape.shapeType = ParticleSystemShapeType.Circle; break;
-                    case "Donut": shape.shapeType = ParticleSystemShapeType.Donut; break;
-                    case "Rectangle": shape.shapeType = ParticleSystemShapeType.Rectangle; shape.scale = new Vector3(shape.radius * 2, shape.radius * 2, 1); break;
-                    case "Point": shape.shapeType = ParticleSystemShapeType.Sphere; shape.radius = 0.0001f; break;
-                    default: shape.shapeType = ParticleSystemShapeType.Cone; shape.rotation = new Vector3(0, 180, 0); break;
-                }
-
-                if (c.TryGetValue("noise", out _))
-                {
-                    var n = Sub(c, "noise");
-                    var noise = ps.noise;
-                    noise.enabled = true;
-                    noise.strength = Num(n, "strength", 1);
-                    noise.frequency = Num(n, "frequency", 2);
-                }
-                if (c.TryGetValue("colorOverLifetime", out _))
-                {
-                    var colors = List(Obj(Sub(c, "colorOverLifetime")["colors"])["array"]).Select(x => Hex(Str(Obj(x), "color"))).ToArray();
-                    if (colors.Length > 0)
-                    {
-                        // Evenly spaced, as the effect writes them; full alpha, fading out over the last third, as three.quarks does.
-                        var keys = colors.Select((col, i) => new GradientColorKey(col, colors.Length == 1 ? 0 : i / (float)(colors.Length - 1))).Take(8).ToArray();
-                        var gradient = new Gradient();
-                        gradient.SetKeys(keys, new[] { new GradientAlphaKey(1, 0), new GradientAlphaKey(1, 0.7f), new GradientAlphaKey(0, 1) });
-                        var col = ps.colorOverLifetime;
-                        col.enabled = true;
-                        col.color = gradient;
-                    }
-                }
-                if (c.TryGetValue("sizeOverLifetime", out _))
-                {
-                    var values = Floats(Obj(Sub(c, "sizeOverLifetime")["curve"])["array"]);
-                    if (values.Length > 0)
-                    {
-                        var curve = new AnimationCurve(values.Select((v, i) => new Keyframe(values.Length == 1 ? 0 : i / (float)(values.Length - 1), v)).ToArray());
-                        for (var i = 0; i < curve.length; i++) AnimationUtility.SetKeyLeftTangentMode(curve, i, AnimationUtility.TangentMode.Linear);
-                        for (var i = 0; i < curve.length; i++) AnimationUtility.SetKeyRightTangentMode(curve, i, AnimationUtility.TangentMode.Linear);
-                        var size = ps.sizeOverLifetime;
-                        size.enabled = true;
-                        size.size = new ParticleSystem.MinMaxCurve(1, curve);
-                    }
-                }
-                if (c.TryGetValue("rotationOverLifetime", out _))
-                {
-                    var rot = ps.rotationOverLifetime;
-                    rot.enabled = true;
-                    rot.z = Num(Sub(c, "rotationOverLifetime"), "angularVelocity", 0) * Mathf.Deg2Rad;
-                }
-
-                var r = Sub(c, "renderer");
-                var renderer = go.GetComponent<ParticleSystemRenderer>();
-                renderer.renderMode = Str(r, "renderMode") switch
-                {
-                    "StretchedBillboard" => ParticleSystemRenderMode.Stretch,
-                    "HorizontalBillboard" => ParticleSystemRenderMode.HorizontalBillboard,
-                    "VerticalBillboard" => ParticleSystemRenderMode.VerticalBillboard,
-                    "Mesh" => ParticleSystemRenderMode.Mesh,
-                    _ => ParticleSystemRenderMode.Billboard,
-                };
-                renderer.sharedMaterial = SharedMaterial(Str(r, "blending") == "Alpha" ? "Alpha" : "Additive");
-            }
-
-            /// <summary>One material per blending, shared by every system: URP's particle shader, Unity's soft round sprite.</summary>
-            static Material SharedMaterial(string blending)
-            {
-                var path = $"Assets/Materials/Particles-{blending}.mat";
-                var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
-                if (mat != null) return mat;
-                var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Particles/Standard Unlit");
-                mat = new Material(shader);
-                mat.SetTexture("_BaseMap", AssetDatabase.GetBuiltinExtraResource<Texture2D>("Default-Particle.psd"));
-                mat.SetFloat("_Surface", 1);
-                mat.SetFloat("_Blend", blending == "Additive" ? 2 : 0);
-                mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-                mat.SetFloat("_DstBlend", (float)(blending == "Additive" ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
-                mat.SetFloat("_ZWrite", 0);
-                mat.SetOverrideTag("RenderType", "Transparent");
-                mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-                mat.renderQueue = (int)RenderQueue.Transparent;
-                SaveAsset(mat, path);
-                return mat;
-            }
-
-            static Dictionary<string, object> Fields(Dictionary<string, object> o) => Obj(Obj(o["object"])["fields"]);
-            static Dictionary<string, object> Sub(Dictionary<string, object> c, string key) =>
-                c.TryGetValue(key, out var v) && v is Dictionary<string, object> d && d.ContainsKey("object") ? Fields(d) : new Dictionary<string, object>();
-            static bool Bool(Dictionary<string, object> d, string key, bool fallback) => d.TryGetValue(key, out var v) && v is bool b ? b : fallback;
-            static Color ColorOf(Dictionary<string, object> d, string key, Color fallback) =>
-                d.TryGetValue(key, out var v) && v is Dictionary<string, object> o && o.TryGetValue("color", out var hex) ? Hex((string)hex) : fallback;
-        }
-
-        /// <summary>
-        /// A game's terrain as Unity's own: a TerrainData asset holding its heights (0..1 of size.y, as the
-        /// exporter wrote them) and a layer per colour, and the Terrain and TerrainCollider on a child at the
-        /// data's corner — Unity's terrain starts at its object, SceNoCo's is centred on its node.
-        /// </summary>
-        static class Terrains
-        {
-            public static readonly Dictionary<string, Vector3> Offsets = new Dictionary<string, Vector3>();
-
-            public static void Make(Dictionary<string, object> t)
-            {
-                var path = Str(t, "path");
-                var data = AssetDatabase.LoadAssetAtPath<TerrainData>(path);
-                var created = data == null;
-                if (created) data = new TerrainData();
-                var n = (int)Num(t, "heightmapResolution", 33);
-                data.heightmapResolution = n;
-                data.size = V3(t["size"]);
-                var flat = Floats(t["heights"]);
-                var heights = new float[n, n];
-                for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) heights[y, x] = flat[y * n + x];
-                data.SetHeights(0, 0, heights);
-                if (created) SaveAsset(data, path);
-                // The layers live inside the data's asset, each with a one-pixel texture of its colour.
-                foreach (var old in AssetDatabase.LoadAllAssetRepresentationsAtPath(path)) Object.DestroyImmediate(old, true);
-                var specs = List(t["layers"]).Select(Obj).ToList();
-                var layers = specs.Select(spec =>
-                {
-                    var texture = new Texture2D(1, 1) { name = Str(spec, "name") + " colour" };
-                    texture.SetPixel(0, 0, Hex(Str(spec, "color")));
-                    texture.Apply();
-                    AssetDatabase.AddObjectToAsset(texture, data);
-                    var tile = Num(spec, "tileSize", 10);
-                    var layer = new TerrainLayer { name = Str(spec, "name"), diffuseTexture = texture, tileSize = new Vector2(tile, tile) };
-                    AssetDatabase.AddObjectToAsset(layer, data);
-                    return layer;
-                }).ToArray();
-                data.terrainLayers = layers;
-                if (layers.Length > 0)
-                {
-                    var a = (int)Num(t, "alphamapResolution", 16);
-                    data.alphamapResolution = a;
-                    var w = Floats(t["alphamaps"]);
-                    var maps = new float[a, a, layers.Length];
-                    for (var y = 0; y < a; y++) for (var x = 0; x < a; x++) for (var l = 0; l < layers.Length; l++) maps[y, x, l] = w[(y * a + x) * layers.Length + l];
-                    data.SetAlphamaps(0, 0, maps);
-                }
-                EditorUtility.SetDirty(data);
-                Offsets[path] = V3(t["offset"]);
-            }
-
-            public static bool Add(GameObject go, string type, Dictionary<string, object> f, Action<string> warn)
-            {
-                if (type != "Terrain" && type != "TerrainCollider") return false;
-                var path = f.TryGetValue("terrainData", out var v) && v is Dictionary<string, object> d && d.TryGetValue("asset", out var p) ? (string)p : null;
-                var data = path != null ? AssetDatabase.LoadAssetAtPath<TerrainData>(path) : null;
-                if (data == null)
-                {
-                    warn($"{type} has no exported terrainData — left off.");
-                    return true;
-                }
-                var child = go.transform.Find("Terrain")?.gameObject;
-                if (child == null)
-                {
-                    child = new GameObject("Terrain");
-                    child.transform.SetParent(go.transform, false);
-                    child.transform.localPosition = Offsets.TryGetValue(path, out var at) ? at : Vector3.zero;
-                    if ((go.transform.lossyScale - Vector3.one).sqrMagnitude > 1e-6f) warn("a Unity terrain ignores its object's scale — size the TerrainData instead.");
-                }
-                if (type == "Terrain")
-                {
-                    var terrain = child.AddComponent<Terrain>();
-                    terrain.terrainData = data;
-                    terrain.heightmapPixelError = Num(f, "heightmapPixelError", 5);
-                    terrain.shadowCastingMode = Bool(f, "castShadows", true) ? ShadowCastingMode.On : ShadowCastingMode.Off;
-                    var lit = Shader.Find("Universal Render Pipeline/Terrain/Lit");
-                    if (lit != null) terrain.materialTemplate = TerrainMaterial(lit);
-                }
-                else child.AddComponent<TerrainCollider>().terrainData = data;
-                return true;
-            }
-
-            /** URP's terrain material, one for the project: a terrain with none draws pink there. */
-            static Material TerrainMaterial(Shader lit)
-            {
-                const string path = "Assets/Terrains/TerrainLit.mat";
-                var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
-                if (mat == null) SaveAsset(mat = new Material(lit), path);
-                return mat;
-            }
-        }
-
-        static class Physics
-        {
-            public static bool Add(GameObject go, string type, Dictionary<string, object> f)
-            {
-                switch (type)
-                {
-                    case "Rigidbody":
-                    {
-                        var rb = go.AddComponent<Rigidbody>();
-                        rb.isKinematic = Bool(f, "isKinematic", false);
-                        rb.useGravity = Bool(f, "useGravity", true);
-                        rb.linearDamping = Num(f, "linearDamping", 0);
-                        rb.angularDamping = Num(f, "angularDamping", 0.05f);
-                        rb.freezeRotation = Bool(f, "freezeRotation", false);
-                        return true;
-                    }
-                    case "BoxCollider":
-                    {
-                        var c = go.AddComponent<BoxCollider>();
-                        if (f.ContainsKey("size")) { var s = V3(Obj(f["size"])["v3"]); c.size = new Vector3(Mathf.Abs(s.x), Mathf.Abs(s.y), Mathf.Abs(s.z)); }
-                        if (f.ContainsKey("center")) c.center = V3(Obj(f["center"])["v3"]);
-                        SetCollider3D(c, f);
-                        return true;
-                    }
-                    case "SphereCollider":
-                    {
-                        var c = go.AddComponent<SphereCollider>();
-                        c.radius = Num(f, "radius", 0.5f);
-                        if (f.ContainsKey("center")) c.center = V3(Obj(f["center"])["v3"]);
-                        SetCollider3D(c, f);
-                        return true;
-                    }
-                    case "CapsuleCollider":
-                    {
-                        var c = go.AddComponent<CapsuleCollider>();
-                        c.radius = Num(f, "radius", 0.5f);
-                        c.height = Num(f, "height", 2);
-                        if (f.ContainsKey("center")) c.center = V3(Obj(f["center"])["v3"]);
-                        SetCollider3D(c, f);
-                        return true;
-                    }
-                    case "Rigidbody2D":
-                    {
-                        // SceNoCo's enums carry Unity's own values.
-                        var rb = go.AddComponent<Rigidbody2D>();
-                        rb.bodyType = (RigidbodyType2D)(int)Num(f, "bodyType", 0);
-                        rb.useAutoMass = Bool(f, "useAutoMass", false);
-                        if (!rb.useAutoMass) rb.mass = Num(f, "mass", 1);
-                        rb.gravityScale = Num(f, "gravityScale", 1);
-                        rb.linearDamping = Num(f, "linearDamping", 0);
-                        rb.angularDamping = Num(f, "angularDamping", 0.05f);
-                        rb.constraints = (RigidbodyConstraints2D)(int)Num(f, "constraints", 0);
-                        if (Bool(f, "freezeRotation", false)) rb.freezeRotation = true;
-                        rb.collisionDetectionMode = (CollisionDetectionMode2D)(int)Num(f, "collisionDetectionMode", 0);
-                        return true;
-                    }
-                    case "BoxCollider2D":
-                    {
-                        var c = go.AddComponent<BoxCollider2D>();
-                        if (f.ContainsKey("size")) c.size = V2(f["size"]);
-                        SetCollider2D(c, f);
-                        return true;
-                    }
-                    case "CircleCollider2D":
-                    {
-                        var c = go.AddComponent<CircleCollider2D>();
-                        c.radius = Num(f, "radius", 0.5f);
-                        SetCollider2D(c, f);
-                        return true;
-                    }
-                    case "CapsuleCollider2D":
-                    {
-                        var c = go.AddComponent<CapsuleCollider2D>();
-                        if (f.ContainsKey("size")) c.size = V2(f["size"]);
-                        c.direction = (CapsuleDirection2D)(int)Num(f, "direction", 0);
-                        SetCollider2D(c, f);
-                        return true;
-                    }
-                    case "PolygonCollider2D":
-                    {
-                        var c = go.AddComponent<PolygonCollider2D>();
-                        if (f.ContainsKey("points")) c.SetPath(0, Points(f["points"]));
-                        SetCollider2D(c, f);
-                        return true;
-                    }
-                    case "EdgeCollider2D":
-                    {
-                        var c = go.AddComponent<EdgeCollider2D>();
-                        if (f.ContainsKey("points")) c.points = Points(f["points"]);
-                        SetCollider2D(c, f);
-                        return true;
-                    }
-                    // Joints: `connectedBody` is another node's, set by `WireJoints` once every node is built.
-                    case "FixedJoint2D":
-                    {
-                        var j = go.AddComponent<FixedJoint2D>();
-                        SetAnchored(j, f, true);
-                        j.frequency = Num(f, "frequency", 0);
-                        j.dampingRatio = Num(f, "dampingRatio", 0);
-                        return true;
-                    }
-                    case "HingeJoint2D":
-                    {
-                        var j = go.AddComponent<HingeJoint2D>();
-                        SetAnchored(j, f, true);
-                        j.useLimits = Bool(f, "useLimits", false);
-                        if (f.ContainsKey("limits")) { var l = Fields(f["limits"]); j.limits = new JointAngleLimits2D { min = Num(l, "min", 0), max = Num(l, "max", 359) }; }
-                        j.useMotor = Bool(f, "useMotor", false);
-                        if (f.ContainsKey("motor")) j.motor = Motor(f["motor"]);
-                        return true;
-                    }
-                    case "DistanceJoint2D":
-                    {
-                        var j = go.AddComponent<DistanceJoint2D>();
-                        SetAnchored(j, f, false);
-                        j.autoConfigureDistance = Bool(f, "autoConfigureDistance", true);
-                        if (f.ContainsKey("distance")) j.distance = Num(f, "distance", 1);
-                        j.maxDistanceOnly = Bool(f, "maxDistanceOnly", false);
-                        return true;
-                    }
-                    case "SpringJoint2D":
-                    {
-                        var j = go.AddComponent<SpringJoint2D>();
-                        SetAnchored(j, f, false);
-                        j.autoConfigureDistance = Bool(f, "autoConfigureDistance", true);
-                        if (f.ContainsKey("distance")) j.distance = Num(f, "distance", 1);
-                        j.dampingRatio = Num(f, "dampingRatio", 0);
-                        j.frequency = Num(f, "frequency", 1);
-                        return true;
-                    }
-                    case "SliderJoint2D":
-                    {
-                        var j = go.AddComponent<SliderJoint2D>();
-                        SetAnchored(j, f, true);
-                        j.autoConfigureAngle = Bool(f, "autoConfigureAngle", false);
-                        j.angle = Num(f, "angle", 0);
-                        j.useLimits = Bool(f, "useLimits", false);
-                        if (f.ContainsKey("limits")) { var l = Fields(f["limits"]); j.limits = new JointTranslationLimits2D { min = Num(l, "min", 0), max = Num(l, "max", 0) }; }
-                        j.useMotor = Bool(f, "useMotor", false);
-                        if (f.ContainsKey("motor")) j.motor = Motor(f["motor"]);
-                        return true;
-                    }
-                    case "WheelJoint2D":
-                    {
-                        var j = go.AddComponent<WheelJoint2D>();
-                        SetAnchored(j, f, true);
-                        if (f.ContainsKey("suspension"))
-                        {
-                            var s = Fields(f["suspension"]);
-                            j.suspension = new JointSuspension2D { dampingRatio = Num(s, "dampingRatio", 0.7f), frequency = Num(s, "frequency", 2), angle = Num(s, "angle", 90) };
-                        }
-                        j.useMotor = Bool(f, "useMotor", false);
-                        if (f.ContainsKey("motor")) j.motor = Motor(f["motor"]);
-                        return true;
-                    }
-                    case "FrictionJoint2D":
-                    {
-                        var j = go.AddComponent<FrictionJoint2D>();
-                        SetAnchored(j, f, true);
-                        j.maxForce = Num(f, "maxForce", 1);
-                        j.maxTorque = Num(f, "maxTorque", 1);
-                        return true;
-                    }
-                    case "RelativeJoint2D":
-                    {
-                        var j = go.AddComponent<RelativeJoint2D>();
-                        SetJoint(j, f);
-                        j.maxForce = Num(f, "maxForce", 10000);
-                        j.maxTorque = Num(f, "maxTorque", 10000);
-                        j.correctionScale = Num(f, "correctionScale", 0.3f);
-                        j.autoConfigureOffset = Bool(f, "autoConfigureOffset", true);
-                        if (f.ContainsKey("linearOffset")) j.linearOffset = V2(f["linearOffset"]);
-                        if (f.ContainsKey("angularOffset")) j.angularOffset = Num(f, "angularOffset", 0);
-                        return true;
-                    }
-                    case "TargetJoint2D":
-                    {
-                        var j = go.AddComponent<TargetJoint2D>();
-                        SetJoint(j, f);
-                        if (f.ContainsKey("anchor")) j.anchor = V2(f["anchor"]);
-                        j.autoConfigureTarget = Bool(f, "autoConfigureTarget", true);
-                        if (f.ContainsKey("target")) j.target = V2(f["target"]);
-                        j.maxForce = Num(f, "maxForce", 1000);
-                        j.dampingRatio = Num(f, "dampingRatio", 1);
-                        j.frequency = Num(f, "frequency", 5);
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            static void SetJoint(Joint2D j, Dictionary<string, object> f)
-            {
-                j.enableCollision = Bool(f, "enableCollision", false);
-                if (f.ContainsKey("breakForce")) j.breakForce = Num(f, "breakForce", float.PositiveInfinity);
-                if (f.ContainsKey("breakTorque")) j.breakTorque = Num(f, "breakTorque", float.PositiveInfinity);
-            }
-
-            /** `autoConfigureConnectedAnchor` before `connectedAnchor`: Unity overwrites the anchor while it is on. */
-            static void SetAnchored(AnchoredJoint2D j, Dictionary<string, object> f, bool autoByDefault)
-            {
-                SetJoint(j, f);
-                if (f.ContainsKey("anchor")) j.anchor = V2(f["anchor"]);
-                j.autoConfigureConnectedAnchor = Bool(f, "autoConfigureConnectedAnchor", autoByDefault);
-                if (f.ContainsKey("connectedAnchor")) j.connectedAnchor = V2(f["connectedAnchor"]);
-            }
-
-            /** A settings object's fields: `{ object: { fields } }`. */
-            static Dictionary<string, object> Fields(object v) => Obj(Obj(Obj(v)["object"])["fields"]);
-
-            static JointMotor2D Motor(object v)
-            {
-                var m = Fields(v);
-                return new JointMotor2D { motorSpeed = Num(m, "motorSpeed", 0), maxMotorTorque = Num(m, "maxMotorTorque", 10000) };
-            }
-
-            /** Each joint's `connectedBody`: the Rigidbody2D on the node it names, joints matched by type in order. */
-            public static void WireJoints(Dictionary<string, object> n, GameObject go, GameObject root, Action<string> warn)
-            {
-                var seen = new Dictionary<string, int>();
-                foreach (var comp in List(n["components"]).Select(Obj).Where(c => !(bool)c["game"]))
-                {
-                    var type = Str(comp, "type");
-                    var t = typeof(Joint2D).Assembly.GetType("UnityEngine." + type);
-                    if (t == null || !typeof(Joint2D).IsAssignableFrom(t)) continue;
-                    seen[type] = seen.TryGetValue(type, out var i) ? i + 1 : 0;
-                    if (!Obj(comp["fields"]).TryGetValue("connectedBody", out var link) || !(link is Dictionary<string, object> l) || !l.TryGetValue("node", out var path)) continue;
-                    var joint = (Joint2D)go.GetComponents(t)[seen[type]];
-                    var target = Find(root, (string)path);
-                    joint.connectedBody = target != null ? target.GetComponent<Rigidbody2D>() : null;
-                    if (joint.connectedBody == null) warn($"{type} on {go.name}: its connectedBody was not found");
-                }
-            }
-
-            static void SetCollider3D(Collider c, Dictionary<string, object> f)
-            {
-                c.isTrigger = Bool(f, "isTrigger", false);
-                if (!f.ContainsKey("friction") && !f.ContainsKey("bounciness")) return;
-                var friction = Num(f, "friction", 0.5f);
-                var bounce = Num(f, "bounciness", 0);
-                var path = $"Assets/Materials/Physics/Friction{friction:0.##}_Bounce{bounce:0.##}.asset".Replace(',', '.');
-                var m = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>(path);
-                if (m == null)
-                {
-                    m = new PhysicsMaterial { dynamicFriction = friction, staticFriction = friction, bounciness = bounce };
-                    Folder(Path.GetDirectoryName(path));
-                    AssetDatabase.CreateAsset(m, path);
-                }
-                c.sharedMaterial = m;
-            }
-
-            static void SetCollider2D(Collider2D c, Dictionary<string, object> f)
-            {
-                c.isTrigger = Bool(f, "isTrigger", false);
-                if (f.ContainsKey("offset")) c.offset = V2(f["offset"]);
-                if (f.ContainsKey("density")) c.density = Num(f, "density", 1);
-                // A shared PhysicsMaterial2D, or the collider's own friction and bounciness: one asset per pair.
-                var surface = f.TryGetValue("material", out var mv) && mv is Dictionary<string, object> mo && mo.TryGetValue("object", out var ov)
-                    ? Obj(Obj(ov)["fields"])
-                    : f;
-                if (!surface.ContainsKey("friction") && !surface.ContainsKey("bounciness")) return;
-                var friction = Num(surface, "friction", 0.4f);
-                var bounce = Num(surface, "bounciness", 0);
-                var path = $"Assets/Materials/Physics/Friction{friction:0.##}_Bounce{bounce:0.##}_2D.asset".Replace(',', '.');
-                var m = AssetDatabase.LoadAssetAtPath<PhysicsMaterial2D>(path);
-                if (m == null)
-                {
-                    m = new PhysicsMaterial2D { friction = friction, bounciness = bounce };
-                    Folder(Path.GetDirectoryName(path));
-                    AssetDatabase.CreateAsset(m, path);
-                }
-                c.sharedMaterial = m;
-            }
-
-            static Vector2 V2(object v)
-            {
-                var p = Floats(Obj(v)["v2"]);
-                return new Vector2(p[0], p[1]);
-            }
-
-            static Vector2[] Points(object v) =>
-                List(Obj(v)["array"]).Select(p => Floats(Obj(p)["v2"])).Select(p => new Vector2(p[0], p[1])).ToArray();
-        }
 
         // --- data ----------------------------------------------------------------------------------
 

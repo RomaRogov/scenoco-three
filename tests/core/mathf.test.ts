@@ -10,11 +10,15 @@ describe('Mathf', () => {
     expect(Mathf.pingPong(3, 2)).toBe(1);
 
     const samples = Array.from({ length: 2000 }, (_, i) => Mathf.perlinNoise(i * 0.137, i * 0.071 + 3));
-    expect(Math.min(...samples)).toBeGreaterThanOrEqual(-0.05);
-    expect(Math.max(...samples)).toBeLessThanOrEqual(1.05);
+    // Unity's reaches a little past 0..1, as its docs say.
+    expect(Math.min(...samples)).toBeGreaterThanOrEqual(-0.1);
+    expect(Math.max(...samples)).toBeLessThanOrEqual(1.1);
     expect(Math.max(...samples) - Math.min(...samples)).toBeGreaterThan(0.6);
     expect(Mathf.perlinNoise(1.25, 7.5)).toBe(Mathf.perlinNoise(1.25, 7.5));
     // Smooth: a hundredth of a unit apart, values a little apart.
     expect(Math.abs(Mathf.perlinNoise(4.5, 2.25) - Mathf.perlinNoise(4.51, 2.25))).toBeLessThan(0.03);
+    // Unity's own: Mathf.PerlinNoise in Unity 6 read these, to the last digit of a float.
+    const unity: [number, number, number][] = [[0, 0, 0.465273082], [0.5, 0.5, 0.2966959], [1.3, 2.7, 0.57015276], [10.25, 3.75, 0.559137], [180.1, 0.2, 0.499798238], [3.7, 9.1, 0.601141334], [-1.5, 0.5, 0.6338503]];
+    for (const [x, y, value] of unity) expect(Mathf.perlinNoise(x, y)).toBeCloseTo(value, 6);
   });
 });

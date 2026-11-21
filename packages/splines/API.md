@@ -49,14 +49,15 @@ class SplineAnimate extends Behaviour {  // moves its node along it: a train, a 
   play(): void;  pause(): void;
   restart(autoplay: boolean): void;
 }
-class SplineExtrude extends Behaviour<Mesh> {   // a tube along it, into its mesh's geometry: a pipe, a rail, a cable
+class SplineExtrude extends Behaviour<Mesh> {   // Unity's, vertex for vertex: a tube (a pipe, a cable) or a flat road strip
   container: SplineContainer | Object3D | null;
-  shape: 'circle' | 'square';            // 'circle'
-  radius: number;                        // 0.25
+  shape: 'circle' | 'square' | 'road';   // 'circle'
+  radius: number;                        // 0.25: a circle's radius, a square's side, a road's width; v is metres along
   sides: number;                         // 8
   segmentsPerUnit: number;               // 4
   capped: boolean;                       // true
   range: Vector2;                        // (0, 1): the part covered, as t from and to
+  flipNormals: boolean;                  // false
   rebuild(): void;
 }
 class SplineMesh extends Behaviour<Mesh> {   // a modelled piece bent along it, end to end: a road with its kerbs, a fence
