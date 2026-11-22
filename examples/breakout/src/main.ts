@@ -23,5 +23,3 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
 // Its own fade only: the bar's fill ends transitions inside it too.
 loading.addEventListener('transitionend', (e) => e.target === loading && loading.remove());
 
-// keepFrameRate (frameRate.ts) is off for now: it took a load's slow frames for a slow device and
-// lowered capable ones. Its extras, when it comes back: the bloom (its Bloom component off), then the balls' lights (BallLights.on = false).

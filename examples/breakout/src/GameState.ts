@@ -105,13 +105,11 @@ export class GameState extends Behaviour {
     if (this.progress && !this.progress.loseLife()) {
       this.phase = 'lost';
       this.sfx?.play('over');
-      this.progress.redraw();
       return;
     }
     this.sfx?.play('lose');
     this.phase = 'ready';
     this.ballReset.emit();
-    this.progress?.redraw();
   }
 
   /** Multi-ball: every ball in play becomes three. */
@@ -125,7 +123,6 @@ export class GameState extends Behaviour {
     if (this.phase !== 'ready') return;
     this.phase = 'playing';
     this.sfx?.play('launch');
-    this.progress?.redraw();
   }
 
   /** Pickups still falling and bolts still flying go with the rally that made them. */
@@ -144,6 +141,5 @@ export class GameState extends Behaviour {
       destroy(ball.node);
     }
     this.ballReset.emit();
-    this.progress?.redraw();
   }
 }

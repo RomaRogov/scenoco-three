@@ -31,8 +31,11 @@ export class SunFollow extends Behaviour<DirectionalLight> {
     const box = light.shadow.camera;
     box.left = box.bottom = -this.radius;
     box.right = box.top = this.radius;
-    box.near = 1;
-    box.far = this.offset.length() + this.radius * 2;
+    // Deep enough for what stands in the box and no deeper: a shadow's bias is a share of this depth,
+    // so a deeper box lifts every shadow further off the ground. 10 m of headroom for the tallest trees.
+    const distance = this.offset.length();
+    box.near = Math.max(1, distance - this.radius - 10);
+    box.far = distance + this.radius;
     box.updateProjectionMatrix();
   }
 

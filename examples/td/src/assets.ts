@@ -17,15 +17,12 @@ import arrowUrl from './models/arrow.glb?url';
 import cannonballUrl from './models/cannonball.glb?url';
 import shardUrl from './models/shard.glb?url';
 import pineUrl from './models/pine.glb?url';
-import pineSnowUrl from './models/pine_snow.glb?url';
 import treeUrl from './models/tree.glb?url';
 import rockUrl from './models/rock.glb?url';
 import lanternUrl from './models/lantern.glb?url';
 import bridgeUrl from './models/bridge.glb?url';
 
 import meadowTerrainUrl from './levels/meadow/meadow.terrain?url';
-import canyonTerrainUrl from './levels/canyon/canyon.terrain?url';
-import frostTerrainUrl from './levels/frost/frost.terrain?url';
 
 /** Generated from images by TRELLIS.2 (asset lab), and scripted in Blender (blender/props.py). */
 export const models = {
@@ -44,7 +41,6 @@ export const models = {
   cannonball: sharedModel(cannonballUrl, { castShadow: false }),
   shard: sharedModel(shardUrl, { castShadow: false }),
   pine: sharedModel(pineUrl),
-  pineSnow: sharedModel(pineSnowUrl),
   tree: sharedModel(treeUrl),
   rock: sharedModel(rockUrl),
   lantern: sharedModel(lanternUrl),
@@ -71,13 +67,15 @@ export const BridgeModel = prefab(models.bridge);
 
 // Each level's layer textures, by file name.
 const layerFiles = import.meta.glob<string>('./levels/*/layers/*.jpg', { query: '?url', import: 'default', eager: true });
-const layersOf = (level: string) => Object.fromEntries(Object.entries(layerFiles).filter(([path]) => path.startsWith(`./levels/${level}/`)));
+export const layersOf = (level: string) => Object.fromEntries(Object.entries(layerFiles).filter(([path]) => path.startsWith(`./levels/${level}/`)));
 
-/** The asset lab's terrains (`lab terrain levels/td-*.json`): heights, layer weights and layer textures. */
+/**
+ * The asset lab's terrains (`lab terrain levels/td-*.json`): heights, layer weights and layer textures.
+ * Here only the meadow's, which the menu shows; each other level declares its own above its scene, and
+ * loads with it when it is chosen (`routes.ts`).
+ */
 export const terrains = {
   meadow: new TerrainData(meadowTerrainUrl, layersOf('meadow')),
-  canyon: new TerrainData(canyonTerrainUrl, layersOf('canyon')),
-  frost: new TerrainData(frostTerrainUrl, layersOf('frost')),
 };
 
 export const allAssets: Loadable[] = [...Object.values(models), ...Object.values(terrains)];

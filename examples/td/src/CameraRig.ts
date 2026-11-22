@@ -1,5 +1,5 @@
 import { MathUtils, type PerspectiveCamera, Vector3 } from 'three';
-import { Behaviour, Event, Input, Screen } from '@scenoco-three/core';
+import { Behaviour, Event, Input, Random, Screen } from '@scenoco-three/core';
 
 /**
  * The level's camera, tilted over the map. Held upright it frames `width` units across; on a wide
@@ -96,8 +96,8 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
     if (this.shakeLeft > 0) {
       this.shakeLeft -= dt;
       const s = this.shakeStrength * Math.max(0, this.shakeLeft / 0.35);
-      camera.position.x += (Math.random() * 2 - 1) * s;
-      camera.position.y += (Math.random() * 2 - 1) * s;
+      camera.position.x += Random.range(-s, s);
+      camera.position.y += Random.range(-s, s);
     } else {
       this.shakeStrength = 0;
     }

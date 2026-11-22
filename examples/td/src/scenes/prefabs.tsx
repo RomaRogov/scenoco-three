@@ -9,7 +9,6 @@ import { Enemy } from '../Enemy';
 import { HealthBar } from '../HealthBar';
 import { PlaceOnPath } from '../PlaceOnPath';
 import { Projectile } from '../Projectile';
-import { Punch } from '../Punch';
 import { SelectionMarker } from '../SelectionMarker';
 import { SnapToGround } from '../SnapToGround';
 import { Spin } from '../Spin';
@@ -229,7 +228,6 @@ export const ArcherTower = prefab(() => {
     <Group name="archer tower">
       <Tower kind="archer" projectile={Arrow} upgradeBurst={UpgradeBurst} body={body} stars={stars} aura={aura} sound="arrow" muzzle={2.6} />
       <Group ref={body}>
-        <Punch popIn />
         <ArcherModel scale={3.494} />
       </Group>
       <Stars ref={stars} position={[0, 3.9, 0]} />
@@ -246,7 +244,6 @@ export const CannonTower = prefab(() => {
     <Group name="cannon tower">
       <Tower kind="cannon" projectile={Cannonball} flash={Muzzle} upgradeBurst={UpgradeBurst} body={body} stars={stars} aura={aura} sound="cannon" muzzle={1.9} turns facing={180} />
       <Group ref={body}>
-        <Punch popIn />
         <CannonModel scale={2.449} />
       </Group>
       <Stars ref={stars} position={[0, 3, 0]} />
@@ -263,7 +260,6 @@ export const MageTower = prefab(() => {
     <Group name="mage tower">
       <Tower kind="mage" projectile={MagicBolt} upgradeBurst={UpgradeBurst} body={body} stars={stars} aura={aura} sound="magic" muzzle={3.1} />
       <Group ref={body}>
-        <Punch popIn />
         <MageModel scale={3.908} />
       </Group>
       <Stars ref={stars} position={[0, 4.1, 0]} />
@@ -280,7 +276,6 @@ export const FrostTower = prefab(() => {
     <Group name="frost tower">
       <Tower kind="frost" projectile={IceShard} upgradeBurst={UpgradeBurst} body={body} stars={stars} aura={aura} sound="frost" muzzle={2.4} />
       <Group ref={body}>
-        <Punch popIn />
         <FrostModel scale={4.461} />
       </Group>
       <Stars ref={stars} position={[0, 3.5, 0]} />
@@ -312,16 +307,18 @@ export const Lantern = prefab(() => (
 ));
 
 /** The castle at the end of the path. */
-export const Keep = prefab(() => (
-  <Group name="castle">
-    <PlaceOnPath t={1} offset={[0, -0.1, 0.205]} yaw={180} radius={2.2} />
-    <Castle flare={CastleHit} />
-    <Group>
-      <Punch />
-      <CastleModel scale={0.929} />
+export const Keep = prefab(() => {
+  const body = ref<Group>();
+  return (
+    <Group name="castle">
+      <PlaceOnPath t={1} offset={[0, -0.1, 0.205]} yaw={180} radius={2.2} />
+      <Castle body={body} flare={CastleHit} />
+      <Group ref={body}>
+        <CastleModel scale={0.929} />
+      </Group>
     </Group>
-  </Group>
-));
+  );
+});
 
 /** The cave the enemies come out of. */
 export const Lair = prefab(() => (

@@ -1,5 +1,5 @@
 import { Vector3, type Color, type Mesh, type MeshStandardMaterial } from 'three';
-import { Behaviour, destroy, findObjectOfType, instantiate, type Prefab } from '@scenoco-three/core';
+import { Behaviour, Ease, Tween, destroy, findObjectOfType, instantiate, type Prefab } from '@scenoco-three/core';
 import { BONUSES, type Bonus } from './bonus.js';
 import { GameState } from './GameState.js';
 
@@ -28,8 +28,6 @@ export class Brick extends Behaviour<Mesh> {
 
   private left = 1;
   private game!: GameState;
-  /** The flash of the last hit, fading: added to the glow, and to the scale as a kick. */
-  private flash = 0;
   private readonly rest = new Vector3();
 
   override awake(): void {
@@ -71,14 +69,6 @@ export class Brick extends Behaviour<Mesh> {
     this.rest.copy(this.node.scale);
   }
 
-  override update(dt: number): void {
-    if (this.flash <= 0) return;
-    this.flash = Math.max(0, this.flash - dt * 5);
-    const kick = 1 + this.flash * 0.12;
-    this.node.scale.set(this.rest.x * kick, this.rest.y * kick, this.rest.z);
-    this.material.emissiveIntensity = this.glow + this.flash * 4;
-  }
-
   /** Called by the ball and by a laser bolt. True when this was the hit that broke it. */
   hit(): boolean {
     this.left -= 1;
@@ -109,9 +99,16 @@ export class Brick extends Behaviour<Mesh> {
     return 2.4 * (0.45 + (0.55 * this.left) / this.hits);
   }
 
-  /** Show the damage: the frame dims and the body darkens. */
+  /** Show the damage: the body darkens, and the brick kicks and flashes, settling in a fifth of a second. */
   private damage(): void {
-    this.material.color.multiplyScalar(0.7);
-    this.flash = 1;
+    const material = this.material;
+    material.color.multiplyScalar(0.7);
+    // The last hit's flash ends where this one starts: a quick rally never stacks kicks.
+    this.node.doKill();
+    Tween.kill(material);
+    this.node.scale.set(this.rest.x * 1.12, this.rest.y * 1.12, this.rest.z);
+    this.node.doScale(this.rest, 0.2).setEase(Ease.Linear);
+    material.emissiveIntensity = this.glow + 4;
+    material.doFloat(this.glow, 'emissiveIntensity', 0.2).setEase(Ease.Linear).setLink(this);
   }
 }

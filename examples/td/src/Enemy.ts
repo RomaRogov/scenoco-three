@@ -1,5 +1,5 @@
 import { type Object3D, Vector3 } from 'three';
-import { Behaviour, destroy, findObjectOfType, instantiate, type Prefab } from '@scenoco-three/core';
+import { Behaviour, destroy, findObjectOfType, instantiate, Random, type Prefab } from '@scenoco-three/core';
 import { SplineContainer } from '@scenoco-three/splines';
 import { ENEMIES, type EnemyKind } from './data';
 import { Game } from './Game';
@@ -70,7 +70,7 @@ export class Enemy extends Behaviour {
     this.terrain = findObjectOfType(Terrain);
     this.length = this.path?.calculateLength() ?? 1;
     // A lane of its own across the road, so a crowd spreads out instead of stacking up.
-    this.lane = (Math.random() * 2 - 1) * 0.45;
+    this.lane = Random.range(-0.45, 0.45);
     if (this.path) this.place(0);
   }
 

@@ -2,12 +2,14 @@ import { Color, DirectionalLight, Fog, Group, HemisphereLight, Mesh, Object3D, P
 import { UIDocument, ref } from '@scenoco-three/core';
 import { SplineAnimate, SplineContainer, SplineInstantiate, SplineMesh } from '@scenoco-three/splines';
 import { Terrain } from '@scenoco-three/terrain';
-import { Tonemapping, Volume } from '@scenoco-three/postprocessing';
+import { ChromaticAberration, DepthOfField, Tonemapping, Vignette, Volume } from '@scenoco-three/postprocessing';
 import { ground, models } from '../assets';
 import { ChaseCamera } from '../ChaseCamera';
 import { Car, Drone, Lamp } from '../prefabs';
+import { QualityMenu } from '../QualityMenu';
 import { RaceControl } from '../RaceControl';
 import { Scatter } from '../Scatter';
+import { SpeedLook } from '../SpeedLook';
 import { SunFollow } from '../SunFollow';
 import { TouchStick } from '../TouchStick';
 
@@ -27,14 +29,18 @@ export const Race = () => {
       <Fog attach="fog" args={['#9fc6e8', 70, 200]} />
       <HemisphereLight args={['#dff0ff', '#4a5a3a', 1.2]} />
       {/* The sun: its shadows kept around where the camera looks, not over the whole map. */}
-      <DirectionalLight position={[40, 80, 30]} intensity={2.2} castShadow shadow-bias={-0.0004}>
+      <DirectionalLight position={[40, 80, 30]} intensity={2.2} castShadow shadow-bias={-0.0001} shadow-normalBias={0.04}>
         <SunFollow radius={45} ahead={25} mapSize={2048} />
       </DirectionalLight>
 
-      {/* The picture: ACES, as URP's Volume and its profile. */}
+      {/* The picture: ACES, as URP's Volume and its profile — and a lens that SpeedLook drives with the race. */}
       <Group name="look">
         <Volume />
         <Tonemapping mode="ACES" />
+        <Vignette intensity={0.12} smoothness={0.45} />
+        <ChromaticAberration intensity={0} />
+        <DepthOfField focalLength={60} />
+        <SpeedLook />
       </Group>
 
       <PerspectiveCamera position={[0, 80, 30]} args={[55, 1, 0.1, 600]}>
@@ -82,6 +88,7 @@ export const Race = () => {
 
       <UIDocument referenceResolution={[960, 540]} />
       <RaceControl laps={3} tracks={[Race]} />
+      <QualityMenu />
       <TouchStick element="stick" axis="Horizontal" />
 
       {/* The grid, just past the start line, the track running +X: each car in its own lane — left of

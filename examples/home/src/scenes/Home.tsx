@@ -32,8 +32,9 @@ export const Home = () => (
     <Fog attach="fog" args={['#05070d', 16, 42]} />
     <HemisphereLight args={['#cfe6ff', '#0b1220', 0.9]} />
     <DirectionalLight
-      position={[5, 12, 8]} intensity={2.4} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005}
+      position={[5, 12, 8]} intensity={2.4} castShadow shadow-mapSize={[2048, 2048]}
       shadow-camera-left={-10} shadow-camera-right={10} shadow-camera-top={10} shadow-camera-bottom={-10}
+      shadow-camera-near={1} shadow-camera-far={30} shadow-bias={-0.0002} shadow-normalBias={0.02}
     />
     <PerspectiveCamera position={[0, 3.4, 12.5]} rotation={[-0.16, 0, 0]}>
       <CameraFit width={12.5} height={7.5} distance={12.5} />

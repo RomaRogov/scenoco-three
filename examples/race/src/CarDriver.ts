@@ -43,7 +43,6 @@ export class CarDriver extends Behaviour<Group> {
   override update(): void {
     if (this.human && (Input.getKeyDown(KeyCode.H) || Input.getButtonDown('Assist') || Input.getKeyDown(KeyCode.JoystickButton3))) {
       this.assisting = !this.assisting;
-      console.info(`assist: ${this.assisting ? 'on' : 'off'}`);
     }
     if (this.race && !this.race.racing) {
       this.car.throttle = 0;

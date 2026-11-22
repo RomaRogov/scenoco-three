@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Playground — SceNoCo</title>
+    <link rel="icon" href="data:," />
+    <style>
+      /* The page around the game: the UI below is UI Toolkit's, its USS here and its UXML in the body. */
+      html, body { margin: 0; height: 100%; background: #bcd9ee; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+      canvas { display: block; }
+      #ui { font-family: system-ui; color: #10263a; }
+      .card { position: absolute; padding: 10px 16px; border-radius: 12px; background-color: rgba(255, 255, 255, 0.85); border-width: 1px; border-style: solid; border-color: rgba(16, 38, 58, 0.15); }
+      #title { top: 14px; left: 14px; }
+      #title .name { font-size: 20px; font-weight: 800; }
+      #title .what { font-size: 12px; opacity: 0.65; }
+      #coins { top: 14px; right: 14px; display: flex; flex-direction: row; align-items: center; font-size: 22px; font-weight: 800; transition: scale 0.12s; }
+      #coins .dot { width: 16px; height: 16px; margin-right: 8px; border-radius: 8px; background-color: #ffc83d; }
+      #coins.bump { scale: 1.2; }
+      #hint { bottom: 14px; left: 50%; translate: -50% 0; font-size: 13px; font-weight: 600; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <div class="card" id="title"><div class="name">Playground</div><div class="what">Rapier physics, joints and a character, in SceNoCo</div></div>
+      <div class="card" id="coins"><div class="dot"></div><div id="coin-count">0</div></div>
+      <div class="card" id="hint">WASD / arrows move · Space jump · click to shove · step on the plate</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

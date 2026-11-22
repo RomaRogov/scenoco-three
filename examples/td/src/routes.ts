@@ -1,14 +1,19 @@
-import type { SceneManager } from '@scenoco-three/core';
+import { SceneManager } from '@scenoco-three/core';
 import type { LevelId } from './levels';
-import { Canyon } from './scenes/Canyon';
-import { Frost } from './scenes/Frost';
-import { Meadow } from './scenes/Meadow';
-import { Menu } from './scenes/Menu';
 
 /**
- * Every scene by name, for the buttons that move between them. A function, not a table: the scenes
- * import the behaviours that call this, so a table built at load would read them half-defined.
+ * Every scene by name, for the buttons that move between them — each fetched when it is asked for.
+ * `SceneManager.loadAsync` is Unity's `LoadSceneAsync`: the level's module, then the ground and models
+ * it declares, then the scene. So the menu never waits for a later level's terrain, and each level is
+ * its own chunk of the build.
  */
-export function route(name: LevelId | 'menu'): Parameters<typeof SceneManager.load>[0] {
-  return { menu: Menu, meadow: Meadow, canyon: Canyon, frost: Frost }[name];
+const scenes = {
+  menu: () => import('./scenes/Menu').then((m) => m.Menu),
+  meadow: () => import('./scenes/Meadow').then((m) => m.Meadow),
+  canyon: () => import('./scenes/Canyon').then((m) => m.Canyon),
+  frost: () => import('./scenes/Frost').then((m) => m.Frost),
+};
+
+export function goTo(name: LevelId | 'menu'): Promise<void> {
+  return SceneManager.loadAsync(scenes[name]);
 }

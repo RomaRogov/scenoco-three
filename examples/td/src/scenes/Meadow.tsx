@@ -12,7 +12,8 @@ export const Meadow = () => (
     <DirectionalLight
       position={[16, 32, 12]} intensity={2.3} castShadow
       shadow-mapSize={[1024, 1024]} shadow-camera-left={-36} shadow-camera-right={36}
-      shadow-camera-top={36} shadow-camera-bottom={-36} shadow-camera-far={90} shadow-bias={-0.0005}
+      shadow-camera-top={36} shadow-camera-bottom={-36} shadow-camera-near={1} shadow-camera-far={80}
+      shadow-bias={-0.0001} shadow-normalBias={0.05}
     />
     <Look />
     <PerspectiveCamera fov={40}>

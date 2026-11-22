@@ -1,10 +1,9 @@
 import { type Object3D, Vector3 } from 'three';
-import { Behaviour, findObjectOfType, findObjectsOfType, instantiate, type Prefab } from '@scenoco-three/core';
+import { Behaviour, Ease, findObjectOfType, findObjectsOfType, instantiate, type Prefab } from '@scenoco-three/core';
 import type { BuildPad } from './BuildPad';
 import { TOWERS, type TowerKind } from './data';
 import { Enemy } from './Enemy';
 import { Projectile } from './Projectile';
-import { Punch } from './Punch';
 import { Sfx, type SoundName } from './Sfx';
 
 
@@ -14,7 +13,7 @@ import { Sfx, type SoundName } from './Sfx';
  */
 export class Tower extends Behaviour {
   kind: TowerKind = 'archer';
-  /** The model, which recoils when it fires. */
+  /** The model: it rises out of the pad, squashes when it fires, and grows with each upgrade. */
   body: Object3D | null = null;
   /** Three stars over it, one lit per level. */
   stars: Object3D | null = null;
@@ -49,8 +48,15 @@ export class Tower extends Behaviour {
     return this.level < 3 ? TOWERS[this.kind].levels[this.level]! : null;
   }
 
+  /** The model's size at its level: each upgrade grows it a tenth. */
+  private get size() {
+    return 1 + (this.level - 1) * 0.1;
+  }
+
   override start() {
     this.showLevel();
+    // It rises out of the pad: from nothing to its size, overshooting a little — DOTween's From().
+    this.body?.doScale(0, 0.45).from().setEase(Ease.OutBack);
   }
 
   override update(dt: number) {
@@ -82,7 +88,8 @@ export class Tower extends Behaviour {
     this.level++;
     this.invested += next.cost;
     this.showLevel();
-    this.body?.getComponent(Punch)?.punch(-0.35);
+    this.body?.doComplete();
+    this.body?.doScale(this.size, 0.4).setEase(Ease.OutBack);
     if (this.upgradeBurst) instantiate(this.upgradeBurst, { position: this.node.position.clone() });
   }
 
@@ -104,13 +111,18 @@ export class Tower extends Behaviour {
     const shot = instantiate(this.projectile!, { position: from });
     shot.getComponent(Projectile)?.launch(target, this.stats, TOWERS[this.kind].magic);
     if (this.flash) instantiate(this.flash, { position: from });
-    this.body?.getComponent(Punch)?.punch(0.16);
+    this.squash(0.16);
     findObjectOfType(Sfx)?.play(this.sound, 0.6);
   }
 
+  /** Wider and shorter for a moment, wobbling back — DOTween's DOPunchScale, finished first so punches never stack. */
+  private squash(amount: number) {
+    if (!this.body) return;
+    this.body.doComplete();
+    this.body.doPunchScale(new Vector3(amount / 2, -amount, amount / 2).multiplyScalar(this.size), 0.3, 6, 0.5);
+  }
+
   private showLevel() {
-    const punch = this.body?.getComponent(Punch);
-    if (punch) punch.rest = 1 + (this.level - 1) * 0.1;
     this.stars?.children.forEach((star, i) => (star.visible = i < this.level));
     if (this.aura) this.aura.visible = this.level === 3;
   }

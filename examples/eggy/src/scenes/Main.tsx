@@ -42,7 +42,7 @@ export const Main = () => {
         {/* Unity's sun, kept over the egg so its shadows stay sharp along a long slope. Shadows reach
             40 m around it, as far as the Unity project's High quality cast them. */}
         <DirectionalLight intensity={Math.PI * 0.78} position={[-15.7555, 24.308, 7.8029]} castShadow shadow-intensity={0.848} shadow-mapSize={[4096, 4096]}
-          shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} shadow-camera-far={120} shadow-bias={-0.0005}>
+          shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} shadow-camera-near={1} shadow-camera-far={72} shadow-bias={-0.0001} shadow-normalBias={0.03}>
           {/* Its target rides with it, so it shines the same way wherever the camera has followed the egg. */}
           <Object3D attach="target" position={[15.7555, -24.308, -7.8029]} />
         </DirectionalLight>

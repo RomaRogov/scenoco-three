@@ -1,11 +1,10 @@
-import { Behaviour, destroy } from '@scenoco-three/core';
+import { Behaviour, Tween, destroy } from '@scenoco-three/core';
 
-/** Removes its node after `seconds`: a one-off effect cleaning up after itself. */
+/** Removes its node `seconds` after it starts: a one-off effect cleaning up after itself. */
 export class AutoDestroy extends Behaviour {
   seconds = 1.5;
 
-  override update(dt: number) {
-    this.seconds -= dt;
-    if (this.seconds <= 0) destroy(this.node);
+  override start() {
+    Tween.delayedCall(this.seconds, () => destroy(this.node)).setLink(this);
   }
 }

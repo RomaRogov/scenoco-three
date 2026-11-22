@@ -8,7 +8,7 @@ import { easingName } from '../../packages/unity/src/page.js';
  * ports to Unity file by file. The home page is the site.
  */
 const root = new URL('../../', import.meta.url).pathname;
-const pages = ['examples/breakout', 'examples/eggy', 'examples/race', 'examples/td', 'packages/create/template'];
+const pages = ['examples/breakout', 'examples/eggy', 'examples/playground', 'examples/race', 'examples/td', 'packages/create/template'];
 
 /** CSS that USS does not have — the card's "Not there" list. */
 const NOT_USS: [string, RegExp][] = [

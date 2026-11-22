@@ -1,5 +1,5 @@
 import './gamma';
-import { LinearSRGBColorSpace, PCFSoftShadowMap, WebGLRenderer } from 'three';
+import { LinearSRGBColorSpace, PCFShadowMap, WebGLRenderer } from 'three';
 import { loadAssets, play } from '@scenoco-three/core';
 import { Physics, initRapier } from '@scenoco-three/rapier';
 import { allAssets } from './assets';
@@ -34,7 +34,7 @@ const game = play(Main, { renderer });
 game.renderer.setClearAlpha(0);
 game.renderer.outputColorSpace = LinearSRGBColorSpace; // gamma.ts: nothing encoded on the way out
 game.renderer.shadowMap.enabled = shadowsWork(game.renderer.getContext());
-game.renderer.shadowMap.type = PCFSoftShadowMap;
+game.renderer.shadowMap.type = PCFShadowMap;
 game.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 // Between the gradient behind it and the UI over it.
 document.getElementById('ui')!.before(game.renderer.domElement);

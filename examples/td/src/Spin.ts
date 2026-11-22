@@ -1,20 +1,23 @@
-import { Behaviour } from '@scenoco-three/core';
+import { Vector3 } from 'three';
+import { Behaviour, Ease, LoopType, Random, RotateMode } from '@scenoco-three/core';
 
-/** Turns and bobs its node: the stars over an upgraded tower. */
+/** Turns and bobs its node for ever: the stars over an upgraded tower. Two looping tweens, as DOTween's SetLoops(-1). */
 export class Spin extends Behaviour {
+  /** Radians a second about y. */
   speed = 1.5;
+  /** How far it bobs above and below where it was placed. */
   bob = 0.08;
 
-  private time = Math.random() * 10;
-  private base = 0;
-
   override start() {
-    this.base = this.node.position.y;
-  }
-
-  override update(dt: number) {
-    this.time += dt;
-    this.node.rotation.y += this.speed * dt;
-    this.node.position.y = this.base + Math.sin(this.time * 2.4) * this.bob;
+    const node = this.node;
+    node.doLocalRotate(new Vector3(0, 360, 0), (Math.PI * 2) / this.speed, RotateMode.FastBeyond360)
+      .setEase(Ease.Linear)
+      .setLoops(-1, LoopType.Incremental);
+    // Down to its lowest, then up and down for ever — each on its own beat.
+    node.position.y -= this.bob;
+    node.doLocalMoveY(node.position.y + 2 * this.bob, 1.3)
+      .setEase(Ease.InOutSine)
+      .setLoops(-1, LoopType.Yoyo)
+      .setDelay(Random.range(0, 1.3));
   }
 }

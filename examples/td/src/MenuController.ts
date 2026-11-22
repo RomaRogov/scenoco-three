@@ -1,8 +1,8 @@
-import { Behaviour, SceneManager, Screen } from '@scenoco-three/core';
+import { Behaviour, Screen } from '@scenoco-three/core';
 import { $, appear, arrive, clone, loop, shake } from './hud';
 import { LEVELS, LEVEL_ORDER, type LevelId } from './levels';
 import { loadStars } from './progress';
-import { route } from './routes';
+import { goTo } from './routes';
 import { Sfx } from './Sfx';
 
 /** The title screen: one card per level, its stars, locked until the one before is won. */
@@ -53,14 +53,18 @@ export class MenuController extends Behaviour {
     $('ui').classList.toggle('wide', Screen.width > Screen.height * 1.5);
   }
 
+  private starting = false;
+
   override onDestroy() {
     for (const undo of this.cleanup) undo();
   }
 
   private play(id: LevelId) {
+    if (this.starting) return; // a second tap while the level loads
+    this.starting = true;
     this.getComponent(Sfx)?.play('click');
     $('title').classList.add('hidden');
-    SceneManager.load(route(id));
+    void goTo(id);
   }
 
   private refuse(card: HTMLElement) {

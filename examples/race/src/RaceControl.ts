@@ -18,7 +18,7 @@ export class RaceControl extends Behaviour {
 
   /** Cars may drive: after the countdown, until the player finishes. */
   racing = false;
-  private finished = false;
+  finished = false;
   private player: CarDriver | null = null;
   private hud!: Record<'ui' | 'count' | 'lap' | 'place' | 'speed' | 'assist' | 'assistState' | 'banner' | 'result', HTMLElement>;
 
@@ -62,7 +62,6 @@ export class RaceControl extends Behaviour {
       yield new WaitForSeconds(0.6);
     }
     this.racing = true;
-    console.info('phase: racing');
     yield* this.show('GO');
   }
 
@@ -91,7 +90,6 @@ export class RaceControl extends Behaviour {
       this.racing = false;
       this.hud.result.textContent = place === 1 ? 'YOU WIN' : `${ordinal(place)} PLACE`;
       this.hud.banner.classList.add('shown');
-      console.info(`phase: finished ${place}/${order.length}`);
     }
   }
 
