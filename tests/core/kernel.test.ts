@@ -357,4 +357,18 @@ describe('destroying a node', () => {
     runtime.update(1 / 60);
     expect(logs.map((b) => b.log.includes('onDestroy'))).toEqual([true, true, true]);
   });
+
+  it('says it is destroyed once the frame ends, and so is everything under it — as Unity\'s object compares to null', () => {
+    const scene = new Scene();
+    const runtime = new Runtime(scene);
+    runtimes.push(runtime);
+    const node = new Object3D();
+    const child = new Object3D();
+    node.add(child);
+    scene.add(node);
+    destroy(node);
+    expect(node.isDestroyed).toBe(false);
+    runtime.update(1 / 60);
+    expect([node.isDestroyed, child.isDestroyed, scene.isDestroyed]).toEqual([true, true, false]);
+  });
 });

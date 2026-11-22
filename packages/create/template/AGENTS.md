@@ -50,7 +50,9 @@ tags are empty behaviours — `class Enemy extends Behaviour {}`, `<Enemy />` on
 instance's Transform does — `<Coin position={[2, 0, 0]} name="bonus" />` — so a prefab never declares
 `position`, `rotation`, `scale` or `name` itself. Only a prefab is instantiated —
 `instantiate(Coin, { position })` builds a fresh one each call — or taken by a field, as Unity's
-inspector does: `shot: Prefab | null = null`, `<Gun shot={Bullet} />`. A function not wrapped is a
+inspector does: `shot: Prefab | null = null`, `<Gun shot={Bullet} />`. A prefab tag's children are that
+copy's own, as objects and components added to a Unity prefab instance: `<Enemy position={[3, 0, 0]}>
+<Chase target={player} /></Enemy>` links one copy to the scene's player. A function not wrapped is a
 plain TSX component, reused markup whose tag is its props: `<Arena ballSpeed={16} />`. Anything
 placed more than once — a wall, a tree, a crate, static or not — is a prefab, with what differs as
 its props: `export const Wall = prefab(({ width = 1 }) => …)`, `<Wall position={[-9, 0, 0]} width={0.5} />`.
@@ -116,9 +118,12 @@ says what it did. A prefab's props show in the editor at their defaults. Give su
 placing them by hand, as behaviours: snap to a grid in `onValidate` — with a `snap = true` field to
 turn it off — clamp a value, keep to a path.
 
-**Assets.** A glTF model is `const hero = sharedModel('/hero.glb')`, awaited with
-`await loadAssets(hero)` in `main.ts`. A model is a prefab, as in Unity: `export const Hero =
-prefab(hero)`, placed as `<Hero scale={0.5} />` or by `instantiate(Hero)`. Its meshes cast and take
+**Assets.** A glTF model is declared, `const hero = sharedModel('/hero.glb')` — above the scene in the
+file that places it, or in a module of its own — and `play` loads every declared model and sound before
+the first scene; `await loadAssets(hero)` is for a loading screen, or a test under `simulate`. A level
+only `import()`ed waits until asked for: `await SceneManager.loadAsync(() => import('./Level3').then((m) => m.Level3))`
+loads its module and what it declares, then the scene, as Unity's `LoadSceneAsync`. A model is
+a prefab, as in Unity: `export const Hero = prefab(hero)`, placed as `<Hero scale={0.5} />` or by `instantiate(Hero)`. Its meshes cast and take
 shadows; `sharedModel(url, { castShadow: false })` says otherwise for every copy. Its clips play
 through an `Animator` (`addComponent(Animator)`, `animator.crossFade('Run', 0.1)`). A texture is
 `sharedTexture(url)`: one per URL, shared by every material that uses it.
@@ -188,7 +193,7 @@ From Unity: gameObject/transform → `this.node` · transform.localPosition → 
 (three's position is in the parent's space) · transform.position → `this.node.getWorldPosition(v)` ·
 Time.deltaTime → `update(dt)` or `Time.deltaTime` · Screen.width → `Screen.width` (not `innerWidth`) ·
 GetComponent<T>() → `getComponent(T)` · FindObjectOfType<T>() → `findObjectOfType(T)` ·
-Instantiate → `instantiate` · Destroy → `destroy` · Camera.main → `this.camera` ·
+Instantiate → `instantiate` · Destroy → `destroy` · a destroyed `obj == null` → `node.isDestroyed` · gameObject.scene → `this.node.scene` · Camera.main → `this.camera` ·
 StartCoroutine → `this.startCoroutine` · `yield return new WaitForSeconds(1)` → `yield new WaitForSeconds(1)` ·
 transform.DOMove → `this.node.doMove` · material.DOFade → `material.doFade` · DOTween.Sequence() → `Tween.sequence()` ·
 DOTween.To → `Tween.to` · DOVirtual.DelayedCall → `Tween.delayedCall` · DOVirtual.Float → `Tween.float`

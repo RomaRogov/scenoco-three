@@ -3,6 +3,7 @@ import { Behaviour } from './kernel/Behaviour.js';
 import { Event } from './kernel/Event.js';
 import { destroy, flushDestroyed, wake } from './kernel/lifecycle.js';
 import { runtimeOf } from './kernel/registry.js';
+import { loadDeclared } from './assets/Asset.js';
 
 /**
  * Scenes are functions returning `<Scene>…</Scene>`, and `SceneManager` swaps them, as Unity's does.
@@ -138,6 +139,16 @@ export const SceneManager = {
    */
   load(scene: () => unknown): void {
     request(scene, false);
+  },
+  /**
+   * Unity's `LoadSceneAsync`: fetch a scene's module, load the models and clips it declares, then
+   * `load` it — `await SceneManager.loadAsync(() => import('./Level3').then((m) => m.Level3))`. A
+   * module imported only this way is its own chunk, and its assets wait until it is asked for.
+   */
+  async loadAsync(scene: () => Promise<() => unknown>): Promise<void> {
+    const build = await scene();
+    await loadDeclared();
+    request(build, false);
   },
   /** Unity's `LoadScene` with `LoadSceneMode.Additive`: `scene` beside what is loaded, at the same moment. */
   loadAdditive(scene: () => unknown): void {

@@ -171,10 +171,20 @@ export function createScope(get: () => ObservedState) {
     };
   };
 
-  /** The body of an async function, with the game's names in scope: what it returns. */
+  /**
+   * The body of an async function, with the game's names in scope: what it returns. A lone expression —
+   * `findAll(Coin).length`, as a console takes it — is its own value; statements return with `return`.
+   */
   const run = async (code: string): Promise<unknown> => {
     const vars = scope();
-    const fn = new Function(...Object.keys(vars), `return (async () => {\n${rewrite(code)}\n})();`) as (...args: unknown[]) => Promise<unknown>;
+    const make = (body: string) => new Function(...Object.keys(vars), body) as (...args: unknown[]) => Promise<unknown>;
+    const lone = rewrite(code).trim().replace(/;+$/, '');
+    let fn: (...args: unknown[]) => Promise<unknown>;
+    try {
+      fn = make(`return (async () => (\n${lone}\n))();`); // parses only if it is one expression
+    } catch {
+      fn = make(`return (async () => {\n${rewrite(code)}\n})();`);
+    }
     try {
       return await fn(...Object.values(vars));
     } catch (error) {

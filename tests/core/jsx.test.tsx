@@ -117,6 +117,42 @@ describe('TSX on three.js', () => {
     expect(() => instantiate(Label as never)).toThrow('instantiate(Label): Label is a plain function, not a prefab — make it one where it is declared: export const Label = prefab(() => …).');
   });
 
+  it("adds a prefab tag's children under its root, as objects and components added to a Unity prefab instance", () => {
+    class Chase extends Behaviour {
+      speed = 1;
+      target: Group | null = null;
+    }
+    const Enemy = prefab(() => (
+      <Group name="enemy">
+        <Group name="body" />
+      </Group>
+    ));
+    const player = ref<Group>();
+    const chase = ref<Chase>();
+    const scene = (
+      <Group>
+        <Group ref={player} />
+        <Enemy position={[3, 0, 0]}>
+          <Chase speed={2} target={player} ref={chase} />
+          <Group name="hat" />
+        </Enemy>
+      </Group>
+    ) as unknown as Group;
+    const enemy = scene.children[1] as Group;
+    expect(enemy.children.map((c) => c.name)).toEqual(['body', 'hat']);
+    expect(chase.current?.node).toBe(enemy);
+    expect(chase.current?.speed).toBe(2);
+
+    const Label = prefab(function Label() {
+      return null as unknown as Group;
+    });
+    expect(() => (
+      <Label>
+        <Group />
+      </Label>
+    )).toThrow('<Label> has children, but Label returns no node to add them to — only a prefab whose root is an Object3D takes children.');
+  });
+
   it('takes a prefab as a field, as Unity takes a prefab in the inspector', () => {
     const Shot = prefab(() => <Group name="shot" />);
     const scene = (

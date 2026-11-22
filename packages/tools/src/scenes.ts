@@ -1,9 +1,9 @@
 /**
  * Every `.tsx` file is a scene, and a scene only declares.
  *
- * A scene file may import, define constants — plain data, or objects made from it with `new`
- * (`const font = new Font(json)`) — and export functions that make refs and return TSX, plain or made
- * prefabs with `prefab(() => …)`. Inside the
+ * A scene file may import, define constants — plain data, or what is made from it, with `new` or a
+ * call (`const font = new Font(json)`, `const tree = sharedModel('/tree.glb')`, `prefab(tree)`) — and export
+ * functions that make refs and return TSX, plain or made prefabs with `prefab(() => …)`. Inside the
  * TSX a value is a literal, a list or object of them, arithmetic on them (`-Math.PI / 2`), flags
  * combined with `|` (`RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ`), or a name. Anything that runs — a loop, a branch, a handler, a call, a hook — is
  * a component's job, in a `.ts` file. Each refusal says where and what to write instead.
@@ -21,6 +21,7 @@ const HANDLER = 'a scene has no handlers — what happens goes in a component: a
 const HOOK = 'there is no React here — TSX builds three.js objects once; what runs each frame is a component\'s update()';
 const CALL = 'a scene calls nothing — a value is a literal, a list or object of them, arithmetic like -Math.PI / 2, or a name';
 const NEW = 'a tag makes an object here — or make it in a constant above the scene, from data: const font = new Font(json)';
+const MADE = 'make it in a constant above the scene, from data: const tree = sharedModel(\'/models/tree.glb\')';
 
 export function checkScene(file: string, code: string): string[] {
   const problems: string[] = [];
@@ -31,7 +32,7 @@ export function checkScene(file: string, code: string): string[] {
   const { program, errors } = parseSync(file, code, { lang: 'tsx' }) as unknown as { program: Node; errors: { message: string }[] };
   if (errors.length) return [`${file}  ${errors[0]!.message}`];
 
-  /** True while reading a module constant, which may also make an object from data with `new`. */
+  /** True while reading a module constant, which may also make something from data, with `new` or a call. */
   let constant = false;
 
   /** A value that is data: literals, lists and objects of them, arithmetic on them, names and their members. */
@@ -86,7 +87,13 @@ export function checkScene(file: string, code: string): string[] {
         const name = callee.type === 'Identifier' ? (callee.name as string) : callee.type === 'MemberExpression' ? ((callee.property as Node).name as string) : '';
         if (/^use[A-Z]/.test(name)) return at(node, HOOK);
         if (['map', 'forEach', 'from', 'flatMap', 'filter'].includes(name)) return at(node, LOOP);
-        return at(node, CALL);
+        // A module constant may be made from data by a call, as by `new`: a model, a texture, a model's prefab.
+        if (constant) {
+          value(callee);
+          for (const arg of node.arguments as Node[]) value(arg);
+          return;
+        }
+        return at(node, name.startsWith('shared') ? MADE : CALL);
       }
       default:
         return at(node, CALL);

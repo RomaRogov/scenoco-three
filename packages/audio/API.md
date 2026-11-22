@@ -6,7 +6,7 @@ three.js's audio (`Audio`, `PositionalAudio`, `AudioListener`), as three.js docu
 ```ts
 // ── clips: made once in a .ts module, named from scenes ─────────────────────────────────────
 function sharedClip(url: string): AudioClip;   // one per URL: ten sources naming one file decode it once.
-                                                // await loadAssets(clip) in main.ts before play()
+                                                // declared, it is loaded by play before the first scene
 class AudioClip extends Asset<AudioBuffer | null> {   // a decoded sound file — Unity's AudioClip
   readonly duration: number;   // seconds
 }

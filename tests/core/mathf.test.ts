@@ -8,6 +8,8 @@ describe('Mathf', () => {
     expect(Mathf.deltaAngle(350, 10)).toBe(20);
     expect(Mathf.moveTowards(0, 10, 3)).toBe(3);
     expect(Mathf.pingPong(3, 2)).toBe(1);
+    // Unity's Mathf.Round takes a half to the even number; Math.round takes it up.
+    expect([2.5, 3.5, -2.5, -3.5, 0.5, 1.4, -1.6].map(Mathf.round)).toEqual([2, 4, -2, -4, 0, 1, -2]);
 
     const samples = Array.from({ length: 2000 }, (_, i) => Mathf.perlinNoise(i * 0.137, i * 0.071 + 3));
     // Unity's reaches a little past 0..1, as its docs say.

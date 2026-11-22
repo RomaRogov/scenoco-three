@@ -11,11 +11,23 @@ type Props = Record<string, unknown>;
  * rather than copy what it built, and the editor can call it again.
  */
 /** @internal */
-export function remember(made: unknown, type: Function, all: Props): void {
+export function remember(made: unknown, type: Function, all: Props, added: Added = NOTHING_ADDED): void {
   if (!made || typeof made !== 'object') return;
   const { children: _c, key: _k, ...given } = all;
-  madeBy.set(made, { prefab: type as () => unknown, given: Object.keys(given).length > 0, props: all });
+  const adds = added.nodes.length + added.behaviours.length > 0;
+  madeBy.set(made, { prefab: type as () => unknown, given: Object.keys(given).length > 0 || adds, props: all, added });
 }
+
+/**
+ * What a prefab's tag added under its root, as Unity's added objects and components on a prefab instance:
+ * the child nodes, and the behaviours with what their tags said — the scene's, not the prefab's.
+ */
+export interface Added {
+  nodes: object[];
+  /** Each behaviour's tag, what it said, its ref, and the behaviour it is now. */
+  behaviours: { tag: object; type: Function; init: Props; link?: { current: unknown }; live: object }[];
+}
+const NOTHING_ADDED: Added = Object.freeze({ nodes: [], behaviours: [] }) as Added;
 
 /**
  * The prefab function whose element made a node, whether that element passed it attributes, and
@@ -23,8 +35,10 @@ export function remember(made: unknown, type: Function, all: Props): void {
  */
 interface MadeBy {
   prefab: () => unknown;
+  /** Whether this copy differs from the prefab: attributes on its tag, or children added under it. */
   given: boolean;
   props: Props;
+  added: Added;
 }
 const madeBy = new WeakMap<object, MadeBy>();
 

@@ -51,7 +51,7 @@ export const RULES = [
   'A scene or prefab .tsx file only declares. Each tag is a three.js class you import, and its attributes are that class\'s properties, R3F-style. No loops, branches or handlers: scenoco check reports them.',
   'Logic lives in behaviours: classes extending Behaviour in .ts files, with Unity\'s hooks in camelCase (awake, start, update, onDestroy). Public fields are settings, set as attributes of the behaviour\'s tag.',
   'Objects link through typed refs made in the scene function and passed to fields. In code, behaviours find each other with getComponent and findObjectOfType, as in Unity.',
-  'Anything placed more than once is a prefab, made with prefab() around a function returning one root. Its tag sets position, rotation, scale and name. Only a prefab is instantiated.',
+  'Anything placed more than once is a prefab, made with prefab() around a function returning one root. Its tag sets position, rotation, scale and name; its children are added to that copy. Only a prefab is instantiated.',
   'Use Unity\'s names: instantiate, destroy (deferred to the end of the frame), coroutines yielding WaitForSeconds, Input.getAxis, Time.deltaTime, SceneManager.load. Everything else is plain three.js.',
   'Motion over time is a tween, modelled on DOTween in camelCase: node.doMove(to, 0.5).setEase(Ease.OutBack). Do not lerp by hand in a coroutine.',
   'UI is HTML in index.html, written as Unity\'s UI Toolkit allows, scaled by a UIDocument. Each button has a data-button name and reads like a key: Input.getButtonDown.',

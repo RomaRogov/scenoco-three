@@ -65,6 +65,10 @@ describe('the game from Playwright', () => {
     expect(started.until).toMatchObject({ met: true, held: true });
     // A name the live object lacks is the class's: a static reads the same way a field does.
     expect(await page.evaluate(() => __scenoco.eval!('return GameState.prototype === find(GameState).constructor.prototype'))).toBe(true);
+    // A lone expression is its own value, as a console takes it; statements still return with `return`.
+    expect(await page.evaluate(() => __scenoco.eval!('Time.frameCount >= 0;'))).toBe(true);
+    expect(await page.evaluate(() => __scenoco.eval!('await Promise.resolve(findAll(Brick).length)'))).toBeGreaterThan(0);
+    expect(await page.evaluate(() => __scenoco.eval!('const n = findAll(Brick).length; return n * 2'))).toBeGreaterThan(0);
 
     const before = await page.evaluate(() => __scenoco.clock!());
     await new Promise((done) => setTimeout(done, 300));

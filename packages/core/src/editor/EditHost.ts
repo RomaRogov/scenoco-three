@@ -40,9 +40,13 @@ export interface EditHost {
   givenOf(made: object): Readonly<Record<string, unknown>> | undefined;
   /**
    * The function that made this node — a prefab or a plain component — and the props its tag gave:
-   * none for a prefab `instantiate` made. Its name is often empty: `prefab(() => …)`.
+   * none for a prefab `instantiate` made. Its name is often empty: `prefab(() => …)`. `added` is what the
+   * tag put under the copy's root — child nodes, behaviours — the scene's own, as on a Unity prefab instance.
    */
-  madeBy(node: Object3D): { name: string; prefab: boolean; props: Readonly<Record<string, unknown>>; fn: object } | undefined;
+  madeBy(node: Object3D): {
+    name: string; prefab: boolean; props: Readonly<Record<string, unknown>>; fn: object;
+    added: { nodes: readonly Object3D[]; behaviours: readonly Behaviour[] };
+  } | undefined;
   /**
    * A prefab root's own element, inside the prefab — not its tag, which `sourceOf` answers for:
    * where it is written and with what. Undefined for a node no prefab made.

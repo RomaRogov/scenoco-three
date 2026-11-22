@@ -1,8 +1,16 @@
 /**
- * Unity's `Mathf`, for what JavaScript's `Math` does not spell the same way. `Math.max`, `Math.pow`,
- * `Math.round` and the rest stay JavaScript's own.
+ * Unity's `Mathf`, for what JavaScript's `Math` does not spell the same way — or rounds another way.
+ * `Math.max`, `Math.pow`, `Math.floor` and the rest stay JavaScript's own.
  */
 export const Mathf = {
+  /**
+   * Unity's `Mathf.Round`: to the nearest whole number, and a half to the even one — 2.5 is 2, 3.5 is 4 —
+   * where `Math.round` takes a half up. The same numbers as a Unity port.
+   */
+  round(value: number): number {
+    return Math.abs(value % 1) === 0.5 ? 2 * Math.round(value / 2) : Math.round(value);
+  },
+
   /** `value` held between `min` and `max`. */
   clamp(value: number, min: number, max: number): number {
     return value < min ? min : value > max ? max : value;

@@ -121,8 +121,10 @@ export interface SnapshotNode {
    */
   prefab?: string;
   given?: boolean;
-  /** A placed model, `prefab(model)`: the URL it loads from. What it holds is the file's, none of it here. */
+  /** A placed model, `prefab(model)`: the URL it loads from. What it holds is the file's — here only what its tag added. */
   model?: string;
+  /** Added under a placed prefab by its tag, as an object added to a Unity prefab instance: the scene's, not the prefab's. */
+  added?: boolean;
   children: SnapshotNode[];
 }
 
@@ -395,6 +397,14 @@ class Walk {
       this.ctx.noteModel(model);
       // Named after its file, as Unity names a placed model, unless its tag names it.
       if (typeof made!.props.name !== 'string' || isRoot) out.name = made!.prefab.name.replace(/\.[^.]*$/, '');
+      // What the model file holds is its own; what the tag added under it — behaviours, children — the scene's.
+      const added = made!.added;
+      this.components(n, out, path || this.id, added.behaviours.map((b) => b.live));
+      for (const child of added.nodes) {
+        const node = this.node(child as Object3D, path ? `${path}/${out.children.length}` : `${out.children.length}`);
+        node.added = true;
+        out.children.push(node);
+      }
       return out;
     }
     const nested = made ? this.ctx.prefabIds.get(made.prefab) : undefined;
@@ -412,7 +422,10 @@ class Walk {
     for (const child of n.children) {
       if ((n as Light & { target?: Object3D }).target === child) continue;
       const i = out.children.length;
-      out.children.push(this.node(child, path ? `${path}/${i}` : `${i}`));
+      const node = this.node(child, path ? `${path}/${i}` : `${i}`);
+      // Added by a placed prefab's tag: the scene's, written as an addition to the copy, not matched to the prefab's children.
+      if (made?.added.nodes.includes(child)) node.added = true;
+      out.children.push(node);
     }
     return out;
   }
@@ -429,8 +442,13 @@ class Walk {
     }
     if (any.isLight) out.light = this.light(n as Light);
     if (any.isCamera) out.camera = camera(n as Camera);
+    this.components(n, out, where);
+  }
 
+  /** The behaviours on a node, as components: each field an element wrote, as data. */
+  private components(n: Object3D, out: SnapshotNode, where: string, only?: readonly object[]): void {
     for (const b of behavioursOn(n)) {
+      if (only && !only.includes(b)) continue;
       const fields: Record<string, SnapshotValue> = {};
       const refs = b._refs;
       for (const key of writtenOf(b)) {

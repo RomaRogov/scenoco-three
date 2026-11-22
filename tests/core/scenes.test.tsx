@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BoxGeometry, Color, DirectionalLight, Group, Mesh, MeshStandardMaterial, Scene, WebGLRenderTarget } from 'three';
-import { Behaviour, Runtime, SceneManager, dontDestroyOnLoad, instantiate, prefab, ref } from '@scenoco-three/core';
+import { Behaviour, Runtime, SceneManager, dontDestroyOnLoad, instantiate, prefab, ref, sharedModel } from '@scenoco-three/core';
 import { attachWorld } from '../../packages/core/src/scenes.js';
 
 const runtimes: Runtime[] = [];
-afterEach(() => runtimes.splice(0).forEach((r) => r.dispose()));
+afterEach(() => {
+  runtimes.splice(0).forEach((r) => r.dispose());
+  vi.unstubAllGlobals();
+});
 
 /** What `play` sets up, minus the renderer: one scene that draws, with a runtime. */
 function game(): { world: Scene; frame: () => void } {
@@ -73,6 +77,45 @@ describe('SceneManager', () => {
     frame();
     expect(world.getObjectByName('two')).toBeDefined(); // additive: nothing unloaded
     expect(SceneManager.activeScene?.getObjectByName('one')).toBeDefined();
+  });
+
+  it("gives a node its scene, as Unity's gameObject.scene: its level's, game.scene once kept, none when detached", () => {
+    const { world } = game();
+    const kept = ref<Group>();
+    const crate = ref<Group>();
+    SceneManager.load(() => (
+      <Scene>
+        <Group ref={crate} name="crate" />
+        <Group ref={kept}>
+          <Keep />
+        </Group>
+      </Scene>
+    ));
+    const level = SceneManager.activeScene!;
+    expect(level).not.toBe(world);
+    expect(crate.current!.scene).toBe(level);
+    expect(kept.current!.scene).toBe(world); // dontDestroyOnLoad moved it under the world
+    expect(new Group().scene).toBeNull();
+    const own = Object.assign(new Group(), { scene: 'its own' }); // code with a `scene` of its own keeps it
+    expect((own as { scene: unknown }).scene).toBe('its own');
+  });
+
+  it('loads a scene async: its module first, then the models that module declares, then the scene', async () => {
+    const file = readFileSync(new URL('./fixtures/meshopt-box.glb', import.meta.url));
+    vi.stubGlobal('fetch', async () => new Response(file));
+    vi.stubGlobal('ProgressEvent', class extends Event {});
+    game();
+    await SceneManager.loadAsync(async () => {
+      // What `import('./Level3')` runs: the module's declarations, made only now. Placing a model
+      // not loaded yet throws, so the scene below builds only if loadAsync loaded it first.
+      const Tree = prefab(sharedModel('http://assets.test/lazy-tree.glb'));
+      return () => (
+        <Scene>
+          <Tree name="tree" />
+        </Scene>
+      );
+    });
+    expect(SceneManager.activeScene?.getObjectByName('tree')).toBeDefined();
   });
 
   it("draws what a behaviour sets on its own <Scene> after load, as Unity's RenderSettings", () => {

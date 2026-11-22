@@ -72,8 +72,13 @@ export class Reader {
       const own = host.own(node) ?? {};
       const tag = await this.tagOf(node, host.sourceOf(node), host.givenOf(node), { liveOnly, wide }, { props: made.props, name: this.tagName(node) });
       const ownTag = await this.tagOf(node, own.source, own.given, { locked: true }, { fixed: false });
-      const prefab = { name: this.prefabName(node), where: own.source && where(own.source), own: ownTag, behaviours: await this.behaviours(node, { locked: true }), root: node };
-      return { tag, attached: [], behaviours: [], prefab, note: liveOnly };
+      // The prefab's own behaviours are its, locked here; the ones this copy's tag added are the scene's.
+      const added = new Set<object>(made.added.behaviours);
+      const on = this.host.behavioursOn(node);
+      const prefabs = await Promise.all(on.filter((b) => !added.has(b)).map((b) => this.behaviour(b, { locked: true })));
+      const mine = await Promise.all(on.filter((b) => added.has(b)).map((b) => this.behaviour(b, { liveOnly, wide })));
+      const prefab = { name: this.prefabName(node), where: own.source && where(own.source), own: ownTag, behaviours: prefabs, root: node };
+      return { tag, attached: [], behaviours: mine, prefab, note: liveOnly };
     }
     return { ...(await this.plain(node, { liveOnly, wide })), note: liveOnly };
   }
@@ -252,9 +257,15 @@ export class Reader {
     });
   }
 
-  /** The prefab copy a node is part of — the nearest one above it — or null. */
+  /**
+   * The prefab copy a node is part of — the nearest one above it — or null. A node its copy's tag added
+   * is the scene's, as an object added to a Unity prefab instance: not part of the prefab.
+   */
   private partOf(node: Object3D): Object3D | null {
-    for (let up = node.parent; up; up = up.parent) if (this.host.madeBy(up)?.prefab) return up;
+    for (let below = node, up = node.parent; up; below = up, up = up.parent) {
+      const made = this.host.madeBy(up);
+      if (made?.prefab && !made.added.nodes.includes(below)) return up;
+    }
     return null;
   }
 

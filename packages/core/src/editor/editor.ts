@@ -4,8 +4,8 @@ import { Runtime } from '../kernel/runtime.js';
 import { assignInit } from '../kernel/init.js';
 import { behavioursOn } from '../kernel/registry.js';
 import { destroy, flushDestroyed, wake } from '../kernel/lifecycle.js';
-import { INSTANCE, applyProp, isPrefab, jsxDEV } from '../jsx.js';
-import { givenOf, keepGiven, ownOf, prefabOf, setGiven, sourceOf } from '../provenance.js';
+import { INSTANCE, addMarker, applyProp, isPrefab, jsxDEV } from '../jsx.js';
+import { givenOf, keepGiven, ownOf, prefabOf, remember, setGiven, sourceOf } from '../provenance.js';
 import { setHeld, setView, isHeld } from '../host.js';
 import type { EditHost, Transform } from './EditHost.js';
 import { openedScene, write, writeOpened } from './session.js';
@@ -144,11 +144,18 @@ export async function startEditor(
   /** What isolation hid, and whether it was visible before. */
   const isolated = new Map<Object3D, boolean>();
 
-  /** A prefab or component called again with one prop changed, its node swapped in where the old one stood. */
+  /**
+   * A prefab or component called again with one prop changed, its node swapped in where the old one stood.
+   * What its tag added — children, behaviours — is the scene's: carried over to the new copy.
+   */
   const rebuild = (node: Object3D, props: Record<string, unknown>) => {
     const made = prefabOf(node)!;
     const fresh = jsxDEV(made.prefab, props, undefined, false, sourceOf(node));
     if (!(fresh instanceof Object3D)) return;
+    const added = made.added;
+    for (const child of added.nodes) fresh.add(child as Object3D);
+    for (const b of added.behaviours) b.live = addMarker(fresh as never, b);
+    remember(fresh, made.prefab, props, added);
     const parent = node.parent!;
     parent.add(fresh);
     parent.children.splice(parent.children.indexOf(fresh), 1);
@@ -205,9 +212,10 @@ export async function startEditor(
     givenOf,
     madeBy(node) {
       const made = prefabOf(node);
-      if (made) return { name: made.prefab.name, prefab: isPrefab(made.prefab), props: made.props, fn: made.prefab };
+      if (made) return { name: made.prefab.name, prefab: isPrefab(made.prefab), props: made.props, fn: made.prefab,
+        added: { nodes: made.added.nodes as Object3D[], behaviours: made.added.behaviours.map((b) => b.live as Behaviour) } };
       const from = spawnedFrom.get(node);
-      return from && { name: from.name, prefab: true, props: {}, fn: from };
+      return from && { name: from.name, prefab: true, props: {}, fn: from, added: { nodes: [], behaviours: [] } };
     },
     own(node) {
       // A spawned copy has no tag: its root's own element is the one `sourceOf` already answers for.

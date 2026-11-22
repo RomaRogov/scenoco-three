@@ -112,6 +112,14 @@ function forEachBehaviour(node: Node, fn: (b: Behaviour) => void): void {
 
 const nodeHooks: ((node: Node) => void)[] = [];
 
+/** Nodes `destroy` took away, and every node that was under them: Unity's destroyed objects. */
+const destroyedNodes = new WeakSet<Node>();
+
+/** Whether `destroy(node)` has taken effect — at the end of its frame — on this node or one above it. */
+export function isNodeDestroyed(node: Node): boolean {
+  return destroyedNodes.has(node);
+}
+
 /** @internal run after a destroyed node has left its parent — how the scene frees what it built. */
 export function afterNodeDestroyed(hook: (node: Node) => void): void {
   if (!nodeHooks.includes(hook)) nodeHooks.push(hook);
@@ -124,6 +132,7 @@ export function flushDestroyed(): void {
       if (target instanceof Behaviour) teardown(target);
       else {
         forEachBehaviour(target, teardown);
+        target.traverse((n) => void destroyedNodes.add(n));
         target.removeFromParent();
         for (const hook of nodeHooks) hook(target);
       }

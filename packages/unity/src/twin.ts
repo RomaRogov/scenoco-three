@@ -293,11 +293,13 @@ class Writer {
 
     const named = (list: UnityNode[], name: string) => list.filter((c) => c.name === name);
     const gone: El[] = [];
+    // A child added by the tag is not one of the prefab's, whatever its name.
+    const own = i.children.filter((c) => !c.added);
     i.children.forEach((child, x) => {
       const at = path === '' ? String(x) : `${path}/${x}`;
-      const same = named(p.children, child.name);
+      const same = child.added ? [] : named(p.children, child.name);
       if (same.length === 0) return void e.add(this.object(child, child.prefab ? 'PrefabInstance' : 'GameObject', at, scene, off));
-      const counterpart = same[named(i.children, child.name).indexOf(child)];
+      const counterpart = same[named(own, child.name).indexOf(child)];
       if (!counterpart) return;
       const el = new El('GameObject').set('name', child.name);
       const transform = this.transform(child, counterpart);
@@ -308,7 +310,7 @@ class Writer {
       e.add(el);
     });
     for (const name of new Set(p.children.map((c) => c.name)))
-      for (let k = named(i.children, name).length; k < named(p.children, name).length; k++) gone.push(new El('GameObject').set('name', name));
+      for (let k = named(own, name).length; k < named(p.children, name).length; k++) gone.push(new El('GameObject').set('name', name));
     if (gone.length) e.add(new El(`${e.tag}.removedGameObjects`).add(...gone));
   }
 

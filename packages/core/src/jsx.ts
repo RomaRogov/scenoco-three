@@ -12,7 +12,7 @@
 import { addDormant } from './kernel/attach.js';
 import { afterNodeDestroyed } from './kernel/lifecycle.js';
 import { disposeBuilt, ownedBy } from './dispose.js';
-import { handOver, record, remember, type Source } from './provenance.js';
+import { handOver, record, remember, type Added, type Source } from './provenance.js';
 import { Behaviour } from './kernel/Behaviour.js';
 import type { BehaviourInit, ConstructableBehaviour, Prefab, PrefabMarkKey, RefLike } from './kernel/types.js';
 import { assetOf, loadsAs } from './assets/Asset.js';
@@ -84,9 +84,11 @@ export function jsx(type: unknown, props: Props | null, _key?: unknown): unknown
     const own: Props = {};
     const instance: [string, unknown][] = [];
     let link: unknown;
+    let children: unknown;
     for (const [key, value] of Object.entries(all)) {
       if ((INSTANCE as readonly string[]).includes(key)) instance.push([key, value]);
       else if (key === 'ref') link = value;
+      else if (key === 'children') children = value;
       else own[key] = value;
     }
     const name = type.name || 'prefab';
@@ -102,8 +104,11 @@ export function jsx(type: unknown, props: Props | null, _key?: unknown): unknown
     }
     for (const [key, value] of instance) applyProp(made as Record<string, unknown>, key, value, name);
     if (link && typeof link === 'object' && 'current' in link) (link as Ref<unknown>).current = made;
-    // What the tag was written with, as the editor shows it: the link is the scene's, not a setting.
-    remember(made, type, link === undefined ? all : Object.fromEntries(Object.entries(all).filter(([k]) => k !== 'ref')));
+    // Children on the tag go under the root, as objects and components added to a Unity prefab instance:
+    // this copy's, not the prefab's.
+    const added = addTo(made, flatten(children), name);
+    // What the tag was written with, as the editor shows it: the link and the children are the scene's, not settings.
+    remember(made, type, Object.fromEntries(Object.entries(all).filter(([k]) => k !== 'ref' && k !== 'children')), added);
     return made;
   }
 
@@ -123,8 +128,9 @@ const prefabs = new WeakSet<Function>();
 /**
  * Unity's prefab: one whole thing, built by a function returning TSX with one root. Its tag places
  * and names that root as an instance's Transform and name — `<Coin position={[2, 0, 0]} name="bonus" />`
- * — and it is what `instantiate` and a `Prefab` field take. A function not made one is a plain TSX
- * component: its tag's attributes are its props, and nothing else.
+ * — and it is what `instantiate` and a `Prefab` field take. The tag's children are that copy's own,
+ * added under its root as objects and components are added to a Unity prefab instance. A function not
+ * made one is a plain TSX component: its tag's attributes are its props, and nothing else.
  */
 // `Function`, not a call signature: a signature would type the props from it, and `({ width = 1 })` then
 // takes `never`; with none, TypeScript reads the props from the defaults written.
@@ -145,7 +151,7 @@ function modelPrefab(model: Model): Prefab {
   const file = model.url.replace(/[?#].*$/, '').replace(/^.*\//, '');
   const build = () => {
     if (!model.isLoaded) {
-      throw new Error(`<${file}>: its model is not loaded yet — await loadAssets(…) with it before the scene that places it is built.`);
+      throw new Error(`<${file}>: its model is not loaded yet — play loads every declared model before its first scene; under simulate, or built before play, await loadAssets(…) with it first.`);
     }
     return model.instantiate();
   };
@@ -214,15 +220,38 @@ export function applyProp(target: Record<string, unknown>, key: string, value: u
   owner[name] = value;
 }
 
+/** A prefab tag's children, added under its root: what they were, so the editor can add them again to a rebuilt copy. */
+function addTo(root: unknown, children: unknown[], name: string): Added {
+  if (!children.length) return { nodes: [], behaviours: [] };
+  if ((root as { isObject3D?: boolean } | null)?.isObject3D !== true) {
+    throw new Error(`<${name}> has children, but ${name} returns no node to add them to — only a prefab whose root is an Object3D takes children.`);
+  }
+  const added: Added = { nodes: [], behaviours: [] };
+  for (const child of children) {
+    if (isMarker(child)) {
+      const live = addMarker(root as Record<string, unknown>, child);
+      added.behaviours.push({ tag: child, type: child.type, init: child.init, link: child.link, live });
+      continue;
+    }
+    if ((child as { isObject3D?: boolean } | null)?.isObject3D) added.nodes.push(child as object);
+    addChild(root as Record<string, unknown>, child, name);
+  }
+  return added;
+}
+
+/** A behaviour's tag, made a component of its parent: dormant until the whole tree is built. */
+export function addMarker(parent: Record<string, unknown>, child: BehaviourMarker | Added['behaviours'][number]): AnyBehaviour {
+  const tag = 'tag' in child ? child.tag : child;
+  const behaviour = addDormant(parent as never, child.type as ConstructableBehaviour, child.init);
+  if (child.link) child.link.current = behaviour;
+  // Where it was written and what it said, for the editor: `jsxDEV` records them, `jsx` does not.
+  if (import.meta.env?.DEV) handOver(tag, behaviour, child.init);
+  return behaviour as AnyBehaviour;
+}
+
 /** A child is added if it is a node, attached if `attach` or its kind names a property — both, for a node with `attach` — made a component if it is a behaviour. */
 function addChild(parent: Record<string, unknown>, child: unknown, tag: string): void {
-  if (isMarker(child)) {
-    const behaviour = addDormant(parent as never, child.type, child.init);
-    if (child.link) child.link.current = behaviour;
-    // Where it was written and what it said, for the editor: `jsxDEV` records them, `jsx` does not.
-    if (import.meta.env?.DEV) handOver(child, behaviour, child.init);
-    return;
-  }
+  if (isMarker(child)) return void addMarker(parent, child);
   if (!child || typeof child !== 'object') {
     throw new Error(`<${tag}> got ${JSON.stringify(child)} as a child: a scene's children are elements.`);
   }
@@ -297,11 +326,17 @@ type InstanceKey = (typeof INSTANCE)[number];
  * A prefab's tag: the function's props, and its root's transform and name. A prefab that declares
  * one of those itself is told where it belongs, at every tag that uses it.
  */
-export type PrefabProps<P> = [Extract<keyof P, InstanceKey>] extends [never]
-  ? P & Pick<PropsOf<Object3D>, InstanceKey> & PrefabRef
-  : Omit<P, InstanceKey> & PrefabRef & {
-      [K in Extract<keyof P, InstanceKey>]: `${K} belongs to the tag, as a Unity instance's Transform and name do: take it out of the prefab's props, and <Prefab ${K}={…} /> sets its root's.`;
-    };
+export type PrefabProps<P> = ('children' extends keyof P
+  ? { children: "a prefab tag's children are added under its root, as objects added to a Unity prefab instance: take children out of the prefab's props" }
+  : PrefabChildren) &
+  ([Extract<keyof P, InstanceKey>] extends [never]
+    ? P & Pick<PropsOf<Object3D>, InstanceKey> & PrefabRef
+    : Omit<P, InstanceKey> & PrefabRef & {
+        [K in Extract<keyof P, InstanceKey>]: `${K} belongs to the tag, as a Unity instance's Transform and name do: take it out of the prefab's props, and <Prefab ${K}={…} /> sets its root's.`;
+      });
+
+/** A prefab tag's children: nodes added under its root, behaviours added to it — this copy's, as in a Unity scene. */
+type PrefabChildren = { children?: unknown };
 
 /** A prefab tag's `ref` is its root, as a scene field in Unity takes the instance dragged into it. */
 type PrefabRef = { ref?: Ref<Object3D> };

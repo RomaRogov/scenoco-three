@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Group, type Mesh } from 'three';
 import { instantiate, loadAssets, prefab, sharedModel } from '@scenoco-three/core';
 import { jsx } from '@scenoco-three/core/jsx-runtime';
+import { modelOf } from '../../packages/core/src/jsx.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -39,7 +40,12 @@ describe('models', () => {
     const Box = prefab(sharedModel('http://assets.test/prefab-box.glb'));
 
     // Built before its model arrives, the tag says what was missed.
-    expect(() => jsx(Box, {})).toThrow('<prefab-box.glb>: its model is not loaded yet — await loadAssets(…)');
+    expect(() => jsx(Box, {})).toThrow('<prefab-box.glb>: its model is not loaded yet — play loads every declared model before its first scene');
+    // What play waits for before its first scene: every model declared, and only those.
+    const { loadDeclared } = await import('../../packages/core/src/assets/Asset.js');
+    await loadDeclared();
+    expect(modelOf(Box)?.isLoaded).toBe(true);
+    expect(loadDeclared()).toBeNull();
     await loadAssets(Box);
 
     const placed = jsx(Box, { position: [1, 2, 3], scale: 2 }) as Mesh;

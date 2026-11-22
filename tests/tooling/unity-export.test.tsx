@@ -123,6 +123,49 @@ describe('unity export', () => {
     expect(strict.warnings.some((w) => w.includes('Spawner has no serialized field wave'))).toBe(true);
   });
 
+  it("writes a prefab tag's children as what the placement adds, never as overrides of the prefab's own", () => {
+    const Post = prefab(() => (
+      <Group>
+        <Mesh geometry={box} material={paint.stone} />
+      </Group>
+    ));
+    const Yard = () => (
+      <Scene>
+        <Post position={[1, 0, 0]}>
+          <Grid size={2} />
+          <Mesh geometry={box} material={paint.stone} position={[0, 2, 0]} />
+        </Post>
+      </Scene>
+    );
+    const { data } = convert(snapshot({ '/src/yard.tsx': { Post, Yard }, '/src/assets.ts': { box, paint }, '/src/Grid.ts': { Grid } }));
+    const yard = twins(data, { declares: () => true }).files.get('Assets/Scenes/Yard.uscene')!;
+    const placement = yard.slice(yard.indexOf('<PrefabInstance prefab="Assets/Prefabs/Post.prefab"'), yard.indexOf('</PrefabInstance>'));
+    // The component and the mesh are the scene's, added to the copy; the prefab's own Mesh is untouched, and
+    // the added one, a sibling of the same name, is told apart as Unity's Duplicate names it.
+    expect(placement).toContain('<GridBehaviour size="2" />');
+    expect(placement).toMatch(/<GameObject name="Mesh \(1\)">\s*<Transform localPosition="0 2 0" \/>\s*<MeshFilter/);
+    expect(placement).not.toContain('removedGameObjects');
+  });
+
+  it('exports a model declared in the scene file as one declared anywhere, and what its tag adds to the placement', async () => {
+    const pine = sharedModel('/models/pine.glb');
+    const Pine = prefab(pine);
+    await loadAssets(Pine);
+    const Forest = () => (
+      <Scene>
+        <Pine position={[2, 0, 0]}>
+          <Grid size={3} />
+        </Pine>
+      </Scene>
+    );
+    const textures = (url: string) => (url === '/models/pine.glb' ? { name: 'pine.glb', file: '/game/models/pine.glb' } : null);
+    // Declared in the scene's own module, only the prefab exported: the export finds the model through it.
+    const { data } = convert(snapshot({ '/src/scenes/forest.tsx': { Pine, Forest }, '/src/Grid.ts': { Grid } }), { textures });
+    expect(data.warnings).toEqual([]);
+    const forest = twins(data, { declares: () => true }).files.get('Assets/Scenes/Forest.uscene')!;
+    expect(forest).toMatch(/<PrefabInstance prefab="Assets\/Models\/pine.glb" name="pine">\s*<Transform localPosition="2 0 0" localEulerAngles="0 180 0" \/>\s*<GridBehaviour size="3" \/>/);
+  });
+
   it('places a prefab given props as the prefab, writing only how this copy differs', () => {
     const Tile = prefab(({ size = 1, rim = 0.1 }: { size?: number; rim?: number }) => (
       <Group>

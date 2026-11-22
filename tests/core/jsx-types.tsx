@@ -51,6 +51,7 @@ const Tower = prefab(({ level }: { level: number }) => <Group name="tower" userD
 const Placed = prefab(({ position }: { position: [number, number, number] }) => <Group position={position} />);
 const Crate = prefab(() => <Group />);
 const Wall = prefab(({ width = 1, label = 'wall' }) => <Group name={label} scale={[width, 1, 1]} />);
+const Wrapper = prefab(({ children }: { children?: unknown }) => <Group>{children as never}</Group>);
 const Plain = ({ name }: { name: string }) => <Group userData={{ name }} />;
 
 /**
@@ -69,6 +70,13 @@ export const Prefabs = () => (
     <Wall label="east" name="east wall" />
     {/* @ts-expect-error props without a type take theirs from the defaults */}
     <Wall width="wide" />
+    <Crate position={[0, 1, 0]}>
+      <Group name="added" />
+    </Crate>
+    {/* @ts-expect-error a prefab's tag's children go under its root: it can't take them as a prop */}
+    <Wrapper>
+      <Group />
+    </Wrapper>
     <Plain name="HUD" />
     {/* @ts-expect-error a plain function's tag cannot place it */}
     <Plain name="HUD" position={[0, 1, 0]} />

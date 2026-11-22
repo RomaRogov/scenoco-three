@@ -86,6 +86,8 @@ export interface UnityNode {
   prefab?: string;
   /** A placed prefab given attributes: what this copy is built as, to compare with the prefab. */
   given?: boolean;
+  /** Added under a placed prefab by its tag: an object the copy adds, never one of the prefab's own. */
+  added?: boolean;
   /** Its Unity layer, from a collider's `layer`: SceNoCo's layer n is Unity's user layer n + 7. */
   layer?: number;
   /** A placed model's objects that hold a mesh, as paths of names from its root, as glTFast names them. */
@@ -401,6 +403,7 @@ export function convert(snap: Snapshot, options: ConvertOptions = {}): Converted
       if (hasComponents(n)) out.renderersEnabled = false;
       else out.active = false;
     }
+    if (n.added) out.added = true;
     if (n.prefab) {
       const path = prefabPath.get(n.prefab);
       if (path) {

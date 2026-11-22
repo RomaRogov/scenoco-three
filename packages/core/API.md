@@ -23,10 +23,12 @@ here, and may change in a minor release; a package written against them names th
 //   <Tower projectile={Arrow} /> a prefab as a setting: projectile: Prefab | null = null
 //   <Pad position={[4, 0, 2]} /> a prefab(…) returns one root; its tag's position, rotation, scale and name are
 //                                that root's, as a Unity instance's Transform — the prefab's props are the rest;
+//   <Enemy><Chase target={player} /></Enemy>   a prefab tag's children are this copy's: nodes added under its
+//                                root, behaviours added to it — as on a Unity prefab instance in a scene;
 //                                its ref={pad} is that root too
 // A scene file only declares: no loops, branches, handlers or calls — `scenoco check` says what to write instead.
 
-function play(scene: () => JSX.Element, options?: {
+function play(scene: () => unknown, options?: {   // a scene: the function returning <Scene>
   container?: HTMLElement;         // default document.body: the game is the page; an element — a React app's <div> — it fills and follows
   fixedDelta?: number;
   renderer?: WebGLRenderer;         // your own, for what only its constructor sets: new WebGLRenderer({ alpha: true }); none antialiases by default
@@ -41,7 +43,7 @@ interface Game {
   dispose: () => void;              // stop it and free the canvas; onDestroy runs — a React effect's cleanup
 }
 function gameOf(node: Object3D): Game | null;       // the game this node runs in; null under simulate
-function simulate(scene: () => JSX.Element, options?: {
+function simulate(scene: () => unknown, options?: {
   fixedDelta?: number;
   size?: [number, number];          // the screen in pixels: Screen, and what pointers are on. Default 1920×1080
   page?: string;                    // the page as text — import page from '../index.html?raw' — its body, without
@@ -81,8 +83,11 @@ function instantiate<T extends Object3D>(prefab: Prefab<T> | Model, options?: { 
 function sourceOf(made: object): { fileName: string; lineNumber: number; columnNumber: number } | undefined;  // dev only
 
 const SceneManager: {
-  load(scene: () => JSX.Element): void;          // from a frame, at the end of it; from outside one, now
-  loadAdditive(scene: () => JSX.Element): void;  // beside what is loaded
+  load(scene: () => unknown): void;          // from a frame, at the end of it; from outside one, now
+  loadAdditive(scene: () => unknown): void;  // beside what is loaded
+  loadAsync(scene: () => Promise<() => unknown>): Promise<void>;  // Unity's LoadSceneAsync: the module, its models and clips, then load
+                                             // await SceneManager.loadAsync(() => import('./Level3').then((m) => m.Level3))
+                                             // a scene in a field: next: (() => unknown) | null = null, <Gate next={Level2} />
   sceneLoaded: Event<[scene: Scene]>;            // after its awake and onEnable, before its start
   readonly activeScene: Scene | null;
 };
@@ -187,7 +192,8 @@ class Sequence extends Tween {                       // what goes in runs from h
 }
 const Ease;  // Linear, and In, Out, InOut of Sine Quad Cubic Quart Quint Expo Circ Elastic Back Bounce: Ease.InOutSine
 
-const Mathf: {   // Unity's, where JavaScript's Math spells it differently; Math.max/pow/round stay JS's
+const Mathf: {   // Unity's, where JavaScript's Math spells or rounds it differently; Math.max/pow/floor stay JS's
+  round(v): number;   // Unity's Mathf.Round: a half to the even number, 2.5 → 2, where Math.round takes it up
   clamp(v, min, max): number;  clamp01(v): number;  lerp(a, b, t): number;  lerpUnclamped(a, b, t): number;
   inverseLerp(a, b, v): number;  smoothStep(from, to, t): number;  moveTowards(current, target, maxDelta): number;
   repeat(t, length): number;  pingPong(t, length): number;  deltaAngle(a, b): number;  lerpAngle(a, b, t): number;
@@ -254,7 +260,10 @@ function sendMessage(node: Object3D, method: string, ...args: unknown[]): void;
 function broadcastMessage(node: Object3D, method: string, ...args: unknown[]): void;  // and its children
 function addComponent<T>(node: Object3D, type: ConstructableBehaviour<T>, init?: BehaviourInit<T>): T;   // node typed as T's N
 // and as free functions, the lookups above: getComponent(node, T), getComponents, getComponentInChildren,
-// getComponentsInChildren, getComponentInParent. three's Object3D gains them all as methods, and addComponent.
+// getComponentsInChildren, getComponentInParent. three's Object3D gains them all as methods, and addComponent,
+// and node.isDestroyed: true once destroy(node) took effect, at the end of its frame — on it and all under it.
+// node.scene: Unity's gameObject.scene — the <Scene> it is in, whose background and fog draw; game.scene for a node
+// dontDestroyOnLoad kept; null for one in no scene: this.node.scene?.background.
 
 // ── input: Unity's Input ──────────────────────────────────────────────────────────────────
 const Input: {
@@ -286,7 +295,7 @@ const AXES: Record<AxisName, …>;  const AXIS_NAMES: AxisName[];   // Unity's d
 // What a node's own elements built (<BoxGeometry> inside a <Mesh>) is freed when the node is destroyed —
 // a scene load included. What a scene only names in a prop (material={paint.wall}) is never freed by it.
 function sharedTexture(url: string, settings?: TextureSettings): Texture;   // one per URL; the image arrives later
-function sharedModel(url: string, settings?: ModelSettings): Model;   // a glTF: await loadAssets(model); placed with prefab(model), or model.instantiate(); meshopt (gltfpack -cc) loads too
+function sharedModel(url: string, settings?: ModelSettings): Model;   // a glTF, declared: play loads it before the first scene; placed with prefab(model), or model.instantiate(); meshopt (gltfpack -cc) loads too
 type ModelSettings = { castShadow?: boolean; receiveShadow?: boolean };  // every mesh of every copy; both on by default, as Unity's renderers
 class Model extends Asset<GLTF> { castShadow: boolean; receiveShadow: boolean; readonly clips: AnimationClip[]; instantiate(): Object3D }
 // A model's clips play through an Animator on its root, or on a node above it. No controller: the
@@ -301,5 +310,5 @@ class Animator extends Behaviour {
   isInTransition(layer?: number): boolean;    // normalizedTime counts loops: >= 1 has played through once
 }
 abstract class Asset<T> { readonly url: string; readonly isLoaded: boolean; readonly value: T; load(): Promise<T> }
-function loadAssets(...assets: Loadable[]): Promise<void>;   // await before play() for what must be ready
+function loadAssets(...assets: Loadable[]): Promise<void>;   // sooner than play: a loading screen; and under simulate, which loads nothing itself
 ```

@@ -1,7 +1,8 @@
 /**
- * A resource whose bytes arrive later — a model, an audio clip. `await loadAssets(…)` in `main.ts`,
- * before `play`, and it is ready when the scene is built. A texture is not one of these: three.js
- * hands that back at once and fills in the image when it lands.
+ * A resource whose bytes arrive later — a model, an audio clip. Declared — `const tree = sharedModel(url)`,
+ * in a scene file or any other — it is loaded by `play` before the first scene is built, as Unity loads a
+ * scene's assets with it. `await loadAssets(…)` loads it sooner (a loading screen) or under `simulate`.
+ * A texture is not one of these: three.js hands that back at once and fills in the image when it lands.
  */
 export abstract class Asset<T> {
   /** Where the data comes from. */
@@ -12,6 +13,7 @@ export abstract class Asset<T> {
 
   constructor(url: string) {
     this.url = url;
+    declared.add(this);
   }
 
   /** True once the bytes have arrived and been parsed. */
@@ -24,7 +26,7 @@ export abstract class Asset<T> {
     if (this.loaded === undefined) {
       throw new Error(
         `[scenoco] ${this.constructor.name} "${this.url}" is not loaded yet. ` +
-          'Await it before use: `await loadAssets(theAsset)` in the scene that needs it.',
+          'play loads what is declared before its first scene; declared later, or under simulate, `await loadAssets(theAsset)` first.',
       );
     }
     return this.loaded;
@@ -68,6 +70,25 @@ export abstract class Asset<T> {
 
   /** Release the loaded value's GPU or audio resources. Override where there is something to free. */
   protected free(_value: T): void {}
+}
+
+/** Every asset made: what `play` loads before its first scene. Only what a game declared, never a URL found. */
+const declared = new Set<Asset<unknown>>();
+
+/**
+ * @internal Load what is declared and not loaded yet; null when nothing waits. A file that fails is said
+ * once, by name, and the game goes on: what places it then says it isn't loaded.
+ */
+export function loadDeclared(): Promise<void> | null {
+  const waiting = [...declared].filter((asset) => !asset.isLoaded);
+  if (!waiting.length) return null;
+  return Promise.all(
+    waiting.map((asset) =>
+      asset.load().catch((error: unknown) => {
+        console.error(`[scenoco] ${asset.constructor.name} "${asset.url}" did not load: ${error instanceof Error ? error.message : String(error)}`);
+      }),
+    ),
+  ).then(() => undefined);
 }
 
 /**

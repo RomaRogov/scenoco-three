@@ -250,7 +250,7 @@ export function installBridge(
       await nextTask();
       return rows;
     },
-    /** The body of an async function, with the game's names in scope; what it returns, as JSON. */
+    /** An expression's value, or the body of an async function's return, with the game's names in scope; as JSON. */
     async eval(code: string): Promise<unknown> {
       const value = await reading.run(code);
       await nextTask();
@@ -345,7 +345,7 @@ Tuning — try values in the running game, then write the one that works into th
 Reading — code is JavaScript where Player.lane is the first live Player's lane, #runner the node named "runner",
 and find(Type) / findAll(Type) / node(name) / getComponent(node, Type) and its kin / destroy / scene / camera / Time /
 Input / SceneManager / THREE are in scope:
-  eval(code)                            the body of an async function: eval("return findAll(Coin).length")
+  eval(code)                            an expression's value, or statements' return: eval("findAll(Coin).length")
   find(Type)  findAll(Type)  node(name) the live objects themselves, to read or change
   outline(depth = 4)                    the scene as text, with every behaviour's fields
   telemetry("Player" | "Player.lane" | "#name")

@@ -50,7 +50,8 @@ export function Tree({ model, selected }: { model: Model; selected: Object3D | n
   const visit = (node: Object3D, depth: number) => {
     const made = host.madeBy(node);
     const isOpen = depth === 0 ? !toggled.has(node) : toggled.has(node);
-    const behaviours = made ? [] : host.behavioursOn(node);
+    // A prefab copy shows what its tag added: the prefab's own behaviours are inside it, in prefab mode.
+    const behaviours = made ? made.added.behaviours : host.behavioursOn(node);
     rows.push(
       <div
         key={node.uuid}

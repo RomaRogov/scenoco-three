@@ -8,6 +8,7 @@ import { isHeld, viewOf } from './host.js';
 import { SceneManager, attachWorld, detachWorld, loadInto } from './scenes.js';
 import { installEditor, markSpawned, sizeCanvas, startOpenedScene } from './editor/index.js';
 import { Model } from './assets/Model.js';
+import { loadDeclared } from './assets/Asset.js';
 import type { Prefab } from './kernel/types.js';
 import { isPrefab } from './jsx.js';
 import { Event } from './kernel/Event.js';
@@ -163,9 +164,16 @@ export function play(build: () => unknown, options: PlayOptions = {}): Game {
   liveGames.add(game);
   gameStarted.emit(game);
   // In development the editor may have opened another scene: the page starts in it instead.
-  let starting = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
+  const begin = (): Promise<unknown> | null => {
+    const opened = import.meta.env?.DEV ? startOpenedScene(scene, build) : null;
+    if (!opened) loadInto(scene, build, false);
+    return opened;
+  };
+  // Every model and clip the game declared is loaded before the first scene is built, as Unity loads a
+  // scene's assets with it: no frame runs until then.
+  const declared = loadDeclared();
+  let starting: Promise<unknown> | null = declared ? declared.then(begin) : begin();
   if (starting) void starting.finally(() => (starting = null));
-  else loadInto(scene, build, false);
   Input.attach(renderer.domElement);
   let disposed = false;
 
