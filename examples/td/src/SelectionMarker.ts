@@ -1,6 +1,6 @@
 import { Box3, BufferAttribute, BufferGeometry, Euler, Mesh, Vector3, type MeshBasicMaterial } from 'three';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
-import { Behaviour, findObjectOfType } from '@scenoco-three/core';
+import { Behaviour, Ease, Tween, findObjectOfType } from '@scenoco-three/core';
 import { Terrain, TerrainMaterial } from '@scenoco-three/terrain';
 
 /** Straight down: a projector's -z along the world's -y. */
@@ -20,8 +20,8 @@ export class SelectionMarker extends Behaviour {
 
   private readonly at = new Vector3();
   private radius = 0;
-  private shown = 0;
-  private time = 0;
+  /** 0 to 1 as it grows out to its radius. */
+  private grown = 0;
   /** Each chunk in range: the geometry it was cut from, and its decal. */
   private readonly decals = new Map<Mesh, { from: BufferGeometry; decal: Mesh }>();
 
@@ -35,7 +35,11 @@ export class SelectionMarker extends Behaviour {
     this.at.copy(at);
     this.radius = radius;
     if (moved) this.clear();
-    if (!this.node.visible) this.shown = 0;
+    if (!this.node.visible) {
+      Tween.kill(this);
+      this.grown = 0;
+      Tween.to(() => this.grown, (v) => (this.grown = v), 1, 0.2).setEase(Ease.OutCubic).setTarget(this).setLink(this);
+    }
     this.node.visible = true;
     this.project();
   }
@@ -45,19 +49,15 @@ export class SelectionMarker extends Behaviour {
     this.clear();
   }
 
-  override update(dt: number) {
+  override update() {
     if (!this.node.visible) return;
     this.project();
-    this.time += dt;
-    // Grows out to its radius, then breathes: the texture is scaled, the decals stay as cut.
-    this.shown = Math.min(1, this.shown + dt * 5);
-    const ease = 1 - Math.pow(1 - this.shown, 3);
+    // It grows by its texture, scaled about the centre: the decals stay as they were cut.
     const map = this.material?.map;
-    if (map) {
-      const scale = 1 / Math.max(ease * (1 + Math.sin(this.time * 3) * 0.01), 0.01);
-      map.repeat.set(scale, scale);
-      map.offset.set(0.5 - scale / 2, 0.5 - scale / 2);
-    }
+    if (!map) return;
+    const scale = 1 / Math.max(this.grown, 0.01);
+    map.repeat.set(scale, scale);
+    map.offset.set(0.5 - scale / 2, 0.5 - scale / 2);
   }
 
   override onDestroy() {

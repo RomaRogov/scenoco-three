@@ -1,5 +1,5 @@
 import { Color, DirectionalLight, Fog, Group, HemisphereLight, Mesh, PerspectiveCamera, Scene } from 'three';
-import { ref, sharedModel } from '@scenoco-three/core';
+import { prefab, ref, sharedModel } from '@scenoco-three/core';
 import { SplineContainer, SplineInstantiate } from '@scenoco-three/splines';
 import { Terrain, TerrainData } from '@scenoco-three/terrain';
 import { CameraRig } from '../CameraRig';
@@ -16,7 +16,8 @@ import pineSnowUrl from '../models/pine_snow.glb?url';
 const ground = new TerrainData(frostTerrainUrl, layersOf('frost'));
 const pineSnow = sharedModel(pineSnowUrl);
 
-export const FrostWorld = () => {
+/** The frozen map: ground, road and lanterns, snowy scenery and pads — a prefab, as the meadow's is. */
+export const FrostWorld = prefab(() => {
   const path = ref<Group>();
   return (
     <Group name="frost">
@@ -57,7 +58,7 @@ export const FrostWorld = () => {
       <Pad position={[1.70, 4.604, 22.61]} />
     </Group>
   );
-};
+});
 
 export const Frost = () => (
   <Scene>

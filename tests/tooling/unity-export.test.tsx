@@ -543,15 +543,14 @@ export class Hud extends Behaviour {
   it("builds the project's prefabs in its own page", async () => {
     // breakout, through its own Vite and a headless Chrome: what `scenoco-unity` reads.
     const snap = await snapshotProject(fileURLToPath(new URL('../../examples/breakout', import.meta.url)));
-    // A particle effect is three.quarks data with no Unity counterpart in the exporter yet: said, and skipped.
-    expect(snap.warnings.filter((w) => !w.includes('<ParticleSystem effect>'))).toEqual([]);
+    expect(snap.warnings).toEqual([]);
     expect(snap.prefabs.map((p) => p.name).sort()).toEqual([
-      'BallPrefab', 'BoltPrefab', 'BrickPrefab', 'FirmBurst', 'HardBurst', 'LaserPickup', 'Level1', 'Level2', 'Level3',
-      'MultiPickup', 'Run', 'SlimPickup', 'SoftBurst', 'Spark', 'WallPrefab', 'WidePickup',
+      'Arena', 'BallPrefab', 'BoltPrefab', 'BrickPrefab', 'FirmBurst', 'HardBurst', 'LaserPickup', 'Level1', 'Level2', 'Level3',
+      'MultiPickup', 'PaddlePrefab', 'PickupPrefab', 'Run', 'SlimPickup', 'SoftBurst', 'Spark', 'WallPrefab', 'WidePickup',
     ]);
     // Geometry and materials written inside a prefab come across too; two walls of one shape are one mesh asset.
     const all = (n: SnapshotNode): SnapshotNode[] => [n, ...n.children.flatMap(all)];
-    const walls = all(snap.prefabs.find((p) => p.name === 'Level1')!.root).filter((n) => /^wall(Left|Right)$/.test(n.name));
+    const walls = all(snap.prefabs.find((p) => p.name === 'Arena')!.root).filter((n) => /^wall(Left|Right)$/.test(n.name));
     expect(walls).toHaveLength(2);
     const body = (wall: SnapshotNode) => all(wall).find((n) => n.geometry !== undefined && n.materials?.length)!;
     expect(body(walls[0]!).geometry).toBe(body(walls[1]!).geometry);

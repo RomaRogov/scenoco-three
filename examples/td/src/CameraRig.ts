@@ -1,5 +1,5 @@
 import { MathUtils, type PerspectiveCamera, Vector3 } from 'three';
-import { Behaviour, Event, Input, Random, Screen } from '@scenoco-three/core';
+import { Behaviour, Event, Input, Random, Screen, Tween } from '@scenoco-three/core';
 
 /**
  * The level's camera, tilted over the map. Held upright it frames `width` units across; on a wide
@@ -30,7 +30,7 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
 
   private readonly focus = new Vector3();
   private zoom = 1;
-  private shakeLeft = 0;
+  /** How far the camera is thrown now: set by `shake`, dying away by a tween. */
   private shakeStrength = 0;
   private readonly pointers = new Map<number, { x: number; y: number; startX: number; startY: number; at: number }>();
   private pinchFrom = 0;
@@ -41,8 +41,9 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
 
   /** Shake the view: `strength` units, fading over a moment. */
   shake(strength = 0.25) {
-    this.shakeStrength = Math.max(this.shakeStrength, strength);
-    this.shakeLeft = 0.35;
+    if (strength < this.shakeStrength) return;
+    Tween.kill(this);
+    Tween.float(strength, 0, 0.35, (v) => (this.shakeStrength = v)).setTarget(this).setLink(this);
   }
 
   override onEnable() {
@@ -93,13 +94,10 @@ export class CameraRig extends Behaviour<PerspectiveCamera> {
     // Upright it looks towards -z (the lair at the top); wide, towards +x (the lair on the left).
     const back = Math.cos(pitch) * distance;
     camera.position.set(this.focus.x - (wide ? back : 0), this.ground + Math.sin(pitch) * distance, this.focus.z + (wide ? 0 : back));
-    if (this.shakeLeft > 0) {
-      this.shakeLeft -= dt;
-      const s = this.shakeStrength * Math.max(0, this.shakeLeft / 0.35);
+    const s = this.shakeStrength;
+    if (s > 0) {
       camera.position.x += Random.range(-s, s);
       camera.position.y += Random.range(-s, s);
-    } else {
-      this.shakeStrength = 0;
     }
     camera.lookAt(this.focus.x, this.ground, this.focus.z);
   }

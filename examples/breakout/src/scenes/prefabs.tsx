@@ -1,7 +1,7 @@
-import { BoxGeometry, CapsuleGeometry, Color, Group, Mesh, MeshStandardMaterial, OctahedronGeometry, SphereGeometry } from 'three';
+import { BoxGeometry, CapsuleGeometry, Color, Group, Mesh, MeshStandardMaterial, OctahedronGeometry, PointLight, SphereGeometry } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { prefab, ref } from '@scenoco-three/core';
-import { BoxCollider2D, CircleCollider2D, CollisionDetectionMode2D, PhysicsMaterial2D, Rigidbody2D } from '@scenoco-three/box2d';
+import { BoxCollider2D, CircleCollider2D, CollisionDetectionMode2D, PhysicsMaterial2D, Rigidbody2D, RigidbodyType2D } from '@scenoco-three/box2d';
 import { ParticleSystem } from '@scenoco-three/particles';
 import type { Bonus } from '../bonus';
 import { NeonFrameTexture, NeonLabelTexture } from '../textures';
@@ -13,6 +13,7 @@ import { Brick } from '../Brick';
 import { GridSnap } from '../GridSnap';
 import { Lifetime } from '../Lifetime';
 import { NeonFlicker } from '../NeonFlicker';
+import { Paddle } from '../Paddle';
 import { Pickup } from '../Pickup';
 import { Spin } from '../Spin';
 
@@ -109,8 +110,11 @@ export const Spark = prefab(() => (
 
 // --- pickups -------------------------------------------------------------------------------
 
-/** A falling pill with its bonus's word glowing on it in `color`: a trigger the paddle catches. */
-const PickupBody = ({ bonus, color, label }: { bonus: Exclude<Bonus, 'none'>; color: string; label: string }) => (
+/**
+ * A falling pill with its bonus's word glowing on it in `color`: a trigger the paddle catches. Each
+ * bonus is a variant of it — Unity's prefab variant: this prefab, placed with its own props.
+ */
+export const PickupPrefab = prefab(({ bonus = 'laser', color = '#ffffff', label = '' }: { bonus?: Exclude<Bonus, 'none'>; color?: string; label?: string }) => (
   <Group>
     <Pickup bonus={bonus} />
     <Rigidbody2D gravityScale={0} />
@@ -122,16 +126,49 @@ const PickupBody = ({ bonus, color, label }: { bonus: Exclude<Bonus, 'none'>; co
       </MeshStandardMaterial>
     </Mesh>
   </Group>
-);
+));
 
-export const LaserPickup = prefab(() => <PickupBody bonus="laser" color="#ff3b6b" label="LASER" />);
-export const MultiPickup = prefab(() => <PickupBody bonus="multi" color="#ffd23f" label="×3" />);
-export const WidePickup = prefab(() => <PickupBody bonus="wide" color="#3bff9a" label="WIDE" />);
-export const SlimPickup = prefab(() => <PickupBody bonus="slim" color="#b18cff" label="SLIM" />);
+export const LaserPickup = prefab(() => <PickupPrefab bonus="laser" color="#ff3b6b" label="LASER" />);
+export const MultiPickup = prefab(() => <PickupPrefab bonus="multi" color="#ffd23f" label="×3" />);
+export const WidePickup = prefab(() => <PickupPrefab bonus="wide" color="#3bff9a" label="WIDE" />);
+export const SlimPickup = prefab(() => <PickupPrefab bonus="slim" color="#b18cff" label="SLIM" />);
 /** By `BONUSES`: what a brick with each bonus drops. */
 export const pickups = [LaserPickup, MultiPickup, WidePickup, SlimPickup];
 
 // --- the moving parts ----------------------------------------------------------------------
+
+/**
+ * The paddle. Kinematic: it moves its node and the body follows, so it shoves the ball rather than
+ * being shoved. Its width is the node's scale; what is seen is `body`, which leans and squashes.
+ */
+export const PaddlePrefab = prefab(() => {
+  const body = ref<Mesh>();
+  const cannons = ref<Group>();
+  return (
+    <Group>
+      <Paddle body={body} cannons={cannons} bolt={BoltPrefab} fireEvery={0.6} />
+      <Rigidbody2D bodyType={RigidbodyType2D.Kinematic} />
+      <BoxCollider2D size={[3.2, 0.48]} material={bouncy} />
+      <Mesh ref={body}>
+        <RoundedBoxGeometry args={[3.2, 0.48, 0.8, 5, 0.22]} />
+        <MeshStandardMaterial color="#1a6f78" emissive="#19c9ad" emissiveIntensity={1.2} roughness={0.2} metalness={0.6}>
+          <NeonFrameTexture attach="emissiveMap" />
+        </MeshStandardMaterial>
+        <PointLight color="#2ff5d2" intensity={3} distance={6} decay={2} position={[0, 0.6, 1]} />
+      </Mesh>
+      <Group ref={cannons} name="cannons" visible={false}>
+        <Mesh position={[-1.35, 0.32, 0]}>
+          <CapsuleGeometry args={[0.11, 0.42, 4, 10]} />
+          <MeshStandardMaterial color="#ff3b6b" emissive="#ff3b6b" emissiveIntensity={2.5} roughness={0.3} metalness={0.2} />
+        </Mesh>
+        <Mesh position={[1.35, 0.32, 0]}>
+          <CapsuleGeometry args={[0.11, 0.42, 4, 10]} />
+          <MeshStandardMaterial color="#ff3b6b" emissive="#ff3b6b" emissiveIntensity={2.5} roughness={0.3} metalness={0.2} />
+        </Mesh>
+      </Group>
+    </Group>
+  );
+});
 
 /** By a brick's hits, less one: cyan glass, magenta, heavy amber metal. */
 const tierTints = [new Color('#16d9ff'), new Color('#ff3dd8'), new Color('#ffaa1c')];

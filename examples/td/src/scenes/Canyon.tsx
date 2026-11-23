@@ -1,5 +1,5 @@
 import { Color, DirectionalLight, Fog, Group, HemisphereLight, Mesh, PerspectiveCamera, Scene } from 'three';
-import { ref } from '@scenoco-three/core';
+import { prefab, ref } from '@scenoco-three/core';
 import { SplineContainer, SplineInstantiate } from '@scenoco-three/splines';
 import { Terrain, TerrainData } from '@scenoco-three/terrain';
 import { CameraRig } from '../CameraRig';
@@ -15,7 +15,8 @@ import canyonTerrainUrl from '../levels/canyon/canyon.terrain?url';
 /** This level's ground: declared here, so it loads with the level when it is chosen, not with the menu. */
 const ground = new TerrainData(canyonTerrainUrl, layersOf('canyon'));
 
-export const CanyonWorld = () => {
+/** The canyon's map: ground and river, road and lanterns, scenery and pads — a prefab, as the meadow's is. */
+export const CanyonWorld = prefab(() => {
   const path = ref<Group>();
   return (
     <Group name="canyon">
@@ -60,7 +61,7 @@ export const CanyonWorld = () => {
       <Pad position={[7.92, 2.567, 26.879]} />
     </Group>
   );
-};
+});
 
 export const Canyon = () => (
   <Scene>
