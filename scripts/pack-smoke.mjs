@@ -15,8 +15,9 @@
  *      `scenoco check`: a scene only declares), build, and the built page playing a round;
  *   3. the bridge: `window.__scenoco` driving the game on its dev server, through page.evaluate.
  *
- * Along the way: every `@scenoco-three` package is installed once, from its tarball — a second
- * copy of core means two `Behaviour` classes and a silently broken `instanceof`.
+ * Along the way: every `@scenoco-three` package is installed once, from its tarball, and the
+ * `@scenoco/kernel` under them once, from the registry at core's version — a second copy of the
+ * kernel means two `Behaviour` classes and a silently broken `instanceof`.
  *
  *   node scripts/pack-smoke.mjs [--keep]
  *
@@ -144,23 +145,36 @@ try {
   run(npm, ['run', 'check'], app, false);
 
   // --- 4. one copy of each, from its tarball ---------------------------------------------------
-  step('every @scenoco-three package installed once, from its tarball');
+  step('every @scenoco-three package installed once, from its tarball; the kernel once, at core\'s version');
   const lock = JSON.parse(readFileSync(join(app, 'package-lock.json'), 'utf8'));
+  const kernelVersion = JSON.parse(readFileSync(join(repo, 'packages/core/package.json'), 'utf8')).dependencies['@scenoco/kernel'];
   const copies = new Map();
   for (const [path, entry] of Object.entries(lock.packages ?? {})) {
-    const match = /node_modules\/(@scenoco-three\/[^/]+)$/.exec(path);
+    const match = /node_modules\/(@scenoco(?:-three)?\/[^/]+)$/.exec(path);
     if (!match) continue;
-    copies.set(match[1], [...(copies.get(match[1]) ?? []), { path, resolved: entry.resolved ?? '' }]);
+    copies.set(match[1], [...(copies.get(match[1]) ?? []), { path, resolved: entry.resolved ?? '', version: entry.version }]);
   }
+  if (!copies.has('@scenoco/kernel')) fail('@scenoco/kernel is not installed: core depends on it');
   for (const [name, found] of copies) {
     if (found.length > 1) fail(`${name} is installed ${found.length} times: ${found.map((f) => f.path).join(', ')}`);
-    if (!found[0].resolved.startsWith('file:')) fail(`${name} came from ${found[0].resolved}, not from its tarball`);
+    // The kernel is published from its own repository: from the registry, at the version core pins.
+    const fromTarball = found[0].resolved.startsWith('file:');
+    if (name === '@scenoco/kernel' ? fromTarball : !fromTarball) fail(`${name} came from ${found[0].resolved}`);
+    if (name === '@scenoco/kernel' && found[0].version !== kernelVersion) fail(`@scenoco/kernel ${found[0].version} installed; core depends on ${kernelVersion}`);
     console.log(`  ${name}  once, ${found[0].resolved.replace(/^.*\//, '')}`);
   }
 
   // --- 5. the production build, run --------------------------------------------------------------
   step('npm run build, and the built page in Chrome');
   run(npm, ['run', 'build'], app, false);
+  // What a release must not carry: development-only code, each found by a string only it has. The
+  // bridge and the editor; the kernel's hook check; and three.js whole — what a port's ungated
+  // `bridgeScope: { THREE }` keeps, seen by a class this game never uses.
+  const built = readdirSync(join(app, 'dist', 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(app, 'dist', 'assets', f), 'utf8')).join('\n');
+  for (const [what, text] of [['the bridge', '__scenoco'], ["the editor's page", 'scenoco-editor'], ['the hook check', 'camelCase here'], ['all of three.js', 'PMREMGenerator']]) {
+    if (built.includes(text)) fail(`the production build carries ${what} (it has "${text}")`);
+  }
+  console.log('  no development code in it: no bridge, editor or hook check, and only the three.js it uses');
   await runBuiltPage(join(app, 'dist'), async (page) => {
     await page.waitForFunction(() => document.getElementById('level')?.textContent?.includes('NEON GRID'), undefined, { timeout: 30_000 });
     console.log('  the game runs: the first level is loaded and the HUD reports it');

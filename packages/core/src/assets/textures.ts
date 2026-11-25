@@ -1,5 +1,5 @@
 import { Texture, TextureLoader } from 'three';
-import { trackLoad } from './Asset.js';
+import { trackLoad } from '@scenoco/kernel/internal';
 
 /**
  * The texture for an image URL — one per URL, shared by everything that asks.

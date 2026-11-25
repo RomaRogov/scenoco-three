@@ -42,7 +42,7 @@ describe('models', () => {
     // Built before its model arrives, the tag says what was missed.
     expect(() => jsx(Box, {})).toThrow('<prefab-box.glb>: its model is not loaded yet — play loads every declared model before its first scene');
     // What play waits for before its first scene: every model declared, and only those.
-    const { loadDeclared } = await import('../../packages/core/src/assets/Asset.js');
+    const { loadDeclared } = await import('@scenoco/kernel/internal');
     await loadDeclared();
     expect(modelOf(Box)?.isLoaded).toBe(true);
     expect(loadDeclared()).toBeNull();

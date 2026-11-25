@@ -17,7 +17,8 @@ describe('what agents and registries read', () => {
       const pkg = json(`packages/${dir}/package.json`);
       if (pkg.private) continue;
       expect(pkg.description, pkg.name).toBeTruthy();
-      expect(pkg.keywords, pkg.name).toEqual(expect.arrayContaining(['threejs', 'game-engine', 'gamedev']));
+      expect(pkg.keywords, pkg.name).toEqual(expect.arrayContaining(['game-engine', 'gamedev']));
+      expect(pkg.keywords, pkg.name).toContain('threejs');
       expect(pkg.homepage, pkg.name).toMatch(/^https:\/\//);
       expect(pkg.repository?.directory, pkg.name).toBe(`packages/${dir}`);
     }

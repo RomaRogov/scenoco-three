@@ -1,6 +1,6 @@
 {
   "name": "@scenoco-three/core",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "SceNoCo core: a Unity-style three.js game engine — Behaviour, coroutines, Time, Input, SceneManager — with scenes written in TSX and no React.",
   "keywords": [
     "three.js",
@@ -69,6 +69,9 @@
     "prepack": "node ../../scripts/core-card.mjs",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scenoco/kernel": "1.6.1"
   },
   "peerDependencies": {
     "three": ">=0.184.0"

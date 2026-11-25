@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BoxGeometry, Mesh, MeshStandardMaterial, PCFSoftShadowMap, BasicShadowMap, Scene } from 'three';
 import { QualitySettings, ShadowQuality, type Game } from '@scenoco-three/core';
-import { liveGames } from '../../packages/core/src/play.js';
+import { liveGames } from '@scenoco/kernel/internal';
 
 /** What `play` hands QualitySettings, minus the canvas: a renderer's settings and a scene. */
 function game(): Game & { material: MeshStandardMaterial } {

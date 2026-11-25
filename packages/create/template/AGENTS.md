@@ -22,7 +22,8 @@ or handlers; `scenoco check` points at them. An object made from data with `new`
 a constant above the scene function: `const font = new Font(json)`. A tag is a three.js class you import:
 `<BoxGeometry args={[1, 2, 3]} />` is `new BoxGeometry(1, 2, 3)`, and attributes are its
 properties, R3F-style — `position={[0, 1, 0]}`, `color="#ff8800"`, `scale={2}`,
-`shadow-mapSize={[1024, 1024]}`. A child node is added to its parent; a geometry or material fills
+`shadow-mapSize={[1024, 1024]}` — or whatever its constructor's options object takes for that name
+(`<MeshStandardMaterial>` checks against `MeshStandardMaterialParameters`). A child node is added to its parent; a geometry or material fills
 `geometry` / `material`; anything else names the property it fills:
 `<Fog attach="fog" args={['#000000', 5, 30]} />`, `<Color attach="background" args={['#000000']} />`.
 A node with `attach` is both added and assigned: `<Object3D attach="target" position={[0, -1, 0]} />`

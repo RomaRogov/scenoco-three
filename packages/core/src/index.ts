@@ -18,14 +18,20 @@
  * way React Three Fiber does. A `Behaviour` is a component with Unity's lifecycle. A prefab is a
  * function returning TSX, and `instantiate` calls it. Everything else is three.js.
  */
+import './port.js';
 import './augment.js';
+import './tween/shortcuts.js';
 
-export { play, instantiate, gameOf, type Game, type PlayOptions, type InstantiateOptions } from './play.js';
-export { simulate, type Simulation, type SimulateOptions } from './simulate.js';
-export { SceneManager, dontDestroyOnLoad } from './scenes.js';
-export { prefab, ref, type Ref } from './jsx.js';
-export { sourceOf, type Source } from './provenance.js';
 export {
+  play,
+  instantiate,
+  gameOf,
+  simulate,
+  SceneManager,
+  dontDestroyOnLoad,
+  prefab,
+  ref,
+  sourceOf,
   Behaviour,
   Event,
   Coroutine,
@@ -47,28 +53,46 @@ export {
   getComponentInChildren,
   getComponentsInChildren,
   getComponentInParent,
+  Tween,
+  Sequence,
+  LoopType,
+  Ease,
+  RotateMode,
+  Mathf,
+  Random,
+  PlayerPrefs,
+  Screen,
+  QualitySettings,
+  ShadowQuality,
+  UIDocument,
+  Input,
+  KeyCode,
+  MouseButton,
+  AXES,
+  AXIS_NAMES,
+  Asset,
+  loadAssets,
+  type Game,
+  type PlayOptions,
+  type InstantiateOptions,
+  type Simulation,
+  type SimulateOptions,
+  type Ref,
+  type Source,
   type BehaviourInit,
   type BehaviourType,
   type Prefab,
   type RenderCamera,
   type Yieldable,
-} from './kernel/index.js';
+  type Tweenable,
+  type EaseFunction,
+  type RandomState,
+  type QualityLevel,
+  type ButtonName,
+  type AxisName,
+  type Loadable,
+} from '@scenoco/kernel';
 
-export { Tween, Sequence, LoopType, type Tweenable } from './tween/Tween.js';
-export { Ease, type EaseFunction } from './tween/Ease.js';
-export { RotateMode } from './tween/shortcuts.js';
-
-export { Mathf } from './Mathf.js';
-export { Random, type RandomState } from './Random.js';
-export { PlayerPrefs } from './PlayerPrefs.js';
-export { Screen } from './Screen.js';
-export { QualitySettings, ShadowQuality, type QualityLevel } from './QualitySettings.js';
-export { UIDocument } from './UIDocument.js';
-export { Input, type ButtonName } from './input/Input.js';
-export { KeyCode, MouseButton } from './input/KeyCode.js';
-export { AXES, AXIS_NAMES, type AxisName } from './input/axes.js';
-
-export { Asset, loadAssets, type Loadable } from './assets/Asset.js';
 export { Model, sharedModel, type ModelSettings } from './assets/Model.js';
 export { Animator, type AnimatorStateInfo } from './animation/Animator.js';
 export { sharedTexture, type TextureSettings } from './assets/textures.js';
@@ -89,8 +113,8 @@ export {
   type BehaviourHooks,
   type ConstructableBehaviour,
   type NodeOf,
-} from './kernel/index.js';
+} from '@scenoco/kernel';
 
 // For the editor's interface, `@scenoco-three/editor`: what it reaches the running game through.
-export type { EditHost, OpenedScene, Transform } from './editor/EditHost.js';
-export type { Reach } from './kernel/lifecycle.js';
+export type { EditHost, OpenedScene, Transform } from '@scenoco/kernel';
+export type { Reach } from '@scenoco/kernel';

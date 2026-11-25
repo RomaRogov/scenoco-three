@@ -28,5 +28,12 @@ export default defineConfig({
     include: ['tests/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', 'tests/.tmp/**'],
     environment: 'node',
+    server: {
+      deps: {
+        // The kernel is installed, not a workspace package: transformed as Vite serves it to a game,
+        // so `import.meta.env.DEV` is set in it — loaded as is, its development half never runs.
+        inline: ['@scenoco/kernel'],
+      },
+    },
   },
 });

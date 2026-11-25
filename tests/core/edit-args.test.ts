@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BoxGeometry, HemisphereLight, PerspectiveCamera } from 'three';
-import { applyArguments, settableArgument } from '../../packages/core/src/editor/arguments';
+import '@scenoco-three/core';
+// The kernel's editor sets args with these; three.js's port decides what can be made again (`canRemake`, `isDerived`).
+import { applyArguments, settableArgument } from '@scenoco/kernel/internal';
 
 describe("the editor's args", () => {
   it('sets each through the property it sets, or makes a geometry again in place', () => {

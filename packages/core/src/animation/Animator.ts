@@ -1,5 +1,5 @@
 import { AnimationMixer, type AnimationAction, type AnimationClip, type Object3D } from 'three';
-import { Behaviour } from '../kernel/Behaviour.js';
+import { Behaviour } from '@scenoco/kernel/internal';
 
 /**
  * Unity's `Animator`, without a controller: the states are the model's clips, by name, and a

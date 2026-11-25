@@ -1,5 +1,5 @@
 import { Group, type AnimationClip, type Object3D } from 'three';
-import { Asset } from './Asset.js';
+import { Asset } from '@scenoco/kernel/internal';
 
 /** What the glTF loader hands back. Structural, so nothing here imports the addon's types. */
 interface LoadedGltf {

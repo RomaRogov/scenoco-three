@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Texture, Vector3 } from 'three';
 import { Runtime, loadAssets, simulate, wake } from '@scenoco-three/core';
 import { Terrain, TerrainData, TerrainLayer, type TerrainMaterial } from '@scenoco-three/terrain';
-import { provideCamera } from '../../packages/core/src/kernel/camera';
+import { provideCamera } from '@scenoco/kernel/internal';
 
 const runtimes: Runtime[] = [];
 afterEach(() => {

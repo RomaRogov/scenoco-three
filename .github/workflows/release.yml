@@ -40,7 +40,8 @@ jobs:
       # install — core@0.5.0 did.
       - run: npm run smoke:pack
 
-      # Dependency order: everything peers on core; tools depends on editor.
+      # Dependency order: everything peers on core; tools depends on editor. The kernel core depends on is
+      # published from its own repository (RomaRogov/scenoco-kernel) first.
       - name: Publish
         run: |
           set -euo pipefail

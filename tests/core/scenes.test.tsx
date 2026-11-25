@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BoxGeometry, Color, DirectionalLight, Group, Mesh, MeshStandardMaterial, Scene, WebGLRenderTarget } from 'three';
 import { Behaviour, Runtime, SceneManager, dontDestroyOnLoad, instantiate, prefab, ref, sharedModel } from '@scenoco-three/core';
-import { attachWorld } from '../../packages/core/src/scenes.js';
+import { attachWorld } from '@scenoco/kernel/internal';
 
 const runtimes: Runtime[] = [];
 afterEach(() => {

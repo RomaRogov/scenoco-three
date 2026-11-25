@@ -20,6 +20,8 @@ export const Probe = () => {
       <Mesh ref={cam} />
       {/* @ts-expect-error constructor args of the wrong type */}
       <BoxGeometry args={['wide']} />
+      {/* @ts-expect-error a handler: a scene only declares, and the message says what reacts instead */}
+      <Mesh onClick={() => {}} />
       {/* @ts-expect-error a behaviour's unknown field */}
       <Bob heigth={1} />
       {/* @ts-expect-error a behaviour field of the wrong type */}
@@ -85,6 +87,10 @@ export const Prefabs = () => (
 
 export function instantiatesPrefabsOnly() {
   instantiate(Crate);
+  // Built with no props: one whose props all have defaults is a prefab to instantiate too.
+  instantiate(Wall);
+  // @ts-expect-error one that needs a prop cannot be built without it
+  instantiate(Tower);
   // @ts-expect-error a plain function is not a prefab
   instantiate(() => <Group />);
 }

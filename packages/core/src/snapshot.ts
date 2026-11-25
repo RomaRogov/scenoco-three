@@ -27,12 +27,12 @@ import {
   type Scene,
   type Texture,
 } from 'three';
-import { Behaviour, behavioursOn } from './kernel/index.js';
+import { Behaviour, behavioursOn } from '@scenoco/kernel/internal';
 import { isBehaviourClass, isClass, isPrefab, modelOf } from './jsx.js';
-import { prefabOf, sourceOf } from './provenance.js';
-import { Asset } from './assets/Asset.js';
+import { prefabOf, sourceOf } from '@scenoco/kernel/internal';
+import { Asset } from '@scenoco/kernel/internal';
 import { Model } from './assets/Model.js';
-import { writtenOf } from './kernel/index.js';
+import { writtenOf } from '@scenoco/kernel/internal';
 
 /** A value a behaviour's field holds, as data. Vectors are three.js's, untouched: right-handed, Y up. */
 export type SnapshotValue =

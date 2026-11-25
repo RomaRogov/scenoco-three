@@ -10,7 +10,8 @@
 TSX and no React. A TypeScript npm workspace monorepo.
 
 > A scene is a `.tsx` file that only declares. An element is `new Tag(...args)` of the class it
-> imports; an attribute sets the property of that name the way R3F does. A child that is an
+> imports; an attribute sets the property of that name the way R3F does, and takes what the
+> constructor's options object takes for it. A child that is an
 > `Object3D` is added, a `Behaviour` becomes a component, anything else is attached (`attach`).
 > A prefab is `prefab(() => <Tsx />)`, a reference is `ref<T>()`, logic lives in behaviours. Everything else is
 > three.js and Unity, as their own declarations describe them — `npm run check` reports any mistake
@@ -26,13 +27,22 @@ one is a design mistake.
 
 ## Layering
 
-`core` runs alone. Every other package depends on `core` and on nothing else here; `core` knows
-nothing about them. No upward and no sideways imports (`rapier`↔`box2d`). Verify with the imports,
-not memory.
+The kernel runs alone and imports no renderer; `core` depends on it alone. Every other package depends
+on `core` and on nothing else here; neither knows about them. No upward and no sideways imports
+(`rapier`↔`box2d`). Verify with the imports, not memory.
 
-- `packages/core` — the kernel (`Behaviour`, the per-scene `Runtime`, coroutines, `Time`, events,
-  destruction), the TSX runtime (`jsx.ts`), `play`, `SceneManager`, `Input`, assets, and the
-  dev-only bridge a browser drives the game through (`bridge/`). Its own map is below.
+- `@scenoco/kernel` — its own repository, [RomaRogov/scenoco-kernel](https://github.com/RomaRogov/scenoco-kernel),
+  installed here from npm at the exact version core pins. Everything SceNoCo does, shared with every
+  renderer (scenoco-pixi next): behaviours, the frame (`play`, `simulate`), scenes, prefabs and TSX, tweens,
+  `Input`, `Random`, `QualitySettings`, `UIDocument`, the bridge and the editor's model side. It asks
+  the renderer for the rest through one interface, `RendererPort` (`port.ts`), and learns its classes
+  by declaration merging (`interface Renderer`, `kernel/renderer.ts`). `/internal` is what a renderer's
+  package and editor reach it with. Its `README.md` is how to write a renderer package. A change to it
+  is made and released there first, then core's pin is bumped here.
+- `packages/core` — three.js's renderer package: `port.ts` implements and binds `RendererPort`,
+  `renderer.ts` merges three.js's classes, `augment.ts` and `tween/shortcuts.ts` declare Unity's
+  methods on them; then what is three.js's own — models, textures, `Animator`, freeing GPU
+  resources, the editor's viewport, the Unity `snapshot`. Games import core, never the kernel.
 - Packages (`rapier`, `box2d`, `particles`, `audio`, `postprocessing`, `splines`, `terrain`) attach through core's package seam: a private
   per-scene `System` reached with `service(node, Type)`, Unity's message names declared with
   `declareMessages`, and Unity's static facades (`Physics.gravity`) for anything a game sets.
@@ -51,27 +61,33 @@ not memory.
   as a native plugin for macOS, iOS, Android and Windows, with tetorica's API in C#. For a game whose port
   plays them, added by hand; the exporter knows nothing of it. `Native~/build.sh` rebuilds it.
 - `packages/editor` — the editor's interface: one self-contained module (React bundled in) the
-  running game's page loads from a button in development. The live half is core's `editor/` (pause,
-  step, reset, the editor's camera and gizmo); the file half is `scenoco()` in `packages/tools/src/vite.ts`,
+  running game's page loads from a button in development. The live half is the kernel's `editor/`
+  (selection, edits, pause, step, reset) over the renderer's viewport — core's `editor/`: the
+  editor's camera, gizmo and picking; the file half is `scenoco()` in `packages/tools/src/vite.ts`,
   which also serves the module.
 
-## Inside core
+## Inside the kernel and core
+
+Kernel paths are under `src/` of the kernel's repository (built, in `node_modules/@scenoco/kernel/dist`);
+core's, marked, under `packages/core/src`.
 
 | Where | What |
 | --- | --- |
+| `port.ts` | `RendererPort`: all the kernel asks of a renderer, and `bindRenderer`; core `port.ts` is three.js's |
+| `kernel/renderer.ts` | `Renderer`, the merged interface a renderer names its classes in; `Node`, `RenderCamera` |
 | `kernel/Behaviour.ts` | the base class: fields, hooks, lookups on its node, `listen`, coroutines |
 | `kernel/registry.ts` | which behaviours are on which node, which runtime runs which root, every `getComponent*` and `findObject*` |
 | `kernel/lifecycle.ts` | a behaviour's life — woken, live, started, destroyed at the end of the frame — and `service` |
 | `kernel/attach.ts` `kernel/init.ts` | `addComponent`, and how a tag's attributes and refs land on a behaviour |
 | `kernel/messages.ts` | `sendMessage`, `declareMessages`, the check that names a misspelled hook |
 | `kernel/runtime.ts` | `Runtime`: one root's frame — start, fixed steps, update, coroutines, late update, destroy |
-| `jsx.ts` | TSX to three.js objects, `prefab`, `ref`; `provenance.ts` records where each element was written |
-| `play.ts` `simulate.ts` | a scene run on a canvas, or stepped by a test |
-| `tween/` | tweens: a `System` of its own, the `do…` methods on three's objects (Unity's DOTween, which only the docs say) |
+| `jsx.ts` | TSX to a renderer's objects, `prefab`, `ref`, attributes typed from properties and the constructor's options; `provenance.ts` records where each element was written |
+| `play.ts` `simulate.ts` `scenes.ts` | a game run on the renderer's view, or stepped by a test; `SceneManager`, `instantiate` |
+| `tween/` | `Tween`, a `System` of its own; `nodeTweens.ts` the `do…` methods (Unity's DOTween, which only the docs say) on a port's numbers; core `tween/shortcuts.ts` declares them on three's classes |
 | `host.ts` | what the editor and the bridge do to a running game: hold its clock, draw from another camera |
 | `bridge/` | `window.__scenoco`: `scope` (what `eval` can name), `input`, `read` (state as plain data), `drive` (`?drive=`) |
-| `editor/` | the editor's live half |
-| `snapshot.ts` | what the TSX declares, as plain data, for the Unity export (development only) |
+| `editor/` | the editor's live half: `host.ts` the `EditHost` the interface works through; core `editor/` the three.js viewport |
+| core `snapshot.ts` | what the TSX declares, as plain data, for the Unity export (development only) |
 
 Words of its own, each defined where it lives:
 - **live** — receiving hooks: the node is under a running root and the behaviour is enabled;
@@ -84,7 +100,7 @@ Words of its own, each defined where it lives:
 
 ## Inside the editor
 
-`packages/editor/src`: the interface only. It reaches the game through core's `EditHost` and the
+`packages/editor/src`: the interface only. It reaches the game through the kernel's `EditHost` and the
 files through the dev server, and keeps what it knows in a `Model` the interface reads.
 
 | Where | What |

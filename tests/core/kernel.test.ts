@@ -45,7 +45,7 @@ describe('lifecycle', () => {
   });
 
   it('calls onValidate after the editor changes a field, as Unity does — and lets the change through when it throws', async () => {
-    const { setField } = await import('../../packages/core/src/editor/index.js');
+    const { setField } = await import('@scenoco/kernel/internal');
     class Placer extends Behaviour {
       t = 0;
       placedAt = -1;
