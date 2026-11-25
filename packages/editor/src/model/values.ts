@@ -2,11 +2,26 @@
  * A value three ways: as the editor shows it (degrees, `#rrggbb`, rounded), as the live object takes
  * it, and as the file is written with it — and which values it edits at all, by their kind.
  */
+import type { EditHost } from '@scenoco-three/core';
 import type { Field, Kind } from './types.js';
 
 /**
- * What an editable value is: as the project declares it when the dev server has said — a colour,
- * one of a few options — and otherwise from the value itself.
+ * A live value as plain data, as the renderer describes it through the host — a vector's numbers, a
+ * rotation's angles, a colour's `#rrggbb` — with the kind it says. A quaternion is shown as it is and
+ * not edited; anything the renderer does not describe passes through.
+ */
+export function plainOf(host: Pick<EditHost, 'describe'>, value: unknown, name: string): { value: unknown; kind?: Kind } {
+  // A list of them — a spline's knots — item by item.
+  if (Array.isArray(value)) return { value: value.map((item) => plainOf(host, item, '').value) };
+  const view = host.describe(value, name);
+  if (!view || view.kind === 'quaternion') return { value };
+  if (view.kind === 'color') return { value: view.hex, kind: 'color' };
+  return { value: view.items, kind: view.kind };
+}
+
+/**
+ * What an editable plain value is (`plainOf` first, for a live one): as the project declares it when
+ * the dev server has said — a colour, one of a few options — and otherwise from the value itself.
  */
 export function kindOf(value: unknown, name: string, field?: Field): Kind | undefined {
   if (field && fits(value, field.kind)) return field.kind;
@@ -14,10 +29,7 @@ export function kindOf(value: unknown, name: string, field?: Field): Kind | unde
   if (typeof value === 'boolean') return 'boolean';
   if (typeof value === 'string') return 'string';
   if (!value || typeof value !== 'object') return undefined;
-  const v = value as Record<string, unknown>;
-  if (v.isColor) return 'color';
-  if (v.isEuler || (name === 'rotation' && Array.isArray(value))) return 'angles';
-  if (v.isVector2 || v.isVector3 || v.isVector4) return 'vector';
+  if (name === 'rotation' && Array.isArray(value)) return 'angles';
   if (Array.isArray(value) && value.length >= 2 && value.length <= 4 && value.every((x) => typeof x === 'number')) return 'vector';
   if (listItem(value)) return 'list';
   return undefined;
@@ -40,10 +52,9 @@ const HEX = /^#[0-9a-f]{6}$/i;
 
 /** Whether a live value can be edited as the kind its field is declared. */
 export function fits(value: unknown, kind: Kind): boolean {
-  const v = value as Record<string, unknown> | null;
   switch (kind) {
     case 'color':
-      return typeof value === 'string' ? /^#[0-9a-f]{6}$/i.test(value) : !!v?.isColor;
+      return typeof value === 'string' && HEX.test(value);
     case 'option':
       return typeof value === 'string' || typeof value === 'number';
     case 'number':
@@ -55,12 +66,11 @@ export function fits(value: unknown, kind: Kind): boolean {
   }
 }
 
-/** The value as the editor shows it. */
+/** A plain value (`plainOf` first, for a live one) as the editor shows it. */
 export function shown(value: unknown, kind: Kind): unknown {
-  const v = value as Record<string, unknown> & { toArray?: () => unknown[]; getHexString?: () => string };
-  if (kind === 'color') return typeof value === 'string' ? value : `#${v.getHexString!()}`;
-  if (kind === 'angles') return (Array.isArray(value) ? value : v.toArray!()).slice(0, 3).map((r) => round((Number(r) * 180) / Math.PI));
-  if (kind === 'vector') return (Array.isArray(value) ? value : v.toArray!()).map((x) => round(Number(x)));
+  if (kind === 'color') return String(value);
+  if (kind === 'angles') return (value as unknown[]).slice(0, 3).map((r) => round((Number(r) * 180) / Math.PI));
+  if (kind === 'vector') return (value as unknown[]).map((x) => round(Number(x)));
   if (kind === 'list') return (value as unknown[]).map((x) => shown(x, listItem(value)!));
   if (kind === 'number') return round(value as number);
   return value;

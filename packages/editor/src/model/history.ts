@@ -2,7 +2,8 @@
 import type { EditHost } from '@scenoco-three/core';
 import type { Address, ArgPlace, Args, Attr } from './types.js';
 import { keyOf, type SceneFiles, sourceKey } from './server.js';
-import { itemText, read, same, shown, toFile, toLive } from './values.js';
+import { itemText, plainOf, read, same, shown, toFile, toLive } from './values.js';
+import { walk } from './tree.js';
 
 /** The file does not write the attribute. */
 const UNWRITTEN = Symbol('unwritten');
@@ -115,7 +116,7 @@ export class History {
     if (!attr.wide || !attr.element) return [attr.target];
     const { host } = this;
     const out: object[] = [];
-    host.scene.traverse((n) => {
+    walk(host, host.scene, (n) => {
       // A copy's root answers for its tag; its own element, inside the prefab, is `own`.
       if (sourceKey(host.sourceOf(n)) === attr.element || sourceKey(host.own(n)?.source) === attr.element) out.push(n);
       for (const b of host.behavioursOn(n)) if (sourceKey(host.sourceOf(b)) === attr.element) out.push(b);
@@ -139,7 +140,7 @@ export class History {
     // gets, as a drag writes where the node ended up. A prop called the function again: nothing to read.
     if (!attr.prop && attr.kind && attr.kind !== 'option') {
       const now = read(this.host.current(targets[0]!), attr.name);
-      const seen = now === undefined ? undefined : shown(now, attr.kind);
+      const seen = now === undefined ? undefined : shown(plainOf(this.host, now, attr.name).value, attr.kind);
       // Compared as shown, both rounded alike: a value typed finer than the editor shows stays as typed.
       if (seen !== undefined && JSON.stringify(seen) !== JSON.stringify(shown(live, attr.kind))) {
         value = seen;

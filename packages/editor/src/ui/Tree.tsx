@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { Object3D } from 'three';
 import type { Model } from '../model/Model.js';
+import { within } from '../model/tree.js';
 
 export function Tree({ model, selected }: { model: Model; selected: Object3D | null }): React.JSX.Element {
   const { host } = model;
@@ -43,8 +44,7 @@ export function Tree({ model, selected }: { model: Model; selected: Object3D | n
   const outside = (node: Object3D) => {
     const root = model.stage?.root;
     if (!root) return false;
-    for (let n: Object3D | null = node; n; n = n.parent) if (n === root) return false;
-    return true;
+    return !within(host, node, root);
   };
   const rows: React.JSX.Element[] = [];
   const visit = (node: Object3D, depth: number) => {
@@ -54,7 +54,7 @@ export function Tree({ model, selected }: { model: Model; selected: Object3D | n
     const behaviours = made ? made.added.behaviours : host.behavioursOn(node);
     rows.push(
       <div
-        key={node.uuid}
+        key={host.idOf(node)}
         className={['se-row', node === selected && 'se-selected', host.spawned(node) && 'se-dim', outside(node) && 'se-outside'].filter(Boolean).join(' ')}
         style={{ paddingLeft: 4 + depth * 14 }}
         onClick={() => {
@@ -75,15 +75,15 @@ export function Tree({ model, selected }: { model: Model; selected: Object3D | n
             });
           }}
         >
-          {node.children.length > 0 && (isOpen ? <ChevronDown /> : <ChevronRight />)}
+          {host.childrenOf(node).length > 0 && (isOpen ? <ChevronDown /> : <ChevronRight />)}
         </span>
-        <span className={made ? 'se-made' : undefined}>{made ? `<${model.tagName(node)}>` : node.name || node.type}</span>
+        <span className={made ? 'se-made' : undefined}>{made ? `<${model.tagName(node)}>` : host.nameOf(node) || host.kindOf(node)}</span>
         {behaviours.length > 0 && <span className="se-chips">{behaviours.map((b) => b.constructor.name).join(' · ')}</span>}
       </div>,
     );
-    if (isOpen) for (const child of node.children) visit(child, depth + 1);
+    if (isOpen) for (const child of host.childrenOf(node)) visit(child, depth + 1);
   };
-  for (const child of host.scene.children) visit(child, 0);
+  for (const child of host.childrenOf(host.scene)) visit(child, 0);
   return (
     <div className="se-tree" ref={list}>
       {rows}

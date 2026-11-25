@@ -173,7 +173,7 @@ describe('TSX on three.js', () => {
     const target = ref<Group>();
     // @ts-expect-error a field holds the object a ref points at, never the ref
     const holder = <Holder target={target} />;
-    expect(() => jsx(Group, { children: holder })).toThrow(/declare it as target: Mesh \| null = null/);
+    expect(() => jsx(Group, { children: holder })).toThrow(/declare it with the object's own class — target: TheClass \| null = null/);
   });
 });
 

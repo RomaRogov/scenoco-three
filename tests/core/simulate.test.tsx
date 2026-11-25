@@ -91,4 +91,10 @@ describe('simulate', () => {
     game.dispose();
     expect(Screen.width).toBe(1920);
   });
+
+  it('says how to write a camera when the scene has none to see from', () => {
+    const game = simulate(() => <Scene />);
+    expect(() => game.worldToScreen(new Vector3())).toThrow('Put one in it: <PerspectiveCamera position={[0, 2, 6]} />');
+    game.dispose();
+  });
 });

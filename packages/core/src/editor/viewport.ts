@@ -144,6 +144,8 @@ export async function openViewport(game: Game, events: ViewportEvents): Promise<
       }
     },
     draw(drawn) {
+      // three.js always draws from a camera: the kernel passes none only to a renderer that draws without one.
+      if (!drawn) return;
       const now = performance.now();
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;

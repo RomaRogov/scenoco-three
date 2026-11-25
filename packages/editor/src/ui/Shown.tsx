@@ -4,6 +4,7 @@
  * it refers to, anything else to where it is declared.
  */
 import type { Object3D } from 'three';
+import type { EditHost } from '@scenoco-three/core';
 import { codeOf, type Attr, type Model, type TextLink } from '../model/Model.js';
 
 /**
@@ -15,7 +16,7 @@ export function Shown({ model, attr }: { model: Model; attr: Attr }): React.JSX.
   // The links are places in the file's text: only that text has them.
   const links = attr.written && attr.text === text ? [...(attr.links ?? [])].sort((a, b) => a.from - b.from) : [];
   if (!links.length) return <span className="se-text">{text}</span>;
-  const nodeAt = sceneTargets(attr, text);
+  const nodeAt = sceneTargets(model.host, attr, text);
   const parts: React.ReactNode[] = [];
   let at = 0;
   links.forEach((link: TextLink, i) => {
@@ -44,10 +45,11 @@ export function Shown({ model, attr }: { model: Model; attr: Attr }): React.JSX.
  * Which node a name at a place in an attribute's text refers to, live: the attribute's own value
  * when it is one — a node, or a behaviour on one — or, in a list written in place, its item's.
  */
-function sceneTargets(attr: Attr, text: string): (at: number) => Object3D | null {
+function sceneTargets(host: EditHost, attr: Attr, text: string): (at: number) => Object3D | null {
   const nodeOf = (value: unknown): Object3D | null => {
-    const v = value as { isObject3D?: boolean; node?: { isObject3D?: boolean } } | null;
-    return v?.isObject3D ? (v as unknown as Object3D) : v?.node?.isObject3D ? (v.node as unknown as Object3D) : null;
+    if (host.isNode(value)) return value;
+    const node = (value as { node?: unknown } | null)?.node;
+    return host.isNode(node) ? node : null;
   };
   const whole = nodeOf(attr.value);
   if (whole) return () => whole;

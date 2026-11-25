@@ -17,8 +17,9 @@ import { call, SceneFiles } from './server.js';
 import { codeEditor, resetReach, setCodeEditor, setResetReach } from './settings.js';
 import { restructure, selectRemembered } from './structure.js';
 import type { Attr, CodeEditor, Stage, View, Where } from './types.js';
-import { shown } from './values.js';
+import { plainOf, shown } from './values.js';
 import { Reader } from './view.js';
+import { walk } from './tree.js';
 
 export class Model {
   readonly host: EditHost;
@@ -119,7 +120,7 @@ export class Model {
     const made = this.host.madeBy(root);
     if (!own || !made) return;
     let count = 0;
-    this.host.scene.traverse((n) => void (this.host.madeBy(n)?.fn === made.fn && count++));
+    walk(this.host, this.host.scene, (n) => void (this.host.madeBy(n)?.fn === made.fn && count++));
     this.stage = { root, name: this.prefabName(root), file: own.fileName, count };
     this.host.select(root);
     this.changed();
@@ -151,7 +152,7 @@ export class Model {
     const name = ({ translate: 'position', rotate: 'rotation', scale: 'scale' } as const)[this.mode];
     const view = await this.view(node);
     const attr = view.tag.attrs.find((a) => a.name === name);
-    if (attr?.kind) await this.set(attr, attr.value, true, shown(before[name], attr.kind));
+    if (attr?.kind) await this.set(attr, attr.value, true, shown(plainOf(this.host, before[name], name).value, attr.kind));
   }
 
   /** How source links open: this browser's choice, kept. */

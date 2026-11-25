@@ -6,6 +6,7 @@ import type { EditHost } from '@scenoco-three/core';
 import type { Object3D } from 'three';
 import type { Model } from './Model.js';
 import { call, where } from './server.js';
+import { walk } from './tree.js';
 
 /** The element a duplicate made, selected once the page has loaded again. */
 const SELECT_KEY = 'scenoco-editor-select';
@@ -49,7 +50,7 @@ export function selectRemembered(host: EditHost): void {
   const until = performance.now() + 3000;
   const look = () => {
     let found: Object3D | null = null;
-    host.scene.traverse((n) => {
+    walk(host, host.scene, (n) => {
       const at = host.sourceOf(n);
       if (!found && at?.fileName === wanted.file && at.lineNumber === wanted.line && at.columnNumber === wanted.column) found = n;
     });

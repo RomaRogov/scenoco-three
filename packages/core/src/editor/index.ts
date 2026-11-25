@@ -6,4 +6,5 @@ import { openViewport } from './viewport.js';
 export const threeEditor: EditorPort = {
   openViewport,
   sizeView: (view, host) => sizeCanvas(view.renderer, host),
+  setUp: 'scenoco() from @scenoco-three/tools/vite in its vite.config, and @scenoco-three/editor installed',
 };

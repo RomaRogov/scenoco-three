@@ -74,6 +74,7 @@ export const threePort: RendererPort = {
   add: (parent, child) => void parent.add(child),
   reparent: (parent, child) => void parent.attach(child),
   isVisible: (node) => node.visible,
+  kindOf: (node) => node.type,
 
   // R3F's defaults: a geometry and a material fill their slots, and are the node's, freed with it.
   attachChild(parent, child) {
@@ -104,6 +105,7 @@ export const threePort: RendererPort = {
   },
 
   isCamera: (node) => (node as Camera).isCamera === true,
+  cameraExample: '<PerspectiveCamera position={[0, 2, 6]} />',
   /** Unity's orthographic size: the height it shows is the scene's, the width follows the screen. */
   fitCamera(camera, width, height) {
     const aspect = width / height;
@@ -219,12 +221,14 @@ export const threePort: RendererPort = {
  */
 function development(): Partial<RendererPort> {
   return {
-    plain(value) {
+    // three.js's values by their flags: what the bridge prints and the editor's inspector edits.
+    describe(value) {
       const own = value as { isVector2?: boolean; isVector3?: boolean; isVector4?: boolean; isQuaternion?: boolean; isEuler?: boolean; isColor?: boolean };
-      if (own.isVector2 || own.isVector3 || own.isVector4 || own.isQuaternion || own.isEuler) {
-        return (value as { toArray(): unknown[] }).toArray().filter((x) => typeof x === 'number');
-      }
-      if (own.isColor) return `#${(value as Color).getHexString()}`;
+      const numbers = () => (value as { toArray(): unknown[] }).toArray().filter((x): x is number => typeof x === 'number');
+      if (own.isColor) return { kind: 'color', hex: `#${(value as Color).getHexString()}` };
+      if (own.isEuler) return { kind: 'angles', items: numbers() };
+      if (own.isQuaternion) return { kind: 'quaternion', items: numbers() };
+      if (own.isVector2 || own.isVector3 || own.isVector4) return { kind: 'vector', items: numbers() };
       return undefined;
     },
     viewCamera(fov, aspect, [x, y, z], at) {

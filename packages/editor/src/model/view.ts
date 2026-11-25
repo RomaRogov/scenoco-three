@@ -4,7 +4,8 @@ import type { Object3D } from 'three';
 import type { History } from './history.js';
 import { type ElementJson, keyOf, type SceneFiles, sourceKey, where } from './server.js';
 import type { Address, Attr, Stage, Tag, View } from './types.js';
-import { asShown, codeOf, kindOf, read, shown } from './values.js';
+import { asShown, codeOf, fits, kindOf, plainOf, read, shown } from './values.js';
+import { walk, within } from './tree.js';
 
 /** What a tag is shown as: written into its file, live only and why, or locked; and whether every copy takes a change. */
 interface Context {
@@ -43,7 +44,7 @@ export class Reader {
     const stage = this.stage();
     const made = host.madeBy(node);
     const part = this.partOf(node);
-    if (stage && !within(node, stage.root)) {
+    if (stage && !within(this.host, node, stage.root)) {
       return { ...(await this.plain(node, { locked: true })), note: `outside the prefab <${stage.name}> — ← Scene to edit the scene` };
     }
     if (part && part !== stage?.root) {
@@ -95,7 +96,7 @@ export class Reader {
   private async attached(node: Object3D, ctx: Context): Promise<Tag[]> {
     const tags: Tag[] = [];
     for (const value of Object.values(node)) {
-      if (!value || typeof value !== 'object' || Array.isArray(value) || (value as Object3D).isObject3D) continue;
+      if (!value || typeof value !== 'object' || Array.isArray(value) || this.host.isNode(value)) continue;
       const source = this.host.sourceOf(value);
       if (source) tags.push(await this.tagOf(value, source, this.host.givenOf(value), ctx, { fixed: false }));
     }
@@ -187,9 +188,11 @@ export class Reader {
     text: string | null = texts.get(name) ?? null,
   ): Attr {
     const field = this.files.typesOf(address)?.fields[name];
-    const kind = kindOf(live, name, field);
+    // The renderer's own value — a vector, a colour — as plain data and the kind it is.
+    const own = plainOf(this.host, live, name);
+    const kind = (field && fits(own.value, field.kind) ? field.kind : undefined) ?? own.kind ?? kindOf(own.value, name, field);
     const written = texts.has(name);
-    const value = kind ? shown(live, kind) : live;
+    const value = kind ? shown(own.value, kind) : own.value;
     const writes = !ctx.liveOnly && !ctx.locked && address ? address : undefined;
     const from = written && writes && kind && name in given ? asShown(given[name], kind, name, value, field) : undefined;
     const moved = from !== undefined && JSON.stringify(from) !== JSON.stringify(value);
@@ -262,7 +265,7 @@ export class Reader {
    * is the scene's, as an object added to a Unity prefab instance: not part of the prefab.
    */
   private partOf(node: Object3D): Object3D | null {
-    for (let below = node, up = node.parent; up; below = up, up = up.parent) {
+    for (let below = node, up = this.host.parentOf(node); up; below = up, up = this.host.parentOf(up)) {
       const made = this.host.madeBy(up);
       if (made?.prefab && !made.added.nodes.includes(below)) return up;
     }
@@ -275,12 +278,12 @@ export class Reader {
    * in, which prefab mode already guards.
    */
   private sharedBy(node: Object3D): { name: string; count: number } | null {
-    for (let up = node.parent; up; up = up.parent) {
+    for (let up = this.host.parentOf(node); up; up = this.host.parentOf(up)) {
       const made = this.host.madeBy(up);
       if (made?.prefab || up === this.stage()?.root) return null;
       if (!made) continue;
       let count = 0;
-      this.host.scene.traverse((n) => void (this.host.madeBy(n)?.fn === made.fn && count++));
+      walk(this.host, this.host.scene, (n) => void (this.host.madeBy(n)?.fn === made.fn && count++));
       if (count > 1) return { name: made.name || this.tagName(up), count };
     }
     return null;
@@ -301,13 +304,13 @@ export class Reader {
     const made = this.host.madeBy(node);
     if (!made) return node.constructor.name;
     // A spawned copy has no tag to read: its prefab's name is.
-    if (this.host.spawned(node) && made.prefab && !this.host.spawned(node.parent ?? node)) {
+    if (this.host.spawned(node) && made.prefab && !this.host.spawned(this.host.parentOf(node) ?? node)) {
       // Not `prefabName`: it falls back here while the prefab's file is still being read.
       const own = this.host.own(node)?.source;
-      return (own && this.files.ownerAt(own)) || made.name || node.name || node.type;
+      return (own && this.files.ownerAt(own)) || made.name || this.host.nameOf(node) || this.host.kindOf(node);
     }
     const source = this.host.sourceOf(node);
-    return (source && this.files.tagAt(source)) || made.name || node.name || node.type;
+    return (source && this.files.tagAt(source)) || made.name || this.host.nameOf(node) || this.host.kindOf(node);
   }
 }
 
@@ -317,7 +320,3 @@ function withItems(attrs: Attr[], element: ElementJson | undefined): Attr[] {
   return attrs.map((attr) => (!attr.arg && items.has(attr.name) ? { ...attr, items: items.get(attr.name) } : attr));
 }
 
-function within(node: Object3D, root: Object3D): boolean {
-  for (let n: Object3D | null = node; n; n = n.parent) if (n === root) return true;
-  return false;
-}

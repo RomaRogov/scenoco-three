@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D, Vector3 } from 'three';
-import { kindOf, listItem } from '../../packages/editor/src/model/values.js';
+import { threePort } from '../../packages/core/src/port.js';
+import { kindOf, listItem, plainOf } from '../../packages/editor/src/model/values.js';
+
+/** The host's half the values need: three.js's values described, as the editor's host describes them. */
+const host = { describe: (value: unknown, name: string) => (typeof value === 'object' && value ? threePort.describe?.(value, name) : undefined) };
 
 describe('editor: lists', () => {
   it('edits a list an item a line when every item is one kind it edits, and shows the rest as written', () => {
     // A spline's knots, as arrays or as three's vectors.
     expect(kindOf([[0, 0.15, -3.5], [0.6, -0.6, -9]], 'knots')).toBe('list');
-    expect(listItem([new Vector3(1, 2, 3), new Vector3()])).toBe('vector');
+    expect(listItem(plainOf(host, [new Vector3(1, 2, 3), new Vector3()], 'knots').value)).toBe('vector');
     // Numbers, names, a palette, flags.
     expect(listItem([1, 2, 3, 5, 8])).toBe('number');
     expect(listItem(['meadow', 'canyon'])).toBe('string');

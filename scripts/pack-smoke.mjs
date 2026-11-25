@@ -64,6 +64,13 @@ try {
     packed.set(manifest.name, join(tarballs, info.filename));
     console.log(`  ${manifest.name}@${manifest.version}  ${info.files.length} files`);
   }
+  // Before the kernel version core pins is published, its tarball stands in for the registry:
+  // SCENOCO_KERNEL_TARBALL=…/scenoco-kernel-1.7.0.tgz npm run smoke:pack
+  const kernelTarball = process.env.SCENOCO_KERNEL_TARBALL ? resolve(process.env.SCENOCO_KERNEL_TARBALL) : null;
+  if (kernelTarball) {
+    packed.set('@scenoco/kernel', kernelTarball);
+    console.log(`  @scenoco/kernel from ${kernelTarball}, not the registry`);
+  }
   const tarball = (name) => packed.get(name) ?? fail(`${name} was not packed`);
   /**
    * Every `@scenoco-three` dependency points at its tarball, and so — through `overrides` — does
@@ -159,7 +166,7 @@ try {
     if (found.length > 1) fail(`${name} is installed ${found.length} times: ${found.map((f) => f.path).join(', ')}`);
     // The kernel is published from its own repository: from the registry, at the version core pins.
     const fromTarball = found[0].resolved.startsWith('file:');
-    if (name === '@scenoco/kernel' ? fromTarball : !fromTarball) fail(`${name} came from ${found[0].resolved}`);
+    if (name === '@scenoco/kernel' ? fromTarball !== !!kernelTarball : !fromTarball) fail(`${name} came from ${found[0].resolved}`);
     if (name === '@scenoco/kernel' && found[0].version !== kernelVersion) fail(`@scenoco/kernel ${found[0].version} installed; core depends on ${kernelVersion}`);
     console.log(`  ${name}  once, ${found[0].resolved.replace(/^.*\//, '')}`);
   }
